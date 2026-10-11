@@ -11,8 +11,12 @@ import {
   Ref,
   Schema,
 } from "effect";
-import type { VerifiedAgentCard } from "./agent-card.js";
 import type { AgentSigningAuthority } from "./agent-key.js";
+import type { RegistryLookupResult } from "./registry/contract.js";
+import {
+  type VerifiedAgentCard,
+  verifiedAgentCardSchema,
+} from "./agent-card.js";
 import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
 import {
   AuthenticationFailedError,
@@ -28,10 +32,6 @@ import {
 } from "./http-signature.js";
 import { AgentId, type AgentId as AgentIdValue } from "./identifiers.js";
 import { Registry } from "./registry.js";
-import {
-  lookupResultSchema,
-  type RegistryLookupResult,
-} from "./registry/contract.js";
 import { MOLTZAP_VERSION } from "./version.js";
 
 /** Request body and caller identity established by AuthenticatedHttp. */
@@ -369,26 +369,32 @@ function lookupCard(
     .pipe(Effect.flatMap(resolveLookupAttempt));
 }
 
+const isVerifiedAgentCard = Schema.is(verifiedAgentCardSchema);
+
 /**
- * Any layer can provide the `Registry`, so its result is validated under a try
- * before the card is cached or read. A result that fails, including one whose
- * card this package did not verify or that throws on read, is a Registry
- * failure and reports `UnavailableError`, as the Registry client's own errors
- * do.
+ * Any layer can provide the `Registry`, so a `found` result's card is read once
+ * under a try and must be one this package verified. A result or card that
+ * throws on read, or a card this package did not verify, fails authentication
+ * as an invalid card, and any other result as a missing identity.
  */
 function resolveLookupAttempt(
   attempted: Option.Option<RegistryLookupResult>,
-): Effect.Effect<VerifiedAgentCard, CardResolutionError> {
+): Effect.Effect<
+  VerifiedAgentCard,
+  OverloadedError | AuthenticationFailedError
+> {
   if (Option.isNone(attempted)) {
     return Effect.fail(new OverloadedError());
   }
+  const result = attempted.value;
   return Effect.try({
-    try: () => Schema.validateSync(lookupResultSchema)(attempted.value),
-    catch: () => new UnavailableError(),
+    try: () =>
+      result.kind === "found" ? Option.some(result.agentCard) : Option.none(),
+    catch: () => new AuthenticationFailedError(),
   }).pipe(
-    Effect.flatMap((result) =>
-      result.kind === "found"
-        ? Effect.succeed(result.agentCard)
+    Effect.flatMap((agentCard) =>
+      Option.isSome(agentCard) && isVerifiedAgentCard(agentCard.value)
+        ? Effect.succeed(agentCard.value)
         : Effect.fail(new AuthenticationFailedError()),
     ),
   );

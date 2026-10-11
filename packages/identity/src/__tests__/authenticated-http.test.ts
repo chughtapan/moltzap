@@ -817,9 +817,9 @@ it("returns version mismatch to a peer still on the prior MoltZap version", () =
   ));
 
 /**
- * A Registry result whose card is not one this package verified is a Registry
- * failure, whether the card throws on read or is a readable copy, which
- * passes the signature check because it carries the signer's key.
+ * A card from the Registry that this package did not verify is an invalid
+ * card, whether it throws on read or is a readable copy, which would pass the
+ * signature check because it carries the signer's key.
  */
 it.each([
   {
@@ -835,7 +835,7 @@ it.each([
     card: "a copy of an AgentCard this package did not verify",
     replace: (agentCard: VerifiedAgentCard) => Object.freeze({ ...agentCard }),
   },
-])("reports the Registry unavailable when it returns $card", ({ replace }) =>
+])("fails authentication when the Registry returns $card", ({ replace }) =>
   Effect.runPromise(
     Effect.gen(function* () {
       const fixture = yield* makeIdentityFixture;
@@ -854,7 +854,7 @@ it.each([
         ),
       );
 
-      expect(refusal).toStrictEqual(new UnavailableError());
+      expect(refusal).toStrictEqual(new AuthenticationFailedError());
     }),
   ),
 );
