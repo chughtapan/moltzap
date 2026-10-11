@@ -263,9 +263,10 @@ const publicKeyOperationFailure = (): Ed25519PublicKeyOperationError =>
   new Ed25519PublicKeyOperationError();
 
 /**
- * Most keys that each per-key cache below keeps. A conversation names at most
- * 128 members, so the bound holds the keys of eight full conversations, and
- * each entry is one short string or one imported public `CryptoKey`.
+ * Most keys that each per-key cache below keeps: eight times
+ * `signed-message.ts → MAXIMUM_RECIPIENTS`, so the keys of eight full
+ * conversations stay cached. Each entry is one short string or one imported
+ * public `CryptoKey`.
  */
 const PUBLIC_KEY_CACHE_ENTRIES = 1_024;
 
@@ -277,7 +278,8 @@ const PUBLIC_KEY_CACHE_ENTRIES = 1_024;
  * share an entry only when they are the same key. Keying by value keeps a hit
  * for every AgentCard decode, each of which makes a new key object. The entry
  * and its derivation share one read of `x`, so an entry holds its own key's
- * value even for an object whose members change between reads. A failed
+ * value even for an object whose members change between reads. A key whose
+ * `x` cannot be read fails with `Ed25519PublicKeyOperationError`. A failed
  * derivation is not kept, and the caches hold key material, never a
  * verification outcome.
  */
@@ -288,20 +290,21 @@ const cachedPerPublicKey = <A>(
     jwk: PublicKeyValue,
   ) => Effect.Effect<A, Ed25519PublicKeyOperationError>,
 ): Effect.Effect<A, Ed25519PublicKeyOperationError> =>
-  Effect.suspend(() => {
-    const jwk: PublicKeyValue = Object.freeze({
-      crv: "Ed25519",
-      kty: "OKP",
-      x: publicKey.x,
-    });
-    return Option.match(entries.get(jwk.x), {
-      onNone: () =>
-        Effect.tap(derive(jwk), (derived) => {
-          entries.set(jwk.x, derived);
-        }),
-      onSome: (cached) => Effect.succeed(cached),
-    });
-  });
+  Effect.try({
+    try: (): PublicKeyValue =>
+      Object.freeze({ crv: "Ed25519", kty: "OKP", x: publicKey.x }),
+    catch: publicKeyOperationFailure,
+  }).pipe(
+    Effect.flatMap((jwk) =>
+      Option.match(entries.get(jwk.x), {
+        onNone: () =>
+          Effect.tap(derive(jwk), (derived) => {
+            entries.set(jwk.x, derived);
+          }),
+        onSome: (cached) => Effect.succeed(cached),
+      }),
+    ),
+  );
 
 const thumbprintUris = makeBoundedCache<string, string>(
   PUBLIC_KEY_CACHE_ENTRIES,

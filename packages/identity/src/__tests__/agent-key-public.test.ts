@@ -1,6 +1,7 @@
 /** @file Canonical Ed25519 public-key, thumbprint, and signature representation tests. */
 
 import { it as effectIt } from "@effect/vitest";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import { Effect, Either, Schema } from "effect";
 import * as fc from "fast-check";
 import { calculateJwkThumbprintUri, exportJWK } from "jose";
@@ -111,20 +112,18 @@ const encodeSucceeds = (value: unknown): boolean =>
   });
 
 /**
- * A distinct accepted key for each index below 65,536: the index fills the
- * first two bytes, and the 0x11 fill keeps the encoding canonical and away
- * from every small-order point.
+ * A distinct real key for each non-negative index: `index + 1` times the
+ * Ed25519 base point, a point of prime order. Every derivation accepts it,
+ * including the X25519 map that rejects encodings off the curve.
  */
-const indexedPublicKey = (index: number) => {
-  const bytes = new Uint8Array(32).fill(0x11);
-  bytes[0] = index % 256;
-  bytes[1] = Math.floor(index / 256);
-  return Schema.decodeUnknownSync(Ed25519PublicKey)({
+const indexedPublicKey = (index: number) =>
+  Schema.decodeUnknownSync(Ed25519PublicKey)({
     crv: "Ed25519",
     kty: "OKP",
-    x: Buffer.from(bytes).toString("base64url"),
+    x: Buffer.from(
+      ed25519.Point.BASE.multiply(BigInt(index + 1)).toBytes(),
+    ).toString("base64url"),
   });
-};
 
 describe("Ed25519PublicKey thumbprints", () => {
   it.effect("derives each key's own thumbprint after another key's", () =>
