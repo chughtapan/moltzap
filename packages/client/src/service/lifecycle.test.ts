@@ -2,18 +2,20 @@
 
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { it } from "@effect/vitest";
+import { scopedLive as it } from "@effect/vitest";
 import { SUBSCRIPTION_ID_META_KEY } from "@modelcontextprotocol/server";
 import { AgentCard } from "@moltzap/identity";
 import {
   Cause,
   Data,
   Deferred,
+  Duration,
   Effect,
   Exit,
   Fiber,
   Option,
   Ref,
+  Schedule,
   Schema,
 } from "effect";
 import { join } from "node:path";
@@ -58,8 +60,6 @@ import {
 import { InboundItem } from "../transport/collectives/inbound.js";
 import { RouterWorkerTransportError } from "../transport/router/index.js";
 import { DaemonRuntimeError } from "./lifecycle.js";
-
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- The focused tests drive the official Promise-native MCP stream boundary. */
 
 /**
  * Covers a test's stages plus one `daemon-runtime-harness.ts →
@@ -106,96 +106,81 @@ const readHistoryExport = (path: string) =>
  * delivery, so an inbox read writes the item to the configured file. The
  * engine has no pending delivery, so the read's item is the only record.
  */
-const opensConfiguredHistoryExport = async () => {
-  const path = join(stateDirectory(), "history.ndjson");
-  const fixture = withHistoryExport(await Effect.runPromise(makeFixture), path);
-  const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
-  harness.delivery.acknowledged = true;
-  const store = makeStore(fixture, true);
-  const fiber = Effect.runFork(run(fixture, store, harness));
-  try {
-    await awaitStage(
+const opensConfiguredHistoryExport = () =>
+  Effect.gen(function* () {
+    const path = join(stateDirectory(), "history.ndjson");
+    const fixture = withHistoryExport(yield* makeFixture, path);
+    const harness = yield* makeHarness(fixture, "none", true);
+    harness.delivery.acknowledged = true;
+    const store = makeStore(fixture, true);
+    yield* Effect.forkScoped(run(fixture, store, harness));
+    yield* awaitStage(
       Deferred.await(harness.engineEntered),
       "engine acquisition",
     );
-    await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
-    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+    yield* Deferred.succeed(harness.engineRelease, undefined);
+    yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
     const item = Schema.decodeUnknownSync(InboundItem)({
       kind: "operationFailed",
       id: digest("col_", 8),
       to: "agent:bob",
       error: "retained failure",
     });
-    await Effect.runPromise(
-      store.putInboxItem({
-        deliveryToken: Schema.decodeUnknownSync(DeliveryToken)(
-          digest("dlv_", 8),
-        ),
-        canonicalItem: await Effect.runPromise(encodeRuntimeValue(item)),
-      }),
-    );
-    await Effect.runPromise(requireEventStore(harness).readInbox({ limit: 1 }));
+    yield* store.putInboxItem({
+      deliveryToken: Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", 8)),
+      canonicalItem: yield* encodeRuntimeValue(item),
+    });
+    yield* requireEventStore(harness).readInbox({ limit: 1 });
 
-    expect(await Effect.runPromise(readHistoryExport(path))).toEqual([
+    expect(yield* readHistoryExport(path)).toEqual([
       expect.objectContaining({ kind: "inbound", item }),
     ]);
-  } finally {
-    await Effect.runPromise(Fiber.interrupt(fiber));
-  }
-};
+  });
 
 /**
  * Without a configured path the daemon opens no history export. The check
  * runs once the listener is up, after every startup step that could open one.
  */
-const opensNoHistoryExportByDefault = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
-  const store = makeStore(fixture, true);
-  const fiber = Effect.runFork(run(fixture, store, harness));
-  try {
-    await awaitStage(
+const opensNoHistoryExportByDefault = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const harness = yield* makeHarness(fixture, "none", true);
+    const store = makeStore(fixture, true);
+    yield* Effect.forkScoped(run(fixture, store, harness));
+    yield* awaitStage(
       Deferred.await(harness.engineEntered),
       "engine acquisition",
     );
-    await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
-    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+    yield* Deferred.succeed(harness.engineRelease, undefined);
+    yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
     expect(harness.getHistoryExportPath()).toBeUndefined();
-  } finally {
-    await Effect.runPromise(Fiber.interrupt(fiber));
-  }
-};
+  });
 
-const blocksStartupAndSupervisesWorker = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const harness = await Effect.runPromise(makeHarness(fixture, "worker", true));
-  const store = makeStore(fixture, true);
-  const fiber = Effect.runFork(run(fixture, store, harness));
-  try {
-    await awaitStage(
+const blocksStartupAndSupervisesWorker = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const harness = yield* makeHarness(fixture, "worker", true);
+    const store = makeStore(fixture, true);
+    const fiber = yield* Effect.forkScoped(run(fixture, store, harness));
+    yield* awaitStage(
       Deferred.await(harness.engineEntered),
       "engine acquisition",
     );
     expect(
-      Option.isNone(
-        await Effect.runPromise(Deferred.poll(harness.listenerReady)),
-      ),
+      Option.isNone(yield* Deferred.poll(harness.listenerReady)),
       "listener stays closed while the engine is blocked",
     ).toBe(true);
 
-    await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
-    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+    yield* Deferred.succeed(harness.engineRelease, undefined);
+    yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
 
-    await Effect.runPromise(Deferred.succeed(harness.failure, undefined));
-    const failure = await awaitStage(
+    yield* Deferred.succeed(harness.failure, undefined);
+    const failure = yield* awaitStage(
       Effect.flip(Fiber.join(fiber)),
       "Router worker supervision",
     );
     expect(failure).toEqual(EXPECTED_LISTENER_FAILURE);
-  } finally {
-    await Effect.runPromise(Fiber.interrupt(fiber));
-  }
-};
+  });
 
 /** A response to no open request, which the collective layer refuses. */
 const unmatchedResponse = Schema.decodeUnknownSync(SendInput)({
@@ -209,32 +194,36 @@ const unmatchedResponse = Schema.decodeUnknownSync(SendInput)({
  * held inside its pending read while a refused send routes its failure
  * inbound; the send returns and its item is readable once the pass ends.
  */
-const emitsWhileAPassHoldsTheDeliveryGate = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const harness = await Effect.runPromise(makeHarness(fixture, "none"));
-  const fiber = Effect.runFork(
-    run(fixture, makeStore(fixture, true, harness.delivery), harness),
-  );
-  try {
-    await awaitStage(Deferred.await(harness.listenerReady), "listener");
-    const readBarrier: ReadBarrier = {
-      entered: await Effect.runPromise(Deferred.make<undefined>()),
-      release: await Effect.runPromise(Deferred.make<undefined>()),
-    };
-    harness.delivery.readBarrier = readBarrier;
-    const reader = responseReader(
-      await requireHandler(harness).fetch(makeListenRequest("listener-1")),
+const emitsWhileAPassHoldsTheDeliveryGate = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const harness = yield* makeHarness(fixture, "none");
+    yield* Effect.forkScoped(
+      run(fixture, makeStore(fixture, true, harness.delivery), harness),
     );
-    await awaitFrame(reader, "subscription acknowledgment");
-    await awaitStage(Deferred.await(readBarrier.entered), "held pass");
+    yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
+    const readBarrier: ReadBarrier = {
+      entered: yield* Deferred.make<undefined>(),
+      release: yield* Deferred.make<undefined>(),
+    };
+    yield* Effect.sync(() => {
+      harness.delivery.readBarrier = readBarrier;
+    });
+    const reader = responseReader(
+      yield* Effect.tryPromise(() =>
+        requireHandler(harness).fetch(makeListenRequest("listener-1")),
+      ),
+    );
+    yield* awaitFrame(reader, "subscription acknowledgment");
+    yield* awaitStage(Deferred.await(readBarrier.entered), "held pass");
 
     const operations = requireOperations(harness);
-    const sent = await awaitStage(
+    const sent = yield* awaitStage(
       operations.send({ input: unmatchedResponse, failureDelivery: "inbound" }),
       "send while the pass holds the delivery gate",
     );
-    await Effect.runPromise(Deferred.succeed(readBarrier.release, undefined));
-    const inbox = await awaitStage(operations.readInbox({}), "inbox read");
+    yield* Deferred.succeed(readBarrier.release, undefined);
+    const inbox = yield* awaitStage(operations.readInbox({}), "inbox read");
 
     expect(inbox.items.map(({ item }) => item)).toContainEqual(
       expect.objectContaining({
@@ -242,11 +231,8 @@ const emitsWhileAPassHoldsTheDeliveryGate = async () => {
         id: sent.operationId,
       }),
     );
-    await reader.cancel();
-  } finally {
-    await Effect.runPromise(Fiber.interrupt(fiber));
-  }
-};
+    yield* Effect.tryPromise(() => reader.cancel());
+  });
 
 /**
  * An emitted item the store cannot persist fails the daemon in storage, and
@@ -254,37 +240,40 @@ const emitsWhileAPassHoldsTheDeliveryGate = async () => {
  * or reporting the storage fault as the send's outcome. The store rejects
  * only items other than the fixture's startup delivery.
  */
-const failsWhenAnEmittedItemCannotPersist = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const harness = await Effect.runPromise(makeHarness(fixture, "none"));
-  const store = makeStore(fixture, true, harness.delivery);
-  const rejectingEmissions: EndpointStore = {
-    ...store,
-    putInboxItem: (item) =>
-      item.deliveryToken === fixture.pending.deliveryToken
-        ? store.putInboxItem(item)
-        : Effect.fail(new EndpointStoreError({ reason: "persistence" })),
-  };
-  const daemon = Effect.runFork(run(fixture, rejectingEmissions, harness));
-  await awaitStage(Deferred.await(harness.listenerReady), "listener");
-  const sent = await awaitStage(
-    Effect.exit(
-      requireOperations(harness).send({
-        input: unmatchedResponse,
-        failureDelivery: "inbound",
-      }),
-    ),
-    "send whose refusal cannot be kept",
-  );
-  const error = await awaitStage(
-    Fiber.join(daemon).pipe(Effect.flip),
-    "daemon failure after the rejected emission",
-  );
-  expect(sent).toMatchObject(
-    Exit.fail({ _tag: "CollectiveError", failure: { kind: "request-none" } }),
-  );
-  expect(error).toEqual(new DaemonRuntimeError({ phase: "storage" }));
-};
+const failsWhenAnEmittedItemCannotPersist = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const harness = yield* makeHarness(fixture, "none");
+    const store = makeStore(fixture, true, harness.delivery);
+    const rejectingEmissions: EndpointStore = {
+      ...store,
+      putInboxItem: (item) =>
+        item.deliveryToken === fixture.pending.deliveryToken
+          ? store.putInboxItem(item)
+          : Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+    };
+    const daemon = yield* Effect.fork(
+      run(fixture, rejectingEmissions, harness),
+    );
+    yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
+    const sent = yield* awaitStage(
+      Effect.exit(
+        requireOperations(harness).send({
+          input: unmatchedResponse,
+          failureDelivery: "inbound",
+        }),
+      ),
+      "send whose refusal cannot be kept",
+    );
+    const error = yield* awaitStage(
+      Fiber.join(daemon).pipe(Effect.flip),
+      "daemon failure after the rejected emission",
+    );
+    expect(sent).toMatchObject(
+      Exit.fail({ _tag: "CollectiveError", failure: { kind: "request-none" } }),
+    );
+    expect(error).toEqual(new DaemonRuntimeError({ phase: "storage" }));
+  });
 
 /**
  * The harness whose listener, on release, interrupts the receipt fiber the
@@ -319,7 +308,7 @@ const withReceiptFinalizer = (
  * to its caller, so only the delivery-gate wait inside the receipt can stop it.
  */
 const forkWaitingReceipt = (store: EventStore, token: DeliveryToken) =>
-  Effect.runFork(
+  Effect.fork(
     store
       .completeWebhookDelivery(token, new Uint8Array([1]))
       .pipe(Effect.uninterruptible),
@@ -332,169 +321,165 @@ const forkWaitingReceipt = (store: EventStore, token: DeliveryToken) =>
  * the failing store. `yieldNow` lets the forked receipt reach its gate wait
  * before the persistence failure is released.
  */
-const closesWhileReceiptWaitsOnFailedPersistence = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const original = await Effect.runPromise(makeHarness(fixture, "none"));
-  original.delivery.acknowledged = true;
-  const entered = await Effect.runPromise(Deferred.make<undefined>());
-  const fail = await Effect.runPromise(Deferred.make<undefined>());
-  const receipt = await Effect.runPromise(
-    Deferred.make<Fiber.RuntimeFiber<void, EndpointStoreError>>(),
-  );
-  const harness = withReceiptFinalizer(original, receipt);
-  let commits = 0;
-  const store: EndpointStore = {
-    ...makeStore(fixture, true),
-    putInboxItem: () =>
-      Deferred.succeed(entered, undefined).pipe(
-        Effect.zipRight(Deferred.await(fail)),
-        Effect.zipRight(
-          Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+const closesWhileReceiptWaitsOnFailedPersistence = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const original = yield* makeHarness(fixture, "none");
+    original.delivery.acknowledged = true;
+    const entered = yield* Deferred.make<undefined>();
+    const fail = yield* Deferred.make<undefined>();
+    const receipt =
+      yield* Deferred.make<Fiber.RuntimeFiber<void, EndpointStoreError>>();
+    const harness = withReceiptFinalizer(original, receipt);
+    let commits = 0;
+    const store: EndpointStore = {
+      ...makeStore(fixture, true),
+      putInboxItem: () =>
+        Deferred.succeed(entered, undefined).pipe(
+          Effect.zipRight(Deferred.await(fail)),
+          Effect.zipRight(
+            Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+          ),
         ),
+      completeWebhookDelivery: () =>
+        Effect.sync(() => {
+          commits += 1;
+        }),
+    };
+    const daemon = yield* Effect.fork(run(fixture, store, harness));
+    yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
+    const eventStore = requireEventStore(harness);
+    original.delivery.acknowledged = false;
+    const reader = responseReader(
+      yield* Effect.tryPromise(() =>
+        requireHandler(harness).fetch(makeListenRequest("fatal-receipt")),
       ),
-    completeWebhookDelivery: () =>
-      Effect.sync(() => {
-        commits += 1;
-      }),
-  };
-  const daemon = Effect.runFork(run(fixture, store, harness));
-  await awaitStage(Deferred.await(harness.listenerReady), "listener");
-  const eventStore = requireEventStore(harness);
-  original.delivery.acknowledged = false;
-  const reader = responseReader(
-    await requireHandler(harness).fetch(makeListenRequest("fatal-receipt")),
-  );
-  await awaitStage(Deferred.await(entered), "failing inbox persistence");
-  const waiting = forkWaitingReceipt(eventStore, fixture.pending.deliveryToken);
-  await Effect.runPromise(Deferred.succeed(receipt, waiting));
-  await Effect.runPromise(Effect.yieldNow());
-  await Effect.runPromise(Deferred.succeed(fail, undefined));
-  expect(
-    await awaitStage(Fiber.join(daemon).pipe(Effect.flip), "fatal shutdown"),
-  ).toEqual(new DaemonRuntimeError({ phase: "storage" }));
-  expect(commits).toBe(0);
-  await reader.cancel();
-};
+    );
+    yield* awaitStage(Deferred.await(entered), "failing inbox persistence");
+    const waiting = yield* forkWaitingReceipt(
+      eventStore,
+      fixture.pending.deliveryToken,
+    );
+    yield* Deferred.succeed(receipt, waiting);
+    yield* Effect.yieldNow();
+    yield* Deferred.succeed(fail, undefined);
+    expect(
+      yield* awaitStage(Fiber.join(daemon).pipe(Effect.flip), "fatal shutdown"),
+    ).toEqual(new DaemonRuntimeError({ phase: "storage" }));
+    expect(commits).toBe(0);
+    yield* Effect.tryPromise(() => reader.cancel());
+  });
 
-const blocksRegistrationAndSupervisesOutbound = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const harness = await Effect.runPromise(
-    makeHarness(fixture, "outbound", true),
-  );
-  const fiber = Effect.runFork(
-    run(fixture, makeStore(fixture, false), harness),
-  );
-  try {
-    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+const blocksRegistrationAndSupervisesOutbound = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const harness = yield* makeHarness(fixture, "outbound", true);
+    const fiber = yield* Effect.forkScoped(
+      run(fixture, makeStore(fixture, false), harness),
+    );
+    yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
     const operations = requireOperations(harness);
-    const registration = Effect.runFork(
+    const registration = yield* Effect.fork(
       operations.register(fixture.registerRequest),
     );
-    await awaitStage(
+    yield* awaitStage(
       Deferred.await(harness.engineEntered),
       "engine acquisition",
     );
     expect(
-      Option.isNone(await Effect.runPromise(Fiber.poll(registration))),
+      Option.isNone(yield* Fiber.poll(registration)),
       "registration still running while the engine is blocked",
     ).toBe(true);
     expect(
-      await Effect.runPromise(operations.readStatus()),
+      yield* operations.readStatus(),
       "status while the engine is blocked",
     ).toMatchObject({ kind: "active" });
 
-    await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
-    const registrationResult = await awaitStage(
+    yield* Deferred.succeed(harness.engineRelease, undefined);
+    const registrationResult = yield* awaitStage(
       Fiber.join(registration),
       "registration",
     );
-    const encodedLocalCard = await Effect.runPromise(
-      Schema.encode(AgentCard)(fixture.localCard),
-    );
+    const encodedLocalCard = yield* Schema.encode(AgentCard)(fixture.localCard);
     expect(registrationResult).toEqual({
       kind: "registered",
       agentCard: encodedLocalCard,
     });
 
-    await Effect.runPromise(Deferred.succeed(harness.failure, undefined));
-    const failure = await awaitStage(
+    yield* Deferred.succeed(harness.failure, undefined);
+    const failure = yield* awaitStage(
       Effect.flip(Fiber.join(fiber)),
       "engine outbound supervision",
     );
     expect(failure).toEqual(EXPECTED_LISTENER_FAILURE);
-  } finally {
-    await Effect.runPromise(Fiber.interrupt(fiber));
-  }
-};
+  });
 
 /**
  * Registration runs the first delivery pass uninterruptibly. When that pass
  * cannot read pending deliveries, registration must still settle and the
  * daemon fail in storage, rather than the request waiting forever.
  */
-const settlesRegistrationWhenThePassFails = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const harness = await Effect.runPromise(makeHarness(fixture, "none"));
-  harness.delivery.failReads = true;
-  const fiber = Effect.runFork(
-    run(fixture, makeStore(fixture, false), harness),
-  );
-  try {
-    await awaitStage(Deferred.await(harness.listenerReady), "listener");
-    const registration = await awaitStage(
+const settlesRegistrationWhenThePassFails = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const harness = yield* makeHarness(fixture, "none");
+    harness.delivery.failReads = true;
+    const fiber = yield* Effect.forkScoped(
+      run(fixture, makeStore(fixture, false), harness),
+    );
+    yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
+    const registration = yield* awaitStage(
       Effect.exit(requireOperations(harness).register(fixture.registerRequest)),
       "registration settling after the failed pass",
     );
     expect(registration).toEqual(Exit.fail({ reason: "persistence-failed" }));
     expect(
-      await awaitStage(Effect.flip(Fiber.join(fiber)), "daemon failure"),
+      yield* awaitStage(Effect.flip(Fiber.join(fiber)), "daemon failure"),
     ).toEqual(new DaemonRuntimeError({ phase: "storage" }));
-  } finally {
-    await Effect.runPromise(Fiber.interrupt(fiber));
-  }
-};
+  });
 
 /**
  * Restart over `store` and expect the daemon to start active with
  * `agentCard`, which pins that the binding a registration committed is
  * durable.
  */
-const expectActiveAfterRestart = async (
+const expectActiveAfterRestart = (
   fixture: Fixture,
   store: EndpointStore,
   agentCard: typeof AgentCard.Encoded,
-) => {
-  const harness = await Effect.runPromise(makeHarness(fixture, "none"));
-  const daemon = Effect.runFork(run(fixture, store, harness));
-  try {
-    await awaitStage(Deferred.await(harness.listenerReady), "restart");
+) =>
+  Effect.gen(function* () {
+    const harness = yield* makeHarness(fixture, "none");
+    yield* Effect.forkScoped(run(fixture, store, harness));
+    yield* awaitStage(Deferred.await(harness.listenerReady), "restart");
     expect(
-      await Effect.runPromise(requireOperations(harness).readStatus()),
+      yield* requireOperations(harness).readStatus(),
       "status after restart",
     ).toEqual({ kind: "active", agentCard });
-  } finally {
-    await Effect.runPromise(Fiber.interrupt(daemon));
-  }
-};
+  });
 
 /**
  * Start a registration, interrupt it once engine activation has begun, then
  * release activation and wait for the interrupt to settle. `yieldNow` lets
  * the interrupt reach the registration before activation is released.
  */
-const interruptRegistrationDuringActivation = async (
+const interruptRegistrationDuringActivation = (
   fixture: Fixture,
   harness: RuntimeHarness,
-) => {
-  const registration = Effect.runFork(
-    requireOperations(harness).register(fixture.registerRequest),
-  );
-  await awaitStage(Deferred.await(harness.engineEntered), "engine acquisition");
-  const interruption = Effect.runFork(Fiber.interrupt(registration));
-  await Effect.runPromise(Effect.yieldNow());
-  await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
-  await awaitStage(Fiber.join(interruption), "interrupted registration");
-};
+) =>
+  Effect.gen(function* () {
+    const registration = yield* Effect.fork(
+      requireOperations(harness).register(fixture.registerRequest),
+    );
+    yield* awaitStage(
+      Deferred.await(harness.engineEntered),
+      "engine acquisition",
+    );
+    const interruption = yield* Effect.fork(Fiber.interrupt(registration));
+    yield* Effect.yieldNow();
+    yield* Deferred.succeed(harness.engineRelease, undefined);
+    yield* awaitStage(Fiber.join(interruption), "interrupted registration");
+  });
 
 /**
  * Cancelling an MCP request aborts its signal, which interrupts the tool's
@@ -506,58 +491,55 @@ const interruptRegistrationDuringActivation = async (
  * interrupt that arrives while activation is blocked still lets it finish,
  * deliver, and restart registered.
  */
-const finishesRegistrationWhenInterrupted = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
-  const store = makeStore(fixture, false);
-  const agentCard = await Effect.runPromise(
-    Schema.encode(AgentCard)(fixture.localCard),
-  );
-  const daemon = Effect.runFork(run(fixture, store, harness));
-  try {
-    await awaitStage(Deferred.await(harness.listenerReady), "listener");
-    await interruptRegistrationDuringActivation(fixture, harness);
-    const operations = requireOperations(harness);
+const finishesRegistrationWhenInterrupted = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const harness = yield* makeHarness(fixture, "none", true);
+    const store = makeStore(fixture, false);
+    const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
+    const daemon = yield* Effect.fork(run(fixture, store, harness));
+    yield* Effect.gen(function* () {
+      yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
+      yield* interruptRegistrationDuringActivation(fixture, harness);
+      const operations = requireOperations(harness);
 
-    expect(
-      await Effect.runPromise(operations.readStatus()),
-      "status after the interrupted registration",
-    ).toEqual({ kind: "active", agentCard });
-    expect(
-      await Effect.runPromise(
-        Effect.exit(
+      expect(
+        yield* operations.readStatus(),
+        "status after the interrupted registration",
+      ).toEqual({ kind: "active", agentCard });
+      expect(
+        yield* Effect.exit(
           operations.readInbox({}).pipe(Effect.map((page) => page.items)),
         ),
+        "inbox once the interrupted activation finishes",
+      ).toEqual(
+        Exit.succeed([
+          {
+            deliveryToken: fixture.pending.deliveryToken,
+            item: { kind: "multicast", message: fixture.pending.message },
+          },
+        ]),
+      );
+      expect(
+        yield* awaitStage(
+          operations.register(fixture.registerRequest),
+          "registration retried after the interrupt",
+        ),
+      ).toEqual({ kind: "registered", agentCard });
+    }).pipe(Effect.ensuring(Fiber.interrupt(daemon)));
+    yield* expectActiveAfterRestart(fixture, store, agentCard);
+  });
+
+const receivesFirstDelivery = (handler: HarnessMcpEventHandler) =>
+  Effect.gen(function* () {
+    const reader = responseReader(
+      yield* Effect.tryPromise(() =>
+        handler.fetch(makeListenRequest("listener-1")),
       ),
-      "inbox once the interrupted activation finishes",
-    ).toEqual(
-      Exit.succeed([
-        {
-          deliveryToken: fixture.pending.deliveryToken,
-          item: { kind: "multicast", message: fixture.pending.message },
-        },
-      ]),
     );
     expect(
-      await awaitStage(
-        operations.register(fixture.registerRequest),
-        "registration retried after the interrupt",
-      ),
-    ).toEqual({ kind: "registered", agentCard });
-  } finally {
-    await Effect.runPromise(Fiber.interrupt(daemon));
-  }
-  await expectActiveAfterRestart(fixture, store, agentCard);
-};
-
-const receivesFirstDelivery = async (
-  handler: HarnessMcpEventHandler,
-): Promise<undefined> => {
-  const reader = responseReader(
-    await handler.fetch(makeListenRequest("listener-1")),
-  );
-  expect(await awaitFrame(reader, "first subscription acknowledgment")).toEqual(
-    {
+      yield* awaitFrame(reader, "first subscription acknowledgment"),
+    ).toEqual({
       jsonrpc: "2.0",
       method: SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION,
       params: {
@@ -565,89 +547,112 @@ const receivesFirstDelivery = async (
         truncated: false,
         _meta: { [SUBSCRIPTION_ID_META_KEY]: "listener-1" },
       },
-    },
-  );
-  expect(await awaitFrame(reader, "first message delivery")).toMatchObject({
-    jsonrpc: "2.0",
-    method: "notifications/events/event",
-    params: {
-      name: INBOX_PENDING_EVENT,
-      data: { pendingCount: 1 },
-      cursor: null,
-      _meta: { [SUBSCRIPTION_ID_META_KEY]: "listener-1" },
-    },
+    });
+    expect(yield* awaitFrame(reader, "first message delivery")).toMatchObject({
+      jsonrpc: "2.0",
+      method: "notifications/events/event",
+      params: {
+        name: INBOX_PENDING_EVENT,
+        data: { pendingCount: 1 },
+        cursor: null,
+        _meta: { [SUBSCRIPTION_ID_META_KEY]: "listener-1" },
+      },
+    });
+    return reader;
   });
-  await reader.cancel();
-  return undefined;
-};
 
-const acknowledgeDuringReplacementDelivery = async (
+/**
+ * Wait until the harness engine has served more pending reads than `count`.
+ * The daemon runs a delivery pass when a subscriber detaches, and that pass
+ * reads pending deliveries once, so this waits for the detach to settle.
+ * @param harness The daemon's harness.
+ * @param count Pending reads served before the detach.
+ * @returns Completion once one more read has been served.
+ */
+const servedMoreReadsThan = (harness: RuntimeHarness, count: number) =>
+  Effect.sync(() => harness.delivery.events.length).pipe(
+    Effect.repeat({
+      until: (served) => served > count,
+      schedule: Schedule.spaced(Duration.millis(1)),
+    }),
+  );
+
+const acknowledgeDuringReplacementDelivery = (
   harness: RuntimeHarness,
   handler: HarnessMcpEventHandler,
   pending: EnginePendingMessage,
-): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
-  const readBarrier: ReadBarrier = {
-    entered: await Effect.runPromise(Deferred.make<undefined>()),
-    release: await Effect.runPromise(Deferred.make<undefined>()),
-  };
-  harness.delivery.readBarrier = readBarrier;
-  const reader = responseReader(
-    await handler.fetch(makeListenRequest("listener-2")),
-  );
-  await awaitFrame(reader, "replacement subscription acknowledgment");
-  await awaitStage(
-    Deferred.await(readBarrier.entered),
-    "pending delivery read",
-  );
+) =>
+  Effect.gen(function* () {
+    const readBarrier: ReadBarrier = {
+      entered: yield* Deferred.make<undefined>(),
+      release: yield* Deferred.make<undefined>(),
+    };
+    harness.delivery.readBarrier = readBarrier;
+    const reader = responseReader(
+      yield* Effect.tryPromise(() =>
+        handler.fetch(makeListenRequest("listener-2")),
+      ),
+    );
+    yield* awaitFrame(reader, "replacement subscription acknowledgment");
+    yield* awaitStage(
+      Deferred.await(readBarrier.entered),
+      "pending delivery read",
+    );
 
-  const acknowledgment = Effect.runFork(
-    requireOperations(harness).acknowledgeDelivery(pending.deliveryToken),
-  );
-  await Effect.runPromise(Effect.yieldNow());
-  await Effect.runPromise(Deferred.succeed(readBarrier.release, undefined));
-  expect(
-    await awaitFrame(reader, "replacement message delivery"),
-  ).toMatchObject({
-    jsonrpc: "2.0",
-    method: "notifications/events/event",
-    params: {
-      name: INBOX_PENDING_EVENT,
-      data: { pendingCount: 1 },
-      cursor: null,
-      _meta: { [SUBSCRIPTION_ID_META_KEY]: "listener-2" },
-    },
+    const acknowledgment = yield* Effect.fork(
+      requireOperations(harness).acknowledgeDelivery(pending.deliveryToken),
+    );
+    yield* Effect.yieldNow();
+    yield* Deferred.succeed(readBarrier.release, undefined);
+    expect(
+      yield* awaitFrame(reader, "replacement message delivery"),
+    ).toMatchObject({
+      jsonrpc: "2.0",
+      method: "notifications/events/event",
+      params: {
+        name: INBOX_PENDING_EVENT,
+        data: { pendingCount: 1 },
+        cursor: null,
+        _meta: { [SUBSCRIPTION_ID_META_KEY]: "listener-2" },
+      },
+    });
+    yield* awaitStage(Fiber.join(acknowledgment), "delivery acknowledgment");
+    return reader;
   });
-  await awaitStage(Fiber.join(acknowledgment), "delivery acknowledgment");
-  return reader;
-};
 
-const replaysUntilAcknowledged = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const harness = await Effect.runPromise(makeHarness(fixture, "none"));
-  const fiber = Effect.runFork(
-    run(fixture, makeStore(fixture, true, harness.delivery), harness),
-  );
-  try {
-    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+const replaysUntilAcknowledged = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const harness = yield* makeHarness(fixture, "none");
+    yield* Effect.forkScoped(
+      run(fixture, makeStore(fixture, true, harness.delivery), harness),
+    );
+    yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
     const operations = requireOperations(harness);
     const pendingItem = {
       deliveryToken: fixture.pending.deliveryToken,
       item: { kind: "multicast", message: fixture.pending.message },
     };
     expect(
-      (await Effect.runPromise(operations.readInbox({}))).items,
+      (yield* operations.readInbox({})).items,
       "inbox before any subscriber attaches",
     ).toEqual([pendingItem]);
     expect(harness.delivery.acknowledgedTokens).toEqual([]);
     const handler = requireHandler(harness);
 
-    await receivesFirstDelivery(handler);
+    const firstReader = yield* receivesFirstDelivery(handler);
+    const servedBeforeDetach = harness.delivery.events.length;
+    yield* Effect.tryPromise(() => firstReader.cancel());
+    yield* awaitStage(
+      servedMoreReadsThan(harness, servedBeforeDetach),
+      "first subscriber's detach pass",
+    );
     expect(
-      (await Effect.runPromise(operations.readInbox({}))).items,
+      (yield* operations.readInbox({})).items,
       "inbox after the first subscriber's delivery",
     ).toEqual([pendingItem]);
     harness.delivery.events.length = 0;
-    const secondReader = await acknowledgeDuringReplacementDelivery(
+    const secondReader = yield* acknowledgeDuringReplacementDelivery(
       harness,
       handler,
       fixture.pending,
@@ -656,11 +661,8 @@ const replaysUntilAcknowledged = async () => {
       fixture.pending.deliveryToken,
     ]);
     expect(harness.delivery.events).toEqual(["delivery-ready", "acknowledged"]);
-    await secondReader.cancel();
-  } finally {
-    await Effect.runPromise(Fiber.interrupt(fiber));
-  }
-};
+    yield* Effect.tryPromise(() => secondReader.cancel());
+  });
 
 /** The names a `tools/list` response carries. */
 const listedToolNames = Schema.decodeUnknown(
@@ -725,29 +727,37 @@ const readInboxThroughMcp = (handler: HarnessMcpEventHandler) =>
  * @param firstPass Holds the activation's first delivery pass.
  * @returns The cancelled request's response, once the pass is released.
  */
-const cancelRegisterDuringActivation = async (
+const cancelRegisterDuringActivation = (
   fixture: Fixture,
   harness: RuntimeHarness,
   firstPass: ReadBarrier,
-) => {
-  const cancel = new AbortController();
-  const registering = requireHandler(harness).fetch(
-    makeToolCallRequest({
-      id: "register",
-      name: "register",
-      toolArguments: fixture.registerRequest,
-      signal: cancel.signal,
-    }),
-  );
-  await awaitStage(Deferred.await(harness.engineEntered), "engine acquisition");
-  cancel.abort();
-  const cancelled = await registering;
-  await Effect.runPromise(Effect.yieldNow());
-  await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
-  await awaitStage(Deferred.await(firstPass.entered), "first delivery pass");
-  await Effect.runPromise(Deferred.succeed(firstPass.release, undefined));
-  return cancelled;
-};
+) =>
+  Effect.gen(function* () {
+    const cancel = new AbortController();
+    const registering = yield* Effect.fork(
+      Effect.tryPromise(() =>
+        requireHandler(harness).fetch(
+          makeToolCallRequest({
+            id: "register",
+            name: "register",
+            toolArguments: fixture.registerRequest,
+            signal: cancel.signal,
+          }),
+        ),
+      ),
+    );
+    yield* awaitStage(
+      Deferred.await(harness.engineEntered),
+      "engine acquisition",
+    );
+    cancel.abort();
+    const cancelled = yield* Fiber.join(registering);
+    yield* Effect.yieldNow();
+    yield* Deferred.succeed(harness.engineRelease, undefined);
+    yield* awaitStage(Deferred.await(firstPass.entered), "first delivery pass");
+    yield* Deferred.succeed(firstPass.release, undefined);
+    return cancelled;
+  });
 
 /**
  * Cancelling a register request through MCP once activation has begun
@@ -757,26 +767,24 @@ const cancelRegisterDuringActivation = async (
  * the catalog keeps its own flag that only a returned `registered` result
  * sets, which a cancelled call never returns.
  */
-const listsToolsAfterACancelledRegister = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
-  const firstPass: ReadBarrier = {
-    entered: await Effect.runPromise(Deferred.make<undefined>()),
-    release: await Effect.runPromise(Deferred.make<undefined>()),
-  };
-  harness.delivery.readBarrier = firstPass;
-  const daemon = Effect.runFork(
-    run(fixture, makeStore(fixture, false), harness),
-  );
-  try {
-    await awaitStage(Deferred.await(harness.listenerReady), "listener");
-    const cancelled = await cancelRegisterDuringActivation(
+const listsToolsAfterACancelledRegister = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const harness = yield* makeHarness(fixture, "none", true);
+    const firstPass: ReadBarrier = {
+      entered: yield* Deferred.make<undefined>(),
+      release: yield* Deferred.make<undefined>(),
+    };
+    harness.delivery.readBarrier = firstPass;
+    yield* Effect.forkScoped(run(fixture, makeStore(fixture, false), harness));
+    yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
+    const cancelled = yield* cancelRegisterDuringActivation(
       fixture,
       harness,
       firstPass,
     );
 
-    const tools = await Effect.runPromise(listTools(requireHandler(harness)));
+    const tools = yield* listTools(requireHandler(harness));
 
     expect(cancelled.ok, "the cancelled register returned a result").toBe(
       false,
@@ -793,13 +801,10 @@ const listsToolsAfterACancelledRegister = async () => {
       "status",
     ]);
     expect(
-      await Effect.runPromise(readInboxThroughMcp(requireHandler(harness))),
+      yield* readInboxThroughMcp(requireHandler(harness)),
       "inbox read through MCP",
     ).toEqual([fixture.pending.deliveryToken]);
-  } finally {
-    await Effect.runPromise(Fiber.interrupt(daemon));
-  }
-};
+  });
 
 /**
  * Between the binding commit and the protocol coming up, status already
@@ -807,25 +812,23 @@ const listsToolsAfterACancelledRegister = async () => {
  * `status`: the post-registration tools need the protocol. Fails when the
  * catalog follows the registration state instead of the protocol.
  */
-const holdsTheCatalogWhileTheProtocolActivates = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
-  const daemon = Effect.runFork(
-    run(fixture, makeStore(fixture, false), harness),
-  );
-  try {
-    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+const holdsTheCatalogWhileTheProtocolActivates = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const harness = yield* makeHarness(fixture, "none", true);
+    yield* Effect.forkScoped(run(fixture, makeStore(fixture, false), harness));
+    yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
     const operations = requireOperations(harness);
-    const registering = Effect.runFork(
+    const registering = yield* Effect.fork(
       operations.register(fixture.registerRequest),
     );
-    await awaitStage(
+    yield* awaitStage(
       Deferred.await(harness.engineEntered),
       "engine acquisition",
     );
 
-    const status = await Effect.runPromise(operations.readStatus());
-    const tools = await Effect.runPromise(listTools(requireHandler(harness)));
+    const status = yield* operations.readStatus();
+    const tools = yield* listTools(requireHandler(harness));
 
     expect(status.kind, "status once the binding commits").toBe(
       "active" satisfies typeof status.kind,
@@ -834,12 +837,9 @@ const holdsTheCatalogWhileTheProtocolActivates = async () => {
       "register",
       "status",
     ]);
-    await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
-    await awaitStage(Fiber.join(registering), "registration");
-  } finally {
-    await Effect.runPromise(Fiber.interrupt(daemon));
-  }
-};
+    yield* Deferred.succeed(harness.engineRelease, undefined);
+    yield* awaitStage(Fiber.join(registering), "registration");
+  });
 
 /** The JSON-RPC error code that refuses a subscription before the protocol is up. */
 const NOT_REGISTERED_ERROR_CODE = -32012;
@@ -856,26 +856,26 @@ const TOOL_LIST_CHANGED_METHOD = "notifications/tools/list_changed";
  * catalog changes without the notice, so a host holding the
  * pre-registration list never learns of the new tools.
  */
-const announcesTheToolListChangeAtActivation = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const harness = await Effect.runPromise(makeHarness(fixture, "none"));
-  const daemon = Effect.runFork(
-    run(fixture, makeStore(fixture, false), harness),
-  );
-  try {
-    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+const announcesTheToolListChangeAtActivation = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const harness = yield* makeHarness(fixture, "none");
+    yield* Effect.forkScoped(run(fixture, makeStore(fixture, false), harness));
+    yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
     const reader = responseReader(
-      await requireHandler(harness).fetch(
-        makeToolListChangesRequest("tool-list-changes"),
+      yield* Effect.tryPromise(() =>
+        requireHandler(harness).fetch(
+          makeToolListChangesRequest("tool-list-changes"),
+        ),
       ),
     );
-    const acknowledged = await awaitFrame(reader, "listen acknowledgment");
+    const acknowledged = yield* awaitFrame(reader, "listen acknowledgment");
 
-    await awaitStage(
+    yield* awaitStage(
       requireOperations(harness).register(fixture.registerRequest),
       "registration",
     );
-    const changed = await awaitFrame(reader, "tool list change");
+    const changed = yield* awaitFrame(reader, "tool list change");
 
     expect(acknowledged, "listen acknowledgment").toMatchObject({
       method: LISTEN_ACKNOWLEDGED_METHOD,
@@ -884,11 +884,8 @@ const announcesTheToolListChangeAtActivation = async () => {
     expect(changed, "notice after activation").toMatchObject({
       method: TOOL_LIST_CHANGED_METHOD,
     });
-    await reader.cancel();
-  } finally {
-    await Effect.runPromise(Fiber.interrupt(daemon));
-  }
-};
+    yield* Effect.tryPromise(() => reader.cancel());
+  });
 
 /**
  * The inbox subscription needs the protocol: before registration it is
@@ -896,27 +893,28 @@ const announcesTheToolListChangeAtActivation = async () => {
  * the same handler acknowledges it. Fails when the gate is dropped, or reads
  * a protocol state captured when the handler was built.
  */
-const refusesTheInboxStreamUntilTheProtocolIsUp = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const harness = await Effect.runPromise(makeHarness(fixture, "none"));
-  const daemon = Effect.runFork(
-    run(fixture, makeStore(fixture, false), harness),
-  );
-  try {
-    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+const refusesTheInboxStreamUntilTheProtocolIsUp = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const harness = yield* makeHarness(fixture, "none");
+    yield* Effect.forkScoped(run(fixture, makeStore(fixture, false), harness));
+    yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
     const handler = requireHandler(harness);
 
-    const refused = await Effect.runPromise(
-      fetchJson(handler, makeListenRequest("before-registration")),
+    const refused = yield* fetchJson(
+      handler,
+      makeListenRequest("before-registration"),
     );
-    await awaitStage(
+    yield* awaitStage(
       requireOperations(harness).register(fixture.registerRequest),
       "registration",
     );
     const reader = responseReader(
-      await handler.fetch(makeListenRequest("after-registration")),
+      yield* Effect.tryPromise(() =>
+        handler.fetch(makeListenRequest("after-registration")),
+      ),
     );
-    const acknowledged = await awaitFrame(reader, "inbox acknowledgment");
+    const acknowledged = yield* awaitFrame(reader, "inbox acknowledgment");
 
     expect(refused, "subscription before registration").toMatchObject({
       error: { code: NOT_REGISTERED_ERROR_CODE },
@@ -924,11 +922,8 @@ const refusesTheInboxStreamUntilTheProtocolIsUp = async () => {
     expect(acknowledged, "subscription after registration").toMatchObject({
       method: SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION,
     });
-    await reader.cancel();
-  } finally {
-    await Effect.runPromise(Fiber.interrupt(daemon));
-  }
-};
+    yield* Effect.tryPromise(() => reader.cancel());
+  });
 
 /** A fault a daemon hits, and the phase the daemon stops in. */
 interface DaemonFault {
@@ -1006,34 +1001,29 @@ const activationFaults: readonly ActivationFault[] = [
  * a failure or defect leaves the daemon running, reporting active with no
  * protocol.
  */
-const stopsWhenActivationFails = async (row: ActivationFault) => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const harness = row.harness(
-    await Effect.runPromise(makeHarness(fixture, "none")),
-  );
-  const daemon = Effect.runFork(
-    run(fixture, row.store(makeStore(fixture, false)), harness),
-  );
-  try {
-    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+const stopsWhenActivationFails = (row: ActivationFault) =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const harness = row.harness(yield* makeHarness(fixture, "none"));
+    const daemon = yield* Effect.forkScoped(
+      run(fixture, row.store(makeStore(fixture, false)), harness),
+    );
+    yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
 
-    const registerFailure = await awaitStage(
+    const registerFailure = yield* awaitStage(
       requireOperations(harness)
         .register(fixture.registerRequest)
         .pipe(Effect.sandbox, Effect.flip, Effect.map(Cause.squash)),
       "registration failure",
     );
-    const stopped = await awaitStage(
+    const stopped = yield* awaitStage(
       Effect.flip(Fiber.join(daemon)),
       "daemon failure",
     );
 
     expect(registerFailure, "register failure").toEqual(row.registerFailure);
     expect(stopped.phase, "phase the daemon stopped in").toBe(row.phase);
-  } finally {
-    await Effect.runPromise(Fiber.interrupt(daemon));
-  }
-};
+  });
 
 /** A listener the operating system refused to open. */
 class ListenerUnavailableError extends Data.TaggedError(
@@ -1191,39 +1181,32 @@ const countingEngines = (
  * when activation builds a second engine and Router worker for an identity
  * whose protocol is already up.
  */
-const keepsOneProtocolAcrossARetriedRegister = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const engines = await Effect.runPromise(Ref.make(0));
-  const harness = countingEngines(
-    await Effect.runPromise(makeHarness(fixture, "none")),
-    engines,
-  );
-  const daemon = Effect.runFork(
-    run(fixture, makeStore(fixture, false), harness),
-  );
-  try {
-    await awaitStage(Deferred.await(harness.listenerReady), "listener");
-    const operations = requireOperations(harness);
-    const agentCard = await Effect.runPromise(
-      Schema.encode(AgentCard)(fixture.localCard),
+const keepsOneProtocolAcrossARetriedRegister = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const engines = yield* Ref.make(0);
+    const harness = countingEngines(
+      yield* makeHarness(fixture, "none"),
+      engines,
     );
+    yield* Effect.forkScoped(run(fixture, makeStore(fixture, false), harness));
+    yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
+    const operations = requireOperations(harness);
+    const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
 
-    const first = await awaitStage(
+    const first = yield* awaitStage(
       operations.register(fixture.registerRequest),
       "first registration",
     );
-    const retried = await awaitStage(
+    const retried = yield* awaitStage(
       operations.register(fixture.registerRequest),
       "retried registration",
     );
 
     expect(first).toEqual({ kind: "registered", agentCard });
     expect(retried).toEqual({ kind: "registered", agentCard });
-    expect(await Effect.runPromise(Ref.get(engines)), "engines built").toBe(1);
-  } finally {
-    await Effect.runPromise(Fiber.interrupt(daemon));
-  }
-};
+    expect(yield* Ref.get(engines), "engines built").toBe(1);
+  });
 
 describe("daemon runtime composition", () => {
   it(
@@ -1247,16 +1230,22 @@ describe("daemon runtime composition", () => {
     "opens no history export when none is configured",
     opensNoHistoryExportByDefault,
   );
-  it("waits for the active engine and supervises the Router worker", () =>
-    blocksStartupAndSupervisesWorker());
-  it("does not finish registration before engine activation", () =>
-    blocksRegistrationAndSupervisesOutbound());
+  it(
+    "waits for the active engine and supervises the Router worker",
+    blocksStartupAndSupervisesWorker,
+  );
+  it(
+    "does not finish registration before engine activation",
+    blocksRegistrationAndSupervisesOutbound,
+  );
   it(
     "finishes registration and activation when the register request is interrupted",
     finishesRegistrationWhenInterrupted,
   );
-  it("publishes durable deliveries before completing acknowledgment", () =>
-    replaysUntilAcknowledged());
+  it(
+    "publishes durable deliveries before completing acknowledgment",
+    replaysUntilAcknowledged,
+  );
 });
 
 describe("daemon activation", () => {
@@ -1280,7 +1269,7 @@ describe("daemon activation", () => {
     "stops the daemon when activation $fault",
     stopsWhenActivationFails,
   );
-  it.live.each(startupFaults)(
+  it.each(startupFaults)(
     "fails a registered startup in phase $phase when $fault",
     failsStartupWith,
   );
@@ -1289,5 +1278,3 @@ describe("daemon activation", () => {
     keepsOneProtocolAcrossARetriedRegister,
   );
 });
-
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type -- Restore repository defaults after the MCP lifecycle tests. */

@@ -616,22 +616,20 @@ const STAGE_HANG_BOUND = Duration.seconds(20);
 export const awaitStage = <Value, Failure>(
   effect: Effect.Effect<Value, Failure>,
   stage: string,
-): Promise<Value> =>
-  Effect.runPromise(
-    effect.pipe(
-      Effect.timeoutFail({
-        duration: STAGE_HANG_BOUND,
-        onTimeout: () => new Error(`timed out awaiting ${stage}`),
-      }),
-      Effect.withSpan(stage),
-    ),
+): Effect.Effect<Value, Failure | Error> =>
+  effect.pipe(
+    Effect.timeoutFail({
+      duration: STAGE_HANG_BOUND,
+      onTimeout: () => new Error(`timed out awaiting ${stage}`),
+    }),
+    Effect.withSpan(stage),
   );
 
 /** Await the next server-sent frame for one named stage. */
 export const awaitFrame = (
   reader: ReadableStreamDefaultReader<Uint8Array>,
   stage: string,
-): Promise<unknown> =>
+): Effect.Effect<unknown, Error> =>
   awaitStage(
     Effect.tryPromise({
       try: () => readFrame(reader),

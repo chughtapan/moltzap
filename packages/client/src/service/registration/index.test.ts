@@ -1,5 +1,6 @@
 /** @file Startup recovery and atomic Registry-to-store identity binding tests. */
 
+import { live as it } from "@effect/vitest";
 import {
   AgentCard,
   AgentSigningAuthority,
@@ -11,7 +12,7 @@ import {
   type RegistryRegisterResult,
 } from "@moltzap/identity/registry";
 import { type Context, Effect, Layer, Redacted, Ref, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import {
   type ManagementRegisterRequest,
   managementRegisterRequestSchema,
@@ -30,8 +31,6 @@ import {
   registerDaemonIdentity,
   requireAdmission,
 } from "./index.js";
-
-/* eslint-disable agent-code-guard/async-keyword -- Static signed fixtures and exact state/error outcomes pin the registration recovery contract. */
 
 const privateKey = `-----BEGIN PRIVATE KEY-----
 MC4CAQAwBQYDK2VwBCIEIHsbmQdBGQFs1eXLEWxKDblLeG//B9s8WmWEMQHvw4f8
@@ -171,21 +170,17 @@ const provideRegistry = <A, E>(
   fail = false,
 ) => Effect.provide(effect, registryLayer({ result, calls, fail }));
 
-const registersAndActivates = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const memory = await Effect.runPromise(makeMemoryStore);
-  const calls = await Effect.runPromise(
-    Ref.make<readonly ManagementRegisterRequest[]>([]),
-  );
-  const before = await Effect.runPromise(
-    readDaemonRegistrationState({
+const registersAndActivates = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const memory = yield* makeMemoryStore;
+    const calls = yield* Ref.make<readonly ManagementRegisterRequest[]>([]);
+    const before = yield* readDaemonRegistrationState({
       store: memory.store,
       bootstrap: fixture.bootstrap,
-    }),
-  );
-  expect(before).toEqual({ kind: "unregistered" });
-  const result = await Effect.runPromise(
-    provideRegistry(
+    });
+    expect(before).toEqual({ kind: "unregistered" });
+    const result = yield* provideRegistry(
       registerDaemonIdentity({
         request: fixture.request,
         store: memory.store,
@@ -193,28 +188,29 @@ const registersAndActivates = async () => {
       }),
       { kind: "registered", agentCard: fixture.agentCard },
       calls,
-    ),
-  );
-  expect(result).toEqual({ kind: "registered", agentCard: fixture.agentCard });
-  const after = await Effect.runPromise(
-    readDaemonRegistrationState({
+    );
+    expect(result).toEqual({
+      kind: "registered",
+      agentCard: fixture.agentCard,
+    });
+    const after = yield* readDaemonRegistrationState({
       store: memory.store,
       bootstrap: fixture.bootstrap,
-    }),
-  );
-  expect(after).toEqual({ kind: "active", agentCard: fixture.agentCard });
-};
+    });
+    expect(after).toEqual({ kind: "active", agentCard: fixture.agentCard });
+  });
 
-const retriesAfterLocalPersistenceFailure = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const memory = await Effect.runPromise(makeMemoryStore);
-  const calls = await Effect.runPromise(
-    Ref.make<readonly ManagementRegisterRequest[]>([]),
-  );
-  const result = { kind: "registered" as const, agentCard: fixture.agentCard };
-  await Effect.runPromise(Ref.set(memory.failWrites, true));
-  const firstFailure = await Effect.runPromise(
-    Effect.flip(
+const retriesAfterLocalPersistenceFailure = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const memory = yield* makeMemoryStore;
+    const calls = yield* Ref.make<readonly ManagementRegisterRequest[]>([]);
+    const result = {
+      kind: "registered" as const,
+      agentCard: fixture.agentCard,
+    };
+    yield* Ref.set(memory.failWrites, true);
+    const firstFailure = yield* Effect.flip(
       provideRegistry(
         registerDaemonIdentity({
           request: fixture.request,
@@ -224,14 +220,12 @@ const retriesAfterLocalPersistenceFailure = async () => {
         result,
         calls,
       ),
-    ),
-  );
-  expect(firstFailure).toBeInstanceOf(DaemonRegistrationPersistenceError);
-  expect(await Effect.runPromise(Ref.get(memory.binding))).toBeUndefined();
+    );
+    expect(firstFailure).toBeInstanceOf(DaemonRegistrationPersistenceError);
+    expect(yield* Ref.get(memory.binding)).toBeUndefined();
 
-  await Effect.runPromise(Ref.set(memory.failWrites, false));
-  const recovered = await Effect.runPromise(
-    provideRegistry(
+    yield* Ref.set(memory.failWrites, false);
+    const recovered = yield* provideRegistry(
       registerDaemonIdentity({
         request: fixture.request,
         store: memory.store,
@@ -239,23 +233,17 @@ const retriesAfterLocalPersistenceFailure = async () => {
       }),
       result,
       calls,
-    ),
-  );
-  expect(recovered).toEqual(result);
-  expect(await Effect.runPromise(Ref.get(calls))).toEqual([
-    fixture.request,
-    fixture.request,
-  ]);
-};
+    );
+    expect(recovered).toEqual(result);
+    expect(yield* Ref.get(calls)).toEqual([fixture.request, fixture.request]);
+  });
 
-const keepsRegistryRefusalsUncommitted = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const memory = await Effect.runPromise(makeMemoryStore);
-  const calls = await Effect.runPromise(
-    Ref.make<readonly ManagementRegisterRequest[]>([]),
-  );
-  const result = await Effect.runPromise(
-    provideRegistry(
+const keepsRegistryRefusalsUncommitted = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const memory = yield* makeMemoryStore;
+    const calls = yield* Ref.make<readonly ManagementRegisterRequest[]>([]);
+    const result = yield* provideRegistry(
       registerDaemonIdentity({
         request: fixture.request,
         store: memory.store,
@@ -263,20 +251,17 @@ const keepsRegistryRefusalsUncommitted = async () => {
       }),
       { kind: "name_taken" },
       calls,
-    ),
-  );
-  expect(result).toEqual({ kind: "name_taken" });
-  expect(await Effect.runPromise(Ref.get(memory.binding))).toBeUndefined();
-};
+    );
+    expect(result).toEqual({ kind: "name_taken" });
+    expect(yield* Ref.get(memory.binding)).toBeUndefined();
+  });
 
-const closesUpstreamAndRepresentationFailures = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const memory = await Effect.runPromise(makeMemoryStore);
-  const calls = await Effect.runPromise(
-    Ref.make<readonly ManagementRegisterRequest[]>([]),
-  );
-  const upstream = await Effect.runPromise(
-    Effect.flip(
+const closesUpstreamAndRepresentationFailures = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const memory = yield* makeMemoryStore;
+    const calls = yield* Ref.make<readonly ManagementRegisterRequest[]>([]);
+    const upstream = yield* Effect.flip(
       provideRegistry(
         registerDaemonIdentity({
           request: fixture.request,
@@ -287,15 +272,13 @@ const closesUpstreamAndRepresentationFailures = async () => {
         calls,
         true,
       ),
-    ),
-  );
-  expect(upstream).toBeInstanceOf(DaemonRegistrationUpstreamError);
+    );
+    expect(upstream).toBeInstanceOf(DaemonRegistrationUpstreamError);
 
-  const mismatchedRequest = Schema.decodeUnknownSync(
-    managementRegisterRequestSchema,
-  )({ ...fixture.request, agentName: "agent-two" });
-  const representation = await Effect.runPromise(
-    Effect.flip(
+    const mismatchedRequest = Schema.decodeUnknownSync(
+      managementRegisterRequestSchema,
+    )({ ...fixture.request, agentName: "agent-two" });
+    const representation = yield* Effect.flip(
       provideRegistry(
         registerDaemonIdentity({
           request: mismatchedRequest,
@@ -305,30 +288,28 @@ const closesUpstreamAndRepresentationFailures = async () => {
         { kind: "registered", agentCard: fixture.agentCard },
         calls,
       ),
-    ),
-  );
-  expect(representation).toBeInstanceOf(DaemonRegistrationRepresentationError);
-};
+    );
+    expect(representation).toBeInstanceOf(
+      DaemonRegistrationRepresentationError,
+    );
+  });
 
-const rejectsCorruptPreexistingBinding = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const memory = await Effect.runPromise(makeMemoryStore);
-  await Effect.runPromise(
-    Ref.set(memory.binding, {
+const rejectsCorruptPreexistingBinding = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const memory = yield* makeMemoryStore;
+    yield* Ref.set(memory.binding, {
       agentId: fixture.agentCard.agentId,
       canonicalAgentCard: new TextEncoder().encode("{}"),
-    }),
-  );
-  const error = await Effect.runPromise(
-    Effect.flip(
+    });
+    const error = yield* Effect.flip(
       readDaemonRegistrationState({
         store: memory.store,
         bootstrap: fixture.bootstrap,
       }),
-    ),
-  );
-  expect(error).toBeInstanceOf(DaemonRegistrationRepresentationError);
-};
+    );
+    expect(error).toBeInstanceOf(DaemonRegistrationRepresentationError);
+  });
 
 const missingAdmission = (reads: Ref.Ref<number>) =>
   Ref.update(reads, (count) => count + 1).pipe(
@@ -339,11 +320,11 @@ const missingAdmission = (reads: Ref.Ref<number>) =>
     ),
   );
 
-const unregisteredStartupFailsClosed = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const reads = await Effect.runPromise(Ref.make(0));
-  const error = await Effect.runPromise(
-    Effect.flip(
+const unregisteredStartupFailsClosed = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const reads = yield* Ref.make(0);
+    const error = yield* Effect.flip(
       requireAdmission(
         { kind: "unregistered" },
         {
@@ -351,102 +332,93 @@ const unregisteredStartupFailsClosed = async () => {
           admissionCredential: missingAdmission(reads),
         },
       ),
-    ),
-  );
-  expect(error).toEqual(
-    new DaemonConfigurationError({ reason: "admission-credential-file" }),
-  );
-  expect(await Effect.runPromise(Ref.get(reads))).toBe(1);
-};
+    );
+    expect(error).toEqual(
+      new DaemonConfigurationError({ reason: "admission-credential-file" }),
+    );
+    expect(yield* Ref.get(reads)).toBe(1);
+  });
 
-const unregisteredStartupLoadsCredential = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  await expect(
-    Effect.runPromise(
-      requireAdmission({ kind: "unregistered" }, fixture.bootstrap),
-    ),
-  ).resolves.toBeUndefined();
-};
+const unregisteredStartupLoadsCredential = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    expect(
+      yield* requireAdmission({ kind: "unregistered" }, fixture.bootstrap),
+    ).toBeUndefined();
+  });
 
-const registeredStartupSkipsCredential = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const reads = await Effect.runPromise(Ref.make(0));
-  await expect(
-    Effect.runPromise(
-      requireAdmission(
+const registeredStartupSkipsCredential = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const reads = yield* Ref.make(0);
+    expect(
+      yield* requireAdmission(
         { kind: "active", agentCard: fixture.agentCard },
         {
           ...fixture.bootstrap,
           admissionCredential: missingAdmission(reads),
         },
       ),
-    ),
-  ).resolves.toBeUndefined();
-  expect(await Effect.runPromise(Ref.get(reads))).toBe(0);
-};
+    ).toBeUndefined();
+    expect(yield* Ref.get(reads)).toBe(0);
+  });
 
-const startupSurfacesStoreFailure = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const store: DaemonRegistrationStore = {
-    readIdentity: () =>
-      Effect.fail(new EndpointStoreError({ reason: "persistence" })),
-    bindIdentity: () =>
-      Effect.fail(new EndpointStoreError({ reason: "persistence" })),
-  };
-  const error = await Effect.runPromise(
-    Effect.flip(
+const startupSurfacesStoreFailure = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const store: DaemonRegistrationStore = {
+      readIdentity: () =>
+        Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+      bindIdentity: () =>
+        Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+    };
+    const error = yield* Effect.flip(
       readDaemonRegistrationState({
         store,
         bootstrap: fixture.bootstrap,
       }),
-    ),
-  );
-  expect(error).toBeInstanceOf(DaemonRegistrationPersistenceError);
-};
+    );
+    expect(error).toBeInstanceOf(DaemonRegistrationPersistenceError);
+  });
 
-const presentsLoadedCredentialToRegistry = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const memory = await Effect.runPromise(makeMemoryStore);
-  const presented = await Effect.runPromise(Ref.make<readonly string[]>([]));
-  const service: Context.Tag.Service<typeof Registry> = {
-    register: (call) =>
-      Ref.update(presented, (credentials) => [
-        ...credentials,
-        Redacted.value(call.admissionCredential),
-      ]).pipe(
-        Effect.as({
-          kind: "registered" as const,
-          agentCard: fixture.agentCard,
-        }),
-      ),
-    lookup: () => Effect.succeed({ kind: "not_found" }),
-    list: () =>
-      Effect.succeed({ kind: "page", agentCards: [], hasMore: false }),
-  };
-  await Effect.runPromise(
-    Effect.provide(
+const presentsLoadedCredentialToRegistry = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const memory = yield* makeMemoryStore;
+    const presented = yield* Ref.make<readonly string[]>([]);
+    const service: Context.Tag.Service<typeof Registry> = {
+      register: (call) =>
+        Ref.update(presented, (credentials) => [
+          ...credentials,
+          Redacted.value(call.admissionCredential),
+        ]).pipe(
+          Effect.as({
+            kind: "registered" as const,
+            agentCard: fixture.agentCard,
+          }),
+        ),
+      lookup: () => Effect.succeed({ kind: "not_found" }),
+      list: () =>
+        Effect.succeed({ kind: "page", agentCards: [], hasMore: false }),
+    };
+    yield* Effect.provide(
       registerDaemonIdentity({
         request: fixture.request,
         store: memory.store,
         bootstrap: fixture.bootstrap,
       }),
       Layer.succeed(Registry, service),
-    ),
-  );
-  expect(await Effect.runPromise(Ref.get(presented))).toEqual([
-    "bootstrap-token=",
-  ]);
-};
+    );
+    expect(yield* Ref.get(presented)).toEqual(["bootstrap-token="]);
+  });
 
-const refusesRegistrationWithoutCredential = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const memory = await Effect.runPromise(makeMemoryStore);
-  const calls = await Effect.runPromise(
-    Ref.make<readonly ManagementRegisterRequest[]>([]),
-  );
-  const reads = await Effect.runPromise(Ref.make(0));
-  const error = await Effect.runPromise(
-    Effect.flip(
+const refusesRegistrationWithoutCredential = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const memory = yield* makeMemoryStore;
+    const calls = yield* Ref.make<readonly ManagementRegisterRequest[]>([]);
+    const reads = yield* Ref.make(0);
+    const error = yield* Effect.flip(
       provideRegistry(
         registerDaemonIdentity({
           request: fixture.request,
@@ -459,14 +431,13 @@ const refusesRegistrationWithoutCredential = async () => {
         { kind: "registered", agentCard: fixture.agentCard },
         calls,
       ),
-    ),
-  );
-  expect(error).toEqual(
-    new DaemonConfigurationError({ reason: "admission-credential-file" }),
-  );
-  expect(await Effect.runPromise(Ref.get(calls))).toEqual([]);
-  expect(await Effect.runPromise(Ref.get(memory.binding))).toBeUndefined();
-};
+    );
+    expect(error).toEqual(
+      new DaemonConfigurationError({ reason: "admission-credential-file" }),
+    );
+    expect(yield* Ref.get(calls)).toEqual([]);
+    expect(yield* Ref.get(memory.binding)).toBeUndefined();
+  });
 
 // @agent-code-guard/regression-only: these examples pin that only an unregistered daemon needs the admission credential.
 describe("daemon admission credential", () => {
@@ -519,5 +490,3 @@ describe("daemon registration", () => {
     startupSurfacesStoreFailure,
   );
 });
-
-/* eslint-enable agent-code-guard/async-keyword -- Restore repository defaults. */
