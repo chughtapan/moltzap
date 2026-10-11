@@ -111,11 +111,7 @@ const encodeSucceeds = (value: unknown): boolean =>
     onRight: () => true,
   });
 
-/**
- * A distinct real key for each non-negative index: `index + 1` times the
- * Ed25519 base point, a point of prime order. Every derivation accepts it,
- * including the X25519 map that rejects encodings off the curve.
- */
+/** A distinct on-curve, prime-order Ed25519 public key for each index. */
 const indexedPublicKey = (index: number) =>
   Schema.decodeUnknownSync(Ed25519PublicKey)({
     crv: "Ed25519",
@@ -128,8 +124,8 @@ const indexedPublicKey = (index: number) =>
 describe("Ed25519PublicKey thumbprints", () => {
   it.effect("derives each key's own thumbprint after another key's", () =>
     Effect.gen(function* () {
-      const first = indexedPublicKey(2_000);
-      const second = indexedPublicKey(2_001);
+      const first = indexedPublicKey(0);
+      const second = indexedPublicKey(1);
       const firstThumbprint = yield* ed25519PublicKeyThumbprintUri(first);
       const secondThumbprint = yield* ed25519PublicKeyThumbprintUri(second);
       const expected = yield* Effect.tryPromise({
@@ -162,8 +158,8 @@ describe("Ed25519PublicKey thumbprints", () => {
  */
 it.effect("stores each import under the key it was imported from", () =>
   Effect.gen(function* () {
-    const stored = indexedPublicKey(4_000);
-    const other = indexedPublicKey(4_001);
+    const stored = indexedPublicKey(2);
+    const other = indexedPublicKey(3);
     const reads = [stored.x, other.x];
     const shifting = Object.freeze({
       crv: "Ed25519" as const,
