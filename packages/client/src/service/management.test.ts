@@ -2,7 +2,7 @@
 
 import { FileSystem, HttpClient } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { live as it, effect as itOnTestClock } from "@effect/vitest";
+import { scopedLive as it, scoped as itOnTestClock } from "@effect/vitest";
 import {
   AgentCard,
   AgentSigningAuthority,
@@ -358,37 +358,35 @@ function withMembershipRowsNaming(
  * representation carries, in AgentId order.
  */
 const returnsCertificateSignersForAudit = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const { fixture, store, record } = yield* makeCertifiedHistory;
-      const [alice, bob] = fixture.cards;
-      const certified = record.actionCertifiedRecord;
-      const signatures = certified.actionCertificate.signatures;
-      const votes = record.durabilityCertificate.votes;
+  Effect.gen(function* () {
+    const { fixture, store, record } = yield* makeCertifiedHistory;
+    const [alice, bob] = fixture.cards;
+    const certified = record.actionCertifiedRecord;
+    const signatures = certified.actionCertificate.signatures;
+    const votes = record.durabilityCertificate.votes;
 
-      const page = yield* readBobHistory(fixture, store);
+    const page = yield* readBobHistory(fixture, store);
 
-      expect(
-        compareAgentIds(alice.agentId, bob.agentId),
-        "alice precedes bob in AgentId order",
-      ).toBeLessThan(0);
-      expect(page.records, "alice's history with bob").toEqual([
-        {
-          recordHash: certified.recordHash,
-          recordCore: certified.recordCore,
-          routerAnchor: certified.routerAnchor,
-          actionSignatures: [
-            signerEvidence(alice, signatures[0]),
-            signerEvidence(bob, signatures[1]),
-          ],
-          durabilityVotes: [
-            signerEvidence(alice, votes[0]),
-            signerEvidence(bob, votes[1]),
-          ],
-        },
-      ]);
-    }),
-  );
+    expect(
+      compareAgentIds(alice.agentId, bob.agentId),
+      "alice precedes bob in AgentId order",
+    ).toBeLessThan(0);
+    expect(page.records, "alice's history with bob").toEqual([
+      {
+        recordHash: certified.recordHash,
+        recordCore: certified.recordCore,
+        routerAnchor: certified.routerAnchor,
+        actionSignatures: [
+          signerEvidence(alice, signatures[0]),
+          signerEvidence(bob, signatures[1]),
+        ],
+        durabilityVotes: [
+          signerEvidence(alice, votes[0]),
+          signerEvidence(bob, votes[1]),
+        ],
+      },
+    ]);
+  });
 
 /**
  * A store whose membership row names a membership hash other than the one
@@ -396,25 +394,23 @@ const returnsCertificateSignersForAudit = () =>
  * persistence-failed, while the unaltered store reads the record.
  */
 const failsReadOverMembershipRowNamingAnotherHash = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const { fixture, store, record } = yield* makeCertifiedHistory;
-      const inconsistent = withMembershipRowsNaming(store, digest("mbr_", 9));
+  Effect.gen(function* () {
+    const { fixture, store, record } = yield* makeCertifiedHistory;
+    const inconsistent = withMembershipRowsNaming(store, digest("mbr_", 9));
 
-      const unaltered = yield* readBobRecordHashes(fixture, store);
-      const corrupt = yield* readBobRecordHashes(fixture, inconsistent);
+    const unaltered = yield* readBobRecordHashes(fixture, store);
+    const corrupt = yield* readBobRecordHashes(fixture, inconsistent);
 
-      expect(unaltered, "history read over the unaltered store").toEqual(
-        Exit.succeed([record.actionCertifiedRecord.recordHash]),
-      );
-      expect(
-        corrupt,
-        "history read over the inconsistent membership row",
-      ).toEqual(
-        Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
-      );
-    }),
-  );
+    expect(unaltered, "history read over the unaltered store").toEqual(
+      Exit.succeed([record.actionCertifiedRecord.recordHash]),
+    );
+    expect(
+      corrupt,
+      "history read over the inconsistent membership row",
+    ).toEqual(
+      Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
+    );
+  });
 
 /**
  * The owner tools read stored history with the row checks startup applies.
@@ -423,26 +419,24 @@ const failsReadOverMembershipRowNamingAnotherHash = () =>
  * unaltered store reads the record.
  */
 const failsReadOverMisattributedEvidence = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const { fixture, store, record } = yield* makeCertifiedHistory;
-      const misattributed = withMisattributedActionEvidence(
-        store,
-        fixture.cards[0].agentId,
-        fixture.cards[1].agentId,
-      );
+  Effect.gen(function* () {
+    const { fixture, store, record } = yield* makeCertifiedHistory;
+    const misattributed = withMisattributedActionEvidence(
+      store,
+      fixture.cards[0].agentId,
+      fixture.cards[1].agentId,
+    );
 
-      const unaltered = yield* readBobRecordHashes(fixture, store);
-      const corrupt = yield* readBobRecordHashes(fixture, misattributed);
+    const unaltered = yield* readBobRecordHashes(fixture, store);
+    const corrupt = yield* readBobRecordHashes(fixture, misattributed);
 
-      expect(unaltered, "history read over the unaltered store").toEqual(
-        Exit.succeed([record.actionCertifiedRecord.recordHash]),
-      );
-      expect(corrupt, "history read over the misattributed evidence").toEqual(
-        Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
-      );
-    }),
-  );
+    expect(unaltered, "history read over the unaltered store").toEqual(
+      Exit.succeed([record.actionCertifiedRecord.recordHash]),
+    );
+    expect(corrupt, "history read over the misattributed evidence").toEqual(
+      Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
+    );
+  });
 
 /**
  * A store whose genesis anchor row claims to select a record, which only a
@@ -450,23 +444,21 @@ const failsReadOverMisattributedEvidence = () =>
  * persistence-failed, while the unaltered store reads the record.
  */
 const failsReadOverGenesisAnchorSelectingRecord = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const { fixture, store, record } = yield* makeCertifiedHistory;
-      const recordHash = record.actionCertifiedRecord.recordHash;
-      const inconsistent = withGenesisAnchorSelecting(store, recordHash);
+  Effect.gen(function* () {
+    const { fixture, store, record } = yield* makeCertifiedHistory;
+    const recordHash = record.actionCertifiedRecord.recordHash;
+    const inconsistent = withGenesisAnchorSelecting(store, recordHash);
 
-      const unaltered = yield* readBobRecordHashes(fixture, store);
-      const corrupt = yield* readBobRecordHashes(fixture, inconsistent);
+    const unaltered = yield* readBobRecordHashes(fixture, store);
+    const corrupt = yield* readBobRecordHashes(fixture, inconsistent);
 
-      expect(unaltered, "history read over the unaltered store").toEqual(
-        Exit.succeed([recordHash]),
-      );
-      expect(corrupt, "history read over the inconsistent anchor row").toEqual(
-        Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
-      );
-    }),
-  );
+    expect(unaltered, "history read over the unaltered store").toEqual(
+      Exit.succeed([recordHash]),
+    );
+    expect(corrupt, "history read over the inconsistent anchor row").toEqual(
+      Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
+    );
+  });
 
 // @agent-code-guard/regression-only: these cases pin the addressed owner-management contract.
 describe("addressed daemon management", () => {

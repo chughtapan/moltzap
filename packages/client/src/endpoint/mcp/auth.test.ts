@@ -1,31 +1,29 @@
 /** @file Runtime credentials cannot expose collective protocol history or owner tools. */
 
-import { HttpClient, HttpClientResponse } from "@effect/platform";
-import { live as it } from "@effect/vitest";
+import { scopedLive as it } from "@effect/vitest";
 import {
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
   PROTOCOL_VERSION_META_KEY,
 } from "@modelcontextprotocol/server";
 import { AgentCard } from "@moltzap/identity";
-import { Effect, Match, Redacted, Schema } from "effect";
+import { Effect, Redacted, Schema } from "effect";
 import { describe, expect } from "vitest";
 import type { EventStore } from "../../delivery/operations.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { makeFixture } from "../../__tests__/router-worker-fixtures.js";
 import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
 import {
-  DeliveryToken,
-  encodeRuntimeValue,
-  openEndpointStore,
-} from "../../store/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
-import { HARNESS_SEND_META_KEY, INBOX_ITEM_EVENT } from "./names.js";
+  enqueue,
+  input,
+  scriptedWebhook,
+} from "../../__tests__/webhook-fixtures.js";
+import { openEndpointStore } from "../../store/index.js";
+import { HARNESS_SEND_META_KEY } from "./names.js";
 import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
 } from "./tools.js";
-import { makeWebhookEvents } from "./webhook.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- HTTP and JSON-RPC codes are external conformance expectations. */
 
@@ -234,7 +232,7 @@ const verify = <A, E>(
   given: ReturnType<typeof credentialedHandler>,
   when: (handler: Handler) => Effect.Effect<A, E>,
   then: (result: A) => void,
-) => Effect.scoped(given.pipe(Effect.flatMap(when), Effect.map(then)));
+) => given.pipe(Effect.flatMap(when), Effect.map(then));
 
 const callTool = (
   handler: Handler,
@@ -480,68 +478,17 @@ const admittedCalls = [
   },
 ];
 
-const webhookSecret = `whsec_${Buffer.alloc(32, 1).toString("base64")}`;
-const verificationRequest = Schema.parseJson(
-  Schema.Struct({
-    type: Schema.Literal("verification"),
-    challenge: Schema.String,
-  }),
-);
-
-/**
- * A webhook callback that echoes each verification challenge and answers
- * every event delivery 410 Gone, which stalls the subscription terminally.
- */
-const goneCallback = HttpClient.make((request) =>
-  Schema.decodeUnknown(verificationRequest)(
-    Match.value(request.body).pipe(
-      Match.tag("Uint8Array", ({ body }) => new TextDecoder().decode(body)),
-      Match.orElse(() => ""),
-    ),
-  ).pipe(
-    Effect.match({
-      onSuccess: ({ challenge }) =>
-        new Response(JSON.stringify({ challenge }), { status: 200 }),
-      onFailure: () => new Response("gone", { status: 410 }),
-    }),
-    Effect.map((response) => HttpClientResponse.fromWeb(request, response)),
-  ),
-);
-
 /**
  * A store holding a runtime webhook subscription whose callback rejected an
- * inbox item terminally, which only an owner revoke clears.
+ * inbox item terminally with 410 Gone, which only an owner revoke clears.
  */
 const terminallyStalledWebhookStore = Effect.gen(function* () {
   const store = yield* openEndpointStore(stateDirectory());
-  const webhook = yield* makeWebhookEvents(
-    store,
-    yield* Effect.makeSemaphore(1),
-  ).pipe(Effect.provideService(HttpClient.HttpClient, goneCallback));
-  yield* webhook.subscribe(
-    {
-      name: INBOX_ITEM_EVENT,
-      arguments: {},
-      cursor: null,
-      delivery: {
-        mode: "webhook",
-        url: "https://callback.example/events",
-        secret: webhookSecret,
-      },
-    },
-    "runtime",
-  );
-  yield* store.putInboxItem({
-    deliveryToken: Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", 1)),
-    canonicalItem: yield* encodeRuntimeValue(
-      Schema.decodeUnknownSync(InboundItem)({
-        kind: "operationFailed",
-        id: digest("col_", 1),
-        to: "agent:bob",
-        error: "rejected by the callback",
-      }),
-    ),
-  });
+  const callback = scriptedWebhook(store);
+  const webhook = yield* callback.acquire;
+  yield* webhook.subscribe(input, "runtime");
+  yield* enqueue(store, 1, "rejected by the callback");
+  callback.status(410);
   yield* webhook.observe();
   return store;
 });
@@ -552,33 +499,31 @@ const terminallyStalledWebhookStore = Effect.gen(function* () {
  * before and after.
  */
 const ownerResumeIsRefusedThenRevokeRetiresAStalledWebhook = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const store = yield* terminallyStalledWebhookStore;
-      const handler = yield* acquireHandler(true, {
-        credentials,
-        eventStore: store,
-      });
-      const ownerCall = (name: string) =>
-        callTool(handler, { name, arguments: {} }, credentials.owner);
+  Effect.gen(function* () {
+    const store = yield* terminallyStalledWebhookStore;
+    const handler = yield* acquireHandler(true, {
+      credentials,
+      eventStore: store,
+    });
+    const ownerCall = (name: string) =>
+      callTool(handler, { name, arguments: {} }, credentials.owner);
 
-      const stalled = yield* ownerCall("event_subscription_status");
-      const resumed = yield* ownerCall("resume_event_subscription");
-      const revoked = yield* ownerCall("revoke_event_subscription");
-      const retired = yield* ownerCall("event_subscription_status");
+    const stalled = yield* ownerCall("event_subscription_status");
+    const resumed = yield* ownerCall("resume_event_subscription");
+    const revoked = yield* ownerCall("revoke_event_subscription");
+    const retired = yield* ownerCall("event_subscription_status");
 
-      expect(stalled).toMatchObject({
-        result: {
-          structuredContent: { mode: "webhook", stalled: "terminal" },
-        },
-      });
-      expect(resumed).toMatchObject({ error: { code: -32014 } });
-      expect(revoked).toHaveProperty("result.structuredContent", {});
-      expect(retired).toHaveProperty("result.structuredContent", {
-        mode: "none",
-      });
-    }),
-  );
+    expect(stalled).toMatchObject({
+      result: {
+        structuredContent: { mode: "webhook", stalled: "terminal" },
+      },
+    });
+    expect(resumed).toMatchObject({ error: { code: -32014 } });
+    expect(revoked).toHaveProperty("result.structuredContent", {});
+    expect(retired).toHaveProperty("result.structuredContent", {
+      mode: "none",
+    });
+  });
 
 // @agent-code-guard/regression-only: each admitted tool must reach the operation its name documents.
 describe("calls a caller's catalog lists", () => {

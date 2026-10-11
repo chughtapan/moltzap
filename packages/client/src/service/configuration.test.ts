@@ -1,12 +1,13 @@
 /** @file Exact process-input and secret-file tests for daemon bootstrap. */
 
+import { live as it } from "@effect/vitest";
 import { AgentSigningAuthority } from "@moltzap/identity";
 import { ConfigProvider, Effect, Redacted } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests create and remove exact temporary secret-file fixtures around the configuration boundary.
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect } from "vitest";
 import type {
   DaemonConfigurationError,
   DaemonProcessConfiguration,
@@ -16,7 +17,7 @@ import {
   loadDaemonProcessConfiguration,
 } from "./configuration.js";
 
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/no-hardcoded-assertion-literals -- Exact keys, spellings, redaction, and closed reasons are the configuration contract under test. */
+/* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Exact keys, spellings, redaction, and closed reasons are the configuration contract under test. */
 
 const privateKey = `-----BEGIN PRIVATE KEY-----
 MC4CAQAwBQYDK2VwBCIEIHsbmQdBGQFs1eXLEWxKDblLeG//B9s8WmWEMQHvw4f8
@@ -72,96 +73,97 @@ afterEach(() => {
   }
 });
 
-const loadsExactConfiguration = async () => {
-  const directory = temporaryDirectory();
-  const configuration = await Effect.runPromise(loadConfiguration(directory));
-  expect(configuration).toMatchObject({
-    stateDirectory: join(directory, "state"),
-    mcpPort: 4319,
+const loadsExactConfiguration = () =>
+  Effect.gen(function* () {
+    const directory = temporaryDirectory();
+    const configuration = yield* loadConfiguration(directory);
+    expect(configuration).toMatchObject({
+      stateDirectory: join(directory, "state"),
+      mcpPort: 4319,
+    });
+    expect(configuration.registryOrigin.href).toBe("https://registry.example/");
+    expect(configuration.routerOrigin.href).toBe("http://router.example:4320/");
+    expect(configuration.registrySignerPublicKey.x).toBe(
+      "y1j1FUgbqjCPeQVEnllv-2euwn_s9DeDkfEh3gk_OJ0",
+    );
+    expect(Redacted.isRedacted(configuration.agentPrivateKeyFile)).toBe(true);
+    expect(Redacted.isRedacted(configuration.admissionCredentialFile)).toBe(
+      true,
+    );
   });
-  expect(configuration.registryOrigin.href).toBe("https://registry.example/");
-  expect(configuration.routerOrigin.href).toBe("http://router.example:4320/");
-  expect(configuration.registrySignerPublicKey.x).toBe(
-    "y1j1FUgbqjCPeQVEnllv-2euwn_s9DeDkfEh3gk_OJ0",
-  );
-  expect(Redacted.isRedacted(configuration.agentPrivateKeyFile)).toBe(true);
-  expect(Redacted.isRedacted(configuration.admissionCredentialFile)).toBe(true);
-};
 
-const rejectsInvalidEnvironment = async () => {
-  const directory = temporaryDirectory();
-  const invalidOverrides = [
-    new Map([["MOLTZAPD_STATE_DIRECTORY", ""]]),
-    new Map([["MOLTZAPD_MCP_PORT", "0"]]),
-    new Map([["MOLTZAPD_MCP_PORT", "01"]]),
-    new Map([["MOLTZAPD_MCP_PORT", "65536"]]),
-    new Map([["MOLTZAPD_REGISTRY_ORIGIN", "https://registry.example/path"]]),
-    new Map([["MOLTZAPD_ROUTER_ORIGIN", "ftp://router.example"]]),
-    new Map([["MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY", `${registrySigner} `]]),
-    new Map([["MOLTZAPD_ADMISSION_CREDENTIAL_FILE", "/run/\u0000admission"]]),
-  ];
-  for (const overrides of invalidOverrides) {
-    expect(
-      await Effect.runPromise(
-        failureReason(loadConfiguration(directory, overrides)),
-      ),
-    ).toBe("environment");
-  }
-};
+const rejectsInvalidEnvironment = () =>
+  Effect.gen(function* () {
+    const directory = temporaryDirectory();
+    const invalidOverrides = [
+      new Map([["MOLTZAPD_STATE_DIRECTORY", ""]]),
+      new Map([["MOLTZAPD_MCP_PORT", "0"]]),
+      new Map([["MOLTZAPD_MCP_PORT", "01"]]),
+      new Map([["MOLTZAPD_MCP_PORT", "65536"]]),
+      new Map([["MOLTZAPD_REGISTRY_ORIGIN", "https://registry.example/path"]]),
+      new Map([["MOLTZAPD_ROUTER_ORIGIN", "ftp://router.example"]]),
+      new Map([["MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY", `${registrySigner} `]]),
+      new Map([["MOLTZAPD_ADMISSION_CREDENTIAL_FILE", "/run/\u0000admission"]]),
+    ];
+    for (const overrides of invalidOverrides) {
+      expect(
+        yield* failureReason(loadConfiguration(directory, overrides)),
+      ).toBe("environment");
+    }
+  });
 
-const loadsExactRedactedSecrets = async () => {
-  const directory = temporaryDirectory();
-  writeFileSync(join(directory, "agent.pem"), privateKey);
-  writeFileSync(join(directory, "admission"), "bootstrap-token=");
-  const configuration = await Effect.runPromise(loadConfiguration(directory));
-  const bootstrap = await Effect.runPromise(loadDaemonBootstrap(configuration));
-  expect(bootstrap.agentPublicKey.x).toBe(
-    AgentSigningAuthority.publicKey(bootstrap.signingAuthority).x,
-  );
-  expect(bootstrap.agentPublicKey.x).toBe(
-    "3rUJ92tIP0DE4ekmET1zme6SIWTp5G0KiF3ZjL-AoKg",
-  );
-  const admissionCredential = await Effect.runPromise(
-    bootstrap.admissionCredential,
-  );
-  expect(Redacted.isRedacted(admissionCredential)).toBe(true);
-  expect(Redacted.value(admissionCredential)).toBe("bootstrap-token=");
-};
+const loadsExactRedactedSecrets = () =>
+  Effect.gen(function* () {
+    const directory = temporaryDirectory();
+    writeFileSync(join(directory, "agent.pem"), privateKey);
+    writeFileSync(join(directory, "admission"), "bootstrap-token=");
+    const configuration = yield* loadConfiguration(directory);
+    const bootstrap = yield* loadDaemonBootstrap(configuration);
+    expect(bootstrap.agentPublicKey.x).toBe(
+      AgentSigningAuthority.publicKey(bootstrap.signingAuthority).x,
+    );
+    expect(bootstrap.agentPublicKey.x).toBe(
+      "3rUJ92tIP0DE4ekmET1zme6SIWTp5G0KiF3ZjL-AoKg",
+    );
+    const admissionCredential = yield* bootstrap.admissionCredential;
+    expect(Redacted.isRedacted(admissionCredential)).toBe(true);
+    expect(Redacted.value(admissionCredential)).toBe("bootstrap-token=");
+  });
 
-const loadsBootstrapWithoutAdmissionFile = async () => {
-  const directory = temporaryDirectory();
-  writeFileSync(join(directory, "agent.pem"), privateKey);
-  const configuration = await Effect.runPromise(loadConfiguration(directory));
-  const bootstrap = await Effect.runPromise(loadDaemonBootstrap(configuration));
-  expect(bootstrap.agentPublicKey.x).toBe(
-    "3rUJ92tIP0DE4ekmET1zme6SIWTp5G0KiF3ZjL-AoKg",
-  );
-  expect(
-    await Effect.runPromise(failureReason(bootstrap.admissionCredential)),
-  ).toBe("admission-credential-file");
-};
+const loadsBootstrapWithoutAdmissionFile = () =>
+  Effect.gen(function* () {
+    const directory = temporaryDirectory();
+    writeFileSync(join(directory, "agent.pem"), privateKey);
+    const configuration = yield* loadConfiguration(directory);
+    const bootstrap = yield* loadDaemonBootstrap(configuration);
+    expect(bootstrap.agentPublicKey.x).toBe(
+      "3rUJ92tIP0DE4ekmET1zme6SIWTp5G0KiF3ZjL-AoKg",
+    );
+    expect(yield* failureReason(bootstrap.admissionCredential)).toBe(
+      "admission-credential-file",
+    );
+  });
 
-const treatsEmptyAdmissionFileAsUnset = async () => {
-  const directory = temporaryDirectory();
-  writeFileSync(join(directory, "agent.pem"), privateKey);
-  const configuration = await Effect.runPromise(
-    loadConfiguration(
+const treatsEmptyAdmissionFileAsUnset = () =>
+  Effect.gen(function* () {
+    const directory = temporaryDirectory();
+    writeFileSync(join(directory, "agent.pem"), privateKey);
+    const configuration = yield* loadConfiguration(
       directory,
       new Map([["MOLTZAPD_ADMISSION_CREDENTIAL_FILE", ""]]),
-    ),
-  );
-  expect(configuration.admissionCredentialFile).toBeUndefined();
-  const bootstrap = await Effect.runPromise(loadDaemonBootstrap(configuration));
-  expect(
-    await Effect.runPromise(failureReason(bootstrap.admissionCredential)),
-  ).toBe("admission-credential-file");
-};
+    );
+    expect(configuration.admissionCredentialFile).toBeUndefined();
+    const bootstrap = yield* loadDaemonBootstrap(configuration);
+    expect(yield* failureReason(bootstrap.admissionCredential)).toBe(
+      "admission-credential-file",
+    );
+  });
 
-const loadsBootstrapWithAdmissionFileUnset = async () => {
-  const directory = temporaryDirectory();
-  writeFileSync(join(directory, "agent.pem"), privateKey);
-  const configuration = await Effect.runPromise(
-    loadDaemonProcessConfiguration.pipe(
+const loadsBootstrapWithAdmissionFileUnset = () =>
+  Effect.gen(function* () {
+    const directory = temporaryDirectory();
+    writeFileSync(join(directory, "agent.pem"), privateKey);
+    const configuration = yield* loadDaemonProcessConfiguration.pipe(
       Effect.withConfigProvider(
         ConfigProvider.fromMap(
           new Map(
@@ -171,48 +173,47 @@ const loadsBootstrapWithAdmissionFileUnset = async () => {
           ),
         ),
       ),
-    ),
-  );
-  expect(configuration.admissionCredentialFile).toBeUndefined();
-  const bootstrap = await Effect.runPromise(loadDaemonBootstrap(configuration));
-  expect(
-    await Effect.runPromise(failureReason(bootstrap.admissionCredential)),
-  ).toBe("admission-credential-file");
-};
+    );
+    expect(configuration.admissionCredentialFile).toBeUndefined();
+    const bootstrap = yield* loadDaemonBootstrap(configuration);
+    expect(yield* failureReason(bootstrap.admissionCredential)).toBe(
+      "admission-credential-file",
+    );
+  });
 
-const admissionFailureReason = async (
-  configuration: DaemonProcessConfiguration,
-) => {
-  const bootstrap = await Effect.runPromise(loadDaemonBootstrap(configuration));
-  return await Effect.runPromise(failureReason(bootstrap.admissionCredential));
-};
+const admissionFailureReason = (configuration: DaemonProcessConfiguration) =>
+  Effect.gen(function* () {
+    const bootstrap = yield* loadDaemonBootstrap(configuration);
+    return yield* failureReason(bootstrap.admissionCredential);
+  });
 
-const rejectsSecretFileFailures = async () => {
-  const directory = temporaryDirectory();
-  const configuration = await Effect.runPromise(loadConfiguration(directory));
-  expect(
-    await Effect.runPromise(failureReason(loadDaemonBootstrap(configuration))),
-  ).toBe("agent-private-key-file");
+const rejectsSecretFileFailures = () =>
+  Effect.gen(function* () {
+    const directory = temporaryDirectory();
+    const configuration = yield* loadConfiguration(directory);
+    expect(yield* failureReason(loadDaemonBootstrap(configuration))).toBe(
+      "agent-private-key-file",
+    );
 
-  writeFileSync(join(directory, "agent.pem"), "not a private key");
-  expect(
-    await Effect.runPromise(failureReason(loadDaemonBootstrap(configuration))),
-  ).toBe("agent-private-key");
+    writeFileSync(join(directory, "agent.pem"), "not a private key");
+    expect(yield* failureReason(loadDaemonBootstrap(configuration))).toBe(
+      "agent-private-key",
+    );
 
-  writeFileSync(join(directory, "agent.pem"), privateKey);
-  writeFileSync(join(directory, "admission"), "bootstrap-token=\n");
-  expect(await admissionFailureReason(configuration)).toBe(
-    "admission-credential",
-  );
+    writeFileSync(join(directory, "agent.pem"), privateKey);
+    writeFileSync(join(directory, "admission"), "bootstrap-token=\n");
+    expect(yield* admissionFailureReason(configuration)).toBe(
+      "admission-credential",
+    );
 
-  writeFileSync(
-    join(directory, "admission"),
-    Buffer.from([0xef, 0xbb, 0xbf, ...Buffer.from("bootstrap-token=")]),
-  );
-  expect(await admissionFailureReason(configuration)).toBe(
-    "admission-credential",
-  );
-};
+    writeFileSync(
+      join(directory, "admission"),
+      Buffer.from([0xef, 0xbb, 0xbf, ...Buffer.from("bootstrap-token=")]),
+    );
+    expect(yield* admissionFailureReason(configuration)).toBe(
+      "admission-credential",
+    );
+  });
 
 // @agent-code-guard/regression-only: these examples pin the daemon process inputs and exact secret-file boundary.
 describe("daemon configuration", () => {
@@ -247,36 +248,35 @@ describe("daemon configuration", () => {
 });
 
 describe("history export configuration", () => {
-  it("leaves the export unset when the operator names no file", async () => {
-    const directory = temporaryDirectory();
-    const configuration = await Effect.runPromise(loadConfiguration(directory));
-    expect(configuration.historyExport).toBeUndefined();
-  });
+  it("leaves the export unset when the operator names no file", () =>
+    Effect.gen(function* () {
+      const directory = temporaryDirectory();
+      const configuration = yield* loadConfiguration(directory);
+      expect(configuration.historyExport).toBeUndefined();
+    }));
 
-  it("takes the export file the operator names", async () => {
-    const directory = temporaryDirectory();
-    const configuration = await Effect.runPromise(
-      loadConfiguration(
+  it("takes the export file the operator names", () =>
+    Effect.gen(function* () {
+      const directory = temporaryDirectory();
+      const configuration = yield* loadConfiguration(
         directory,
         new Map([["MOLTZAPD_HISTORY_EXPORT", EXPORT_PATH]]),
-      ),
-    );
-    expect(configuration.historyExport).toBe(EXPORT_PATH);
-  });
+      );
+      expect(configuration.historyExport).toBe(EXPORT_PATH);
+    }));
 
-  it("refuses an empty export path rather than exporting nowhere", async () => {
-    const directory = temporaryDirectory();
-    expect(
-      await Effect.runPromise(
-        failureReason(
+  it("refuses an empty export path rather than exporting nowhere", () =>
+    Effect.gen(function* () {
+      const directory = temporaryDirectory();
+      expect(
+        yield* failureReason(
           loadConfiguration(
             directory,
             new Map([["MOLTZAPD_HISTORY_EXPORT", ""]]),
           ),
         ),
-      ),
-    ).toBe("environment");
-  });
+      ).toBe("environment");
+    }));
 });
 
 const runtimeToken = "runtime-for-local-test-0000000001";
@@ -295,70 +295,65 @@ const bootstrapFiles = () => {
   writeFileSync(join(directory, "admission"), "bootstrap-token=");
   return directory;
 };
-const loadsSeparatedAuthority = async () => {
-  const directory = bootstrapFiles();
-  writeFileSync(join(directory, "runtime"), runtimeToken);
-  writeFileSync(join(directory, "owner"), ownerToken);
-  const bootstrap = await Effect.runPromise(
-    credentialConfiguration(directory).pipe(
+const loadsSeparatedAuthority = () =>
+  Effect.gen(function* () {
+    const directory = bootstrapFiles();
+    writeFileSync(join(directory, "runtime"), runtimeToken);
+    writeFileSync(join(directory, "owner"), ownerToken);
+    const bootstrap = yield* credentialConfiguration(directory).pipe(
       Effect.flatMap(loadDaemonBootstrap),
-    ),
-  );
-  expect(bootstrap.mcpCredentials?.runtime).toEqual(
-    Redacted.make(runtimeToken),
-  );
-  expect(bootstrap.mcpCredentials?.owner).toEqual(Redacted.make(ownerToken));
-  expect(JSON.stringify(bootstrap.mcpCredentials)).not.toContain(runtimeToken);
-  const local = await Effect.runPromise(
-    loadConfiguration(directory).pipe(Effect.flatMap(loadDaemonBootstrap)),
-  );
-  expect(local.mcpCredentials).toBeUndefined();
-};
-const rejectsInvalidAuthority = async () => {
-  const directory = bootstrapFiles();
-  writeFileSync(join(directory, "owner"), ownerToken);
-  for (const token of [
-    "short",
-    ownerToken,
-    `${runtimeToken}\n`,
-    `\ufeff${runtimeToken}`,
-  ]) {
-    writeFileSync(join(directory, "runtime"), token);
-    expect(
-      await Effect.runPromise(
-        failureReason(
+    );
+    expect(bootstrap.mcpCredentials?.runtime).toEqual(
+      Redacted.make(runtimeToken),
+    );
+    expect(bootstrap.mcpCredentials?.owner).toEqual(Redacted.make(ownerToken));
+    expect(JSON.stringify(bootstrap.mcpCredentials)).not.toContain(
+      runtimeToken,
+    );
+    const local = yield* loadConfiguration(directory).pipe(
+      Effect.flatMap(loadDaemonBootstrap),
+    );
+    expect(local.mcpCredentials).toBeUndefined();
+  });
+const rejectsInvalidAuthority = () =>
+  Effect.gen(function* () {
+    const directory = bootstrapFiles();
+    writeFileSync(join(directory, "owner"), ownerToken);
+    for (const token of [
+      "short",
+      ownerToken,
+      `${runtimeToken}\n`,
+      `\ufeff${runtimeToken}`,
+    ]) {
+      writeFileSync(join(directory, "runtime"), token);
+      expect(
+        yield* failureReason(
           credentialConfiguration(directory).pipe(
             Effect.flatMap(loadDaemonBootstrap),
           ),
         ),
-      ),
+      ).toBe("mcp-credential");
+    }
+    const partial = loadConfiguration(
+      directory,
+      new Map([
+        ["MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE", join(directory, "runtime")],
+      ]),
+    );
+    expect(
+      yield* failureReason(partial.pipe(Effect.flatMap(loadDaemonBootstrap))),
     ).toBe("mcp-credential");
-  }
-  const partial = loadConfiguration(
-    directory,
-    new Map([
-      ["MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE", join(directory, "runtime")],
-    ]),
-  );
-  expect(
-    await Effect.runPromise(
-      failureReason(partial.pipe(Effect.flatMap(loadDaemonBootstrap))),
-    ),
-  ).toBe("mcp-credential");
-};
-const rejectsMissingAuthority = async () => {
-  const directory = bootstrapFiles();
-  const bootstrap = credentialConfiguration(directory).pipe(
-    Effect.flatMap(loadDaemonBootstrap),
-  );
-  expect(await Effect.runPromise(failureReason(bootstrap))).toBe(
-    "mcp-runtime-credential-file",
-  );
-  writeFileSync(join(directory, "runtime"), runtimeToken);
-  expect(await Effect.runPromise(failureReason(bootstrap))).toBe(
-    "mcp-owner-credential-file",
-  );
-};
+  });
+const rejectsMissingAuthority = () =>
+  Effect.gen(function* () {
+    const directory = bootstrapFiles();
+    const bootstrap = credentialConfiguration(directory).pipe(
+      Effect.flatMap(loadDaemonBootstrap),
+    );
+    expect(yield* failureReason(bootstrap)).toBe("mcp-runtime-credential-file");
+    writeFileSync(join(directory, "runtime"), runtimeToken);
+    expect(yield* failureReason(bootstrap)).toBe("mcp-owner-credential-file");
+  });
 // @agent-code-guard/regression-only: exact file bytes and distinct roles are the tunnel authority boundary.
 describe("MCP credential configuration", () => {
   it(
@@ -375,4 +370,4 @@ describe("MCP credential configuration", () => {
   );
 });
 
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/no-hardcoded-assertion-literals -- Restore repository defaults. */
+/* eslint-enable agent-code-guard/no-hardcoded-assertion-literals -- Restore repository defaults. */
