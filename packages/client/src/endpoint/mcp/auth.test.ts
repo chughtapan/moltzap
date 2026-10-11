@@ -13,7 +13,11 @@ import type { EventStore } from "../../delivery/operations.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { makeFixture } from "../../__tests__/router-worker-fixtures.js";
 import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
-import { enqueue, fixture, input } from "../../__tests__/webhook-fixtures.js";
+import {
+  enqueue,
+  input,
+  scriptedWebhook,
+} from "../../__tests__/webhook-fixtures.js";
 import { openEndpointStore } from "../../store/index.js";
 import { HARNESS_SEND_META_KEY } from "./names.js";
 import {
@@ -480,7 +484,7 @@ const admittedCalls = [
  */
 const terminallyStalledWebhookStore = Effect.gen(function* () {
   const store = yield* openEndpointStore(stateDirectory());
-  const callback = fixture(store);
+  const callback = scriptedWebhook(store);
   const webhook = yield* callback.acquire;
   yield* webhook.subscribe(input, "runtime");
   yield* enqueue(store, 1, "rejected by the callback");

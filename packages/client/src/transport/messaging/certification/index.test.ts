@@ -3269,7 +3269,7 @@ describe("engine faults while staging and sending", () => {
   );
   it(
     "fails a send as delivery-pending when the store refuses its bound proposal",
-    () => failsASendWhoseBoundProposalTheStoreRefuses(),
+    failsASendWhoseBoundProposalTheStoreRefuses,
     TEST_TIMEOUT_MS,
   );
   it.each([

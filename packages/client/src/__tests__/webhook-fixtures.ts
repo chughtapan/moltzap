@@ -133,7 +133,7 @@ export const enqueue = (store: EndpointStore, byte: number, text?: string) =>
  * @param store The store the webhook reads.
  * @returns The scripted callback's controls and the events to acquire.
  */
-export const fixture = (store: EndpointStore) => {
+export const scriptedWebhook = (store: EndpointStore) => {
   let status = 200;
   let challengeValid = true;
   let onEvent = Effect.void;

@@ -571,8 +571,13 @@ export const holdNextRead = (harness: RuntimeHarness) =>
 export const openStream = (handler: HarnessMcpEventHandler, request: Request) =>
   Effect.acquireRelease(
     Effect.tryPromise(() => handler.fetch(request)).pipe(
-      Effect.flatMap((response) => Effect.fromNullable(response.body)),
-      Effect.orElseFail(() => new Error("expected a streamed response body")),
+      Effect.flatMap((response) =>
+        Effect.fromNullable(response.body).pipe(
+          Effect.orElseFail(
+            () => new Error("expected a streamed response body"),
+          ),
+        ),
+      ),
       Effect.map((body) => body.getReader()),
     ),
     (reader) => Effect.tryPromise(() => reader.cancel()).pipe(Effect.ignore),

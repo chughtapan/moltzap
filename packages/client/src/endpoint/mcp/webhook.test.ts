@@ -8,9 +8,9 @@ import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
 import {
   decodeOccurrence,
   enqueue,
-  fixture,
   input,
   item,
+  scriptedWebhook,
   secret,
   token,
   url,
@@ -72,7 +72,7 @@ const signsVerifiesAndRotates = () =>
   Effect.scoped(
     Effect.gen(function* () {
       const store = yield* openEndpointStore(stateDirectory());
-      const test = fixture(store);
+      const test = scriptedWebhook(store);
       const events = yield* test.acquire;
       const grant = yield* events.subscribe(input, "runtime");
       const control = test.posts[0];
@@ -120,7 +120,7 @@ const retainsTerminalRejections = () =>
     Effect.gen(function* () {
       for (const status of [410, 413]) {
         const store = yield* openEndpointStore(stateDirectory());
-        const test = fixture(store);
+        const test = scriptedWebhook(store);
         const events = yield* test.acquire;
         yield* enqueue(store, 1);
         yield* events.subscribe(input, "runtime");
@@ -148,7 +148,7 @@ const verifiesRotatedSecret = () =>
   Effect.scoped(
     Effect.gen(function* () {
       const store = yield* openEndpointStore(stateDirectory());
-      const test = fixture(store);
+      const test = scriptedWebhook(store);
       const events = yield* test.acquire;
       const grant = yield* events.subscribe(input, "runtime");
       const rotated = {
@@ -175,7 +175,7 @@ const permitsReadAndRevokeDuringDelivery = () =>
   Effect.scoped(
     Effect.gen(function* () {
       const store = yield* openEndpointStore(stateDirectory());
-      const test = fixture(store);
+      const test = scriptedWebhook(store);
       const events = yield* test.acquire;
       yield* enqueue(store, 1);
       yield* events.subscribe(input, "runtime");
@@ -205,7 +205,7 @@ const refreshPreservesTerminalReceipt = () =>
   Effect.scoped(
     Effect.gen(function* () {
       const store = yield* openEndpointStore(stateDirectory());
-      const test = fixture(store);
+      const test = scriptedWebhook(store);
       const events = yield* test.acquire;
       yield* enqueue(store, 1);
       yield* events.subscribe(input, "runtime");
@@ -236,7 +236,7 @@ const retriesAcrossRestart = () => {
     yield* Effect.scoped(
       Effect.gen(function* () {
         const store = yield* openEndpointStore(path);
-        const test = fixture(store);
+        const test = scriptedWebhook(store);
         const events = yield* test.acquire;
         yield* enqueue(store, 1);
         yield* events.subscribe(input, "runtime");
@@ -250,7 +250,7 @@ const retriesAcrossRestart = () => {
     yield* Effect.scoped(
       Effect.gen(function* () {
         const store = yield* openEndpointStore(path);
-        const test = fixture(store);
+        const test = scriptedWebhook(store);
         const events = yield* test.acquire;
         yield* events.observe();
         expect(test.posts[0]?.body).toBe(original);
@@ -276,7 +276,7 @@ const resumesExhaustedCallbacks = () =>
   Effect.scoped(
     Effect.gen(function* () {
       const store = yield* openEndpointStore(stateDirectory());
-      const test = fixture(store);
+      const test = scriptedWebhook(store);
       const events = yield* test.acquire;
       yield* enqueue(store, 1);
       yield* events.subscribe(input, "runtime");
@@ -308,7 +308,7 @@ const boundsPayloadAndDrains = () =>
   Effect.scoped(
     Effect.gen(function* () {
       const store = yield* openEndpointStore(stateDirectory());
-      const test = fixture(store);
+      const test = scriptedWebhook(store);
       const events = yield* test.acquire;
       const large = "世界".repeat(100_000);
       yield* enqueue(store, 1, large);
@@ -338,7 +338,7 @@ const removesRetiredOccurrence = () =>
   Effect.scoped(
     Effect.gen(function* () {
       const store = yield* openEndpointStore(stateDirectory());
-      const test = fixture(store);
+      const test = scriptedWebhook(store);
       const events = yield* test.acquire;
       yield* enqueue(store, 1);
       yield* events.subscribe(input, "runtime");
@@ -400,7 +400,7 @@ const rejectsUnsafeCallbacks = () =>
       url: "https://localhost/private",
     }).pipe(Effect.provide(webhookHttpClientLayer), Effect.flip);
     expect(dnsBlocked.reason).toBe("connection_refused");
-    const test = fixture(yield* openEndpointStore(stateDirectory()));
+    const test = scriptedWebhook(yield* openEndpointStore(stateDirectory()));
     test.status(302);
     const events = yield* test.acquire;
     expect(
