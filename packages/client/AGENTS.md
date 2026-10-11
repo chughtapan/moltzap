@@ -17,9 +17,11 @@ The source under this package is the accepted cutover implementation. Maintain
 it behind the final Client boundary; do not expand, wrap, or preserve retired
 machinery through a compatibility facade. In particular, do not add a
 host-side service facade, channel-core abstraction, profile acquisition,
-protocol/server proxy, bespoke CLI, Unix socket, generic-send path, or
+protocol/server proxy, bespoke CLI, bespoke Unix RPC, generic-send path, or
 standalone notification catalog. The `./service` subpath is the admitted
-process composition that `moltzapd` runs; it is not such a facade.
+process composition that `moltzapd` runs; it is not such a facade. Authenticated
+remote deployments use the same private management MCP handler on a
+filesystem-protected Unix socket; it is not a public runtime capability.
 
 Further work may harden or validate the implementation without widening its
 public surface or relocating its admitted Identity and Router dependencies.
@@ -56,6 +58,8 @@ The public root exposes the semantic `HarnessEndpoint`, address, content,
 operation and inbound item schemas, endpoint acquisition, and closed errors. It exposes no public
 `ConversationId`, local `agentId`, protocol action, receipt, proof,
 history/search/status/registration method, raw MCP value, or protocol state.
+Endpoint acquisition accepts a redacted runtime credential and a native receive
+mode; it grants no management access.
 Private `PostIntentHash`, `ActionHash`, `RecordHash`, certificates, and recovery
 state remain inside Client and its owner-authorized management representation.
 
@@ -66,10 +70,13 @@ never become a compatibility shim.
 
 `moltzapd` is one explicitly configured process for one local `AgentId` and
 one state directory. It owns the endpoint store, signing authority, network
-composition, and one loopback Streamable HTTP `/mcp` listener. There are no
+composition, and one loopback Streamable HTTP `/mcp` listener. Authenticated
+remote mode also binds its management handler to one private Unix socket,
+accessible through the deployment's existing authorized exec path. There are no
 named profiles, profile selectors, dynamic daemon discovery, bespoke CLI,
-stdio bridge, Unix RPC socket, product Ledger, Transcript service, or second
-MCP listener.
+stdio bridge, bespoke Unix RPC, product Ledger, Transcript service, or second
+network MCP listener. Same-account and root access are outside the socket's
+filesystem isolation boundary.
 
 Runtime code receives MCP or an injected `HarnessEndpoint`; it never receives
 raw Router credentials or constructs Registry, Router, endpoint-store, daemon,

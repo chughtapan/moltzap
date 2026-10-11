@@ -10,7 +10,8 @@ name: Publish to npm
 # npm and the release tags (unchanged while nothing is published at it and
 # the UTC day has not turned). Once the release commit is on main, any run
 # finds it, checks out its tree, and publishes whatever that version still
-# lacks on npm, however many commits landed since. A release that can never
+# lacks on npm or in its declared native asset pair. Legacy release trees
+# without scripts/release/native-assets.mjs remain npm-only. A release that can never
 # complete is left behind by dispatching with `start_new_version`, which
 # mints the next version from the tip instead.
 on:
@@ -84,6 +85,7 @@ jobs:
         id: plan
         env:
           START_NEW_VERSION: ${{ inputs.start_new_version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           git fetch origin main --quiet
           RELEASE_LINE=$(git log origin/main --format='%H %s' | grep -m1 ' chore(release): moltzap@' || true)
@@ -105,13 +107,25 @@ jobs:
                 *) exit "$STATUS" ;;
               esac
             done
+            NATIVE_CONTRACT=false
+            if git cat-file -e "$RELEASE_COMMIT:scripts/release/native-assets.mjs" 2>/dev/null; then
+              NATIVE_CONTRACT=true
+              STATUS=0
+              node scripts/release/native-assets.mjs check "$VERSION" || STATUS=$?
+              case $STATUS in
+                0) ;;
+                1) MISSING="$MISSING native-archive-and-checksum" ;;
+                *) exit "$STATUS" ;;
+              esac
+            fi
             if [ -n "$MISSING" ] && [ "$START_NEW_VERSION" = "true" ]; then
-              echo "Abandoning release $VERSION from $RELEASE_COMMIT; not yet on npm:$MISSING"
+              echo "Abandoning release $VERSION from $RELEASE_COMMIT; missing:$MISSING"
             elif [ -n "$MISSING" ]; then
-              echo "Resuming release $VERSION from $RELEASE_COMMIT; not yet on npm:$MISSING"
+              echo "Resuming release $VERSION from $RELEASE_COMMIT; missing:$MISSING"
               git checkout --quiet "$RELEASE_COMMIT"
               echo "mode=resume" >> "$GITHUB_OUTPUT"
               echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+              echo "native_contract=$NATIVE_CONTRACT" >> "$GITHUB_OUTPUT"
               exit 0
             fi
           fi
@@ -128,6 +142,7 @@ jobs:
           echo "Next version: $VERSION"
           echo "mode=bump" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "native_contract=true" >> "$GITHUB_OUTPUT"
 
       - run: pnpm install --frozen-lockfile
 
@@ -154,31 +169,22 @@ jobs:
       - name: Verify the published closure installs from tarballs
         run: pnpm nx run-many -t test:pack --parallel=1
 
-      # The release App token is minted only now, scoped to contents, and
-      # used for exactly one push.
-      - uses: actions/create-github-app-token@v2
-        if: steps.plan.outputs.mode == 'bump'
-        id: app-token
-        with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          permission-contents: write
+      - name: Build and verify the declared native archive
+        if: steps.plan.outputs.native_contract == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          pnpm nx run @moltzap/native-plugins:package
+          pnpm test:native-release
+          node scripts/release/native-assets.mjs verify "$VERSION" dist/artifacts/native-plugins
 
-      # The runner's pnpm install wired the husky hooks; the release commit
-      # is made of generated output CI already gated, so the hooks stay out.
-      # towncrier writes the version's CHANGELOG.md section from the fragments
-      # in changelog.d/ and deletes them; with no fragments it writes nothing.
-      # A rerun whose section is already written skips it. Without its marker
-      # line towncrier would write above the file's title, so a missing marker
-      # fails the release. This job can push to main and mint the npm OIDC
-      # token, so towncrier and its dependencies install only from hash-pinned
-      # requirements.
-      - name: Regenerate docs and commit the release
+      # towncrier preserves its marker and consumes changelog.d/ fragments.
+      # Its dependency install remains hash-pinned, and regeneration runs
+      # before the contents-write release App token exists.
+      - name: Regenerate release documentation and changelog
         if: steps.plan.outputs.mode == 'bump'
         env:
           VERSION: ${{ steps.plan.outputs.version }}
-          RELEASE_TOKEN: ${{ steps.app-token.outputs.token }}
-          HUSKY: "0"
         run: |
           pnpm docs:generate
           if ! grep -q "^## \[$VERSION\]" CHANGELOG.md; then
@@ -191,6 +197,26 @@ jobs:
               --version "$VERSION" --date "$(date -u +%F)" --yes
           fi
 
+      # Contents-write authority is minted after dependency/build/pack gates
+      # and never enters their environment. Native resume needs it only when
+      # its release tree declares the artifact contract.
+      - uses: actions/create-github-app-token@v2
+        if: steps.plan.outputs.mode == 'bump' || steps.plan.outputs.native_contract == 'true'
+        id: app-token
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      # The runner's pnpm install wired the husky hooks; the release commit
+      # is made of generated output CI already gated, so the hooks stay out.
+      - name: Commit the gated release
+        if: steps.plan.outputs.mode == 'bump'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          RELEASE_TOKEN: ${{ steps.app-token.outputs.token }}
+          HUSKY: "0"
+        run: |
           git config user.name "moltzap-release[bot]"
           git config user.email "moltzap-release[bot]@users.noreply.github.com"
           git add packages/*/package.json pnpm-lock.yaml CHANGELOG.md changelog.d/ \
@@ -233,3 +259,15 @@ jobs:
               npm publish "$TARBALL" --access public --provenance
             )
           done
+
+      - name: Preserve or upload the native archive and checksum
+        if: steps.plan.outputs.native_contract == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          [ "$(git rev-parse "v$VERSION^{commit}")" = "$(git rev-parse HEAD)" ] || {
+            echo "ERROR: native artifact tag does not identify the gated release tree"
+            exit 1
+          }
+          node scripts/release/native-assets.mjs upload "$VERSION" dist/artifacts/native-plugins

@@ -72,6 +72,16 @@ jobs:
       # OpenClaw host, so they run one at a time.
       - name: Verify the published closure installs from tarballs
         run: pnpm nx run-many -t test:pack --parallel=1
+      # Preparation runs as the normal runner. Only the synthetic UID-isolation
+      # probe needs root to drop its own children to UIDs 1001 and 1000; it
+      # changes no account, deployment or production credential. The prepared
+      # consumer contains code/dependencies only and is removed with the runner.
+      - name: Verify Linux runtime and private management isolation
+        run: |
+          node scripts/test-management-permissions.mjs --prepare \
+            > "$RUNNER_TEMP/moltzap-permissions-bundle.json"
+          CONSUMER=$(jq -er .consumer "$RUNNER_TEMP/moltzap-permissions-bundle.json")
+          sudo "$(command -v node)" scripts/test-management-permissions.mjs "$CONSUMER"
       - run: pnpm typecheck
       - name: Lint
         run: pnpm lint
@@ -91,6 +101,7 @@ jobs:
       - run: pnpm docs:check:gates-test
       - run: pnpm test:compute-next-version
       - run: pnpm test:npm-version-exists
+      - run: pnpm test:native-release
 
   test:
     runs-on: ubuntu-latest

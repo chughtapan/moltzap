@@ -46,6 +46,10 @@
       "reason": "The history export line schema hosts decode, without loading the inbox or the store"
     },
     {
+      "file": "endpoint/harness-endpoint/capability.ts",
+      "reason": "The one semantic endpoint, delivery and connection-options contract shared by native receive implementations, without SDK or daemon authority"
+    },
+    {
       "file": "endpoint/implementation.ts",
       "reason": "The package version both loopback MCP peers report"
     }
@@ -153,6 +157,7 @@
       "entrypoints": [
         "src/endpoint/mcp/index.ts",
         "src/endpoint/harness-endpoint/index.ts",
+        "src/endpoint/harness-endpoint/capability.ts",
         "src/endpoint/implementation.ts"
       ],
       "reason": "The loopback MCP, owner tools, and the HarnessEndpoint hosts connect to"

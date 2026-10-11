@@ -4,21 +4,20 @@ import { HttpClient } from "@effect/platform";
 import { ProtocolError } from "@modelcontextprotocol/server";
 import { type Clock, Effect, Schema } from "effect";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { eventIdOf, type EventStore } from "../../delivery/operations.js";
+import { eventIdOf, type EventStore } from "../../../delivery/operations.js";
 import {
   decodeRuntimeValue,
   DeliveryToken,
   encodeRuntimeValue,
-  type InboxEntry,
-} from "../../store/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
+} from "../../../store/index.js";
+import { makeItemEvent } from "../item.js";
+import { INBOX_ITEM_EVENT } from "../names.js";
 import {
   callbackReasons,
   type EventSubscribeInput,
   type HarnessWebhookEvents,
-  maximumEventBytes,
   type WebhookStatus,
-} from "./event-schemas.js";
+} from "./schemas.js";
 import {
   readWebhookChallenge,
   sendWebhook,
@@ -26,31 +25,16 @@ import {
   type WebhookCallbackError,
   type WebhookFailureReason,
   webhookUrl,
-} from "./event-signing.js";
-import { INBOX_ITEM_EVENT } from "./names.js";
+} from "./signing.js";
 
 /** Persist the returned bytes before transmitting; retries must not regenerate them. */
-const encodeItemEvent = (entry: InboxEntry, timestamp: number) =>
-  Effect.gen(function* () {
-    const item = yield* decodeRuntimeValue(InboundItem, entry.canonicalItem);
-    const envelope = {
-      eventId: eventIdOf(entry.deliveryToken),
-      name: INBOX_ITEM_EVENT,
-      timestamp: new Date(timestamp).toISOString(),
-      cursor: null,
-    };
-    const body = JSON.stringify({ ...envelope, data: { kind: "item", item } });
-    return Buffer.byteLength(body, "utf8") <= maximumEventBytes
-      ? body
-      : JSON.stringify({
-          ...envelope,
-          data: {
-            kind: "reference",
-            itemKind: item.kind,
-            bytes: entry.canonicalItem.byteLength,
-          },
-        });
-  }).pipe(Effect.withSpan("encodeItemEvent"));
+const encodeItemEvent = (
+  entry: Parameters<typeof makeItemEvent>[0],
+  timestamp: number,
+) =>
+  makeItemEvent(entry, timestamp).pipe(
+    Effect.map((occurrence) => JSON.stringify(occurrence)),
+  );
 
 const maximumRetryDelay = 5 * 60_000;
 const maximumLease = 24 * 60 * 60_000;
@@ -348,7 +332,7 @@ const commitReceipt = (
     return true;
   }).pipe(Effect.mapError(persistenceFailure), Effect.uninterruptible);
 
-/** Revocation and replacement fence responses from an earlier consumer. */
+/** Expiry, revocation and replacement fence responses from an earlier consumer. */
 const completeDelivery = (
   runtime: WebhookRuntime,
   registration: Registration,
@@ -360,6 +344,7 @@ const completeDelivery = (
       const current = runtime.state.registration;
       if (
         current === null ||
+        !active(runtime) ||
         current.id !== registration.id ||
         current.outbox !== occurrence
       ) {

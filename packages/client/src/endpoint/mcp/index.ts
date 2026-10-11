@@ -1,7 +1,7 @@
-/** @file The loopback MCP edge the daemon service composes. */
+/** @file The runtime and private management MCP edge the daemon service composes. */
 
-/** Credential roles for tunneled runtime and owner requests. */
-export { credentialMatches, type HarnessMcpCredentials } from "./auth.js";
+/** One runtime grant; management authority comes from private socket dispatch. */
+export type { HarnessMcpCredentials } from "./auth.js";
 /** The loopback Streamable HTTP listener. */
 export { acquireHarnessMcpHttpServer } from "./http.js";
 /** Owner-tool results the service returns through the catalog. */

@@ -86,6 +86,22 @@
           "command": "node scripts/test-client-package.mjs"
         }
       },
+      "test:permissions": {
+        "executor": "nx:run-commands",
+        "dependsOn": ["build", "^build"],
+        "cache": false,
+        "options": {
+          "command": "node scripts/test-management-permissions.mjs"
+        }
+      },
+      "test:permissions:prepare": {
+        "executor": "nx:run-commands",
+        "dependsOn": ["build", "^build"],
+        "cache": false,
+        "options": {
+          "command": "node scripts/test-management-permissions.mjs --prepare"
+        }
+      },
       "arch:check": {
         "executor": "nx:run-commands",
         "options": {

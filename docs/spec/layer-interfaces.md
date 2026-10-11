@@ -150,7 +150,8 @@ Client owns:
 - the collective layer: operations carried in post content and the inbound
   items they become;
 - task/norm and personal-trust composition;
-- one explicitly configured per-AgentId daemon and one loopback `/mcp`;
+- one explicitly configured per-AgentId daemon and one loopback `/mcp`, plus
+  its private filesystem management MCP socket in authenticated remote mode;
 - the adapter-facing capability named `HarnessEndpoint`; and
 - closed Client and MCP representations.
 
@@ -369,8 +370,9 @@ topology and cross-address context.
 
 ## Acceptance criteria
 
-- Workspace, TypeScript, Nx, manifest, and architecture graphs contain exactly
-  the five packages and exactly the allowed edges above.
+- The product portion of the workspace, TypeScript, Nx, manifest, and
+  architecture graphs contains exactly the five packages and exactly the
+  allowed edges above. Private build tooling is checked separately.
 - Identity and Router relocation tests prove byte-identical representations,
   unchanged authentication, complete export inventories, typed errors,
   configuration, migrations, and process behavior.
@@ -398,6 +400,15 @@ topology and cross-address context.
 Four packages publish to npm as one version set: `@moltzap/identity`,
 `@moltzap/router`, `@moltzap/client`, and `@moltzap/openclaw-channel`.
 `@moltzap/nanoclaw-channel` stays private. The simulator is not published.
+
+Native installation assets under `plugins` have a private, versionless build
+owner, `@moltzap/native-plugins`. It is not a sixth product, npm publication or
+adapter SDK: the source manifest has no exports, binaries or public entrypoint.
+Its only MoltZap dependency is the public Client. The separate Nx contract pins
+its root, Client edge and build/verification targets without adding it to the
+product or release sets. Its distributable private archive carries the matching
+Client release version and exact direct dependency pins; a remote installation
+still needs the compatible released closure and reviewed deployment lockfile.
 
 - One release computes one calendar version, `YYYY.MDD.N`, one past the
   highest counter in the union of the four packages' npm histories and the

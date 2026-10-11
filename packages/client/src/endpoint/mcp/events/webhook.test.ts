@@ -17,24 +17,25 @@ import {
 } from "effect";
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { digest } from "../../__tests__/agent-card-fixtures.js";
-import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
-import { readRuntimeEvent } from "../../delivery/inbox.js";
-import { eventIdOf } from "../../delivery/operations.js";
+import { digest } from "../../../__tests__/agent-card-fixtures.js";
+import { stateDirectory } from "../../../__tests__/store-schema-fixtures.js";
+import { readRuntimeEvent } from "../../../delivery/inbox.js";
+import { eventIdOf } from "../../../delivery/operations.js";
 import {
   DeliveryToken,
   encodeRuntimeValue,
   type EndpointStore,
   openEndpointStore,
-} from "../../store/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
-import { maximumEventBytes } from "./event-schemas.js";
+} from "../../../store/index.js";
+import { InboundItem } from "../../../transport/collectives/inbound.js";
+import { INBOX_ITEM_EVENT } from "../names.js";
+import { makeHarnessPollEvents } from "./poll.js";
+import { maximumEventBytes } from "./schemas.js";
 import {
   isPublicWebhookAddress,
   sendWebhook,
   webhookHttpClientLayer,
-} from "./event-signing.js";
-import { INBOX_ITEM_EVENT } from "./names.js";
+} from "./signing.js";
 import { makeWebhookEvents } from "./webhook.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals, sonarjs/no-hardcoded-ip -- Protocol codes and deliberately unsafe IP fixtures pin the callback trust boundary. */
@@ -362,6 +363,67 @@ const refreshPreservesTerminalReceipt = () =>
     ).pipe(onSteppedClock),
   );
 
+/** A clock seam separates lease wall time from the callback timeout scheduler. */
+const leaseClockAt = (
+  clock: Clock.Clock,
+  timestamp: () => number,
+): Clock.Clock => ({
+  [Clock.ClockTypeId]: Clock.ClockTypeId,
+  unsafeCurrentTimeMillis: timestamp,
+  currentTimeMillis: Effect.sync(timestamp),
+  unsafeCurrentTimeNanos: () => clock.unsafeCurrentTimeNanos(),
+  currentTimeNanos: clock.currentTimeNanos,
+  sleep: (duration) => clock.sleep(duration),
+});
+
+/** Advance the lease's wall clock without completing the callback request timer. */
+const fencesExpiredReceipt = () =>
+  Effect.gen(function* () {
+    const store = yield* openEndpointStore(stateDirectory());
+    const test = fixture(store);
+    const clock = yield* Effect.clock;
+    let timestamp = clock.unsafeCurrentTimeMillis();
+    const leaseClock = leaseClockAt(clock, () => timestamp);
+    const events = yield* test.acquire.pipe(Effect.withClock(leaseClock));
+    const poll = yield* makeHarnessPollEvents(store, test.gate).pipe(
+      Effect.withClock(leaseClock),
+    );
+    yield* enqueue(store, 1);
+    yield* events.subscribe({ ...input, ttlMs: 60_000 }, "runtime");
+    timestamp += 57_000;
+    const entered = yield* Deferred.make<undefined>();
+    const release = yield* Deferred.make<undefined>();
+    test.onEvent(
+      Deferred.succeed(entered, undefined).pipe(
+        Effect.zipRight(Deferred.await(release)),
+        Effect.asVoid,
+      ),
+    );
+    const delivery = yield* events.observe().pipe(Effect.forkScoped);
+    yield* Deferred.await(entered);
+    timestamp += 4_000;
+    const grant = yield* poll.poll(
+      input,
+      {},
+      Effect.suspend(() =>
+        events.hasActiveSubscription()
+          ? Effect.dieMessage("expired webhook still owns the consumer lease")
+          : Effect.void,
+      ),
+    );
+    expect(
+      (yield* poll.nativeOperation(grant._meta, store.readInbox())).items,
+    ).toHaveLength(1);
+    yield* Deferred.succeed(release, undefined);
+    yield* Fiber.join(delivery);
+    expect((yield* store.readInboxSummary()).pendingCount).toBe(1);
+    yield* poll.nativeOperation(
+      grant._meta,
+      store.acknowledgeInboxItem(token(1)),
+    );
+    expect((yield* store.readInboxSummary()).pendingCount).toBe(0);
+  }).pipe(Effect.scoped, onSteppedClock, Effect.runPromise);
+
 const retriesAcrossRestart = () => {
   const path = stateDirectory();
   let original: string | undefined;
@@ -584,6 +646,10 @@ describe("local Dot webhook conformance", () => {
   it(
     "allows callback inbox reads and ignores a receipt after owner revocation",
     permitsReadAndRevokeDuringDelivery,
+  );
+  it(
+    "rejects an expired webhook receipt after a polling consumer acquires its lease",
+    fencesExpiredReceipt,
   );
   it(
     "verifies signed callbacks, rotates secrets and enforces the subscription principal",

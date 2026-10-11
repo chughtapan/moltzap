@@ -139,6 +139,26 @@ const FINAL_PACKAGE_DIRS = Object.keys(FINAL_PACKAGES);
 const FINAL_PACKAGE_NAMES = new Set(
   Object.values(FINAL_PACKAGES).map(({ npmName }) => npmName),
 );
+
+/**
+ * Native assets have a build owner but no product or public SDK identity.
+ * @type {{name: string, root: string, dependencies: string[], targets: string[]}}
+ */
+const NATIVE_ASSET_PROJECT = {
+  name: "@moltzap/native-plugins",
+  root: "plugins",
+  dependencies: ["@moltzap/client"],
+  targets: [
+    "arch:check",
+    "build",
+    "lint",
+    "package",
+    "test",
+    "test:pack",
+    "typecheck:tests",
+  ],
+};
+
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -441,6 +461,71 @@ const DEPENDENCY_SECTIONS = [
   "optionalDependencies",
   "peerDependencies",
 ];
+
+/** Keeps the asset workspace outside package publication and SDK ownership. */
+function checkNativeAssetManifest() {
+  const where = `${NATIVE_ASSET_PROJECT.root}/package.json`;
+  const manifestPath = path.join(repo, where);
+  if (!fs.existsSync(manifestPath)) {
+    failures.push(`${where}: private native asset project is missing`);
+    return;
+  }
+  const manifest = readJson(manifestPath);
+  if (
+    manifest.name !== NATIVE_ASSET_PROJECT.name ||
+    manifest.private !== true
+  ) {
+    failures.push(
+      `${where}: must be the private "${NATIVE_ASSET_PROJECT.name}" asset project`,
+    );
+  }
+  for (const field of [
+    "version",
+    "exports",
+    "bin",
+    "main",
+    "types",
+    "publishConfig",
+  ]) {
+    if (Object.hasOwn(manifest, field)) {
+      failures.push(
+        `${where}: private native assets must not declare "${field}"`,
+      );
+    }
+  }
+  const dependencies = new Set(
+    DEPENDENCY_SECTIONS.flatMap((section) =>
+      Object.keys(manifest[section] ?? {}),
+    ).filter((name) => name.startsWith("@moltzap/")),
+  );
+  failOnSetDrift(
+    where,
+    "native asset dependencies drifted",
+    dependencies,
+    NATIVE_ASSET_PROJECT.dependencies,
+  );
+  for (const dependency of NATIVE_ASSET_PROJECT.dependencies) {
+    if (manifest.dependencies?.[dependency] !== "workspace:*") {
+      failures.push(
+        `${where}: "${dependency}" must be a "workspace:*" dependency`,
+      );
+    }
+  }
+  const declaredTargets = new Set([
+    ...Object.keys(manifest.nx?.targets ?? {}),
+    ...Object.keys(manifest.scripts ?? {}),
+  ]);
+  const missingTargets = NATIVE_ASSET_PROJECT.targets.filter(
+    (target) => !declaredTargets.has(target),
+  );
+  if (missingTargets.length > 0) {
+    failures.push(
+      `${where}: required asset targets are missing: ${missingTargets.join(", ")}`,
+    );
+  }
+}
+
+checkNativeAssetManifest();
 
 const publishedVersions = new Map();
 for (const [dir, expected] of Object.entries(FINAL_PACKAGES)) {
@@ -796,9 +881,11 @@ for (const [dir, expected] of Object.entries(FINAL_PACKAGES)) {
   }
 }
 
-// The resolved Nx graph is supplied by CI. Keeping Nx invocation outside this
-// script avoids starting Nx recursively when the same checks run as an Nx
-// target, while still comparing the graph Nx actually calculated.
+/**
+ * CI supplies the resolved graph so this gate never invokes Nx recursively.
+ * Product and private asset contracts share verification, not publication.
+ * @param {string} graphFile Path to an Nx project-graph export.
+ */
 function checkNxGraph(graphFile) {
   const parsed = readJson(graphFile);
   const graph = parsed.graph;
@@ -811,20 +898,34 @@ function checkNxGraph(graphFile) {
     rel(graphFile),
     "Nx project nodes drifted",
     Object.keys(graph.nodes),
-    [...FINAL_PACKAGE_NAMES, "workspace", "adapter-daemon"],
+    [
+      ...FINAL_PACKAGE_NAMES,
+      NATIVE_ASSET_PROJECT.name,
+      "workspace",
+      "adapter-daemon",
+    ],
   );
 
-  for (const [dir, expected] of Object.entries(FINAL_PACKAGES)) {
-    const node = graph.nodes[expected.npmName];
+  const packageProjects = [
+    ...Object.entries(FINAL_PACKAGES).map(([dir, expected]) => ({
+      name: expected.npmName,
+      root: `packages/${dir}`,
+      targets: expected.targets,
+      dependencies: expected.deps.map(
+        (dependency) => FINAL_PACKAGES[dependency].npmName,
+      ),
+    })),
+    NATIVE_ASSET_PROJECT,
+  ];
+  for (const expected of packageProjects) {
+    const node = graph.nodes[expected.name];
     if (node === undefined) {
-      failures.push(
-        `${rel(graphFile)}: missing Nx project "${expected.npmName}"`,
-      );
+      failures.push(`${rel(graphFile)}: missing Nx project "${expected.name}"`);
       continue;
     }
-    if (node.data?.root !== `packages/${dir}`) {
+    if (node.data?.root !== expected.root) {
       failures.push(
-        `${rel(graphFile)}: Nx project "${expected.npmName}" root is "${node.data?.root ?? "missing"}", expected "packages/${dir}"`,
+        `${rel(graphFile)}: Nx project "${expected.name}" root is "${node.data?.root ?? "missing"}", expected "${expected.root}"`,
       );
     }
 
@@ -834,22 +935,22 @@ function checkNxGraph(graphFile) {
     );
     if (missingTargets.length > 0) {
       failures.push(
-        `${rel(graphFile)}: Nx project "${expected.npmName}" is missing required targets: ${missingTargets.join(", ")}`,
+        `${rel(graphFile)}: Nx project "${expected.name}" is missing required targets: ${missingTargets.join(", ")}`,
       );
     }
 
-    const dependencyEntries = graph.dependencies?.[expected.npmName];
+    const dependencyEntries = graph.dependencies?.[expected.name];
     if (!Array.isArray(dependencyEntries)) {
       failures.push(
-        `${rel(graphFile)}: Nx dependency entry for "${expected.npmName}" is missing`,
+        `${rel(graphFile)}: Nx dependency entry for "${expected.name}" is missing`,
       );
       continue;
     }
     failOnSetDrift(
       rel(graphFile),
-      `Nx dependencies for "${expected.npmName}" violate the final DAG`,
+      `Nx dependencies for "${expected.name}" violate the owned project DAG`,
       dependencyEntries.map(({ target }) => target),
-      expected.deps.map((dependency) => FINAL_PACKAGES[dependency].npmName),
+      expected.dependencies,
     );
   }
 

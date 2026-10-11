@@ -2,10 +2,7 @@
 
 import { AgentSigningAuthority, Ed25519PublicKey } from "@moltzap/identity";
 import { Config, Effect, Redacted, Schema } from "effect";
-import {
-  credentialMatches,
-  type HarnessMcpCredentials,
-} from "../endpoint/mcp/index.js";
+import type { HarnessMcpCredentials } from "../endpoint/mcp/index.js";
 import {
   type CredentialError,
   credentialText,
@@ -79,8 +76,12 @@ const configuredValues = Config.all({
   mcpRuntimeCredentialFile: Config.redacted(
     Schema.Config("MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE", configuredPath),
   ).pipe(Config.withDefault(undefined)),
-  mcpOwnerCredentialFile: Config.redacted(
-    Schema.Config("MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE", configuredPath),
+  mcpManagementSocket: Schema.Config(
+    "MOLTZAPD_MCP_MANAGEMENT_SOCKET",
+    configuredPath,
+  ).pipe(Config.withDefault(undefined)),
+  obsoleteOwnerCredential: Config.redacted(
+    "MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE",
   ).pipe(Config.withDefault(undefined)),
 });
 
@@ -93,8 +94,19 @@ export const loadDaemonProcessConfiguration: Effect.Effect<
   DaemonProcessConfiguration,
   DaemonConfigurationError
 > = configuredValues.pipe(
-  Effect.map((configuration): DaemonProcessConfiguration => configuration),
   Effect.mapError(() => configurationError("environment")),
+  Effect.flatMap(({ obsoleteOwnerCredential, ...configuration }) => {
+    if (obsoleteOwnerCredential !== undefined) {
+      return Effect.fail(configurationError("obsolete-mcp-owner-credential"));
+    }
+    if (
+      (configuration.mcpRuntimeCredentialFile === undefined) !==
+      (configuration.mcpManagementSocket === undefined)
+    ) {
+      return Effect.fail(configurationError("mcp-management-socket"));
+    }
+    return Effect.succeed(configuration);
+  }),
   Effect.withSpan("loadDaemonProcessConfiguration"),
 );
 
@@ -113,27 +125,19 @@ const loadMcpCredentials = (
 ): Effect.Effect<HarnessMcpCredentials | undefined, DaemonConfigurationError> =>
   Effect.gen(function* () {
     const runtimePath = configuration.mcpRuntimeCredentialFile;
-    const ownerPath = configuration.mcpOwnerCredentialFile;
-    if (runtimePath === undefined && ownerPath === undefined) {
+    const socket = configuration.mcpManagementSocket;
+    if (runtimePath === undefined && socket === undefined) {
       return undefined;
     }
-    if (runtimePath === undefined || ownerPath === undefined) {
-      return yield* Effect.fail(configurationError("mcp-credential"));
+    if (runtimePath === undefined || socket === undefined) {
+      return yield* Effect.fail(configurationError("mcp-management-socket"));
     }
     const runtime = yield* readCredential(runtimePath, mcpCredential).pipe(
       Effect.mapError(
         credentialFailure("mcp-runtime-credential-file", "mcp-credential"),
       ),
     );
-    const owner = yield* readCredential(ownerPath, mcpCredential).pipe(
-      Effect.mapError(
-        credentialFailure("mcp-owner-credential-file", "mcp-credential"),
-      ),
-    );
-    if (credentialMatches(Redacted.value(runtime), owner)) {
-      return yield* Effect.fail(configurationError("mcp-credential"));
-    }
-    return { runtime, owner };
+    return { runtime };
   });
 
 const loadConfiguredAdmissionCredential = (

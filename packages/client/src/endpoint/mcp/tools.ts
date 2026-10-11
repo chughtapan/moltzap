@@ -53,7 +53,7 @@ import {
   runEventOperation,
   webhookHttpClientLayer,
   webhookStatusJsonSchema,
-} from "./events.js";
+} from "./events/index.js";
 import {
   HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
   HARNESS_READ_EVENT_TOOL,
@@ -94,6 +94,12 @@ import {
   harnessSendArgumentsJsonSchema,
   harnessSendResultJsonSchema,
 } from "./schemas.js";
+import {
+  decodeToolInput,
+  decodeToolInputEffect,
+  validateToolOutput,
+  validateToolOutputEffect,
+} from "./tool-validation.js";
 
 /* eslint-disable agent-code-guard/async-keyword -- Official MCP factories and callbacks are Promise-native. */
 
@@ -133,6 +139,8 @@ export interface HarnessMcpOperations extends DeliveryOperations {
 
 /** Official handler with one content-free daemon notification edge. */
 export interface HarnessMcpEventHandler extends McpHttpHandler {
+  /** Daemon-owned socket dispatch; HTTP input never chooses this authority. */
+  readonly management: McpHttpHandler;
   readonly hasActiveSubscription: () => boolean;
   readonly notifyPending: () => boolean;
 }
@@ -264,53 +272,38 @@ const toolResult = <Value extends Readonly<Record<string, unknown>>>(
   structuredContent,
 });
 
-// #ignore-sloppy-code-next-line[async-keyword]: Standard Schema validation is Promise-capable, and MCP request callbacks consume its result through the SDK's native Promise contract.
-const decodeToolInput = async <Value>(
-  schema: StandardSchemaV1<unknown, Value>,
-  value: unknown,
-  toolName: string,
+const operationFailure = (
+  cause: Cause.Cause<ClosedOperationError>,
+  options: Omit<
+    RunOperationOptions<HarnessEmptyResult>,
+    "operation" | "signal"
+  >,
 ) => {
-  const decoded = await schema["~standard"].validate(value);
-  if (!("value" in decoded)) {
-    throw new ProtocolError(
-      ProtocolErrorCode.InvalidParams,
-      `Invalid arguments for tool ${toolName}`,
-    );
-  }
-  return decoded.value;
+  const expectedFailure = Option.match(Cause.dieOption(cause), {
+    onNone: () => Cause.failureOption(cause),
+    onSome: () => Option.none(),
+  });
+  const reason = Option.match(expectedFailure, {
+    onNone: () => options.fallbackReason,
+    onSome: (failure) =>
+      operationReason(failure, options.allowedReasons, options.fallbackReason),
+  });
+  return new ProtocolError(
+    ProtocolErrorCode.InternalError,
+    `${options.label} failed`,
+    { reason },
+  );
 };
 
-// #ignore-sloppy-code-next-line[async-keyword]: MCP tool handlers are Promise callbacks, so this edge awaits Effect before returning the SDK result.
-const runOperation = async <Value extends Readonly<Record<string, unknown>>>(
-  options: RunOperationOptions<Value>,
-) => {
-  const outcome = await Effect.runPromiseExit(options.operation, {
-    signal: options.signal,
-  });
-  if (Exit.isFailure(outcome)) {
-    const expectedFailure = Option.match(Cause.dieOption(outcome.cause), {
-      onNone: () => Cause.failureOption(outcome.cause),
-      onSome: () => Option.none(),
-    });
-    const reason = Option.match(expectedFailure, {
-      onNone: () => options.fallbackReason,
-      onSome: (failure) =>
-        operationReason(
-          failure,
-          options.allowedReasons,
-          options.fallbackReason,
-        ),
-    });
-    throw new ProtocolError(
-      ProtocolErrorCode.InternalError,
-      `${options.label} failed`,
-      {
-        reason,
-      },
-    );
-  }
-  return toolResult(outcome.value);
-};
+/** Keep persistence in the caller's fiber so revocation owns the whole receipt commit. */
+const projectOperation = <Value extends Readonly<Record<string, unknown>>>(
+  options: Omit<RunOperationOptions<Value>, "signal">,
+) =>
+  options.operation.pipe(
+    Effect.sandbox,
+    Effect.mapError((cause) => operationFailure(cause, options)),
+    Effect.map(toolResult),
+  );
 
 // #ignore-sloppy-code-next-line[async-keyword]: MCP tool handlers are Promise callbacks, so this edge awaits Effect before returning the SDK result.
 const runSendOperation = async (
@@ -332,33 +325,28 @@ const runSendOperation = async (
   return toolResult(outcome.value);
 };
 
-// #ignore-sloppy-code-next-line[async-keyword]: Standard Schema output validation is Promise-capable and runs inside the MCP SDK's Promise callback contract.
-const validateToolOutput = async <
-  Value,
-  Result extends Readonly<{ structuredContent: Value }>,
->(
-  schema: StandardSchemaV1<unknown, Value>,
-  result: Result,
-  toolName: string,
-) => {
-  const decoded = await schema["~standard"].validate(result.structuredContent);
-  if (!("value" in decoded)) {
-    throw new ProtocolError(
-      ProtocolErrorCode.InvalidParams,
-      `Invalid result from tool ${toolName}`,
-    );
-  }
-  return result;
-};
-
-// #ignore-sloppy-code-next-line[async-keyword]: The MCP SDK callback must await both the Promise-native operation bridge and output validation before returning.
-const runValidatedOperation = async <
+const projectValidatedOperation = <
   Value extends Readonly<Record<string, unknown>>,
 >(
   schema: StandardSchemaV1<unknown, Value>,
   toolName: string,
+  options: Omit<RunOperationOptions<Value>, "signal">,
+) =>
+  projectOperation(options).pipe(
+    Effect.flatMap((result) =>
+      validateToolOutputEffect(schema, result, toolName),
+    ),
+  );
+
+const runValidatedOperation = <Value extends Readonly<Record<string, unknown>>>(
+  schema: StandardSchemaV1<unknown, Value>,
+  toolName: string,
   options: RunOperationOptions<Value>,
-) => await validateToolOutput(schema, await runOperation(options), toolName);
+) =>
+  runEventOperation(
+    projectValidatedOperation(schema, toolName, options),
+    options.signal,
+  );
 
 /** A tool's catalog entry: its description and schemas. */
 interface ToolListing {
@@ -616,61 +604,62 @@ const handleSendToolCall = async (
   );
 };
 
-// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
-const handleAcknowledgeDeliveryToolCall = async (
+const handleAcknowledgeDeliveryToolCall = (
   input: ToolCallInput,
   operations: HarnessMcpOperations,
-) => {
-  const decoded = await decodeToolInput(
+): Effect.Effect<ReturnType<typeof toolResult>, ProtocolError> =>
+  decodeToolInputEffect(
     acknowledgeDeliveryInput,
     input.toolArguments,
     input.name,
+  ).pipe(
+    Effect.flatMap((decoded) =>
+      projectValidatedOperation(emptyOutput, input.name, {
+        operation: operations
+          .acknowledgeDelivery(decoded.deliveryToken)
+          .pipe(Effect.as({})),
+        label: "Delivery acknowledgment",
+        allowedReasons: ACKNOWLEDGE_DELIVERY_REASONS,
+        fallbackReason: "transport-failed",
+      }),
+    ),
   );
-  return await runValidatedOperation(emptyOutput, input.name, {
-    operation: operations
-      .acknowledgeDelivery(decoded.deliveryToken)
-      .pipe(Effect.as<HarnessEmptyResult>({})),
-    label: "Delivery acknowledgment",
-    allowedReasons: ACKNOWLEDGE_DELIVERY_REASONS,
-    fallbackReason: "transport-failed",
-    signal: input.signal,
-  });
-};
 
-// #ignore-sloppy-code-next-line[async-keyword]: Runtime read dispatch validates the selected MCP schema before invoking the operation.
-const handleInboxReadToolCall = async (
+const handleInboxReadToolCall = (
   input: ToolCallInput,
   operations: HarnessMcpOperations,
-) => {
+): Effect.Effect<ReturnType<typeof toolResult>, ProtocolError> => {
   switch (input.name) {
     case HARNESS_READ_EVENT_TOOL:
-      return await runValidatedOperation(readEventOutput, input.name, {
-        operation: operations.readEvent(
-          await decodeToolInput(
-            readEventInput,
-            input.toolArguments,
-            input.name,
-          ),
+      return decodeToolInputEffect(
+        readEventInput,
+        input.toolArguments,
+        input.name,
+      ).pipe(
+        Effect.flatMap((decoded) =>
+          projectValidatedOperation(readEventOutput, input.name, {
+            operation: operations.readEvent(decoded),
+            label: "Event read",
+            allowedReasons: RUNTIME_READ_REASONS,
+            fallbackReason: "persistence-failed",
+          }),
         ),
-        label: "Event read",
-        allowedReasons: RUNTIME_READ_REASONS,
-        fallbackReason: "persistence-failed",
-        signal: input.signal,
-      });
+      );
     case HARNESS_READ_INBOX_TOOL:
-      return await runValidatedOperation(readInboxOutput, input.name, {
-        operation: operations.readInbox(
-          await decodeToolInput(
-            readInboxInput,
-            input.toolArguments,
-            input.name,
-          ),
+      return decodeToolInputEffect(
+        readInboxInput,
+        input.toolArguments,
+        input.name,
+      ).pipe(
+        Effect.flatMap((decoded) =>
+          projectValidatedOperation(readInboxOutput, input.name, {
+            operation: operations.readInbox(decoded),
+            label: "Inbox read",
+            allowedReasons: RUNTIME_READ_REASONS,
+            fallbackReason: "persistence-failed",
+          }),
         ),
-        label: "Inbox read",
-        allowedReasons: RUNTIME_READ_REASONS,
-        fallbackReason: "persistence-failed",
-        signal: input.signal,
-      });
+      );
     default:
       return toolNotFound(input.name);
   }
@@ -682,7 +671,10 @@ const handleActiveToolCall = async (
   operations: HarnessMcpOperations,
 ) => {
   if ([HARNESS_READ_EVENT_TOOL, HARNESS_READ_INBOX_TOOL].includes(input.name)) {
-    return await handleInboxReadToolCall(input, operations);
+    return await runEventOperation(
+      handleInboxReadToolCall(input, operations),
+      input.signal,
+    );
   }
   switch (input.name) {
     case HARNESS_READ_SEND_TOOL:
@@ -707,7 +699,10 @@ const handleActiveToolCall = async (
     case HARNESS_SEND_TOOL:
       return await handleSendToolCall(input, operations);
     case HARNESS_ACKNOWLEDGE_DELIVERY_TOOL:
-      return await handleAcknowledgeDeliveryToolCall(input, operations);
+      return await runEventOperation(
+        handleAcknowledgeDeliveryToolCall(input, operations),
+        input.signal,
+      );
     default:
       return toolNotFound(input.name);
   }
@@ -778,7 +773,24 @@ const handleToolCall = async (
   }
 };
 
-/** Schema failures and refused operations stay on the JSON-RPC error channel. */
+/**
+ * Schema failures and refused operations stay on the JSON-RPC error channel.
+ * Native receipts retain the ownership gate through persistence, including
+ * uncancelable work already accepted before a request abort.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   Request --> Authority{Server-owned authority}
+ *   Authority -->|Private socket| Management[Management operation]
+ *   Authority -->|Runtime| Tool{Native inbox or receipt?}
+ *   Tool -->|No| Model[Runtime tool operation]
+ *   Tool -->|Yes| Gate[Acquire consumer ownership gate]
+ *   Gate --> Generation{Current generation?}
+ *   Generation -->|No| Refuse[Reject stale receiver]
+ *   Generation -->|Yes| Commit[Run persistence in the same fiber]
+ *   Commit --> Release[Release gate after completion or cleanup]
+ * ```
+ */
 const installToolCallHandler = (
   server: McpServer,
   operations: HarnessMcpOperations,
@@ -791,6 +803,25 @@ const installToolCallHandler = (
       metadata: context.mcpReq._meta,
       signal: context.mcpReq.signal,
     };
+    if (operations.protocolActive() && authority.role === "runtime") {
+      switch (input.name) {
+        case HARNESS_READ_INBOX_TOOL:
+        case HARNESS_ACKNOWLEDGE_DELIVERY_TOOL:
+          return runEventOperation(
+            authority.events.nativeOperation(
+              input.metadata,
+              input.name === HARNESS_ACKNOWLEDGE_DELIVERY_TOOL
+                ? handleAcknowledgeDeliveryToolCall(input, operations)
+                : handleInboxReadToolCall(input, operations),
+            ),
+            input.signal,
+          );
+        case HARNESS_READ_SEND_TOOL:
+          return handleActiveToolCall(input, operations);
+        default:
+          break;
+      }
+    }
     return handleToolCall(input, operations, authority);
   });
 };
@@ -830,6 +861,7 @@ const makeServer = (
 const officialHandler = (
   options: HarnessMcpHandlerOptions,
   events: HarnessEvents,
+  management = false,
 ) =>
   createMcpHandler(
     (context) => {
@@ -837,7 +869,9 @@ const officialHandler = (
       if (request === undefined) {
         throw new ProtocolError(-32012, "Authentication required");
       }
-      const role = authenticateHarnessRequest(request, options.credentials);
+      const role = management
+        ? "owner"
+        : authenticateHarnessRequest(request, options.credentials);
       if (role === undefined) {
         throw new ProtocolError(-32012, "Authentication required");
       }
@@ -847,11 +881,15 @@ const officialHandler = (
   );
 const guardedHandler = (
   options: HarnessMcpHandlerOptions,
-  delegate: McpHttpHandler,
+  handlers: {
+    readonly runtime: McpHttpHandler;
+    readonly management: McpHttpHandler;
+  },
   events: HarnessEvents,
   scope: Scope.CloseableScope,
 ): HarnessMcpEventHandler => ({
-  ...delegate,
+  ...handlers.runtime,
+  management: handlers.management,
   hasActiveSubscription: events.hasActiveSubscription,
   notifyPending: events.notifyPending,
   fetch: (request, requestOptions) =>
@@ -862,12 +900,17 @@ const guardedHandler = (
             headers: { "www-authenticate": "Bearer" },
           }),
         )
-      : delegate.fetch(request, requestOptions),
+      : handlers.runtime.fetch(request, requestOptions),
   close: () =>
     Effect.runPromise(
       events.close.pipe(
         Effect.ensuring(
-          Effect.tryPromise(() => delegate.close()).pipe(Effect.ignore),
+          Effect.all(
+            [handlers.runtime, handlers.management].map((handler) =>
+              Effect.tryPromise(() => handler.close()).pipe(Effect.ignore),
+            ),
+            { concurrency: 2, discard: true },
+          ),
         ),
         Effect.ensuring(Scope.close(scope, Exit.void)),
       ),
@@ -897,6 +940,9 @@ const acquireHandler = (
     const webhook = yield* acquireWebhook(options, scope, gate);
     const events = yield* makeHarnessEvents({
       ...(webhook === undefined ? {} : { webhook }),
+      ...(options.eventStore === undefined
+        ? {}
+        : { eventStore: options.eventStore }),
       summary: options.operations.readInboxSummary,
       protocolActive: options.operations.protocolActive,
       gate,
@@ -905,7 +951,10 @@ const acquireHandler = (
     });
     return guardedHandler(
       options,
-      officialHandler(options, events),
+      {
+        runtime: officialHandler(options, events),
+        management: officialHandler(options, events, true),
+      },
       events,
       scope,
     );

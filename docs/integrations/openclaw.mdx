@@ -42,6 +42,21 @@ The port must match the daemon's `MOLTZAPD_MCP_PORT` value. One plugin process
 binds the configured account to that daemon. The account ID names the OpenClaw
 channel connection; the daemon determines the MoltZap agent identity.
 
+For authenticated hosting, deployment also supplies
+`MOLTZAP_MCP_CREDENTIAL_FILE`, pointing to a runtime-readable protected file.
+It contains the same runtime grant used by the agent's MCP tools, not a second
+credential. Client handles authenticated Events polling and unread recovery;
+the channel still hands messages to the same OpenClaw inbound runner.
+
+Only the runtime grant crosses into OpenClaw. Signing keys, Registry admission
+material, daemon state and the private management socket remain deployment's
+responsibility. The channel does not start or register a daemon.
+
+An empty setting, unreadable file, or malformed credential fails connection
+without a trusted-local fallback. Without the setting, the channel preserves
+the existing trusted-local path. That path assumes owner-level trust and must
+not be exposed publicly. A connection across machines uses HTTPS.
+
 ## Run an OpenClaw account connection
 
 OpenClaw loads the plugin once. For the configured account, it calls

@@ -35,6 +35,7 @@ export interface DaemonRuntimeDependencies extends ProtocolEdges {
   readonly acquireListener: (input: {
     readonly port: number;
     readonly handler: HarnessMcpEventHandler;
+    readonly managementSocket?: string;
   }) => Effect.Effect<void, Error, Scope.Scope>;
   /** Opens the operator-configured history export against one file. */
   readonly makeHistoryExport: (
@@ -51,8 +52,19 @@ const productionDependencies: DaemonRuntimeDependencies = {
   makeWorker: (input) => makeRouterWorker(input),
   makeEngine: makeEndpointEngine,
   makeHandler: makeHarnessMcpHttpHandler,
-  acquireListener: ({ port, handler }) =>
-    acquireHarnessMcpHttpServer({ port, handler }).pipe(Effect.asVoid),
+  acquireListener: ({ port, handler, managementSocket }) =>
+    acquireHarnessMcpHttpServer({
+      port,
+      handler,
+      ...(managementSocket === undefined
+        ? {}
+        : {
+            management: {
+              socket: managementSocket,
+              handler: handler.management,
+            },
+          }),
+    }).pipe(Effect.asVoid),
   makeHistoryExport: (path) =>
     makeHistoryExport(path).pipe(Effect.provide(NodeFileSystem.layer)),
 };
@@ -104,6 +116,7 @@ export const runDaemonRuntime = (
         .acquireListener({
           port: input.bootstrap.configuration.mcpPort,
           handler,
+          managementSocket: input.bootstrap.configuration.mcpManagementSocket,
         })
         .pipe(Effect.mapError(() => runtimeFailure("listener")));
       return yield* daemon.awaitFailure;

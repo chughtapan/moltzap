@@ -1,6 +1,6 @@
 /** @file The structural capability one scoped endpoint connection gives its host. */
 
-import { Data, type Effect, type Stream } from "effect";
+import { Data, type Effect, type Redacted, type Stream } from "effect";
 import type {
   CollectiveError,
   FailureDelivery,
@@ -30,8 +30,28 @@ export class ConnectError extends Data.TaggedError("ConnectError")<{
 
 /** One inbound item plus its transport-only acknowledgment. */
 export interface InboundDelivery {
+  /** Stable immutable reference for native custody and duplicate-wakeup handling. */
+  readonly eventId: string;
   readonly item: InboundItem;
   readonly acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>;
+}
+
+/** Explicit remote authentication and native receive mode, without SDK or management authority. */
+export interface HarnessEndpointOptions {
+  readonly credential?: Redacted.Redacted;
+  /** Defaults to polling with a credential, or native push for a trusted-local host. */
+  readonly delivery?:
+    | "push"
+    | "poll"
+    | Readonly<{
+        mode: "webhook";
+        /** Public HTTPS callback routed to the scoped loopback receiver. */
+        url: string;
+        /** Deployment's private callback port; no management endpoint is served here. */
+        port: number;
+        /** Host-local signal after the stream binds and its authenticated subscription is accepted, not after a delivery. */
+        onReady?: Effect.Effect<void>;
+      }>;
 }
 
 /**

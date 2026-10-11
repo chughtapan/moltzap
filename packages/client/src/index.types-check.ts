@@ -16,7 +16,15 @@
  * so any change these canaries catch is a breaking release.
  */
 
-import type { DateTime, Effect, Either, Scope, Stream, Types } from "effect";
+import type {
+  DateTime,
+  Effect,
+  Either,
+  Redacted,
+  Scope,
+  Stream,
+  Types,
+} from "effect";
 import type {
   acquireHarnessEndpoint,
   AgentAddress,
@@ -29,6 +37,7 @@ import type {
   GroupAddress,
   GroupMessage,
   HarnessEndpoint,
+  HarnessEndpointOptions,
   HistoryExportRecord,
   InboundDelivery,
   InboundItem,
@@ -134,6 +143,7 @@ type ExpectedInboundItem =
       error: string;
     }>;
 type ExpectedDelivery = Readonly<{
+  eventId: string;
   item: InboundItem;
   acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>;
 }>;
@@ -233,6 +243,7 @@ type ListenReasonsAreExact = Expect<
     ListenError["reason"],
     | "already-listening"
     | "incompatible-daemon"
+    | "consumer-revoked"
     | "transport-failed"
     | "decode-failed"
   >
@@ -244,6 +255,7 @@ type AcknowledgeReasonsAreExact = Expect<
     | "delivery-conflict"
     | "persistence-failed"
     | "transport-failed"
+    | "consumer-revoked"
   >
 >;
 type ConnectReasonsAreExact = Expect<
@@ -253,7 +265,27 @@ type ConnectReasonsAreExact = Expect<
   >
 >;
 type AcquisitionIsScoped = Expect<
-  Types.Equals<Parameters<typeof acquireHarnessEndpoint>, [endpoint: URL]>
+  Types.Equals<
+    Parameters<typeof acquireHarnessEndpoint>,
+    [endpoint: URL, options?: HarnessEndpointOptions]
+  >
+>;
+type EndpointOptionsAreExact = Expect<
+  Types.Equals<
+    HarnessEndpointOptions,
+    {
+      readonly credential?: Redacted.Redacted;
+      readonly delivery?:
+        | "push"
+        | "poll"
+        | Readonly<{
+            mode: "webhook";
+            url: string;
+            port: number;
+            onReady?: Effect.Effect<void>;
+          }>;
+    }
+  >
 >;
 type AcquisitionResultIsExact = Expect<
   Types.Equals<
@@ -283,5 +315,6 @@ export type HarnessEndpointCanaries = [
   AcknowledgeReasonsAreExact,
   ConnectReasonsAreExact,
   AcquisitionIsScoped,
+  EndpointOptionsAreExact,
   AcquisitionResultIsExact,
 ];

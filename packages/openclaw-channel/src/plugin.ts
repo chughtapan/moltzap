@@ -34,11 +34,14 @@ import {
   Either,
   JSONSchema,
   Option,
+  Redacted,
   Schema,
   Stream,
 } from "effect";
 import { absurd } from "effect/Function";
 import { randomUUID } from "node:crypto";
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- OpenClaw's Promise-native process reads its protected deployment grant at this acquisition edge, without a daemon or filesystem service.
+import { readFile } from "node:fs/promises";
 import { jsonResult } from "openclaw/plugin-sdk/channel-actions";
 import {
   type ChannelPlugin,
@@ -59,6 +62,14 @@ const CHANNEL_ID = "moltzap";
 const TARGET_HINT =
   'Use an explicit "agent:<name>" or "group:<member>,<member>,..." address';
 const LOG_PREVIEW_CHARS = 80;
+const CREDENTIAL_FILE_VARIABLE = "MOLTZAP_MCP_CREDENTIAL_FILE";
+const credentialFile = Config.redacted(CREDENTIAL_FILE_VARIABLE).pipe(
+  Config.validate({
+    message: "must name a runtime credential file",
+    validation: (path) => Redacted.value(path).length > 0,
+  }),
+  Config.option,
+);
 
 /**
  * Experiment control for evaluations that compare agents with and without
@@ -602,11 +613,35 @@ function acquireAccountEndpoint(
   if (injected !== undefined) {
     return Effect.succeed(injected);
   }
-  return configuredMcpEndpoint().pipe(Effect.flatMap(acquireHarnessEndpoint));
+  return acquireConfiguredEndpoint();
 }
 
-function configuredMcpEndpoint() {
-  return Config.url("MOLTZAP_MCP_URL");
+/** Only an absent grant-file setting selects trusted-local access; configured failures remain closed. */
+function acquireConfiguredEndpoint() {
+  return Effect.gen(function* () {
+    const endpoint = yield* Config.url("MOLTZAP_MCP_URL");
+    const path = yield* credentialFile;
+    const credential = yield* Option.match(path, {
+      onNone: () => Effect.succeed(undefined),
+      onSome: readRuntimeCredential,
+    });
+    return yield* acquireHarnessEndpoint(
+      endpoint,
+      credential === undefined ? {} : { credential },
+    );
+  }).pipe(Effect.withSpan("OpenClaw.acquireConfiguredEndpoint"));
+}
+
+function readRuntimeCredential(path: Redacted.Redacted) {
+  return Effect.tryPromise({
+    try: (signal) =>
+      readFile(Redacted.value(path), { encoding: "utf8", signal }),
+    catch: () =>
+      ConfigError.InvalidData(
+        [CREDENTIAL_FILE_VARIABLE],
+        "could not read the runtime credential file",
+      ),
+  }).pipe(Effect.map(Redacted.make));
 }
 
 function runAccountConnection(

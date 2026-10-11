@@ -6,23 +6,17 @@ import {
   type ServerContext,
   SUBSCRIPTION_ID_META_KEY,
 } from "@modelcontextprotocol/server";
-import {
-  Cause,
-  Deferred,
-  Effect,
-  Exit,
-  JSONSchema,
-  Option,
-  Queue,
-  Schema,
-  Scope,
-} from "effect";
+import { Cause, Deferred, Effect, Exit, Option, Queue, Scope } from "effect";
 import { randomUUID } from "node:crypto";
-import type { InboxSummary } from "../../store/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
-import { exactStruct } from "../../transport/wire/values.js";
+import type { EventStore } from "../../../delivery/operations.js";
+import type { InboxSummary } from "../../../store/index.js";
+import { itemEventDataJsonSchema } from "../../event-contract/index.js";
+import { INBOX_ITEM_EVENT, INBOX_PENDING_EVENT } from "../names.js";
+import { type HarnessPollEvents, makeHarnessPollEvents } from "./poll.js";
 import {
   eventListInput,
+  type EventPollInput,
+  eventPollInput,
   type EventStreamInput,
   eventStreamInput,
   type EventSubscribeInput,
@@ -31,34 +25,13 @@ import {
   eventUnsubscribeInput,
   type HarnessWebhookEvents,
   type WebhookStatus,
-} from "./event-schemas.js";
-import { INBOX_ITEM_EVENT, INBOX_PENDING_EVENT } from "./names.js";
+} from "./schemas.js";
 /** Durable callback delivery shares this consumer boundary. */
 export { makeWebhookEvents } from "./webhook.js";
 /** Owner-only diagnostics use the same closed status schema. */
-export { webhookStatusJsonSchema } from "./event-schemas.js";
+export { webhookStatusJsonSchema } from "./schemas.js";
 /** Effect HTTP connection policy for callback delivery. */
-export { webhookHttpClientLayer } from "./event-signing.js";
-
-/** Inline content or an explicit reference without truncating stored content. */
-const itemEventDataSchema = Schema.Union(
-  exactStruct({ kind: Schema.Literal("item"), item: InboundItem }),
-  exactStruct({
-    kind: Schema.Literal("reference"),
-    itemKind: Schema.Literal(
-      "multicast",
-      "collectiveRequest",
-      "collectiveResult",
-      "operationFailed",
-    ),
-    bytes: Schema.NonNegativeInt,
-  }),
-);
-
-/** Classified webhook payload advertised through MCP event discovery. */
-const itemEventDataJsonSchema = JSONSchema.make(itemEventDataSchema, {
-  target: "jsonSchema2020-12",
-});
+export { webhookHttpClientLayer } from "./signing.js";
 
 interface ActivePush {
   readonly context: ServerContext;
@@ -73,10 +46,11 @@ interface EventsOptions {
     InboxSummary,
     { readonly reason: string }
   >;
-  /** Whether the daemon's protocol is up; a subscription needs it. */
+  /** True only while the daemon's registered protocol lifecycle is active. */
   readonly protocolActive: () => boolean;
   readonly gate: Effect.Semaphore;
   readonly webhook?: HarnessWebhookEvents;
+  readonly eventStore?: EventStore;
   readonly keepAliveMillis?: number;
   readonly onActiveChange?: (active: boolean) => void;
 }
@@ -90,6 +64,10 @@ export interface HarnessEvents {
   readonly status: Effect.Effect<WebhookStatus, ProtocolError>;
   readonly revoke: Effect.Effect<void, ProtocolError>;
   readonly resume: Effect.Effect<void, ProtocolError>;
+  readonly nativeOperation: <A, E>(
+    metadata: unknown,
+    operation: Effect.Effect<A, E>,
+  ) => Effect.Effect<A, E | ProtocolError>;
 }
 
 /**
@@ -175,13 +153,20 @@ interface EventsRuntime {
   readonly options: EventsOptions;
   readonly lifetime: Scope.CloseableScope;
   readonly wakeups: Queue.Queue<boolean>;
+  readonly poll?: HarnessPollEvents;
   active?: ActivePush;
   closed: boolean;
   reportedActive: boolean;
+  revoking: boolean;
 }
+const isPolling = (runtime: EventsRuntime) =>
+  runtime.poll?.hasActiveSubscription() === true;
+const hasWebhook = (runtime: EventsRuntime) =>
+  runtime.options.webhook?.hasActiveSubscription() === true;
+const unavailable = (runtime: EventsRuntime) =>
+  runtime.closed || runtime.revoking || runtime.active !== undefined;
 const hasConsumer = (runtime: EventsRuntime) =>
-  runtime.active !== undefined ||
-  (runtime.options.webhook?.hasActiveSubscription() ?? false);
+  runtime.active !== undefined || isPolling(runtime) || hasWebhook(runtime);
 const reportOwnership = (runtime: EventsRuntime) => {
   const active = hasConsumer(runtime);
   if (active !== runtime.reportedActive) {
@@ -281,7 +266,9 @@ const stream = (
       yield* Effect.acquireRelease(
         runtime.options.gate.withPermits(1)(
           Effect.sync(() => {
-            requireAvailable(runtime.closed || hasConsumer(runtime));
+            requireAvailable(
+              runtime.closed || runtime.revoking || hasConsumer(runtime),
+            );
             runtime.active = push;
           }),
         ),
@@ -329,6 +316,24 @@ const streamForPrincipal = (
       )
     : stream(runtime, input, context);
 
+const itemDescriptor = (runtime: EventsRuntime) => ({
+  name: INBOX_ITEM_EVENT,
+  description:
+    "A MoltZap message, collective request, result, or failure. Large events reference their full content through read_event. Processing and notifications follow the user's task configuration.",
+  delivery: [
+    ...(runtime.poll === undefined ? [] : ["poll"]),
+    ...(runtime.options.webhook === undefined ? [] : ["webhook"]),
+  ],
+  inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  payloadSchema: itemEventDataJsonSchema,
+});
+const eventCatalog = (runtime: EventsRuntime, principal: string) => [
+  ...(principal === "runtime" ? [] : [descriptor()]),
+  ...(runtime.poll !== undefined || runtime.options.webhook !== undefined
+    ? [itemDescriptor(runtime)]
+    : []),
+];
+
 const installReadHandlers = (
   runtime: EventsRuntime,
   server: McpServer["server"],
@@ -341,27 +346,7 @@ const installReadHandlers = (
       if (input.cursor !== undefined) {
         throw new ProtocolError(-32602, "Invalid event catalog cursor");
       }
-      return {
-        events: [
-          ...(principal === "runtime" ? [] : [descriptor()]),
-          ...(runtime.options.webhook !== undefined && principal !== undefined
-            ? [
-                {
-                  name: INBOX_ITEM_EVENT,
-                  description:
-                    "A MoltZap message, collective request, result, or failure. Large events reference their full content through read_event. Processing and notifications follow the user's task configuration.",
-                  delivery: ["webhook"],
-                  inputSchema: {
-                    type: "object",
-                    properties: {},
-                    additionalProperties: false,
-                  },
-                  payloadSchema: itemEventDataJsonSchema,
-                },
-              ]
-            : []),
-        ],
-      };
+      return { events: eventCatalog(runtime, principal) };
     },
   );
   server.setRequestHandler(
@@ -400,7 +385,7 @@ const subscribe = (
       input,
       principal,
       Effect.sync(() => {
-        requireAvailable(runtime.closed || runtime.active !== undefined);
+        requireAvailable(unavailable(runtime) || isPolling(runtime));
       }),
     )
     .pipe(
@@ -443,6 +428,15 @@ const install = (
 ) => {
   installReadHandlers(runtime, server, principal);
   server.setRequestHandler(
+    "events/poll",
+    { params: eventPollInput },
+    (input, context) =>
+      runEventOperation(
+        poll(runtime, input, context.mcpReq._meta),
+        context.mcpReq.signal,
+      ),
+  );
+  server.setRequestHandler(
     "events/subscribe",
     { params: eventSubscribeInput },
     (input, context) =>
@@ -461,9 +455,49 @@ const install = (
       ),
   );
 };
+
+/**
+ * Poll reserves the same consumer slot as native push and durable callbacks.
+ * @param runtime Shared consumer ownership and lifecycle.
+ * @param input Validated draft polling request.
+ * @param metadata Request-owned lifecycle binding, never management authority.
+ * @returns A bounded replay page or a closed protocol refusal.
+ */
+function poll(
+  runtime: EventsRuntime,
+  input: EventPollInput,
+  metadata: unknown,
+) {
+  return Effect.suspend(() => {
+    requireProtocolActive(runtime.options);
+    if (runtime.poll === undefined) {
+      return Effect.fail(
+        new ProtocolError(-32014, "Native polling is unavailable", {
+          feature: "poll",
+        }),
+      );
+    }
+    return runtime.poll
+      .poll(
+        input,
+        metadata,
+        Effect.sync(() => {
+          requireAvailable(unavailable(runtime) || hasWebhook(runtime));
+        }),
+      )
+      .pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            reportOwnership(runtime);
+          }),
+        ),
+      );
+  });
+}
 const close = (runtime: EventsRuntime) =>
   Effect.gen(function* () {
     runtime.closed = true;
+    yield* runtime.poll?.revoke ?? Effect.void;
     const push = runtime.active;
     if (push !== undefined) {
       yield* Deferred.succeed(push.stop, undefined);
@@ -478,20 +512,34 @@ const status = (
     if (runtime.active !== undefined) {
       return Effect.succeed({ mode: "push" });
     }
+    if (runtime.poll?.hasActiveSubscription() === true) {
+      return runtime.poll.status;
+    }
     return runtime.options.webhook?.status ?? Effect.succeed({ mode: "none" });
   });
 const revoke = (runtime: EventsRuntime) =>
   Effect.gen(function* () {
     yield* runtime.options.gate.withPermits(1)(
-      Effect.suspend(() =>
-        runtime.active === undefined
-          ? Effect.void
-          : Deferred.succeed(runtime.active.stop, undefined),
-      ),
+      Effect.gen(function* () {
+        runtime.revoking = true;
+        if (runtime.active !== undefined) {
+          yield* Deferred.succeed(runtime.active.stop, undefined);
+        }
+      }),
     );
+    yield* runtime.poll?.revoke ?? Effect.void;
     yield* runtime.options.webhook?.revoke ?? Effect.void;
-    reportOwnership(runtime);
-  });
+  }).pipe(
+    Effect.ensuring(
+      runtime.options.gate.withPermits(1)(
+        Effect.sync(() => {
+          runtime.revoking = false;
+          reportOwnership(runtime);
+        }),
+      ),
+    ),
+    Effect.uninterruptible,
+  );
 const assembled = (runtime: EventsRuntime): HarnessEvents => ({
   install: (server, principal) => {
     install(runtime, server, principal);
@@ -510,6 +558,14 @@ const assembled = (runtime: EventsRuntime): HarnessEvents => ({
   resume: (runtime.options.webhook?.resume ?? Effect.void).pipe(
     Effect.tap(() => Effect.sync(() => runtime.wakeups.unsafeOffer(true))),
   ),
+  nativeOperation: (metadata, operation) =>
+    runtime.poll === undefined
+      ? Effect.fail(
+          new ProtocolError(-32014, "Native polling is unavailable", {
+            feature: "poll",
+          }),
+        )
+      : runtime.poll.nativeOperation(metadata, operation),
 });
 
 /**
@@ -523,12 +579,18 @@ export const makeHarnessEvents = (
   Effect.gen(function* () {
     const lifetime = yield* Scope.make();
     const wakeups = yield* Queue.sliding<boolean>(1);
+    const poll =
+      options.eventStore === undefined
+        ? undefined
+        : yield* makeHarnessPollEvents(options.eventStore, options.gate);
     const runtime: EventsRuntime = {
       options,
       lifetime,
       wakeups,
       closed: false,
       reportedActive: false,
+      revoking: false,
+      ...(poll === undefined ? {} : { poll }),
     };
     yield* Scope.addFinalizer(lifetime, Queue.shutdown(wakeups));
     yield* Queue.take(wakeups).pipe(
@@ -536,7 +598,7 @@ export const makeHarnessEvents = (
       Effect.forever,
       Effect.forkIn(lifetime),
     );
-    if (options.webhook !== undefined) {
+    if (options.webhook !== undefined || poll !== undefined) {
       yield* Effect.sleep(1000).pipe(
         Effect.tap(() => Effect.sync(() => wakeups.unsafeOffer(true))),
         Effect.forever,

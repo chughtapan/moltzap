@@ -7,9 +7,10 @@
 export {
   ConnectError,
   type HarnessEndpoint,
+  type HarnessEndpointOptions,
   type InboundDelivery,
 } from "./endpoint/harness-endpoint/index.js";
-/** Acquire the structural endpoint for one loopback daemon endpoint. */
+/** Acquire one scoped semantic endpoint with explicit native delivery and runtime authentication. */
 // safer-arch-ignore no-public-vendor-type-leak: URL is the platform-standard endpoint locator required by the public acquisition contract.
 export { acquireHarnessEndpoint } from "./endpoint/harness-endpoint/index.js";
 /** One line of the daemon's optional history export. */

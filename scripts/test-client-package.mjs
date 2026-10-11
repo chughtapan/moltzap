@@ -88,9 +88,14 @@ async function verifyPackedManifest(archive, manifest) {
 const hostModules = new Set([
   "dist/delivery/history-export.js",
   "dist/delivery/operations.js",
+  "dist/endpoint/event-contract/index.js",
   "dist/endpoint/harness-endpoint/capability.js",
   "dist/endpoint/harness-endpoint/events.js",
+  "dist/endpoint/harness-endpoint/failures.js",
   "dist/endpoint/harness-endpoint/index.js",
+  "dist/endpoint/harness-endpoint/poll.js",
+  "dist/endpoint/harness-endpoint/webhook.js",
+  "dist/endpoint/harness-endpoint/webhook-http.js",
   "dist/endpoint/implementation.js",
   "dist/endpoint/mcp/names.js",
   "dist/index.js",
@@ -117,6 +122,7 @@ const hostPackages = new Set([
   "canonicalize",
   "effect",
   "node:crypto",
+  "node:http",
 ]);
 
 /**

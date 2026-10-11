@@ -17,7 +17,7 @@
     "lint": "pnpm nx run workspace:lint",
     "arch:check": "NODE_OPTIONS=--max-old-space-size=8192 nx run-many -t arch:check",
     "arch:config:generate": "node scripts/architecture/gen-configs.mjs",
-    "arch:config:check": "pnpm arch:config:generate && test -z \"$(git ls-files --others --exclude-standard -- 'packages/*/safer-architecture.config.json')\" && git diff --exit-code -- 'packages/*/safer-architecture.config.json'",
+    "arch:config:check": "pnpm arch:config:generate && test -z \"$(git ls-files --others --exclude-standard -- 'packages/*/safer-architecture.config.json' 'plugins/safer-architecture.config.json')\" && git diff --exit-code -- 'packages/*/safer-architecture.config.json' 'plugins/safer-architecture.config.json'",
     "lint:root": "tsc --noEmit -p tsconfig.eslint.json && agent-code-guard-knip --treat-config-hints-as-errors && eslint . --cache --max-warnings=0",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
@@ -35,6 +35,7 @@
     "docs:test": "pnpm nx run workspace:test",
     "test:compute-next-version": "bash scripts/release/compute-next-version.test.sh",
     "test:npm-version-exists": "bash scripts/release/npm-version-exists.test.sh",
+    "test:native-release": "node --test scripts/release/native-assets.test.mjs",
     "prepare": "husky && node scripts/setup/restore-tsgo-exec-bit.mjs",
     "effect:source": "./scripts/setup/prepare-effect.sh",
     "test:affected": "nx affected -t test"

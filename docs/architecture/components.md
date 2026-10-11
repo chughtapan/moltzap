@@ -32,13 +32,21 @@ serves one loopback `/mcp` endpoint:
 |---|---|
 | trusted-local, unregistered | `register`, `status` |
 | trusted-local, registered | `status`, `search_agents`, `search_conversations`, `read_conversation`, `send_message`, `acknowledge_delivery`, `read_inbox`, `read_event`, `read_send`, plus draft MCP Events |
-| authenticated owner | The local catalog plus event subscription status, revoke and resume tools |
+| private management socket | The local catalog plus event subscription status, revoke and resume tools |
 | authenticated runtime, unregistered | No tools |
 | authenticated runtime, registered | `send_message`, `read_event`, `search_agents`, plus draft MCP Events |
 
-Registration changes durable daemon state, and the protocol activation it
-starts changes the catalog. There is no profile selector, profile file,
-bespoke CLI, Unix socket, stdio server, second MCP listener, or fallback bind.
+Authenticated HTTP calls always require one runtime credential. Native Client
+code uses the same grant for off-catalog inbox reads, receipts and send recovery;
+the three-tool runtime catalog is not a separate security boundary. Private
+management reuses the same MCP handler/state through deployment exec, without an
+owner token. Socket permissions isolate a distinct runtime account, not root or
+an agent running under the daemon account.
+
+Registration changes durable daemon state; the protocol activation it starts
+changes the catalog. There is
+no profile selector, profile file, bespoke CLI or Unix RPC protocol, stdio server,
+second network MCP listener, or fallback bind.
 
 ## Final packages
 

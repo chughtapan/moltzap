@@ -12,18 +12,18 @@ import {
 } from "@modelcontextprotocol/server";
 import { Chunk, Deferred, Effect, Fiber, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import type { HarnessMessageReadyEvent } from "../../delivery/operations.js";
-import { digest } from "../../__tests__/agent-card-fixtures.js";
-import { loopbackMcpEndpoint } from "../../__tests__/mcp-http-fixtures.js";
-import { DeliveryToken } from "../../store/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
-import { acquireHarnessEndpoint } from "../harness-endpoint/index.js";
-import { type HarnessEvents, makeHarnessEvents } from "./events.js";
-import { INBOX_PENDING_EVENT } from "./names.js";
+import type { HarnessMessageReadyEvent } from "../../../delivery/operations.js";
+import { digest } from "../../../__tests__/agent-card-fixtures.js";
+import { loopbackMcpEndpoint } from "../../../__tests__/mcp-http-fixtures.js";
+import { DeliveryToken } from "../../../store/index.js";
+import { InboundItem } from "../../../transport/collectives/inbound.js";
+import { acquireHarnessEndpoint } from "../../harness-endpoint/index.js";
+import { INBOX_PENDING_EVENT } from "../names.js";
 import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
-} from "./tools.js";
+} from "../tools.js";
+import { type HarnessEvents, makeHarnessEvents } from "./index.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- External MCP error codes and consumer ownership reasons are conformance expectations. */
 

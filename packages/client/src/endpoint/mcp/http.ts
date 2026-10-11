@@ -27,6 +27,11 @@ import {
   type Server as NodeHttpServer,
   type RequestListener,
 } from "node:http";
+import {
+  acquireManagementBindPath,
+  prepareManagementSocket,
+  publishManagementSocket,
+} from "./management-socket.js";
 
 const HARNESS_MCP_PATH = "/mcp";
 const POST_METHOD = "POST";
@@ -36,6 +41,10 @@ const RESPONSE_DRAIN_GRACE_PERIOD = Duration.seconds(1);
 interface HarnessMcpHttpServerOptions {
   readonly port: number;
   readonly handler: McpHttpHandler;
+  readonly management?: {
+    readonly socket: string;
+    readonly handler: McpHttpHandler;
+  };
 }
 
 interface HarnessMcpRequestListener {
@@ -56,6 +65,8 @@ interface ResponseTracker {
   ) => void;
   readonly waitForResponses: Effect.Effect<void>;
 }
+
+type ListenAddress = { readonly socket: string } | { readonly port: number };
 
 const respond = (
   status: number,
@@ -168,6 +179,7 @@ const trackConnections = (server: NodeHttpServer): (() => void) => {
 
 const listen = (
   options: HarnessMcpHttpServerOptions,
+  address: ListenAddress,
 ): Effect.Effect<RunningHarnessMcpHttpServer, Error> =>
   Effect.async<RunningHarnessMcpHttpServer, Error>((resume) => {
     const requests = makeHarnessMcpRequestListener(options.handler);
@@ -177,7 +189,7 @@ const listen = (
       resume(Effect.fail(error));
     };
     server.once("error", onError);
-    server.listen(options.port, LOOPBACK_HOST, () => {
+    const onListening = (): void => {
       server.off("error", onError);
       resume(
         Effect.succeed({
@@ -186,7 +198,12 @@ const listen = (
           waitForResponses: requests.waitForResponses,
         }),
       );
-    });
+    };
+    if ("port" in address) {
+      server.listen(address.port, LOOPBACK_HOST, onListening);
+    } else {
+      server.listen(address.socket, onListening);
+    }
     // #ignore-sloppy-code-next-line[async-keyword]: This is the Effect callback constructor, not JavaScript asynchronous syntax.
     return Effect.async((cancelResume) => {
       server.off("error", onError);
@@ -254,20 +271,52 @@ const release = (
     yield* closeCompletion;
   });
 
-/**
- * Acquire one guarded loopback `/mcp` server on the explicit configured port.
- * @param options Official MCP handler and nonzero listener port.
- * @returns The live Node server bound to the caller's scope.
- */
-export const acquireHarnessMcpHttpServer = (
+/** Listener ownership includes the bound path's Node teardown and request draining. */
+const acquireServer = (
   options: HarnessMcpHttpServerOptions,
-): Effect.Effect<NodeHttpServer, Error, Scope.Scope> =>
+  address: ListenAddress,
+) =>
   // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- The returned Scope requirement owns listener and response teardown.
   Effect.acquireRelease(
-    listen(options).pipe(
+    listen(options, address).pipe(
       Effect.onExit((exit) =>
         Exit.isSuccess(exit) ? Effect.void : closeHandler(options.handler),
       ),
     ),
     (running) => release(running, options),
   ).pipe(Effect.map((running) => running.server));
+
+/**
+ * Owns the guarded loopback `/mcp` listener and optional private management
+ * socket. Both use the same daemon; only the socket's handler has management
+ * authority. A failed bind tears down already-acquired resources with scope.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   configure[Explicit daemon configuration] --> private{Remote access?}
+ *   private -->|Yes| validate[Validate private socket parent and empty path]
+ *   validate --> socket[Bind one private MCP socket]
+ *   socket --> publish[Apply mode 0600 and publish owned link]
+ *   publish --> http[Bind runtime loopback MCP]
+ *   private -->|No| http
+ *   http --> close[Scoped response draining and listener teardown]
+ * ```
+ */
+export const acquireHarnessMcpHttpServer = (
+  options: HarnessMcpHttpServerOptions,
+): Effect.Effect<NodeHttpServer, Error, Scope.Scope> =>
+  Effect.gen(function* () {
+    if (options.management !== undefined) {
+      const socket = yield* prepareManagementSocket(options.management.socket);
+      const bound = yield* acquireManagementBindPath(socket);
+      yield* acquireServer(
+        { port: options.port, handler: options.management.handler },
+        { socket: bound },
+      );
+      yield* publishManagementSocket(bound, socket);
+    }
+    return yield* acquireServer(options, { port: options.port });
+  }).pipe(
+    Effect.onError(() => closeHandler(options.handler)),
+    Effect.withSpan("acquireHarnessMcpHttpServer"),
+  );

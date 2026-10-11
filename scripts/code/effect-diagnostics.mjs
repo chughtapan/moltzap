@@ -3,12 +3,15 @@ import { join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const workspaceRoot = resolve(import.meta.dirname, "..", "..");
-const tsconfigPaths = readdirSync(join(workspaceRoot, "packages"), {
-  withFileTypes: true,
-})
-  .filter((entry) => entry.isDirectory())
-  .map((entry) => join("packages", entry.name, "tsconfig.json"))
-  .filter((configPath) => existsSync(resolve(workspaceRoot, configPath)));
+const tsconfigPaths = [
+  ...readdirSync(join(workspaceRoot, "packages"), {
+    withFileTypes: true,
+  })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join("packages", entry.name, "tsconfig.json"))
+    .filter((configPath) => existsSync(resolve(workspaceRoot, configPath))),
+  "plugins/tsconfig.json",
+];
 
 const diagnosticsByKey = new Map();
 const summaries = [];

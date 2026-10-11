@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import type { EventStore } from "../../delivery/operations.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { makeFixture } from "../../__tests__/router-worker-fixtures.js";
+import { decodePollResult } from "../event-contract/index.js";
 import { HARNESS_SEND_META_KEY } from "./names.js";
 import {
   type HarnessMcpOperations,
@@ -21,7 +22,6 @@ import {
 
 const credentials = {
   runtime: Redacted.make("runtime-secret-for-local-test-0001"),
-  owner: Redacted.make("owner-secret-for-local-test-00001"),
 };
 const info = { name: "local-dot-qualification", version: "1" };
 const unreachable = () =>
@@ -39,7 +39,7 @@ const operations: HarnessMcpOperations = {
   readInboxSummary: () =>
     Effect.succeed({ pendingCount: 0, newestSequence: 0 }),
   readSend: () => Effect.succeed({ state: "absent" }),
-  acknowledgeDelivery: unreachable,
+  acknowledgeDelivery: () => Effect.void,
 };
 const eventStore: EventStore = {
   readEventState: () => Effect.succeed(undefined),
@@ -95,7 +95,7 @@ type Handler = Effect.Effect.Success<
   ReturnType<typeof makeHarnessMcpHttpHandler>
 >;
 const request = (
-  handler: Handler,
+  handler: Pick<Handler, "fetch">,
   method: string,
   params: RequestParams,
   credential: Redacted.Redacted,
@@ -106,9 +106,6 @@ const request = (
 const decodeJson = Schema.decodeUnknown(Schema.parseJson(Schema.Unknown));
 const noCredential = Redacted.make("");
 const deniedTools = [
-  "read_inbox",
-  "read_send",
-  "acknowledge_delivery",
   "read_conversation",
   "search_conversations",
   "status",
@@ -120,6 +117,10 @@ const deniedTools = [
 const rejectedBearers = [
   { bearer: "no", credential: "" },
   { bearer: "a wrong", credential: "wrong" },
+  {
+    bearer: "a retired owner",
+    credential: "owner-secret-for-local-test-00001",
+  },
 ];
 const invalidIdempotencyKeys = [
   { key: "an empty", idempotencyKey: "" },
@@ -180,8 +181,9 @@ const registrationStates = [
 
 /**
  * A handler for a daemon in the given registration state. With `credentials`
- * it authenticates runtime and owner bearers and serves webhook events;
- * without them every request is local.
+ * it authenticates one runtime bearer and serves webhook events; management
+ * dispatch belongs to the private socket. Without credentials every request
+ * on the loopback handler is local.
  */
 const acquireHandler = (
   registered: boolean,
@@ -233,13 +235,26 @@ const callTool = (
   handler: Handler,
   params: RequestParams,
   credential: Redacted.Redacted,
+  management = false,
 ) =>
-  request(handler, "tools/call", params, credential).pipe(
-    Effect.flatMap(decodeJson),
-  );
+  request(
+    management ? handler.management : handler,
+    "tools/call",
+    params,
+    credential,
+  ).pipe(Effect.flatMap(decodeJson));
 
-const listTools = (handler: Handler, credential: Redacted.Redacted) =>
-  request(handler, "tools/list", {}, credential).pipe(
+const listTools = (
+  handler: Handler,
+  credential: Redacted.Redacted,
+  management = false,
+) =>
+  request(
+    management ? handler.management : handler,
+    "tools/list",
+    {},
+    credential,
+  ).pipe(
     Effect.flatMap(Schema.decodeUnknown(toolNames)),
     Effect.map((catalog) =>
       catalog.result.tools
@@ -304,7 +319,7 @@ describe.each(registrationStates)(
 describe.each(registrationStates)(
   "runtime event authority for a daemon that is $state",
   ({ registered }) => {
-    it("lists only the webhook item event to the runtime credential", () =>
+    it("lists the shared poll and webhook item event to the runtime credential", () =>
       verify(
         credentialedHandler(registered),
         (handler) =>
@@ -314,7 +329,9 @@ describe.each(registrationStates)(
         (catalog) => {
           expect(catalog).toMatchObject({
             result: {
-              events: [{ name: "moltzap.inbox.item", delivery: ["webhook"] }],
+              events: [
+                { name: "moltzap.inbox.item", delivery: ["poll", "webhook"] },
+              ],
             },
           });
         },
@@ -342,14 +359,15 @@ describe.each(registrationStates)(
 describe.each(registrationStates)(
   "owner and local authority for a daemon that is $state",
   ({ registered, ownerTools, localTools }) => {
-    it("lets the owner credential read the event subscription status", () =>
+    it("lets private management read the event subscription status without a bearer", () =>
       verify(
         credentialedHandler(registered),
         (handler) =>
           callTool(
             handler,
             { name: "event_subscription_status", arguments: {} },
-            credentials.owner,
+            noCredential,
+            true,
           ),
         (body) => {
           expect(body).toMatchObject({
@@ -358,10 +376,10 @@ describe.each(registrationStates)(
         },
       ));
 
-    it("lists exactly the owner tools to the owner credential", () =>
+    it("lists exactly the owner tools through private management", () =>
       verify(
         credentialedHandler(registered),
-        (handler) => listTools(handler, credentials.owner),
+        (handler) => listTools(handler, noCredential, true),
         (names) => {
           expect(names).toEqual(ownerTools);
         },
@@ -413,25 +431,28 @@ const unlistedCalls = [
     credential: noCredential,
   },
   {
-    caller: "the owner credential",
+    caller: "private management",
     state: "unregistered",
     name: "search_agents",
     given: () => credentialedHandler(false),
-    credential: credentials.owner,
+    credential: noCredential,
+    management: true,
   },
   {
-    caller: "the owner credential",
+    caller: "private management",
     state: "unregistered",
     name: "read_send",
     given: () => credentialedHandler(false),
-    credential: credentials.owner,
+    credential: noCredential,
+    management: true,
   },
   {
-    caller: "the owner credential",
+    caller: "private management",
     state: "registered",
     name: "register",
     given: () => credentialedHandler(true),
-    credential: credentials.owner,
+    credential: noCredential,
+    management: true,
   },
 ];
 
@@ -439,10 +460,11 @@ const unlistedCalls = [
 describe("calls a caller's catalog does not list", () => {
   it.each(unlistedCalls)(
     "refuses $caller a call to $name while $state",
-    ({ name, given, credential }) =>
+    ({ name, given, credential, management }) =>
       verify(
         given(),
-        (handler) => callTool(handler, { name, arguments: {} }, credential),
+        (handler) =>
+          callTool(handler, { name, arguments: {} }, credential, management),
         (body) => {
           expect(body).toMatchObject({
             error: { code: -32602, message: `Tool ${name} not found` },
@@ -473,14 +495,15 @@ describe.each(invalidIdempotencyKeys)(
         },
       ));
 
-    it("refuses the owner credential's read_send", () =>
+    it("refuses private management's malformed read_send", () =>
       verify(
         credentialedHandler(true),
         (handler) =>
           callTool(
             handler,
             { name: "read_send", arguments: { idempotencyKey } },
-            credentials.owner,
+            noCredential,
+            true,
           ),
         (body) => {
           expect(body).toMatchObject({ error: { code: -32602 } });
@@ -513,6 +536,117 @@ describe("tunneled MCP event reads for a registered daemon", () => {
         });
       },
     ));
+});
+
+const nativeCalls = [
+  { name: "read_inbox", arguments: {}, result: { items: [] } },
+  {
+    name: "read_send",
+    arguments: { idempotencyKey: "native-operation" },
+    result: { state: "absent" },
+  },
+  {
+    name: "acknowledge_delivery",
+    arguments: { deliveryToken: digest("dlv_", 1) },
+    result: {},
+  },
+];
+
+const consumerBoundCalls = nativeCalls.filter(
+  ({ name }) => name !== "read_send",
+);
+
+describe.each(consumerBoundCalls)("unbound native $name", (call) => {
+  it("refuses the runtime credential without a current consumer lease", () =>
+    verify(
+      credentialedHandler(true),
+      (handler) => callTool(handler, call, credentials.runtime),
+      (body) => {
+        expect(body).toMatchObject({
+          error: { code: -32012, data: { reason: "consumer-revoked" } },
+        });
+      },
+    ));
+});
+
+it("allows runtime send recovery without acquiring an inbox consumer", () =>
+  verify(
+    credentialedHandler(true),
+    (handler) =>
+      callTool(
+        handler,
+        {
+          name: "read_send",
+          arguments: { idempotencyKey: "native-operation" },
+        },
+        credentials.runtime,
+      ),
+    (body) => {
+      expect(body).toMatchObject({
+        result: { structuredContent: { state: "absent" } },
+      });
+    },
+  ));
+
+const callNativeTool = (handler: Handler, call: RequestParams) =>
+  request(
+    handler,
+    "events/poll",
+    { name: "moltzap.inbox.item", arguments: {}, cursor: null },
+    credentials.runtime,
+  ).pipe(
+    Effect.flatMap(
+      Schema.decodeUnknown(
+        Schema.parseJson(Schema.Struct({ result: Schema.Unknown })),
+      ),
+    ),
+    Effect.flatMap(({ result }) => decodePollResult(result)),
+    Effect.flatMap((started) =>
+      callTool(handler, { ...call, _meta: started._meta }, credentials.runtime),
+    ),
+  );
+
+describe.each(nativeCalls)("off-catalog native $name", (call) => {
+  it("authorizes native code with the model's runtime credential", () =>
+    verify(
+      credentialedHandler(true),
+      (handler) => callNativeTool(handler, call),
+      (body) => {
+        expect(body).toMatchObject({
+          result: { structuredContent: call.result },
+        });
+      },
+    ));
+
+  it("does not run before registration", () =>
+    verify(
+      credentialedHandler(false),
+      (handler) => callTool(handler, call, credentials.runtime),
+      (body) => {
+        expect(body).toMatchObject({ error: { code: -32602 } });
+      },
+    ));
+});
+
+const spoofManagement = (handler: Handler) =>
+  Effect.tryPromise(() => {
+    const incoming = makeRequest(
+      "tools/call",
+      { name: "status", arguments: {}, _meta: { role: "owner" } },
+      Redacted.value(credentials.runtime),
+    );
+    incoming.headers.set("x-moltzap-role", "owner");
+    incoming.headers.set("x-forwarded-for", "127.0.0.1");
+    return handler.fetch(incoming);
+  }).pipe(Effect.flatMap(responseBody), Effect.flatMap(decodeJson));
+
+describe("management authority cannot arrive over HTTP", () => {
+  it("ignores role headers and forwarded addresses on a valid runtime request", () =>
+    verify(credentialedHandler(true), spoofManagement, (body) => {
+      expect(body).toMatchObject({
+        error: { code: -32602, message: "Tool status not found" },
+      });
+    }));
 });
 
 /* eslint-enable agent-code-guard/no-hardcoded-assertion-literals -- Restore repository defaults. */

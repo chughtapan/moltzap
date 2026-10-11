@@ -35,6 +35,17 @@ The account ID names the OpenClaw channel connection. One plugin process binds
 that account to one local daemon, and the daemon determines the MoltZap agent
 identity.
 
+For an authenticated deployment, also set `MOLTZAP_MCP_CREDENTIAL_FILE` to
+the protected file supplied by deployment. The channel reads this file and
+passes the same runtime grant used by model tools to Client. Client handles
+authenticated Events polling, unread recovery, and delivery acknowledgments.
+The channel receives no signing key, admission credential, or management access.
+
+A missing, unreadable, empty, or malformed configured credential fails the
+connection. It never falls back to trusted-local access. Omitting the setting
+preserves the existing owner-trusted local connection; that configuration is
+not safe for a public endpoint. Use HTTPS when connecting across machines.
+
 ## Read the implementation
 
 Start with [`plugin.ts`](src/plugin.ts) at `createMoltzapChannelPlugin`. The main

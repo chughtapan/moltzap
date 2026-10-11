@@ -5,7 +5,9 @@ Status: **normative**
 `HarnessEndpoint` is the sole adapter-facing Client capability. OpenClaw,
 NanoClaw, the simulator, evals, and other runtimes consume this structural scoped
 value or its loopback MCP projection. They do not receive Client protocol,
-Registry, Router, credential, signing, or store capabilities.
+Registry, Router, signing, or store capabilities. Remote acquisition accepts
+only the configured agent's redacted runtime grant; it confers no management
+or deployment authority.
 
 The endpoint exposes operations, not posts. Every send is one collective
 operation, multicast by default, or one response to a collective request, and
@@ -25,6 +27,7 @@ The Client root exports closed Effect Schemas and corresponding types for:
   `MessageTextError`, which read a send from a message's text
   ([message text](#message-text));
 - `InboundMessage`, `InboundItem` and `InboundDelivery`;
+- `HarnessEndpointOptions`, the redacted runtime grant and receive-mode choice;
 - `HistoryExportRecord`, one line of the daemon's optional history export
   (`harness/daemon.md`); and
 - closed `SendError`, `CollectiveError`, `ListenError`,
@@ -150,6 +153,7 @@ type InboundItem =
     }
 
 interface InboundDelivery {
+  readonly eventId: string
   readonly item: InboundItem
   readonly acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>
 }
@@ -165,8 +169,19 @@ interface HarnessEndpoint {
   readonly messages: Stream.Stream<InboundDelivery, ListenError>
 }
 
+interface HarnessEndpointOptions {
+  readonly credential?: Redacted.Redacted
+  readonly delivery?: "push" | "poll" | {
+    readonly mode: "webhook"
+    readonly url: string
+    readonly port: number
+    readonly onReady?: Effect.Effect<void>
+  }
+}
+
 declare function acquireHarnessEndpoint(
   endpoint: URL,
+  options?: HarnessEndpointOptions,
 ): Effect.Effect<HarnessEndpoint, ConnectError, Scope.Scope>
 
 declare function parseMessageText(
@@ -174,6 +189,46 @@ declare function parseMessageText(
   text: string,
 ): Either.Either<SendInput, MessageTextError>
 ```
+
+Acquisition uses the official MCP SDK. A credential defaults receive to
+authenticated polling; no credential defaults to trusted-local push. Explicit
+delivery must be advertised by the daemon or connection fails with
+`incompatible-daemon`. Authentication failure never falls back to local trust.
+Management remains on the deployment's private socket, outside this capability.
+
+Credential-bearing acquisition requires HTTPS or HTTP on literal `127.0.0.1`
+or `[::1]`. URL userinfo and fragments are refused. Unsafe URLs fail with
+`transport-failed` before any network request; plugins share this Client policy
+instead of implementing their own bearer-transport rules.
+
+Webhook receive is lazy: acquiring an endpoint does not bind its callback or
+take an inbox consumer until `messages` is run. An optional host-local `onReady`
+Effect runs only after the private listener is bound and the signed webhook
+subscription is accepted, even when no work is pending. It is not sent over MCP
+and is not delivery acceptance, model wakeup or task completion. Closing the
+stream scope still fences receipts and releases its own subscription.
+
+`messages` owns the sole scoped native consumer. Polling renews its lease while
+callbacks run and recovers retained unread items at startup and after replay
+gaps. A delivery's acknowledgment must run inside that consumer's lifetime,
+after host acceptance. Holding its closure past release, revocation, expiry or
+daemon restart yields `consumer-revoked`; it cannot acknowledge replacement
+work. Stream cancellation releases the slot without accepting pending items.
+
+Every delivery carries its stable immutable `eventId`. A host can retain that
+reference for approved durable wake-work custody or duplicate-wakeup handling;
+it is not a credential, receipt or permission to send. `read_event` retrieves
+the original item even after handoff. Native hosts must not create another
+certified message history to track wake work.
+
+The webhook option requires the same runtime credential. Its public HTTPS
+`url` routes to the scoped loopback listener on `port` (1–65535). The listener
+serves only that exact callback path and query, not MCP or management. Client
+generates private subscription signing state, verifies signed challenges and
+occurrences, resolves references and refreshes the lease. This is not another
+user-configured credential. A native receipt permits HTTP 2xx only after host
+acceptance. Invalid or timed-out callbacks never accept an item, and failed
+startup cannot unsubscribe another receiver. Deployment owns HTTPS routing.
 
 An optional `idempotencyKey` identifies one daemon-local send invocation. Reuse
 it only with the same validated input and failure routing. A keyless call is
@@ -452,10 +507,10 @@ after durably queueing its post, when its drain timed out or lost the Router,
 and the daemon delivers the post once the Router is reachable.
 
 `ListenError.reason` is exactly `already-listening`, `incompatible-daemon`,
-`transport-failed`, or `decode-failed`.
+`consumer-revoked`, `transport-failed`, or `decode-failed`.
 
 `DeliveryAcknowledgeError.reason` is exactly `unknown-delivery`,
-`delivery-conflict`, `persistence-failed`, or `transport-failed`.
+`delivery-conflict`, `persistence-failed`, `consumer-revoked`, or `transport-failed`.
 
 `ConnectError.reason` is exactly `transport-failed`, `decode-failed`, or
 `incompatible-daemon`. Required MCP Events discovery absence or mismatch is
@@ -470,7 +525,7 @@ discovery, inbox and outbox persistence, and retries. Adapters project complete
 inbound items and accept only an explicit addressed outbound operation.
 Client resolves and canonicalizes that outbound address input.
 
-Registration, status, agent search, address/history search, and proof reads
+Registration, status, address/history search, and proof reads
 remain owner-authorized MCP management operations. They are not service
 methods and cannot create a delivery or authorize output.
 

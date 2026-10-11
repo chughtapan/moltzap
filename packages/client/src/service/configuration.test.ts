@@ -280,13 +280,15 @@ describe("history export configuration", () => {
 });
 
 const runtimeToken = "runtime-for-local-test-0000000001";
-const ownerToken = "owner-for-local-test-000000000001";
 const credentialConfiguration = (directory: string) =>
   loadConfiguration(
     directory,
     new Map([
       ["MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE", join(directory, "runtime")],
-      ["MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE", join(directory, "owner")],
+      [
+        "MOLTZAPD_MCP_MANAGEMENT_SOCKET",
+        join(directory, "management", "mcp.sock"),
+      ],
     ]),
   );
 const bootstrapFiles = () => {
@@ -298,7 +300,6 @@ const bootstrapFiles = () => {
 const loadsSeparatedAuthority = async () => {
   const directory = bootstrapFiles();
   writeFileSync(join(directory, "runtime"), runtimeToken);
-  writeFileSync(join(directory, "owner"), ownerToken);
   const bootstrap = await Effect.runPromise(
     credentialConfiguration(directory).pipe(
       Effect.flatMap(loadDaemonBootstrap),
@@ -307,7 +308,10 @@ const loadsSeparatedAuthority = async () => {
   expect(bootstrap.mcpCredentials?.runtime).toEqual(
     Redacted.make(runtimeToken),
   );
-  expect(bootstrap.mcpCredentials?.owner).toEqual(Redacted.make(ownerToken));
+  expect(Object.keys(bootstrap.mcpCredentials ?? {})).toEqual(["runtime"]);
+  expect(bootstrap.configuration.mcpManagementSocket).toBe(
+    join(directory, "management", "mcp.sock"),
+  );
   expect(JSON.stringify(bootstrap.mcpCredentials)).not.toContain(runtimeToken);
   const local = await Effect.runPromise(
     loadConfiguration(directory).pipe(Effect.flatMap(loadDaemonBootstrap)),
@@ -316,13 +320,7 @@ const loadsSeparatedAuthority = async () => {
 };
 const rejectsInvalidAuthority = async () => {
   const directory = bootstrapFiles();
-  writeFileSync(join(directory, "owner"), ownerToken);
-  for (const token of [
-    "short",
-    ownerToken,
-    `${runtimeToken}\n`,
-    `\ufeff${runtimeToken}`,
-  ]) {
+  for (const token of ["short", `${runtimeToken}\n`, `\ufeff${runtimeToken}`]) {
     writeFileSync(join(directory, "runtime"), token);
     expect(
       await Effect.runPromise(
@@ -344,7 +342,14 @@ const rejectsInvalidAuthority = async () => {
     await Effect.runPromise(
       failureReason(partial.pipe(Effect.flatMap(loadDaemonBootstrap))),
     ),
-  ).toBe("mcp-credential");
+  ).toBe("mcp-management-socket");
+  const socketOnly = loadConfiguration(
+    directory,
+    new Map([["MOLTZAPD_MCP_MANAGEMENT_SOCKET", join(directory, "mcp.sock")]]),
+  );
+  expect(await Effect.runPromise(failureReason(socketOnly))).toBe(
+    "mcp-management-socket",
+  );
 };
 const rejectsMissingAuthority = async () => {
   const directory = bootstrapFiles();
@@ -354,24 +359,33 @@ const rejectsMissingAuthority = async () => {
   expect(await Effect.runPromise(failureReason(bootstrap))).toBe(
     "mcp-runtime-credential-file",
   );
-  writeFileSync(join(directory, "runtime"), runtimeToken);
-  expect(await Effect.runPromise(failureReason(bootstrap))).toBe(
-    "mcp-owner-credential-file",
-  );
 };
-// @agent-code-guard/regression-only: exact file bytes and distinct roles are the tunnel authority boundary.
+// @agent-code-guard/regression-only: exact file bytes and paired private management are the remote authority boundary.
 describe("MCP credential configuration", () => {
   it(
-    "loads distinct redacted credentials and retains trusted-local default",
+    "loads one redacted runtime credential and retains trusted-local default",
     loadsSeparatedAuthority,
   );
   it(
-    "rejects partial, shared, short or noncanonical credentials",
+    "rejects partial remote configuration and short or noncanonical credentials",
     rejectsInvalidAuthority,
   );
   it(
     "preserves closed credential file failure categories",
     rejectsMissingAuthority,
+  );
+  it.each(["", "/run/retired-owner"])(
+    "rejects the obsolete owner setting even when its value is %j",
+    async (value) => {
+      const directory = bootstrapFiles();
+      const configured = loadConfiguration(
+        directory,
+        new Map([["MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE", value]]),
+      );
+      expect(await Effect.runPromise(failureReason(configured))).toBe(
+        "obsolete-mcp-owner-credential",
+      );
+    },
   );
 });
 

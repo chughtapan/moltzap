@@ -14,7 +14,6 @@ import { live as it } from "@effect/vitest";
 import {
   CollectiveError,
   type HarnessEndpoint,
-  type InboundDelivery,
   InboundItem,
   InboundMessage,
   ListenError,
@@ -1106,14 +1105,13 @@ function makeInboundEndpoint(
   items: readonly InboundItem[],
   events: string[],
 ): FakeHarnessEndpoint {
-  const deliveries = items.map(
-    (item): InboundDelivery => ({
-      item,
-      acknowledge: Effect.sync(() => {
-        events.push(`ack:${itemTurnId(item)}`);
-      }),
+  const deliveries = items.map((item, index) => ({
+    eventId: `evt_${Encoding.encodeBase64Url(new Uint8Array(32).fill(index + 1))}`,
+    item,
+    acknowledge: Effect.sync(() => {
+      events.push(`ack:${itemTurnId(item)}`);
     }),
-  );
+  }));
   return makeEndpoint(Stream.fromIterable(deliveries), events);
 }
 

@@ -9,7 +9,7 @@ composition, and the assembly that binds the phases into one engine.
 
 ## Public surface
 
-### [`DeliveryAcknowledgeError`](./errors.ts#L103)
+### [`DeliveryAcknowledgeError`](./errors.ts#L105)
 
 _Class_
 
@@ -70,7 +70,7 @@ export const InboundMessage = Schema.Union(
 
 One certified remote-authored post, direct or to a fixed group.
 
-### [`ListenError`](./errors.ts#L82)
+### [`ListenError`](./errors.ts#L83)
 
 _Class_
 

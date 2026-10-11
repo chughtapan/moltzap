@@ -1,0 +1,81 @@
+{
+  "name": "@moltzap/native-plugins",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist",
+    "!dist/tsconfig.tsbuildinfo",
+    "bin",
+    "openai-dot",
+    "muse",
+    "instinct",
+    "grokbot",
+    "openclaw",
+    "install.md",
+    "remote",
+    "README.md"
+  ],
+  "description": "Build and verification of native plugin assets; not an npm product or adapter SDK",
+  "nx": {
+    "targets": {
+      "build": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "plugins",
+          "command": "tsc -b"
+        }
+      },
+      "test": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "plugins",
+          "command": "vitest run"
+        }
+      },
+      "test:pack": {
+        "executor": "nx:run-commands",
+        "dependsOn": ["build", "^build"],
+        "cache": false,
+        "options": {
+          "command": "node scripts/test-native-plugin-assets.mjs"
+        }
+      },
+      "package": {
+        "executor": "nx:run-commands",
+        "dependsOn": ["build", "^build"],
+        "outputs": ["{workspaceRoot}/dist/artifacts/native-plugins"],
+        "cache": false,
+        "options": {
+          "command": "node scripts/package-native-plugins.mjs"
+        }
+      },
+      "typecheck:tests": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "plugins",
+          "command": "tsc -p tsconfig.test.json"
+        }
+      },
+      "lint": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "plugins",
+          "command": "eslint . --cache --max-warnings=0"
+        }
+      },
+      "arch:check": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "plugins",
+          "command": "node ../scripts/architecture/check-package.mjs ."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@effect/platform": "0.97.0",
+    "@effect/platform-node": "0.108.0",
+    "@moltzap/client": "workspace:*",
+    "effect": "3.22.1"
+  }
+}

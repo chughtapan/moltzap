@@ -168,6 +168,11 @@ const clientDomains = [
       "mcp/index.ts",
       "harness-endpoint/index.ts",
       {
+        file: "harness-endpoint/capability.ts",
+        reason:
+          "The one semantic endpoint, delivery and connection-options contract shared by native receive implementations, without SDK or daemon authority",
+      },
+      {
         file: "implementation.ts",
         reason: "The package version both loopback MCP peers report",
       },
@@ -259,6 +264,65 @@ const architectureConfigDefinitions = [
     packageRoot: `packages/${packageName}`,
     definition,
   })),
+  {
+    packageRoot: "plugins",
+    definition: {
+      config: {
+        packageRuntime: "node",
+        folderReadmeFileNames: ["README.md", "../README.md", "../../README.md"],
+        sharedFolderNames: [
+          {
+            folder: "native",
+            reason:
+              "Closed provider handoff contracts shared by email and routine leaves, not another Client or SDK",
+          },
+        ],
+        compositionRoots: [
+          {
+            path: "src/run.ts",
+            reason:
+              "The remote process selects one native provider and composes its acceptance with the public Client delivery stream; no protocol or message semantics live here",
+          },
+        ],
+        publicTypePackages: [
+          publicTypePackage.effect,
+          publicTypePackage.platform,
+          publicTypePackage.client,
+        ],
+        allowedTestPublicSubpaths: [],
+        domains: [
+          {
+            name: "native",
+            roots: ["src/native"],
+            entrypoints: ["src/native/index.ts"],
+            reason:
+              "Closed provider handoff contracts, without Client transport or message reconstruction",
+          },
+          {
+            name: "instinct",
+            roots: ["src/instinct"],
+            entrypoints: ["src/instinct/index.ts"],
+            reason:
+              "Dedicated-sender email acceptance at the native provider edge",
+          },
+          {
+            name: "grokbot",
+            roots: ["src/grokbot"],
+            entrypoints: ["src/grokbot/index.ts"],
+            reason:
+              "Owner-approved native routine acceptance at the provider edge",
+          },
+          {
+            name: "muse",
+            roots: ["src/muse"],
+            entrypoints: ["src/muse/index.ts"],
+            reason:
+              "Fail-closed native hook capability preflight, without credentials or invented host invocation",
+          },
+        ],
+      },
+    },
+  },
   {
     packageRoot: "packages/identity",
     definition: {

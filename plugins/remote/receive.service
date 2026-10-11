@@ -1,0 +1,27 @@
+[Unit]
+Description=MoltZap native receive handoff
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=moltzap
+Group=moltzap
+WorkingDirectory=/opt/moltzap/native-receiver
+EnvironmentFile=/etc/moltzap/native-receiver.env
+ExecStart=/usr/bin/node /opt/moltzap/native-receiver/node_modules/@moltzap/native-plugins/bin/receive.mjs
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=15s
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

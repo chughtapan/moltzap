@@ -75,6 +75,7 @@ export function queuedNetworkFailure(): SendError {
 type ListenFailure =
   | "already-listening"
   | "incompatible-daemon"
+  | "consumer-revoked"
   | "transport-failed"
   | "decode-failed";
 
@@ -93,6 +94,7 @@ export const deliveryAcknowledgeFailureReasons = [
   "delivery-conflict",
   "persistence-failed",
   "transport-failed",
+  "consumer-revoked",
 ] as const;
 
 /** Why one delivery acknowledgment failed. */

@@ -73,6 +73,20 @@
         "src/**/*.ts",
         "*.mjs"
       ]
+    },
+    "plugins": {
+      "entry": [
+        "bin/install-prompt.mjs",
+        "bin/receive.mjs",
+        "src/instinct/index.ts",
+        "src/grokbot/index.ts",
+        "**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "bin/**/*.mjs",
+        "*.mjs"
+      ]
     }
   },
   "ignoreIssues": {

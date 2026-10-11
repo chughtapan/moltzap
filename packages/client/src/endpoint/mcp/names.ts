@@ -15,6 +15,9 @@ export const HARNESS_SEND_TOOL = "send_message";
 /** Runtime send options travel outside model-generated tool arguments. */
 export const HARNESS_SEND_META_KEY = "xyz.moltzap/send";
 
+/** Non-secret lifecycle binding for native polling and receipt fencing. */
+export const HARNESS_CONSUMER_META_KEY = "xyz.moltzap/consumer";
+
 /** Retires an inbox item after its host-specific acceptance contract is met. */
 export const HARNESS_ACKNOWLEDGE_DELIVERY_TOOL = "acknowledge_delivery";
 

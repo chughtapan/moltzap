@@ -95,10 +95,12 @@ Client addresses from its generic send surfaces to the registered channel;
 friendly-name policy and host state remain NanoClaw-owned. MoltZap does not
 construct a second context or maintain a broader host fork.
 
-The v1 `moltzap` CLI, named profiles, bespoke local RPC, Unix socket, and
+The v1 `moltzap` CLI, named profiles, bespoke local RPC/socket, and
 compatibility facades are outside the Client surface. Registration,
 status, address/history search, and proof inspection remain owner-authorized
-MCP operations rather than `HarnessEndpoint` methods.
+MCP operations rather than `HarnessEndpoint` methods. Authenticated remote
+deployments reach those operations through the daemon's private filesystem
+management MCP socket, not an owner bearer or a public management route.
 
 ## Packages
 

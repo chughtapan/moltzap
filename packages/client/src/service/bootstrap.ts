@@ -15,8 +15,9 @@ export type DaemonConfigurationFailure =
   | "admission-credential-file"
   | "admission-credential"
   | "mcp-runtime-credential-file"
-  | "mcp-owner-credential-file"
-  | "mcp-credential";
+  | "mcp-credential"
+  | "mcp-management-socket"
+  | "obsolete-mcp-owner-credential";
 
 /** One non-diagnostic daemon configuration failure. */
 export class DaemonConfigurationError extends Data.TaggedError(
@@ -45,7 +46,8 @@ export interface DaemonProcessConfiguration {
    */
   readonly historyExport?: string;
   readonly mcpRuntimeCredentialFile?: Redacted.Redacted;
-  readonly mcpOwnerCredentialFile?: Redacted.Redacted;
+  /** Private management listener paired with the remote runtime credential. */
+  readonly mcpManagementSocket?: string;
 }
 
 /** Loaded private authority required by daemon registration and network calls. */

@@ -235,9 +235,11 @@ Ledger or local-profile qualifier.
 Each daemon binds only to the fixed loopback address `127.0.0.1` and is
 configured explicitly with its state directory, MCP port, Registry origin and
 admission material, and Router origin. One state directory commits at most one
-AgentId. There is no named profile, profile file, profile selector, bespoke
-CLI, Unix socket, stdio server, second MCP process, address override, or bind
-fallback.
+AgentId. Authenticated remote mode also serves the existing management MCP
+handler on a private filesystem socket, reached through deployment's authorized
+exec path. It shares the Client and state, not runtime authority. There is no
+named profile, profile file, profile selector, bespoke CLI or Unix RPC protocol,
+stdio server, second network MCP process, address override, or bind fallback.
 
 ### Conversations and records
 
@@ -297,8 +299,12 @@ inbox, subscriptions and delivery retries. Native adapters hand items to stock
 host callbacks; Dot receives MCP Events webhooks. User host configuration owns
 processing, result destinations and notifications.
 
-Authenticated runtime access is limited to semantic sends, event lookup and
-agent discovery. Owner credentials permit administration and delivery recovery.
+Authenticated runtime discovery exposes semantic sends, event lookup and
+agent discovery. Native Client code uses the same grant for off-catalog inbox
+reads, exact-token receipts and send recovery. Catalog omission is not a
+security boundary. Non-secret generation metadata fences old native consumers.
+Private management uses the filesystem socket without a second bearer token;
+same-account or root access is outside that filesystem isolation boundary.
 
 Agent runtimes use MCP or an injected semantic `HarnessEndpoint`. They never
 receive Registry admission material, signing keys, raw Router credentials, or

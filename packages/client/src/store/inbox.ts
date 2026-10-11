@@ -128,35 +128,26 @@ const pageLimit = (
   return limit;
 };
 
-const collectPage = (
-  rows: ReadonlyArray<Readonly<Record<string, unknown>>>,
-  limit: number,
-): readonly InboxEntry[] => {
-  const items: InboxEntry[] = [];
-  let bytes = 0;
-  for (const row of rows) {
-    const canonicalItem = readBytes(row, "canonical_item");
-    if (
-      items.length === limit ||
-      (items.length > 0 &&
-        bytes + canonicalItem.byteLength > MAXIMUM_PAGE_BYTES)
-    ) {
-      break;
-    }
-    items.push({
-      sequence: readInteger(row, "sequence"),
-      deliveryToken: Schema.decodeUnknownSync(DeliveryToken)(
-        readText(row, "delivery_token"),
-      ),
-      canonicalItem,
-    });
-    bytes += canonicalItem.byteLength;
-  }
-  return items;
-};
-
 /**
  * Read an inbox page without allowing concurrent arrivals to extend its snapshot.
+ *
+ * Advancing the SQLite cursor one row at a time bounds payload materialization to
+ * the page plus one overflow row. The overflow stays unread and the continuation
+ * remains after the last included item. Cursor cleanup also covers decode and
+ * iteration failures; reading never acknowledges an item.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   bounds[Freeze upper sequence] --> pull[Pull one row]
+ *   pull --> exists{Row exists?}
+ *   exists -->|No| close[Close cursor and return page]
+ *   exists -->|Yes| fits{Fits item and byte budgets?}
+ *   fits -->|Yes| append[Append item]
+ *   append --> pull
+ *   fits -->|No| continuation[Continue after last included item]
+ *   continuation --> close
+ * ```
+ *
  * @param database Exclusively owned endpoint database.
  * @param input Sequence bounds and maximum item count.
  * @returns Pending items and an optional next position within the same snapshot.
@@ -172,16 +163,12 @@ export function readInbox(
     .prepare(
       "SELECT sequence, delivery_token, canonical_item FROM runtime_inbox WHERE acknowledged = 0 AND sequence > ? AND sequence <= ? ORDER BY sequence LIMIT ?",
     )
-    .all(after, through, limit + 1);
-  const items = collectPage(rows, limit);
-  const last = items.at(-1);
-  return {
-    items,
-    through,
-    ...(last !== undefined && rows.length > items.length
-      ? { nextAfter: last.sequence }
-      : {}),
-  };
+    .iterate(after, through, limit + 1);
+  try {
+    return collectPage(rows, limit, through);
+  } finally {
+    rows.return?.();
+  }
 }
 
 /**
@@ -361,6 +348,39 @@ export function writeEventState(
       "INSERT INTO runtime_events (singleton, canonical_state) VALUES (1, ?) ON CONFLICT(singleton) DO UPDATE SET canonical_state = excluded.canonical_state",
     )
     .run(canonicalState);
+}
+
+function collectPage(
+  rows: Iterator<Readonly<Record<string, unknown>>>,
+  limit: number,
+  through: number,
+): InboxPage {
+  const items: InboxEntry[] = [];
+  let bytes = 0;
+  for (let row = rows.next(); !row.done; row = rows.next()) {
+    const canonicalItem = readBytes(row.value, "canonical_item");
+    if (
+      items.length === limit ||
+      (items.length > 0 &&
+        bytes + canonicalItem.byteLength > MAXIMUM_PAGE_BYTES)
+    ) {
+      const last = items.at(-1);
+      return {
+        items,
+        through,
+        ...(last === undefined ? {} : { nextAfter: last.sequence }),
+      };
+    }
+    items.push({
+      sequence: readInteger(row.value, "sequence"),
+      deliveryToken: Schema.decodeUnknownSync(DeliveryToken)(
+        readText(row.value, "delivery_token"),
+      ),
+      canonicalItem,
+    });
+    bytes += canonicalItem.byteLength;
+  }
+  return { items, through };
 }
 
 function retireItem(

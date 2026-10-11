@@ -1,4 +1,4 @@
-/** @file Shared schema and ports for the experimental MCP Events edge. */
+/** @file SDK request schemas and ports for the daemon's MCP Events edge. */
 
 import {
   fromJsonSchema,
@@ -7,7 +7,7 @@ import {
 } from "@modelcontextprotocol/server";
 import { type Effect, JSONSchema, Schema } from "effect";
 /** Maximum complete UTF-8 callback body accepted by the event transport. */
-export const maximumEventBytes = 256 * 1024;
+export { maximumEventBytes } from "../../event-contract/index.js";
 
 /** Callback failures expose no upstream response or destination details. */
 export const callbackReasons = [
@@ -20,7 +20,7 @@ export const callbackReasons = [
 ] as const;
 /** Owner-visible diagnostics omit callback addresses and signing authority. */
 const webhookStatusSchema = Schema.Struct({
-  mode: Schema.Literal("none", "push", "webhook"),
+  mode: Schema.Literal("none", "push", "poll", "webhook"),
   id: Schema.optional(Schema.String),
   refreshBefore: Schema.optional(Schema.String),
   pendingCount: Schema.optional(Schema.NonNegativeInt),
@@ -42,8 +42,12 @@ const emptyArguments = Schema.Record({
   key: Schema.String,
   value: Schema.Never,
 });
+const requestMetadata = Schema.optional(
+  Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+);
 /** An absent cursor has the draft's explicit null meaning. */
 const subscriptionSchema = Schema.Struct({
+  _meta: requestMetadata,
   name: Schema.String,
   arguments: emptyArguments,
   cursor: Schema.optionalWith(Schema.NullOr(Schema.String), { exact: true }),
@@ -51,8 +55,18 @@ const subscriptionSchema = Schema.Struct({
 });
 /** Catalog pagination uses its own cursor rather than event replay state. */
 const listSchema = Schema.Struct({
+  _meta: requestMetadata,
   cursor: Schema.optionalWith(Schema.String, { exact: true }),
 });
+const pollSchema = Schema.Struct({
+  ...subscriptionSchema.fields,
+  maxEvents: Schema.optionalWith(Schema.Int.pipe(Schema.positive()), {
+    exact: true,
+  }),
+});
+
+/** Validated standard poll parameters; the server independently bounds pages. */
+export type EventPollInput = typeof pollSchema.Type;
 /** Delivery policy checks follow SDK shape validation. */
 const subscribeSchema = Schema.Struct({
   ...subscriptionSchema.fields,
@@ -67,6 +81,7 @@ const subscribeSchema = Schema.Struct({
 });
 /** Cleanup identifies the registration without disclosing its signing secret. */
 const unsubscribeSchema = Schema.Struct({
+  _meta: requestMetadata,
   name: Schema.String,
   arguments: emptyArguments,
   delivery: Schema.Struct({ url: Schema.String }),
@@ -118,3 +133,5 @@ export const eventListInput = standard(listSchema);
 export const eventSubscribeInput = standard(subscribeSchema);
 /** Cleanup uses only the subscription's public key fields. */
 export const eventUnsubscribeInput = standard(unsubscribeSchema);
+/** The official SDK validates polling with the draft's request grammar. */
+export const eventPollInput = standard(pollSchema);

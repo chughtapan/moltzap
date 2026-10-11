@@ -8,19 +8,30 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](./endpoint/harness-endpoint/index.ts#L57)
+### [`acquireHarnessEndpoint`](./endpoint/harness-endpoint/index.ts#L79)
 
 _Function_
 
 ```ts
 export function acquireHarnessEndpoint(
   endpoint: URL,
+  options: HarnessEndpointOptions = {},
 ): Effect.Effect<HarnessEndpoint, ConnectError, Scope.Scope>
 ```
 
 Acquire one real MCP-backed endpoint and its scoped connection.
 
 **Returns:** An endpoint whose resources remain live for the caller's scope.
+
+```mermaid
+flowchart TD
+  Options[Runtime grant and receive preference] --> Connect[Scoped official MCP connection]
+  Connect --> Catalog[Validate advertised Events mode]
+  Catalog --> Endpoint[Semantic HarnessEndpoint]
+  Endpoint --> Send[Explicit addressed send]
+  Endpoint --> Messages[Canonical deliveries with acceptance receipts]
+  Messages --> Close[Scope releases consumer and SDK connection]
+```
 
 ### [`AgentAddress (type)`](./transport/wire/values.ts#L242)
 
@@ -128,7 +139,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L103)
+### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L105)
 
 _Class_
 
@@ -203,7 +214,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](./endpoint/harness-endpoint/capability.ts#L47)
+### [`HarnessEndpoint`](./endpoint/harness-endpoint/capability.ts#L67)
 
 _Interface_
 
@@ -228,6 +239,31 @@ A host whose tool returns before the send completes passes
 `failureDelivery: "inbound"`: a refused gather, all_gather or response
 then completes and its error arrives as an `operationFailed` item on the
 stream. A multicast has no operation id, so its failure is always returned.
+
+### [`HarnessEndpointOptions`](./endpoint/harness-endpoint/capability.ts#L40)
+
+_Interface_
+
+```ts
+export interface HarnessEndpointOptions {
+  readonly credential?: Redacted.Redacted;
+  /** Defaults to polling with a credential, or native push for a trusted-local host. */
+  readonly delivery?:
+    | "push"
+    | "poll"
+    | Readonly<{
+        mode: "webhook";
+        /** Public HTTPS callback routed to the scoped loopback receiver. */
+        url: string;
+        /** Deployment's private callback port; no management endpoint is served here. */
+        port: number;
+        /** Host-local signal after the stream binds and its authenticated subscription is accepted, not after a delivery. */
+        onReady?: Effect.Effect<void>;
+      }>;
+}
+```
+
+Explicit remote authentication and native receive mode, without SDK or management authority.
 
 ### [`HistoryExportRecord (type)`](./delivery/history-export.ts#L50)
 
@@ -275,6 +311,8 @@ _Interface_
 
 ```ts
 export interface InboundDelivery {
+  /** Stable immutable reference for native custody and duplicate-wakeup handling. */
+  readonly eventId: string;
   readonly item: InboundItem;
   readonly acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>;
 }
@@ -371,7 +409,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](./transport/messaging/errors.ts#L82)
+### [`ListenError`](./transport/messaging/errors.ts#L83)
 
 _Class_
 
@@ -627,22 +665,34 @@ Complete production process composition for `moltzapd`.
 - `delivery/pass.ts`
 - `delivery/README.md`
 - `delivery/send-invocations.ts`
+- `endpoint/event-contract/index.ts`
+- `endpoint/event-contract/README.md`
 - `endpoint/harness-endpoint/capability.ts`
 - `endpoint/harness-endpoint/events.ts`
+- `endpoint/harness-endpoint/failures.ts`
 - `endpoint/harness-endpoint/index.ts`
+- `endpoint/harness-endpoint/poll.ts`
+- `endpoint/harness-endpoint/README.md`
+- `endpoint/harness-endpoint/webhook-http.ts`
+- `endpoint/harness-endpoint/webhook.ts`
 - `endpoint/implementation.ts`
 - `endpoint/mcp/auth.ts`
-- `endpoint/mcp/event-schemas.ts`
-- `endpoint/mcp/event-signing.ts`
-- `endpoint/mcp/events.ts`
+- `endpoint/mcp/events/index.ts`
+- `endpoint/mcp/events/poll.ts`
+- `endpoint/mcp/events/README.md`
+- `endpoint/mcp/events/schemas.ts`
+- `endpoint/mcp/events/signing.ts`
+- `endpoint/mcp/events/webhook.ts`
 - `endpoint/mcp/http.ts`
 - `endpoint/mcp/index.ts`
+- `endpoint/mcp/item.ts`
+- `endpoint/mcp/management-socket.ts`
 - `endpoint/mcp/names.ts`
 - `endpoint/mcp/owner-tools.ts`
 - `endpoint/mcp/README.md`
 - `endpoint/mcp/schemas.ts`
+- `endpoint/mcp/tool-validation.ts`
 - `endpoint/mcp/tools.ts`
-- `endpoint/mcp/webhook.ts`
 - `identity/credentials.ts`
 - `identity/index.ts`
 - `index.ts`
