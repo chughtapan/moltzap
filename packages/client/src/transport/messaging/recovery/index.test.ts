@@ -8846,9 +8846,10 @@ const sendsAnUnattachedObligationsCopyAfterAColdStart = () =>
  * Stages the endpoint's candidate at the N4 head, through an engine whose
  * store then refuses the certified successor. The endpoint locks the
  * successor's action and stores its action certificate before the store
- * refuses the record, so the store keeps both.
+ * refuses the record, so the store keeps both; a store left with no lock, or
+ * with the successor staged, is a broken fixture, and the trace dies.
  * @param fixture Endpoint whose store holds the N4 conversation.
- * @returns The refused successor's record hash.
+ * @returns The refused successor's record hash and the N4 conversation's id.
  */
 const refuseSuccessorBehindStagedCandidate = (fixture: RecoveryFixture) =>
   Effect.gen(function* () {
@@ -8876,7 +8877,21 @@ const refuseSuccessorBehindStagedCandidate = (fixture: RecoveryFixture) =>
       history,
     );
     yield* Fiber.interrupt(recovery);
-    return successorHash;
+    const { proposalLocks, stagedRecords } = yield* fixture.store.recover();
+    const { actionHash } =
+      history.certifiedSuccessor.actionCertifiedRecord.recordCore;
+    if (
+      !proposalLocks.some((lock) => lock.actionHash === actionHash) ||
+      stagedRecords.some((staged) => staged.recordHash === successorHash)
+    ) {
+      return yield* Effect.dieMessage(
+        "the refused successor left no lock, or was staged",
+      );
+    }
+    return {
+      successorHash,
+      conversationId: n4.membership.descriptor.conversationId,
+    };
   });
 
 /**
@@ -8893,8 +8908,9 @@ const startsPastASuccessorItCannotStageBehindItsCandidate = () =>
   Effect.scoped(
     Effect.gen(function* () {
       const fixture = yield* makeFixture;
-      const successorHash =
+      const { successorHash } =
         yield* refuseSuccessorBehindStagedCandidate(fixture);
+      yield* Queue.takeAll(fixture.normalOutbound);
 
       const restart = yield* Effect.either(makeEndpointEngine(fixture.input));
       expect(
@@ -8928,6 +8944,126 @@ const startsPastASuccessorItCannotStageBehindItsCandidate = () =>
     }),
   );
 
+/**
+ * The endpoint staged its candidate at the N4 head and holds the certified
+ * successor's action certificate, and the store then fails, rather than
+ * refuses, as a restarting engine stages that successor. That is a local
+ * failure, so the engine does not start. Fails when every store error while
+ * resuming a fold is treated as a refusal, so a failing store skips the
+ * evidence a fold owes and the engine starts as if nothing were due.
+ * @returns The trace, run to completion.
+ */
+const failsToStartWhenTheStoreFailsToStageASuccessorBehindItsCandidate = () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      yield* refuseSuccessorBehindStagedCandidate(fixture);
+      const failingStore: EndpointStore = {
+        ...fixture.store,
+        stageRecordForDissemination: () =>
+          Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+      };
+
+      const restart = yield* Effect.exit(
+        makeEndpointEngine({ ...fixture.input, store: failingStore }),
+      );
+
+      expect(restart, "the restart over the store that fails staging").toEqual(
+        Exit.fail(new EngineInitializationError({ reason: "persistence" })),
+      );
+    }),
+  );
+
+/**
+ * The remote member's GENESIS proposal for the fixture's direct conversation,
+ * at the empty foundation a restart recovery gave that conversation at the
+ * new Router instance.
+ * @param fixture Endpoint whose direct conversation the proposal opens.
+ * @returns The proposal.
+ */
+const remoteGenesisAtTheRestartedFoundation = (
+  fixture: RecoveryFixture,
+): Effect.Effect<ActionProposal> =>
+  Effect.gen(function* () {
+    const conversationId = fixture.membership.descriptor.conversationId;
+    const postIntent: PostIntent = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "post_intent",
+      conversationId,
+      membershipHash: fixture.membership.hash,
+      authorAgentId: fixture.remote.card.agentId,
+      postId: yield* mintPostId(),
+      content: [{ type: "text", text: "proposed after the restart" }],
+    };
+    const action: GenesisActionCore = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "GENESIS",
+      conversationId,
+      membership: fixture.membership.descriptor,
+      anchor: {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "genesis_anchor_body",
+        conversationId,
+        membershipHash: fixture.membership.hash,
+        routerInstanceId: newRouterInstanceId,
+      },
+      previousRecordHash: null,
+      postIntent,
+      postIntentHash: yield* hashPostIntent(postIntent),
+    };
+    return {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "action_proposal",
+      action,
+    } satisfies ActionProposal;
+  }).pipe(Effect.orDie);
+
+/**
+ * The store refused the N4 successor behind the endpoint's candidate. The
+ * endpoint then started again and signed the remote member's GENESIS
+ * proposal for its direct conversation, whose id sorts after the N4
+ * conversation's, so a start resumes that fold after the refused one. An
+ * engine that starts over the store once more sends the signature again: the
+ * refusal leaves only the N4 conversation waiting. Fails when a refusal ends
+ * the whole resume, so every fold after the refused one sends nothing it owes.
+ * @returns The trace, run to completion.
+ */
+const resumesALaterConversationPastARefusedFold = () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const refused = yield* refuseSuccessorBehindStagedCandidate(fixture);
+      const proposal = yield* remoteGenesisAtTheRestartedFoundation(fixture);
+      const actionHash = yield* hashAction(proposal.action);
+      const started = yield* makeEndpointEngine(fixture.input);
+      yield* directPacketIngressFrom({
+        membership: fixture.membership,
+        sender: fixture.remote,
+        packet: proposal,
+        routerInstanceId: newRouterInstanceId,
+      }).pipe(
+        Effect.flatMap((ingress) => started.acceptRouterIngress(ingress)),
+      );
+      yield* started.drainOutbound;
+      const signed = yield* takeSignedActionHashes(fixture.normalOutbound);
+
+      const restarted = yield* makeEndpointEngine(fixture.input);
+      yield* restarted.drainOutbound;
+      const signedAgain = yield* takeSignedActionHashes(fixture.normalOutbound);
+
+      expect(
+        fixture.membership.descriptor.conversationId > refused.conversationId,
+        "the direct conversation's folds resume after the N4 conversation's",
+      ).toBe(true);
+      expect(signed, "actions the started endpoint signed").toContain(
+        actionHash,
+      );
+      expect(signedAgain, "actions the restarted endpoint signed").toContain(
+        actionHash,
+      );
+    }),
+  );
+
 describe("evidence and outbox rows an engine resumes", () => {
   it("sends its signature for a proposal it signed again after a Router restart recovery", () =>
     resendsItsSignatureForAHeldProposal("router_restarted", 1));
@@ -8944,5 +9080,13 @@ describe("evidence and outbox rows an engine resumes", () => {
   it(
     "starts past a successor it cannot stage behind its re-anchor candidate, sending no copy or vote for it",
     startsPastASuccessorItCannotStageBehindItsCandidate,
+  );
+  it(
+    "fails to start as persistence when the store fails, rather than refuses, to stage a successor behind its re-anchor candidate",
+    failsToStartWhenTheStoreFailsToStageASuccessorBehindItsCandidate,
+  );
+  it(
+    "resumes a later conversation's fold past a fold the store refuses",
+    resumesALaterConversationPastARefusedFold,
   );
 });
