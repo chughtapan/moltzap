@@ -286,18 +286,20 @@ Acceptance coverage includes single-process store ownership, explicit
 configuration, registration recovery, address-based management, signer-evidence
 audit, pending-delivery replay, exact catalog, and old-format rejection.
 
-The packed daemon's cross-user filesystem check runs on Linux with
-`pnpm nx run @moltzap/client:test:permissions`. Its runner requires root to
-start separate fixture subprocesses as daemon UID 1001 and runtime UID 1000;
+The packed daemon's cross-user filesystem check runs on Linux against an
+explicitly prepared consumer. Its built-ins-only runner requires root to start
+separate fixture subprocesses as daemon UID 1001 and runtime UID 1000;
 it changes no user accounts or deployment configuration. It uses generated
 bootstrap material and a single runtime grant, checks actual denied access,
 and verifies socket cleanup and same-grant restart. The unregistered fixture
 does not qualify Registry registration, a deployment image or a native platform.
 
-`pnpm nx run @moltzap/client:test:permissions:prepare` creates a transferable
-packed consumer without fixture secrets. On a Linux test host, extract that
+As a normal user, `pnpm nx run @moltzap/client:test:permissions:prepare` creates
+a transferable packed consumer without fixture secrets; it refuses root.
+On a Linux test host, extract that
 bundle into a readable temporary directory and run its
 `scripts/test-management-permissions.ts` under the pinned Node version as
-root, passing the extracted `consumer` directory. The receiver owns cleanup of
+root, passing the extracted `consumer` directory. The runner refuses implicit
+preparation and does not load workspace dependencies. The receiver owns cleanup of
 that extracted bundle; the runner removes its own generated secret/state
 directory and stops its daemon subprocesses.

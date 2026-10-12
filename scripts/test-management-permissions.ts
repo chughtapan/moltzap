@@ -74,6 +74,11 @@ interface RunningDaemon {
 async function main() {
   if (process.argv[2] === "--prepare") {
     assert.equal(process.argv.length, 3);
+    assert.notEqual(
+      process.getuid?.(),
+      0,
+      "prepare the packed consumer as a normal user, not root",
+    );
     console.log(JSON.stringify(await prepareConsumer()));
     return;
   }
@@ -91,21 +96,14 @@ async function main() {
     0,
     "management UID isolation requires a root fixture runner",
   );
-  assert.ok(
-    process.argv.length <= 3,
-    "expected only an isolated consumer directory",
+  assert.equal(
+    process.argv.length,
+    3,
+    "expected a prepared consumer directory; run --prepare as a normal user first",
   );
-  const prepared =
-    process.argv[2] === undefined ? await prepareConsumer() : undefined;
-  try {
-    const consumer = prepared?.consumer ?? process.argv[2];
-    assert.ok(consumer !== undefined);
-    await verifyPermissions(resolve(consumer));
-  } finally {
-    if (prepared !== undefined) {
-      await rm(prepared.root, { recursive: true, force: true });
-    }
-  }
+  const consumer = process.argv[2];
+  assert.ok(consumer !== undefined);
+  await verifyPermissions(resolve(consumer));
 }
 
 /** The transferable bundle has code and pinned toolchain metadata, never authority. */

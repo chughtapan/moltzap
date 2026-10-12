@@ -57,6 +57,28 @@ Real-daemon integration and package-consumer checks are separate Nx targets
 because they acquire processes or install tarballs. CI runs them in named
 steps rather than through the unit suite.
 
+Linux management-socket isolation uses a prepared packed consumer. Prepare it
+as a normal user with the pinned Node and pnpm versions:
+
+```bash
+pnpm nx run @moltzap/client:test:permissions:prepare
+```
+
+The result prints a consumer path and transferable archive without credentials.
+On Linux, invoke only the built-ins-only probe as root, passing the printed
+consumer path explicitly:
+
+```bash
+sudo "$(command -v node)" scripts/test-management-permissions.ts /absolute/consumer/path
+```
+
+The probe drops its own children to distinct fixture UIDs, changes no accounts,
+and removes its synthetic state. Keep package installation and workspace tasks
+outside the privileged process; the preparer refuses root and the probe refuses
+implicit preparation. The normal-user preparer owns the temporary bundle and
+must remove it after use. This verifies local filesystem isolation, not a
+published image or native installation.
+
 ### Fresh `git worktree add` checkout
 
 A new worktree starts with no `node_modules/` and no built `dist/`. Run the bootstrap once:

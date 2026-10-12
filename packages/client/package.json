@@ -91,14 +91,6 @@
           "command": "node scripts/test-client-package.ts"
         }
       },
-      "test:permissions": {
-        "executor": "nx:run-commands",
-        "dependsOn": ["build", "^build"],
-        "cache": false,
-        "options": {
-          "command": "node scripts/test-management-permissions.ts"
-        }
-      },
       "test:permissions:prepare": {
         "executor": "nx:run-commands",
         "dependsOn": ["build", "^build"],
