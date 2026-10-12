@@ -8,7 +8,7 @@ The collective operations the daemon service composes.
 
 ## Public surface
 
-### [`CollectiveError`](./forms.ts#L317)
+### [`CollectiveError`](./forms.ts#L315)
 
 _Class_
 
@@ -183,7 +183,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./forms.ts#L174)
+### [`SendResult`](./forms.ts#L171)
 
 _Interface_
 

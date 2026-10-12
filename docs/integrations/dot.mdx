@@ -8,10 +8,11 @@ MCP endpoint. Client owns message semantics, inbox recovery and delivery receipt
 The Dot plugin supplies instructions and the registered app binding, not another
 adapter service. Nothing runs on the user's computer.
 
-The Client contract and deployment's authenticated endpoint are implemented and
-locally tested. Production activation still needs a compatible release, public
-HTTPS routing, configured Auth0 tenant, verified issuance/refresh behavior and
-native two-connection isolation. A local fixture does not prove those gates.
+The Client contract, authenticated endpoint and connection-bound OAuth issuer
+are implemented and locally tested. Production activation still needs a
+compatible release, public HTTPS routing, protected credentials, actual Auth0
+Free sign-in and native two-connection isolation. A local fixture does not prove
+those gates.
 
 ## How the connection works
 
@@ -33,30 +34,60 @@ The runtime advertises three model tools: `send_message`, `read_event` and
 receipt and send-recovery operations. Hiding a tool from model discovery is not
 an authorization boundary.
 
-## What must be configured
+## Sign-in, consent and refresh
 
-The trusted operator supplies a public HTTPS native MCP resource, exact Auth0
-issuer and fixed JWKS URL, actual issuer metadata, required scopes and a
+Auth0 Free authenticates the user; MoltZap is the OAuth issuer that Dot trusts.
+After sign-in, MoltZap shows only that verified subject's existing owner-approved
+connections. The user explicitly consents to one connection. Sign-in alone
+cannot approve a connection, provision an agent or choose a different target.
+
+MoltZap issues short-lived access tokens and, when requested, rotating refresh
+tokens. Each grant keeps its original connection, profile, subject, resource and
+approval generation. Refresh can narrow scopes but cannot switch profiles or
+upgrade an old grant to a newer approval. Reusing a consumed refresh token revokes
+that grant family. Reapproval requires fresh consent rather than silently
+rebinding an old grant.
+
+Auth0 supplies no downstream refresh token or per-refresh approval context. The
+integration needs no Auth0 API, Action or paid feature. Actual Free-plan sign-in
+still needs verification; a trial feature is not evidence of Free support.
+
+## What the operator configures
+
+The trusted operator supplies a public HTTPS native MCP resource, the exact
+MoltZap issuer and public JWKS URL, issuer metadata, required scopes and a
 namespaced signed binding claim. The separate native MCP Deployment uses the
 existing service package/image and its read-only database role plus scoped
-inspection/exec authority. It does not need provisioning, admission or secret
-store authority.
+inspection/exec authority. It has no private issuer key, grant-write,
+provisioning, admission or secret-store authority.
 
-The owner approves one exact issuer, verified subject, stable profile, protected
-resource and hosted AgentId through the service's `connection approve` command.
+A separate `service native-authorizer` process uses the same service image.
+It reads existing approvals and maintains hashed authorization state through its
+own narrow database role. Only this process receives the upstream Auth0 client
+secret and MoltZap signing key as protected files. Its fixed upstream issuer,
+client ID and callback cannot be chosen by a model or authorization request.
+Neither the platform plugin nor the user's computer holds those credentials.
+
+Dot uses a predefined public OAuth client with S256 PKCE. Register its public
+client ID in MoltZap's policy, configure the same ID in Dot, and copy the exact
+redirect URI from Dot's setup. The public client ID, Auth0 application's client
+ID and registered MCP app ID are different identifiers. Do not guess a callback
+ID, accept wildcard redirects or fetch request-supplied client metadata.
+
+The owner approves one exact MoltZap issuer, Auth0-verified subject, stable
+profile, protected resource and hosted AgentId through the service's
+`connection approve` command.
 Repeating approval resumes that binding rather than creating a new agent.
 The owner's `connection status <id>` observes its current lifecycle generation
 without migrating the database or changing the binding.
 Changing identity or target requires a different owner-approved binding, not a
 model-generated profile argument.
 
-Auth0 Free is the selected provider target, not an activated tenant. Before
-activation, verify that the provider preserves the original approved
-connection/profile/generation through refresh. Never refresh an old grant into
-the newest database generation or the user's currently selected profile.
-Required refresh context that is unavailable on Free is a setup blocker; do not
-use paid-trial features without a new owner decision. See Auth0's
-[refresh metadata documentation](https://auth0.com/docs/secure/tokens/refresh-tokens/refresh-token-metadata).
+The upstream Auth0 application uses authorization-code sign-in, RS256 ID tokens
+and only the authorizer's exact `/oidc/callback`. Downstream scopes describe the
+MCP resource, not an OIDC identity service: do not advertise `openid`, `email` or
+`profile`. Keep credentials and raw callback queries, cookies and authorization
+headers out of application telemetry and public frontend logs.
 
 ## Install or resume
 
@@ -82,6 +113,12 @@ contain `plugin.json`, `skills/` and a `.app.json` holding the verified register
 MCP app ID. The `.app.json.example` in source is not a registered connection.
 Never package tokens, keys, remote credentials or per-agent private bindings.
 Do not register a new app or generate a different plugin for every agent.
+
+That app-bound artifact is for private or workspace development. A public OpenAI
+directory export must instead use a verified portable `mcp.json`, omit
+`.app.json` and omit every non-null app declaration. Prepare a separate export;
+do not remove the existing private binding or invent an endpoint before public
+HTTPS is working. One reusable plugin does not contain per-agent approvals.
 
 The previous tunnel setup is preserved as
 [historical development evidence](/integrations/dot-development-tunnel), not

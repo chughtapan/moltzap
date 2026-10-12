@@ -87,11 +87,14 @@ exports, old attempt logs, or duplicate summaries.
 
 Use Node from `.node-version` and the pnpm version in `package.json`. Run build,
 test, lint, and typecheck through `pnpm nx` or the package scripts that wrap it.
-Effect and `@effect/*` are the runtime idiom.
+Effect and `@effect/*` are the runtime idiom. Tooling is TypeScript;
+`scripts/tsconfig.json` enforces erasable syntax for the scripts Node runs
+directly. Write `.mjs` or `.js` only for a file a tool cannot load as
+TypeScript.
 
 Load the Google guide that matches the work: `google-typescript-style` for
-`.ts`, `google-javascript-style` for the `.mjs` tooling, `google-shell-style`
-for `.sh`, `google-swe-testing`, `google-documentation-guide`,
+`.ts`, `google-javascript-style` for JavaScript a tool requires,
+`google-shell-style` for `.sh`, `google-swe-testing`, `google-documentation-guide`,
 `google-swe-change-management`, `google-swe-builds-dependencies-and-ci` for
 build, dependency, and CI policy, `google-swe-engineering-standards` for the
 lint and architecture gates themselves, and the applicable Google code-review
@@ -140,8 +143,8 @@ State which checks and reviews actually ran.
   into the description prose. Lint requires a block on every export, so
   rewrite an export block to say what the name cannot rather than
   deleting it.
-  `.mjs` and `.js` carry the JavaScript guide's typed annotations, which
-  no signature gives. Never issue/spec/phase numbers, change narration
+  JavaScript carries the JavaScript guide's typed annotations, which no
+  signature gives. Never issue/spec/phase numbers, change narration
   (formerly, no longer, renamed from), or design alternatives. Rewrite
   touched comments in the same PR; history lives in git, not code.
 - Fix every instance of a defect or wrong pattern, not the reported

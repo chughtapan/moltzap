@@ -36,8 +36,13 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/openclaw-channel",
-          "command": "node scripts/clean-dist.mjs && tsc -b"
-        }
+          "command": "node ../../scripts/build/clean-dist.ts && tsc -b"
+        },
+        "inputs": [
+          "production",
+          "^production",
+          "{workspaceRoot}/scripts/build/clean-dist.ts"
+        ]
       },
       "lint": {
         "executor": "nx:run-commands",
@@ -54,14 +59,14 @@
         ],
         "cache": false,
         "options": {
-          "command": "node scripts/test-openclaw-package.mjs"
+          "command": "node scripts/test-openclaw-package.ts"
         }
       },
       "arch:check": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/openclaw-channel",
-          "command": "node ../../scripts/architecture/check-package.mjs ."
+          "command": "node ../../scripts/architecture/check-package.ts ."
         }
       }
     }

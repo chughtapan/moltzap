@@ -33,6 +33,7 @@ export interface InboundDelivery {
   /** Stable immutable reference for native custody and duplicate-wakeup handling. */
   readonly eventId: string;
   readonly item: InboundItem;
+  /** Valid only during this consumer's lifetime, even if its remote release fails. */
   readonly acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>;
 }
 

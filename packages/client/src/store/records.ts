@@ -38,26 +38,6 @@ import {
 } from "./rows/index.js";
 
 /**
- * Durably stages the record core of a certified record before its
- * durability certificate's votes are merged. This endpoint signs nothing for
- * it, so it is staged even under an anchor this endpoint has staged a
- * re-anchor candidate away from.
- *
- * @param database Exclusively owned endpoint database.
- * @param record Verified record core of a certified record.
- * @returns Whether the same staged record was inserted or already durable.
- */
-export function stageCertifiedRecord(
-  database: DatabaseSync,
-  record: StagedRecord,
-): StoreMutation {
-  validateStagedRecord(record);
-  return transaction(database, () =>
-    stageRecordInTransaction(database, record, "certified"),
-  );
-}
-
-/**
  * Atomically stages an action-certified record and its send obligation.
  *
  * @param database Exclusively owned endpoint database.
@@ -165,14 +145,21 @@ export function promoteRecord(
 }
 
 /**
- * Atomically applies one verified catch-up record and its remote delivery.
+ * Atomically stages and promotes a record received whole, with its
+ * certificates' evidence and its local post completion or remote host
+ * delivery. A crash therefore never leaves its core staged without its
+ * certification, where a restart could not tell it from a record this
+ * endpoint staged for its own durability vote. This endpoint casts no vote
+ * for it, so its core is staged even under an anchor this endpoint has
+ * staged a re-anchor candidate away from; a vote of this endpoint's own in
+ * its certificate is held to the rules it would be cast under.
  *
  * @param database Exclusively owned endpoint database.
- * @param record One verified complete catch-up record.
+ * @param record Verified complete certified record.
  * @param delivery Canonical remote host message, absent for the local author.
  * @returns Whether any durable state was inserted.
  */
-export function applyCatchUpRecord(
+export function applyCertifiedRecord(
   database: DatabaseSync,
   record: CertifiedRecord,
   delivery?: InboundDeliveryInput,
@@ -327,30 +314,6 @@ function mergeEvidenceInTransaction(
   return "inserted";
 }
 
-/**
- * Refuse a record under an anchor this endpoint has staged a re-anchor
- * candidate away from. Staging a record leads to a durability vote for it,
- * and a member that has voted to leave an anchor signs nothing more under it,
- * so a re-anchor away from a head and a durability certificate extending that
- * head never both collect this endpoint's signature.
- * @param database Exclusively owned endpoint database.
- * @param record Record about to be staged.
- */
-function requireNoReanchorAwayFrom(
-  database: DatabaseSync,
-  record: StagedRecord,
-): void {
-  const left = database
-    .prepare(
-      `SELECT 1 AS staged FROM reanchors
-       WHERE conversation_id = ? AND previous_anchor_hash = ? LIMIT 1`,
-    )
-    .get(record.conversationId, record.anchorHash);
-  if (left !== undefined) {
-    throw new StoreSignal("conflict");
-  }
-}
-
 function requireRecordPosition(
   database: DatabaseSync,
   record: StagedRecord,
@@ -466,6 +429,33 @@ function requireLocalDurabilityEvidenceLock(
     proposalLock.actionHash !== record.actionHash
   ) {
     throw new StoreSignal("not-found");
+  }
+  requireNoReanchorAwayFrom(database, record);
+}
+
+/**
+ * Refuse a record under an anchor this endpoint has staged a re-anchor
+ * candidate away from, wherever this endpoint would vote for it: as it stages
+ * the record for its vote, and as it stores its own vote for any staged
+ * record. A member that has voted to leave an anchor signs nothing more under
+ * it, so a re-anchor away from a head and a durability certificate extending
+ * that head never both collect this endpoint's signature.
+ * @param database Exclusively owned endpoint database.
+ * @param record Record about to be staged for this endpoint's vote, or a
+ *     staged record this endpoint's own vote is about to be stored for.
+ */
+function requireNoReanchorAwayFrom(
+  database: DatabaseSync,
+  record: StagedRecord,
+): void {
+  const left = database
+    .prepare(
+      `SELECT 1 AS staged FROM reanchors
+       WHERE conversation_id = ? AND previous_anchor_hash = ? LIMIT 1`,
+    )
+    .get(record.conversationId, record.anchorHash);
+  if (left !== undefined) {
+    throw new StoreSignal("conflict");
   }
 }
 

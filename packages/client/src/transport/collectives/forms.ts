@@ -158,10 +158,7 @@ export type SendInput = typeof SendInput.Type;
  */
 export type FailureDelivery = "result" | "inbound";
 
-/**
- * Members a send could not reach, each with its send failure's reason and,
- * when the failure has one, its detail, such as that the post is queued.
- */
+/** Members a send could not reach. */
 const unreachableMembers = Schema.NonEmptyArray(
   exactStruct({
     member: AgentAddress,
@@ -217,8 +214,9 @@ export const decodeCollectiveFailure = Schema.decodeUnknown(collectiveFailure);
 
 /**
  * The text of an all_gather whose close was not certified, so the asker has
- * no result. A close refused before it was queued reaches no member; a queued
- * close reaches them once MoltZap is reachable, and its detail says so.
+ * no result. A close refused before it was queued reaches no member; a
+ * `delivery-pending` close reaches them once MoltZap is reachable, and its
+ * text says so.
  * @param error Why the close post failed.
  * @returns The `operationFailed` text the asker's model reads.
  */

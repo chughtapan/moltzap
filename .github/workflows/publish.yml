@@ -11,7 +11,7 @@ name: Publish to npm
 # the UTC day has not turned). Once the release commit is on main, any run
 # finds it, checks out its tree, and publishes whatever that version still
 # lacks on npm or in its declared native asset pair. Legacy release trees
-# without scripts/release/native-assets.mjs remain npm-only. A release that can never
+# without a native-assets release module remain npm-only. A release that can never
 # complete is left behind by dispatching with `start_new_version`, which
 # mints the next version from the tip instead.
 on:
@@ -108,10 +108,16 @@ jobs:
               esac
             done
             NATIVE_CONTRACT=false
-            if git cat-file -e "$RELEASE_COMMIT:scripts/release/native-assets.mjs" 2>/dev/null; then
+            NATIVE_ASSET_SCRIPT=""
+            if git cat-file -e "$RELEASE_COMMIT:scripts/release/native-assets.ts" 2>/dev/null; then
+              NATIVE_ASSET_SCRIPT=scripts/release/native-assets.ts
+            elif git cat-file -e "$RELEASE_COMMIT:scripts/release/native-assets.mjs" 2>/dev/null; then
+              NATIVE_ASSET_SCRIPT=scripts/release/native-assets.mjs
+            fi
+            if [ -n "$NATIVE_ASSET_SCRIPT" ]; then
               NATIVE_CONTRACT=true
               STATUS=0
-              node scripts/release/native-assets.mjs check "$VERSION" || STATUS=$?
+              node scripts/release/native-assets.ts check "$VERSION" || STATUS=$?
               case $STATUS in
                 0) ;;
                 1) MISSING="$MISSING native-archive-and-checksum" ;;
@@ -126,6 +132,7 @@ jobs:
               echo "mode=resume" >> "$GITHUB_OUTPUT"
               echo "version=$VERSION" >> "$GITHUB_OUTPUT"
               echo "native_contract=$NATIVE_CONTRACT" >> "$GITHUB_OUTPUT"
+              echo "native_asset_script=$NATIVE_ASSET_SCRIPT" >> "$GITHUB_OUTPUT"
               exit 0
             fi
           fi
@@ -143,6 +150,7 @@ jobs:
           echo "mode=bump" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "native_contract=true" >> "$GITHUB_OUTPUT"
+          echo "native_asset_script=scripts/release/native-assets.ts" >> "$GITHUB_OUTPUT"
 
       - run: pnpm install --frozen-lockfile
 
@@ -173,10 +181,11 @@ jobs:
         if: steps.plan.outputs.native_contract == 'true'
         env:
           VERSION: ${{ steps.plan.outputs.version }}
+          NATIVE_ASSET_SCRIPT: ${{ steps.plan.outputs.native_asset_script }}
         run: |
           pnpm nx run @moltzap/native-plugins:package
           pnpm test:native-release
-          node scripts/release/native-assets.mjs verify "$VERSION" dist/artifacts/native-plugins
+          node "$NATIVE_ASSET_SCRIPT" verify "$VERSION" dist/artifacts/native-plugins
 
       # towncrier preserves its marker and consumes changelog.d/ fragments.
       # Its dependency install remains hash-pinned, and regeneration runs
@@ -265,9 +274,10 @@ jobs:
         env:
           VERSION: ${{ steps.plan.outputs.version }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          NATIVE_ASSET_SCRIPT: ${{ steps.plan.outputs.native_asset_script }}
         run: |
           [ "$(git rev-parse "v$VERSION^{commit}")" = "$(git rev-parse HEAD)" ] || {
             echo "ERROR: native artifact tag does not identify the gated release tree"
             exit 1
           }
-          node scripts/release/native-assets.mjs upload "$VERSION" dist/artifacts/native-plugins
+          node "$NATIVE_ASSET_SCRIPT" upload "$VERSION" dist/artifacts/native-plugins

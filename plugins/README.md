@@ -117,8 +117,9 @@ outside this change's feature scope.
 
 Run the owning build, test, typecheck and architecture targets with
 `pnpm nx` and project `@moltzap/native-plugins`. The `test:pack` target builds the
-archive twice, checks reproducibility and its actual file inventory, rejects
-unsafe metadata and symlinked asset paths, then installs that archive in an
-isolated consumer with packed Client dependencies. It verifies provider handoff
-and receiver startup without a source-workspace dependency. These fixture checks
-are not native installation, release publication or behavioral qualification.
+archive twice, checks byte reproducibility and installs it in an isolated
+consumer with packed Client dependencies. It exercises the installed receive
+command's refusal of incomplete configuration, supported install prompts and
+invalid prompt arguments without a source-workspace dependency. Provider
+acceptance and failure behavior belong to the native unit tests. Neither check
+establishes native installation, release publication or model behavior.

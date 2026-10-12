@@ -340,10 +340,6 @@ export interface EndpointStore {
     lock: ProposalLock,
     certificate: readonly ProtocolEvidence[],
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
-  /** Stage a certified record's core before merging its durability votes. */
-  readonly stageCertifiedRecord: (
-    record: StagedRecord,
-  ) => Effect.Effect<StoreMutation, EndpointStoreError>;
   readonly stageRecordForDissemination: (
     record: StagedRecord,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
@@ -354,7 +350,8 @@ export interface EndpointStore {
     record: CertifiedRecord,
     delivery?: InboundDeliveryInput,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
-  readonly applyCatchUpRecord: (
+  /** Stage, certify and promote a record received whole, in one transaction. */
+  readonly applyCertifiedRecord: (
     record: CertifiedRecord,
     delivery?: InboundDeliveryInput,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;

@@ -81,21 +81,26 @@ const receive = (state: Reception) =>
     }
   });
 
-const close = (state: Reception) =>
-  pollRequest(state.client, {
-    name: INBOX_ITEM_EVENT,
-    arguments: {},
-    cursor: null,
-    _meta: {
-      [HARNESS_CONSUMER_META_KEY]: {
-        generation: state.generation,
-        release: true,
-      },
-    },
-  }).pipe(
-    Effect.interruptible,
-    Effect.timeoutOption("5 seconds"),
-    Effect.ignore,
+/** Local receipts are revoked before the best-effort remote release can stall or fail. */
+const close = (state: Reception, fence: Effect.Effect<void>) =>
+  fence.pipe(
+    Effect.andThen(
+      pollRequest(state.client, {
+        name: INBOX_ITEM_EVENT,
+        arguments: {},
+        cursor: null,
+        _meta: {
+          [HARNESS_CONSUMER_META_KEY]: {
+            generation: state.generation,
+            release: true,
+          },
+        },
+      }).pipe(
+        Effect.interruptible,
+        Effect.timeoutOption("5 seconds"),
+        Effect.ignore,
+      ),
+    ),
     Effect.ensuring(Queue.shutdown(state.queue)),
   );
 
@@ -103,6 +108,7 @@ const close = (state: Reception) =>
  * Acquires the generation before unread bootstrap and releases it on shutdown.
  * Polling continues while host callbacks run, so slow acceptance cannot expire
  * the lease. The bounded queue coalesces wakeups, never inbox content or receipts.
+ * Local receipt revocation precedes the bounded release even when transport fails.
  *
  * ```mermaid
  * sequenceDiagram
@@ -117,16 +123,20 @@ const close = (state: Reception) =>
  *     Daemon-->>Client: Bounded events or quiet position
  *     Client-->>Host: Coalesced unread wakeup
  *   end
- *   Client->>Daemon: Release generation in poll metadata
+ *   Client->>Client: Revoke local receipt closures
+ *   Client->>Daemon: Best-effort bounded generation release
  * ```
  */
 export const pollWakeups = (
   client: Client,
+  fence?: Effect.Effect<void>,
 ): Stream.Stream<string, ListenError> =>
   Stream.unwrapScoped(
     Effect.gen(function* () {
       // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- Stream.unwrapScoped owns this acquisition and releases it when consumption ends, including interruption.
-      const state = yield* Effect.acquireRelease(open(client), close);
+      const state = yield* Effect.acquireRelease(open(client), (reception) =>
+        close(reception, fence ?? Effect.void),
+      );
       yield* receive(state).pipe(
         Effect.forever,
         Effect.catchAll((error) => Queue.offer(state.queue, Take.fail(error))),

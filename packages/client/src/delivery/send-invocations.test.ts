@@ -2,9 +2,10 @@
 
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import { live as it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Schema, Scope } from "effect";
-import { describe, expect, it } from "vitest";
-import { openEndpointStore } from "../store/index.js";
+import { describe, expect } from "vitest";
+import { EndpointStoreError, openEndpointStore } from "../store/index.js";
 import { CollectiveId, SendInput } from "../transport/collectives/forms.js";
 import { SendError } from "../transport/messaging/errors.js";
 import { makeSendInvocations } from "./send-invocations.js";
@@ -67,12 +68,9 @@ const invocationFixture = (
 /** The request every keyed test sends, under idempotency key `once`. */
 const onceRequest = { input, idempotencyKey: "once" };
 
-const runWithFileSystem = <A, E>(
+const withFileSystem = <A, E>(
   effect: Effect.Effect<A, E, Scope.Scope | FileSystem.FileSystem>,
-) =>
-  Effect.runPromise(
-    Effect.scoped(effect).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
+) => Effect.scoped(effect).pipe(Effect.provide(NodeFileSystem.layer));
 
 /** Invocations over a fresh store whose send blocks until `complete` resolves. */
 const freshInvocations = Effect.gen(function* () {
@@ -84,7 +82,7 @@ const freshInvocations = Effect.gen(function* () {
 });
 
 const reportsAnUnseenKeyAsAbsent = () =>
-  runWithFileSystem(
+  withFileSystem(
     Effect.gen(function* () {
       const { invocations } = yield* freshInvocations;
 
@@ -95,7 +93,7 @@ const reportsAnUnseenKeyAsAbsent = () =>
   );
 
 const keepsADisconnectedSendPendingAndJoinsItsRetry = () =>
-  runWithFileSystem(
+  withFileSystem(
     Effect.gen(function* () {
       const test = yield* freshInvocations;
       const disconnected = yield* test.invocations
@@ -119,7 +117,7 @@ const keepsADisconnectedSendPendingAndJoinsItsRetry = () =>
   );
 
 const refusesADifferentInputUnderAKeyInFlight = () =>
-  runWithFileSystem(
+  withFileSystem(
     Effect.gen(function* () {
       const test = yield* freshInvocations;
       yield* test.invocations.send(onceRequest).pipe(Effect.forkScoped);
@@ -140,7 +138,7 @@ const refusesADifferentInputUnderAKeyInFlight = () =>
   );
 
 const replaysAReturnedOutcomeWithoutSendingAgain = () =>
-  runWithFileSystem(
+  withFileSystem(
     Effect.gen(function* () {
       const test = yield* freshInvocations;
       yield* Deferred.succeed(test.complete, undefined);
@@ -154,7 +152,7 @@ const replaysAReturnedOutcomeWithoutSendingAgain = () =>
   );
 
 const replaysAReturnedOutcomeAfterRestart = () =>
-  runWithFileSystem(
+  withFileSystem(
     Effect.gen(function* () {
       const test = yield* freshInvocations;
       yield* Deferred.succeed(test.complete, undefined);
@@ -165,7 +163,7 @@ const replaysAReturnedOutcomeAfterRestart = () =>
   );
 
 const executesEverySendWithoutAKey = () =>
-  runWithFileSystem(
+  withFileSystem(
     Effect.gen(function* () {
       const test = yield* freshInvocations;
       yield* Deferred.succeed(test.complete, undefined);
@@ -262,43 +260,177 @@ const checksRestart = (path: string) =>
     }),
   );
 const preservesUncertaintyAndFailure = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const path = yield* temporaryDirectory;
-        yield* interruptsDaemon(path);
-        yield* checksRestart(path);
-      }),
-    ).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
+  Effect.scoped(
+    Effect.gen(function* () {
+      const path = yield* temporaryDirectory;
+      yield* interruptsDaemon(path);
+      yield* checksRestart(path);
+    }),
+  ).pipe(Effect.provide(NodeFileSystem.layer));
 
 const replaysARefusalWithItsDetail = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const path = yield* temporaryDirectory;
-        const store = yield* openEndpointStore(path);
-        const scope = yield* Scope.Scope;
-        const refusal = new SendError({
-          reason: "unknown-agent",
-          detail: "agent:dana is not a known agent",
-        });
-        const invocations = yield* makeSendInvocations(
-          store,
-          () => Effect.fail(refusal),
-          scope,
-        );
-        yield* invocations
-          .send({ input, idempotencyKey: "refused" })
-          .pipe(Effect.flip);
+  Effect.scoped(
+    Effect.gen(function* () {
+      const path = yield* temporaryDirectory;
+      const store = yield* openEndpointStore(path);
+      const scope = yield* Scope.Scope;
+      const refusal = new SendError({
+        reason: "unknown-agent",
+        detail: "agent:dana is not a known agent",
+      });
+      const invocations = yield* makeSendInvocations(
+        store,
+        () => Effect.fail(refusal),
+        scope,
+      );
+      yield* invocations
+        .send({ input, idempotencyKey: "refused" })
+        .pipe(Effect.flip);
 
-        const replayed = yield* invocations
-          .send({ input, idempotencyKey: "refused" })
-          .pipe(Effect.flip);
+      const replayed = yield* invocations
+        .send({ input, idempotencyKey: "refused" })
+        .pipe(Effect.flip);
 
-        expect(replayed.message).toBe(refusal.message);
-      }),
-    ).pipe(Effect.provide(NodeFileSystem.layer)),
+      expect(replayed.message).toBe(refusal.message);
+    }),
+  ).pipe(Effect.provide(NodeFileSystem.layer));
+
+/**
+ * A keyed send that posted, whose outcome the store cannot retain, still
+ * returns its result rather than a storage reason that says it was not sent.
+ * A later lookup of the key reads `outcome-unknown`, since nothing was
+ * retained.
+ */
+const returnsTheOwnOutcomeWhenItCannotBeRetained = () =>
+  withFileSystem(
+    Effect.gen(function* () {
+      const store = yield* temporaryDirectory.pipe(
+        Effect.flatMap(openEndpointStore),
+      );
+      const invocations = yield* makeSendInvocations(
+        {
+          ...store,
+          finishSendAttempt: () =>
+            Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+        },
+        () => Effect.succeed({ operationId }),
+        yield* Scope.Scope,
+      );
+
+      expect(yield* invocations.send(onceRequest)).toEqual({ operationId });
+      expect(
+        yield* invocations.send(onceRequest).pipe(Effect.flip),
+      ).toStrictEqual(new SendError({ reason: "outcome-unknown" }));
+    }),
+  );
+
+/**
+ * A retained outcome the store cannot decode says nothing about whether the
+ * send posted, so its key replays as `outcome-unknown` and reads as
+ * `indeterminate`.
+ */
+const replaysAnUndecodableOutcomeAsUnknown = () =>
+  withFileSystem(
+    Effect.gen(function* () {
+      const store = yield* temporaryDirectory.pipe(
+        Effect.flatMap(openEndpointStore),
+      );
+      const scope = yield* Scope.Scope;
+      const first = yield* makeSendInvocations(
+        store,
+        () => Effect.succeed({ operationId }),
+        scope,
+      );
+      yield* first.send(onceRequest);
+      const corrupted = yield* makeSendInvocations(
+        {
+          ...store,
+          readSendAttempt: (key) =>
+            store
+              .readSendAttempt(key)
+              .pipe(
+                Effect.map((attempt) =>
+                  attempt === undefined
+                    ? attempt
+                    : { ...attempt, canonicalOutcome: Uint8Array.of(0xff) },
+                ),
+              ),
+        },
+        () => Effect.dieMessage("retained send executed again"),
+        scope,
+      );
+
+      expect(
+        yield* corrupted.send(onceRequest).pipe(Effect.flip),
+      ).toStrictEqual(new SendError({ reason: "outcome-unknown" }));
+      expect(
+        yield* corrupted.readSend({ idempotencyKey: "once" }),
+      ).toStrictEqual({ state: "indeterminate", input });
+    }),
+  );
+
+/**
+ * A retried key whose earlier attempt the store cannot read may have posted,
+ * so the retry reports `outcome-unknown` rather than a storage reason that
+ * says it was not sent.
+ */
+const reportsAnUnreadableEarlierAttemptAsUnknown = () =>
+  withFileSystem(
+    Effect.gen(function* () {
+      const store = yield* temporaryDirectory.pipe(
+        Effect.flatMap(openEndpointStore),
+      );
+      const scope = yield* Scope.Scope;
+      const first = yield* makeSendInvocations(
+        store,
+        () => Effect.succeed({ operationId }),
+        scope,
+      );
+      yield* first.send(onceRequest);
+      const unreadable = yield* makeSendInvocations(
+        {
+          ...store,
+          readSendAttempt: () =>
+            Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+        },
+        () => Effect.dieMessage("retained send executed again"),
+        scope,
+      );
+
+      expect(
+        yield* unreadable.send(onceRequest).pipe(Effect.flip),
+      ).toStrictEqual(new SendError({ reason: "outcome-unknown" }));
+    }),
+  );
+
+/**
+ * A reservation the store fails may have read an attempt the key already
+ * reserved, so it reports `outcome-unknown`; one it refuses before reading
+ * the key reserved nothing, so it reports `persistence-failed`.
+ */
+const classifiesAFailedReservation = (
+  reason: EndpointStoreError["reason"],
+  expected: SendError["reason"],
+) =>
+  withFileSystem(
+    Effect.gen(function* () {
+      const store = yield* temporaryDirectory.pipe(
+        Effect.flatMap(openEndpointStore),
+      );
+      const invocations = yield* makeSendInvocations(
+        {
+          ...store,
+          beginSendAttempt: () =>
+            Effect.fail(new EndpointStoreError({ reason })),
+        },
+        () => Effect.dieMessage("unreserved send executed"),
+        yield* Scope.Scope,
+      );
+
+      expect(
+        yield* invocations.send(onceRequest).pipe(Effect.flip),
+      ).toStrictEqual(new SendError({ reason: expected }));
+    }),
   );
 
 // @agent-code-guard/regression-only: these crash and concurrency transcripts pin the invocation contract without asserting collective completion.
@@ -332,4 +464,23 @@ describe("durable send invocations", () => {
     preservesUncertaintyAndFailure,
   );
   it("replays a refusal with its detail", replaysARefusalWithItsDetail);
+  it(
+    "returns a keyed send's own outcome when the store cannot retain it",
+    returnsTheOwnOutcomeWhenItCannotBeRetained,
+  );
+  it(
+    "replays an outcome the store cannot decode as outcome-unknown",
+    replaysAnUndecodableOutcomeAsUnknown,
+  );
+  it(
+    "reports a retried key whose earlier attempt cannot be read as outcome-unknown",
+    reportsAnUnreadableEarlierAttemptAsUnknown,
+  );
+  it.each([
+    { reason: "persistence", expected: "outcome-unknown" },
+    { reason: "invalid-input", expected: "persistence-failed" },
+  ] as const)(
+    "reports a reservation that meets a $reason store failure as $expected",
+    ({ reason, expected }) => classifiesAFailedReservation(reason, expected),
+  );
 });

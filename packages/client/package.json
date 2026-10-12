@@ -43,8 +43,13 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/client",
-          "command": "node scripts/clean-dist.mjs && tsc -b"
-        }
+          "command": "node ../../scripts/build/clean-dist.ts && tsc -b"
+        },
+        "inputs": [
+          "production",
+          "^production",
+          "{workspaceRoot}/scripts/build/clean-dist.ts"
+        ]
       },
       "lint": {
         "executor": "nx:run-commands",
@@ -72,7 +77,7 @@
         ],
         "options": {
           "cwd": "packages/client",
-          "command": "tsc -p tsconfig.integration.json && vitest run --config vitest.integration.config.mjs"
+          "command": "tsc -p tsconfig.integration.json && vitest run --config vitest.integration.config.ts"
         }
       },
       "test:pack": {
@@ -83,7 +88,7 @@
         ],
         "cache": false,
         "options": {
-          "command": "node scripts/test-client-package.mjs"
+          "command": "node scripts/test-client-package.ts"
         }
       },
       "test:permissions": {
@@ -91,7 +96,7 @@
         "dependsOn": ["build", "^build"],
         "cache": false,
         "options": {
-          "command": "node scripts/test-management-permissions.mjs"
+          "command": "node scripts/test-management-permissions.ts"
         }
       },
       "test:permissions:prepare": {
@@ -99,14 +104,14 @@
         "dependsOn": ["build", "^build"],
         "cache": false,
         "options": {
-          "command": "node scripts/test-management-permissions.mjs --prepare"
+          "command": "node scripts/test-management-permissions.ts --prepare"
         }
       },
       "arch:check": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/client",
-          "command": "node ../../scripts/architecture/check-package.mjs ."
+          "command": "node ../../scripts/architecture/check-package.ts ."
         }
       }
     }
@@ -123,6 +128,7 @@
     "effect": "^3.22.0"
   },
   "devDependencies": {
+    "@effect/vitest": "^0.30.0",
     "@typescript/native": "catalog:",
     "eslint": "^9",
     "typescript": "catalog:",

@@ -63,6 +63,10 @@ const TARGET_HINT =
   'Use an explicit "agent:<name>" or "group:<member>,<member>,..." address';
 const LOG_PREVIEW_CHARS = 80;
 const CREDENTIAL_FILE_VARIABLE = "MOLTZAP_MCP_CREDENTIAL_FILE";
+const runtimeCredentialText = Schema.NonEmptyString.pipe(
+  Schema.maxLength(4096),
+  Schema.pattern(/^[A-Za-z0-9\-._~+/]+=*$/u),
+);
 const credentialFile = Config.redacted(CREDENTIAL_FILE_VARIABLE).pipe(
   Config.validate({
     message: "must name a runtime credential file",
@@ -632,16 +636,41 @@ function acquireConfiguredEndpoint() {
   }).pipe(Effect.withSpan("OpenClaw.acquireConfiguredEndpoint"));
 }
 
+/** Exact bearer bytes are validated before HTTP Headers can normalize whitespace. */
 function readRuntimeCredential(path: Redacted.Redacted) {
   return Effect.tryPromise({
-    try: (signal) =>
-      readFile(Redacted.value(path), { encoding: "utf8", signal }),
+    try: (signal) => readFile(Redacted.value(path), { signal }),
     catch: () =>
       ConfigError.InvalidData(
         [CREDENTIAL_FILE_VARIABLE],
         "could not read the runtime credential file",
       ),
-  }).pipe(Effect.map(Redacted.make));
+  }).pipe(
+    Effect.flatMap((bytes) =>
+      Effect.try({
+        try: () =>
+          new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+            bytes,
+          ),
+        catch: invalidRuntimeCredential,
+      }),
+    ),
+    Effect.flatMap((text) =>
+      Schema.decodeUnknown(runtimeCredentialText)(text).pipe(
+        Effect.map(Redacted.make),
+        Effect.catchTag("ParseError", () =>
+          Effect.fail(invalidRuntimeCredential()),
+        ),
+      ),
+    ),
+  );
+}
+
+function invalidRuntimeCredential() {
+  return ConfigError.InvalidData(
+    [CREDENTIAL_FILE_VARIABLE],
+    "runtime credential file must contain exactly one bearer token",
+  );
 }
 
 function runAccountConnection(

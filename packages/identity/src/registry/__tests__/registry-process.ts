@@ -104,8 +104,16 @@ class ProcessTestError extends Data.TaggedError("ProcessTestError")<{
   readonly cause?: unknown;
 }> {}
 
+/**
+ * Wraps a failed test step. The message ends with the underlying error's
+ * text, because the test reporter prints a fiber failure's message but not
+ * its cause.
+ */
 const processTestError = (message: string, cause?: unknown): ProcessTestError =>
-  new ProcessTestError({ message, cause });
+  new ProcessTestError({
+    message: cause instanceof Error ? `${message}: ${cause.message}` : message,
+    cause,
+  });
 
 const reservePort = Effect.async<number, ProcessTestError>((resume) => {
   const server = createServer();

@@ -2,16 +2,15 @@
 
 import { FileSystem, Error as PlatformError } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import { live as it } from "@effect/vitest";
 import { DateTime, Effect, Schema } from "effect";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
 import { SendInput } from "../transport/collectives/forms.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
 import { PostId } from "../transport/wire/index.js";
 import { HistoryExportRecord, makeHistoryExport } from "./history-export.js";
-
-/* eslint-disable agent-code-guard/async-keyword -- Vitest test bodies drive Effect programs from a Promise boundary. */
 
 const decodeLine = Schema.decodeUnknownSync(
   Schema.parseJson(HistoryExportRecord),
@@ -86,44 +85,38 @@ function failingOnce(writes: string[]) {
   });
 }
 
-const appendsDecodableLines = async () => {
-  const text = await Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const directory = yield* fileSystem.makeTempDirectoryScoped({
-          prefix: "moltzap-history-export-",
-        });
-        const path = join(directory, "history.ndjson");
-        const sink = yield* makeHistoryExport(path);
-        yield* sink.record(inbound());
-        yield* sink.record(outbound());
-        return yield* fileSystem.readFileString(path);
-      }),
-    ).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
+const appendsDecodableLines = () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const directory = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "moltzap-history-export-",
+    });
+    const path = join(directory, "history.ndjson");
+    const sink = yield* makeHistoryExport(path);
+    yield* sink.record(inbound());
+    yield* sink.record(outbound());
+    const text = yield* fileSystem.readFileString(path);
 
-  expect(text.endsWith("\n")).toBe(true);
-  expect(decodeFile(text)).toEqual([inbound(), outbound()]);
-};
+    expect(text.endsWith("\n")).toBe(true);
+    expect(decodeFile(text)).toEqual([inbound(), outbound()]);
+  }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer));
 
-const stopsAfterOneFailureLine = async () => {
-  const writes: string[] = [];
-  await Effect.runPromise(
-    Effect.gen(function* () {
+const stopsAfterOneFailureLine = () =>
+  Effect.gen(function* () {
+    const writes: string[] = [];
+    yield* Effect.gen(function* () {
       const sink = yield* makeHistoryExport("/var/run/moltzap/history.ndjson");
       yield* sink.record(inbound());
       yield* sink.record(outbound());
       yield* sink.record(outbound());
-    }).pipe(Effect.provide(failingOnce(writes))),
-  );
+    }).pipe(Effect.provide(failingOnce(writes)));
 
-  const lines = decodeFile(writes.join(""));
-  const namesTheWriteFailure: unknown = expect.stringContaining(NO_SPACE);
-  expect(lines).toMatchObject([
-    { kind: "export-failed", reason: namesTheWriteFailure },
-  ]);
-};
+    const lines = decodeFile(writes.join(""));
+    const namesTheWriteFailure: unknown = expect.stringContaining(NO_SPACE);
+    expect(lines).toMatchObject([
+      { kind: "export-failed", reason: namesTheWriteFailure },
+    ]);
+  });
 
 describe("history export", () => {
   it("appends one decodable line per record", appendsDecodableLines);
@@ -132,5 +125,3 @@ describe("history export", () => {
     stopsAfterOneFailureLine,
   );
 });
-
-/* eslint-enable agent-code-guard/async-keyword -- Restore repository defaults. */

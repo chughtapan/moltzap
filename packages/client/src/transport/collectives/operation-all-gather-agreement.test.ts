@@ -14,6 +14,7 @@
  * test fail when the draw stops reaching the interleavings it exists for.
  */
 
+import { live as it } from "@effect/vitest";
 import {
   Deferred,
   Duration,
@@ -27,7 +28,7 @@ import {
   TestClock,
   TestContext,
 } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import type { EngineSentPost } from "../messaging/index.js";
 import type { CollectiveMemberOutcome, InboundItem } from "./inbound.js";
 import {
@@ -653,21 +654,19 @@ function everyEndpointPublishesTheFirstCloseResult() {
     duplicateAnswer: 0,
     redeliveredClose: 0,
   };
-  return Effect.runPromise(
-    Effect.forEach(
-      EffectArray.range(1, SCHEDULES),
-      (seed) =>
-        runSchedule(seed, coverage).pipe(
-          Effect.andThen(({ harness, id }) => {
-            expectAgreement(seed, harness, id);
-          }),
-        ),
-      { concurrency: 1, discard: true },
-    ).pipe(
-      Effect.andThen(() => {
-        expectEveryInterleavingReached(coverage);
-      }),
-    ),
+  return Effect.forEach(
+    EffectArray.range(1, SCHEDULES),
+    (seed) =>
+      runSchedule(seed, coverage).pipe(
+        Effect.andThen(({ harness, id }) => {
+          expectAgreement(seed, harness, id);
+        }),
+      ),
+    { concurrency: 1, discard: true },
+  ).pipe(
+    Effect.andThen(() => {
+      expectEveryInterleavingReached(coverage);
+    }),
   );
 }
 

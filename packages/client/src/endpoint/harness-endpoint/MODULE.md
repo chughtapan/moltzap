@@ -8,7 +8,7 @@ Scoped MCP implementation of the public semantic HarnessEndpoint.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](./index.ts#L79)
+### [`acquireHarnessEndpoint`](./index.ts#L95)
 
 _Function_
 
@@ -49,7 +49,7 @@ export class ConnectError extends Data.TaggedError("ConnectError")<{
 
 Acquiring the endpoint connection failed.
 
-### [`HarnessEndpoint`](./capability.ts#L67)
+### [`HarnessEndpoint`](./capability.ts#L68)
 
 _Interface_
 
@@ -75,7 +75,7 @@ A host whose tool returns before the send completes passes
 then completes and its error arrives as an `operationFailed` item on the
 stream. A multicast has no operation id, so its failure is always returned.
 
-### [`HarnessEndpointOptions`](./capability.ts#L40)
+### [`HarnessEndpointOptions`](./capability.ts#L41)
 
 _Interface_
 
@@ -109,6 +109,7 @@ export interface InboundDelivery {
   /** Stable immutable reference for native custody and duplicate-wakeup handling. */
   readonly eventId: string;
   readonly item: InboundItem;
+  /** Valid only during this consumer's lifetime, even if its remote release fails. */
   readonly acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>;
 }
 ```

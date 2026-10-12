@@ -259,13 +259,23 @@ inbox reads and acknowledgments are not held behind it while the daemon stops:
 - At startup, the daemon fails before it starts the MCP listener.
 - `register` returns `persistence-failed` when the first delivery pass after
   activation fails.
-- `send_message` returns `persistence-failed` when the item its operation
-  produces cannot be kept: a gather's result, or a refused send's failure when
-  failures go inbound.
-- An item that could not be kept is not delivered. The pending row that
-  produced it stays unacknowledged and is classified again after restart,
-  under the volatile collective state described in
-  [Delivery ownership](#delivery-ownership).
+- `send_message` keeps its own outcome when the item its operation produces
+  cannot be kept: a gather whose request posts exist, or a certified answer,
+  returns as sent, and a refused send whose failure goes inbound fails with
+  that refusal.
+- An item that could not be kept is not delivered. When classifying a pending
+  row produced it, that row stays unacknowledged and is classified again after
+  restart, under the volatile collective state described in
+  [Delivery ownership](#delivery-ownership); an item a send produced is lost
+  with that state.
+
+A store failure that may leave a post's intent bound but not proposed also
+stops the daemon in `storage`, and recovery proposes the intent after the
+restart. That is a raw persistence failure while binding the intent, which
+fails the send as `outcome-unknown`, or any store failure while queueing its
+proposal, which fails the send as `delivery-pending`. A store refusal while
+binding rolls the bind back: the send fails as `persistence-failed` and the
+daemon keeps running.
 
 A failure or defect while the protocol activates, at startup or after a
 registration binds, also stops the daemon: a Router it cannot reach in phase
@@ -287,7 +297,7 @@ does not qualify Registry registration, a deployment image or a native platform.
 `pnpm nx run @moltzap/client:test:permissions:prepare` creates a transferable
 packed consumer without fixture secrets. On a Linux test host, extract that
 bundle into a readable temporary directory and run its
-`scripts/test-management-permissions.mjs` under the pinned Node version as
+`scripts/test-management-permissions.ts` under the pinned Node version as
 root, passing the extracted `consumer` directory. The receiver owns cleanup of
 that extracted bundle; the runner removes its own generated secret/state
 directory and stops its daemon subprocesses.

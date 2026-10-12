@@ -5,8 +5,9 @@
  * subscriber.
  */
 
+import { live as it } from "@effect/vitest";
 import { Deferred, Effect, Exit, Fiber, Ref, Schema, Scope } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import type { CollectiveOperations } from "../transport/collectives/index.js";
 import type { HistoryExportRecord } from "./history-export.js";
 import type { HarnessMessageReadyEvent } from "./operations.js";
@@ -78,16 +79,13 @@ const makeFixture = (adjust: (store: EndpointStore) => EndpointStore) =>
 
 const deliveryFixture = makeFixture((store) => store);
 
-const run = <A, E>(effect: Effect.Effect<A, E, Scope.Scope>) =>
-  Effect.runPromise(Effect.scoped(effect));
-
 /**
  * An unregistered service refuses every host operation with its closed
  * reason and records nothing; the active layer is read on each call, so a
  * layer installed after construction serves the next send.
  */
 const refusesUntilRegistered = () =>
-  run(
+  Effect.scoped(
     Effect.gen(function* () {
       const { delivery, records, slot } = yield* deliveryFixture;
       const { operations } = delivery;
@@ -117,7 +115,7 @@ const refusesUntilRegistered = () =>
  * to returning the error as the send's result.
  */
 const forwardsFailureRouting = () =>
-  run(
+  Effect.scoped(
     Effect.gen(function* () {
       const { delivery, slot } = yield* deliveryFixture;
       const routed: string[] = [];
@@ -140,7 +138,7 @@ const forwardsFailureRouting = () =>
  * multicast returns an empty result.
  */
 const exportsEachSend = () =>
-  run(
+  Effect.scoped(
     Effect.gen(function* () {
       const { delivery, records, slot } = yield* deliveryFixture;
       const { operations } = delivery;
@@ -188,7 +186,7 @@ const exportsEachSend = () =>
  * only, and gone from the inbox once acknowledged.
  */
 const exportsLocalItemOnceAndForgetsIt = () =>
-  run(
+  Effect.scoped(
     Effect.gen(function* () {
       const { delivery, records, slot } = yield* deliveryFixture;
       const { operations } = delivery;
@@ -224,7 +222,7 @@ const exportsLocalItemOnceAndForgetsIt = () =>
  * treating it as already gone; the caches keep it too.
  */
 const reportsAcknowledgmentPersistenceFailure = () =>
-  run(
+  Effect.scoped(
     Effect.gen(function* () {
       const { delivery, slot } = yield* makeFixture((store) => ({
         ...store,
@@ -255,7 +253,7 @@ const reportsAcknowledgmentPersistenceFailure = () =>
  * that waits on the gate still completes.
  */
 const releasesTheGateWhenAPassFails = () =>
-  run(
+  Effect.scoped(
     Effect.gen(function* () {
       const { delivery, slot } = yield* deliveryFixture;
       slot.collectives = { send: () => Effect.dieMessage("unexpected send") };
@@ -309,7 +307,7 @@ describe("host delivery", () => {
  * commit is released.
  */
 const finishesCallerStateAfterReceiptCommit = () =>
-  run(
+  Effect.scoped(
     Effect.gen(function* () {
       const committed = yield* Deferred.make<undefined>();
       const release = yield* Deferred.make<undefined>();
@@ -347,7 +345,7 @@ const finishesCallerStateAfterReceiptCommit = () =>
  * decoded from its stored bytes, as a native inbox read would export it.
  */
 const exportsItemsReadThroughTheWebhookView = () =>
-  run(
+  Effect.scoped(
     Effect.gen(function* () {
       const { delivery, records } = yield* deliveryFixture;
       yield* delivery.queueLocalItem(failure);
@@ -389,7 +387,7 @@ const emittedFailure = Schema.decodeUnknownSync(InboundItem)({
  * items again in order.
  */
 const stopsPublishingAtARefusalButStillConsumesLaterDeliveries = () =>
-  run(
+  Effect.scoped(
     Effect.gen(function* () {
       const { delivery } = yield* deliveryFixture;
       const acknowledged: string[] = [];
@@ -434,7 +432,7 @@ const stopsPublishingAtARefusalButStillConsumesLaterDeliveries = () =>
  * published after the durable deliveries of the next pass.
  */
 const publishesTheCollectiveLayerSOwnItemsAfterDurableDeliveries = () =>
-  run(
+  Effect.scoped(
     Effect.gen(function* () {
       const { delivery } = yield* deliveryFixture;
       const taken: HarnessMessageReadyEvent[] = [];
@@ -460,7 +458,7 @@ const publishesTheCollectiveLayerSOwnItemsAfterDurableDeliveries = () =>
  * again, and the history export still holds the item once.
  */
 const recordsEachPublishedItemInTheHistoryExportOnce = () =>
-  run(
+  Effect.scoped(
     Effect.gen(function* () {
       const { delivery, records } = yield* deliveryFixture;
       const taken: HarnessMessageReadyEvent[] = [];

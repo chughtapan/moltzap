@@ -197,17 +197,19 @@ export const stagedRecord = (
 /**
  * Convert a complete wire record into one complete store promotion row.
  * @param record Complete certified wire record.
- * @param fold In-memory fold retaining verified signer messages.
+ * @param actionSignatures Verified action signatures stored with the record.
+ * @param durabilityVotes Verified durability votes stored with the record.
  * @returns Store promotion data with separate action and durability evidence.
  */
 export const storedCertifiedRecord = (
   record: CertifiedRecord,
-  fold: EngineActionFold,
+  actionSignatures: Iterable<SignedMessage>,
+  durabilityVotes: Iterable<SignedMessage>,
 ): Effect.Effect<StoredCertifiedRecord, ClientRepresentationError> =>
   Effect.gen(function* () {
     const staged = yield* stagedRecord(record.actionCertifiedRecord);
     const actionEvidence = yield* Effect.forEach(
-      [...fold.actionEvidence.values()],
+      actionSignatures,
       (message) =>
         protocolEvidence(
           staged.conversationId,
@@ -218,7 +220,7 @@ export const storedCertifiedRecord = (
       { concurrency: 1 },
     );
     const durabilityEvidence = yield* Effect.forEach(
-      [...fold.durabilityEvidence.values()],
+      durabilityVotes,
       (message) =>
         protocolEvidence(
           staged.conversationId,

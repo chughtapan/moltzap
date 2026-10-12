@@ -12,7 +12,8 @@
  * directories it scanned no longer existed.
  *
  * A reference is any mention of the script's repo-relative path anywhere
- * else in the tracked tree. Prose counts on purpose: a regeneration tool
+ * else in the tracked tree, or a relative import of it from a sibling in
+ * the same directory. Prose counts on purpose: a regeneration tool
  * cited by the test that consumes its fixtures is reachable, because a
  * reader can find their way to it.
  *
@@ -25,6 +26,7 @@
  * target.
  */
 import { execFileSync } from "node:child_process";
+import { basename, dirname } from "node:path";
 
 /**
  * Scripts that are entry points rather than callees. Each needs a reason
@@ -55,7 +57,7 @@ const git = (args: readonly string[]): string =>
  * so counting it as a reference would make each allowlist entry
  * self-justifying.
  */
-const gitGrepFiles = (needle: string): readonly string[] => {
+const gitGrepFiles = (needle: string, scope = "."): readonly string[] => {
   try {
     return git([
       "grep",
@@ -63,7 +65,7 @@ const gitGrepFiles = (needle: string): readonly string[] => {
       "--files-with-matches",
       needle,
       "--",
-      ".",
+      scope,
       ":(exclude)scripts/__tests__",
       ":(exclude)scripts/repo/check-script-reachability.ts",
     ]).split("\n");
@@ -78,9 +80,16 @@ const trackedScripts = (): readonly string[] =>
     .split("\n")
     .filter((p) => p.length > 0 && !p.startsWith("scripts/__tests__/"));
 
-/** True when `path` is mentioned by any tracked file other than itself. */
+/**
+ * True when any tracked file other than `path` mentions it by its repo-relative
+ * path, or a sibling in its directory imports it as `./<name>`. A sibling
+ * import makes a module reachable through whatever reaches that sibling.
+ */
 const isReferenced = (path: string): boolean =>
-  gitGrepFiles(path).some((f) => f.length > 0 && f !== path);
+  [
+    ...gitGrepFiles(path),
+    ...gitGrepFiles(`./${basename(path)}`, `:(glob)${dirname(path)}/*`),
+  ].some((f) => f.length > 0 && f !== path);
 
 const main = (): void => {
   const scripts = trackedScripts();

@@ -37,7 +37,7 @@
         "dependsOn": ["build", "^build"],
         "cache": false,
         "options": {
-          "command": "node scripts/test-native-plugin-assets.mjs"
+          "command": "node scripts/test-native-plugin-assets.ts"
         }
       },
       "package": {
@@ -46,7 +46,7 @@
         "outputs": ["{workspaceRoot}/dist/artifacts/native-plugins"],
         "cache": false,
         "options": {
-          "command": "node scripts/package-native-plugins.mjs"
+          "command": "node scripts/package-native-plugins.ts"
         }
       },
       "typecheck:tests": {
@@ -67,7 +67,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "plugins",
-          "command": "node ../scripts/architecture/check-package.mjs ."
+          "command": "node ../scripts/architecture/check-package.ts ."
         }
       }
     }

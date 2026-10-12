@@ -82,7 +82,7 @@
         ],
         "options": {
           "cwd": "packages/identity",
-          "command": "vitest run --config vitest.config.mjs"
+          "command": "vitest run --config vitest.config.ts"
         }
       },
       "test:integration": {
@@ -93,7 +93,7 @@
         ],
         "options": {
           "cwd": "packages/identity",
-          "command": "vitest run --config vitest.integration.config.mjs"
+          "command": "vitest run --config vitest.integration.config.ts"
         }
       },
       "lint": {
@@ -107,7 +107,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/identity",
-          "command": "node ../../scripts/architecture/check-package.mjs ."
+          "command": "node ../../scripts/architecture/check-package.ts ."
         }
       }
     }

@@ -178,6 +178,20 @@ const resetAttempt = (
         firstAttemptAt: timestamp,
         nextAttemptAt: timestamp,
       };
+
+/** Expired renewal retains retry bytes but replaces the old callback's receipt identity. */
+const refreshedOccurrence = (
+  registration: Registration,
+  timestamp: number,
+): Registration["outbox"] => {
+  if (registration.stalled === "callback") {
+    return resetAttempt(registration, timestamp);
+  }
+  return registration.outbox !== null && registration.expiresAt <= timestamp
+    ? { ...registration.outbox }
+    : registration.outbox;
+};
+
 const refresh = (
   previous: Registration,
   secret: string,
@@ -188,10 +202,7 @@ const refresh = (
   secret,
   expiresAt,
   stalled: previous.stalled === "callback" ? null : previous.stalled,
-  outbox:
-    previous.stalled === "callback"
-      ? resetAttempt(previous, timestamp)
-      : previous.outbox,
+  outbox: refreshedOccurrence(previous, timestamp),
 });
 const initialRegistration = (input: {
   readonly id: string;

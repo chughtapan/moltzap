@@ -10,7 +10,7 @@ import {
   agentOpeningPrivateKey,
   AgentSigningAuthority,
   SEALED_BODY_KEY_MANAGEMENT_ALGORITHM,
-  x25519PublicJwk,
+  x25519SealingKey,
 } from "./agent-key.js";
 import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
 import {
@@ -242,9 +242,11 @@ const seal = (
       catch: sealingFailure,
     });
     const commitment = yield* commitmentOf(saltedPlaintext, sealingFailure);
-    const recipientKeys = yield* Either.all(
-      recipients.map((card) => x25519PublicJwk(card.publicKey)),
-    ).pipe(Either.mapLeft(sealingFailure));
+    const recipientKeys = yield* Effect.forEach(
+      recipients,
+      (card) => x25519SealingKey(card.publicKey),
+      { concurrency: 1 },
+    ).pipe(Effect.mapError(sealingFailure));
     const encryption = new GeneralEncrypt(saltedPlaintext).setProtectedHeader(
       protectedHeaderMembers(commitment, input.messageId, input.senderAgentId),
     );

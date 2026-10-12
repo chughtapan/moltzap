@@ -27,6 +27,7 @@ import type { CollectiveError } from "../../transport/collectives/forms.js";
 import type { SendError } from "../../transport/messaging/errors.js";
 import {
   decodeHarnessReadSendRequest,
+  decodeHarnessSendResult,
   type DeliveryOperations,
   type EventStore,
   type HarnessAcknowledgeDeliveryRequest,
@@ -305,6 +306,14 @@ const projectOperation = <Value extends Readonly<Record<string, unknown>>>(
     Effect.map(toolResult),
   );
 
+/**
+ * Run one send and answer its typed failure as JSON-RPC error data. A send
+ * that ends without one, interrupted or by a defect, may already have queued
+ * its post, so it answers `outcome-unknown`.
+ * @param operation A multicast, collective send or collective response.
+ * @param signal The request's abort signal, which interrupts the send.
+ * @returns The send's tool result.
+ */
 // #ignore-sloppy-code-next-line[async-keyword]: MCP tool handlers are Promise callbacks, so this edge awaits Effect before returning the SDK result.
 const runSendOperation = async (
   operation: Effect.Effect<HarnessSendResult, SendError | CollectiveError>,
@@ -313,7 +322,7 @@ const runSendOperation = async (
   const outcome = await Effect.runPromiseExit(operation, { signal });
   if (Exit.isFailure(outcome)) {
     const data = Option.match(Cause.failureOption(outcome.cause), {
-      onNone: (): HarnessSendErrorData => ({ reason: "network-unavailable" }),
+      onNone: (): HarnessSendErrorData => ({ reason: "outcome-unknown" }),
       onSome: sendErrorData,
     });
     throw new ProtocolError(
@@ -357,8 +366,8 @@ interface ToolListing {
 
 /**
  * Every tool the catalog can list. `installToolCallHandler` replaces the
- * SDK's tools/call dispatch, so the handler it selects serves every call and
- * a listing only names a tool and its schemas.
+ * SDK's tools/call dispatch, so `toolHandlers` serves every call and a listing
+ * only names a tool and its schemas.
  */
 const toolListings = {
   [STATUS_TOOL]: { inputSchema: emptyInput, outputSchema: statusOutput },
@@ -588,6 +597,14 @@ const decodeInvocationInput = <A>(
     signal,
   );
 
+/**
+ * Run one send call. A send that returns a result outside its output schema
+ * has already run, so that result is a defect, which `runSendOperation`
+ * answers as `outcome-unknown`.
+ * @param input The `send_message` arguments, metadata and abort signal.
+ * @param operations The daemon operations that run the send.
+ * @returns The send's validated tool result.
+ */
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
 const handleSendToolCall = async (
   input: ToolCallInput,
@@ -597,9 +614,16 @@ const handleSendToolCall = async (
     decodeHarnessSendCall(input.toolArguments, input.metadata),
     input.signal,
   );
+  const send = operations
+    .send(decoded)
+    .pipe(
+      Effect.flatMap((result) =>
+        decodeHarnessSendResult(result).pipe(Effect.orDie),
+      ),
+    );
   return await validateToolOutput(
     sendOutput,
-    await runSendOperation(operations.send(decoded), input.signal),
+    await runSendOperation(send, input.signal),
     input.name,
   );
 };
@@ -625,118 +649,139 @@ const handleAcknowledgeDeliveryToolCall = (
     ),
   );
 
-const handleInboxReadToolCall = (
+// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
+const handleReadEventToolCall = async (
   input: ToolCallInput,
   operations: HarnessMcpOperations,
-): Effect.Effect<ReturnType<typeof toolResult>, ProtocolError> => {
-  switch (input.name) {
-    case HARNESS_READ_EVENT_TOOL:
-      return decodeToolInputEffect(
-        readEventInput,
-        input.toolArguments,
-        input.name,
-      ).pipe(
-        Effect.flatMap((decoded) =>
-          projectValidatedOperation(readEventOutput, input.name, {
-            operation: operations.readEvent(decoded),
-            label: "Event read",
-            allowedReasons: RUNTIME_READ_REASONS,
-            fallbackReason: "persistence-failed",
-          }),
-        ),
-      );
-    case HARNESS_READ_INBOX_TOOL:
-      return decodeToolInputEffect(
-        readInboxInput,
-        input.toolArguments,
-        input.name,
-      ).pipe(
-        Effect.flatMap((decoded) =>
-          projectValidatedOperation(readInboxOutput, input.name, {
-            operation: operations.readInbox(decoded),
-            label: "Inbox read",
-            allowedReasons: RUNTIME_READ_REASONS,
-            fallbackReason: "persistence-failed",
-          }),
-        ),
-      );
-    default:
-      return toolNotFound(input.name);
-  }
-};
+) =>
+  await runValidatedOperation(readEventOutput, input.name, {
+    operation: operations.readEvent(
+      await decodeToolInput(readEventInput, input.toolArguments, input.name),
+    ),
+    label: "Event read",
+    allowedReasons: RUNTIME_READ_REASONS,
+    fallbackReason: "persistence-failed",
+    signal: input.signal,
+  });
 
-// #ignore-sloppy-code-next-line[async-keyword]: Active tool dispatch returns the selected Promise-native MCP operation result.
-const handleActiveToolCall = async (
+const handleReadInboxToolCall = (
   input: ToolCallInput,
   operations: HarnessMcpOperations,
-) => {
-  if ([HARNESS_READ_EVENT_TOOL, HARNESS_READ_INBOX_TOOL].includes(input.name)) {
-    return await runEventOperation(
-      handleInboxReadToolCall(input, operations),
-      input.signal,
-    );
-  }
-  switch (input.name) {
-    case HARNESS_READ_SEND_TOOL:
-      return await runValidatedOperation(readSendOutput, input.name, {
-        operation: operations.readSend(
-          await decodeInvocationInput(
-            decodeHarnessReadSendRequest(input.toolArguments),
-            input.signal,
-          ),
-        ),
-        label: "Send lookup",
+): Effect.Effect<ReturnType<typeof toolResult>, ProtocolError> =>
+  decodeToolInputEffect(readInboxInput, input.toolArguments, input.name).pipe(
+    Effect.flatMap((decoded) =>
+      projectValidatedOperation(readInboxOutput, input.name, {
+        operation: operations.readInbox(decoded),
+        label: "Inbox read",
         allowedReasons: RUNTIME_READ_REASONS,
         fallbackReason: "persistence-failed",
-        signal: input.signal,
-      });
-    case SEARCH_AGENTS_TOOL:
-      return await handleSearchAgentsToolCall(input, operations);
-    case SEARCH_CONVERSATIONS_TOOL:
-      return await handleSearchConversationsToolCall(input, operations);
-    case READ_CONVERSATION_TOOL:
-      return await handleReadConversationToolCall(input, operations);
-    case HARNESS_SEND_TOOL:
-      return await handleSendToolCall(input, operations);
-    case HARNESS_ACKNOWLEDGE_DELIVERY_TOOL:
-      return await runEventOperation(
-        handleAcknowledgeDeliveryToolCall(input, operations),
-        input.signal,
-      );
-    default:
-      return toolNotFound(input.name);
-  }
-};
+      }),
+    ),
+  );
 
-const ownerEventOperation = (events: HarnessEvents, name: string) => {
-  switch (name) {
-    case "event_subscription_status":
-      return events.status;
-    case "revoke_event_subscription":
-      return events.revoke.pipe(Effect.as({}));
-    case "resume_event_subscription":
-      return events.resume.pipe(Effect.as({}));
-    default:
-      return undefined;
-  }
-};
-interface RequestAuthority {
-  readonly role: HarnessMcpRole;
+// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits argument decoding and the Promise-native operation bridge.
+const handleReadSendToolCall = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+) =>
+  await runValidatedOperation(readSendOutput, input.name, {
+    operation: operations.readSend(
+      await decodeInvocationInput(
+        decodeHarnessReadSendRequest(input.toolArguments),
+        input.signal,
+      ),
+    ),
+    label: "Send lookup",
+    allowedReasons: RUNTIME_READ_REASONS,
+    fallbackReason: "persistence-failed",
+    signal: input.signal,
+  });
+
+/** The operations a tool call runs: the daemon's and the event subscription's. */
+interface ToolOperations extends HarnessMcpOperations {
   readonly events: HarnessEvents;
+  readonly role: HarnessMcpRole;
 }
+
+/**
+ * Keep native inbox reads and receipts in the consumer gate through persistence
+ * and cancellation cleanup. Authority comes from the server, never request metadata.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   Request --> Authority{Server-owned authority}
+ *   Authority -->|Local or private socket| Management[Run operation]
+ *   Authority -->|Runtime| Gate[Acquire consumer ownership gate]
+ *   Gate --> Generation{Current generation?}
+ *   Generation -->|No| Refuse[Reject stale receiver]
+ *   Generation -->|Yes| Commit[Run persistence in the same fiber]
+ *   Commit --> Release[Release gate after completion or cleanup]
+ * ```
+ */
+const runNativeToolOperation = (
+  input: ToolCallInput,
+  operations: ToolOperations,
+  operation: Effect.Effect<ReturnType<typeof toolResult>, ProtocolError>,
+) =>
+  runEventOperation(
+    operations.role === "runtime"
+      ? operations.events.nativeOperation(input.metadata, operation)
+      : operation,
+    input.signal,
+  );
 
 // #ignore-sloppy-code-next-line[async-keyword]: The MCP edge validates its Promise-native tool schema before running the owner operation.
 const handleOwnerOperation = async (
-  operation: NonNullable<ReturnType<typeof ownerEventOperation>>,
+  operation: Effect.Effect<Readonly<Record<string, unknown>>, ProtocolError>,
   input: ToolCallInput,
 ) => {
   await decodeToolInput(emptyInput, input.toolArguments, input.name);
   return toolResult(await runEventOperation(operation, input.signal));
 };
 
+/** Serves one admitted call of the tool it is keyed by in `toolHandlers`. */
+type ToolHandler = (
+  input: ToolCallInput,
+  operations: ToolOperations,
+  // eslint-disable-next-line agent-code-guard/promise-type -- MCP tool handlers are Promise callbacks of the official SDK.
+) => Promise<ReturnType<typeof toolResult>>;
+
 /**
- * The tools `role` lists and may call now: its catalog for whether the
- * daemon's protocol is up. Listing and admission read this one answer.
+ * The handler for each tool the catalog can list, keyed like `toolListings`,
+ * so a listed tool without a handler does not compile.
+ */
+const toolHandlers = {
+  [STATUS_TOOL]: handleStatusToolCall,
+  [REGISTER_TOOL]: handleRegistrationToolCall,
+  event_subscription_status: (input, operations) =>
+    handleOwnerOperation(operations.events.status, input),
+  revoke_event_subscription: (input, operations) =>
+    handleOwnerOperation(operations.events.revoke.pipe(Effect.as({})), input),
+  resume_event_subscription: (input, operations) =>
+    handleOwnerOperation(operations.events.resume.pipe(Effect.as({})), input),
+  [SEARCH_AGENTS_TOOL]: handleSearchAgentsToolCall,
+  [SEARCH_CONVERSATIONS_TOOL]: handleSearchConversationsToolCall,
+  [READ_CONVERSATION_TOOL]: handleReadConversationToolCall,
+  [HARNESS_READ_INBOX_TOOL]: (input, operations) =>
+    runNativeToolOperation(
+      input,
+      operations,
+      handleReadInboxToolCall(input, operations),
+    ),
+  [HARNESS_READ_SEND_TOOL]: handleReadSendToolCall,
+  [HARNESS_SEND_TOOL]: handleSendToolCall,
+  [HARNESS_READ_EVENT_TOOL]: handleReadEventToolCall,
+  [HARNESS_ACKNOWLEDGE_DELIVERY_TOOL]: (input, operations) =>
+    runNativeToolOperation(
+      input,
+      operations,
+      handleAcknowledgeDeliveryToolCall(input, operations),
+    ),
+} satisfies Readonly<Record<ToolName, ToolHandler>>;
+
+/**
+ * The tools `role` lists now, according to whether the daemon's protocol is up.
+ * Native runtime tools are admitted separately without becoming model tools.
  * @param role The request's authority.
  * @param operations The daemon operations that report the protocol state.
  * @returns The tool names, in catalog order.
@@ -749,52 +794,36 @@ const currentTools = (
   return operations.protocolActive() ? catalog.active : catalog.inactive;
 };
 
+/** One runtime grant also authorizes native delivery and send recovery. */
+const nativeRuntimeTools = [
+  HARNESS_READ_INBOX_TOOL,
+  HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
+  HARNESS_READ_SEND_TOOL,
+] as const;
+
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP dispatcher awaits the selected Promise-native tool handler.
 const handleToolCall = async (
   input: ToolCallInput,
-  operations: HarnessMcpOperations,
-  authority: RequestAuthority,
+  operations: ToolOperations,
+  role: HarnessMcpRole,
 ) => {
-  const admitted: readonly string[] = currentTools(authority.role, operations);
-  if (!admitted.includes(input.name)) {
+  const catalog = currentTools(role, operations);
+  const admitted =
+    role === "runtime" && operations.protocolActive()
+      ? [...catalog, ...nativeRuntimeTools]
+      : catalog;
+  const name = admitted.find((tool) => tool === input.name);
+  if (name === undefined) {
     return toolNotFound(input.name);
   }
-  const ownerOperation = ownerEventOperation(authority.events, input.name);
-  if (ownerOperation !== undefined) {
-    return await handleOwnerOperation(ownerOperation, input);
-  }
-  switch (input.name) {
-    case STATUS_TOOL:
-      return await handleStatusToolCall(input, operations);
-    case REGISTER_TOOL:
-      return await handleRegistrationToolCall(input, operations);
-    default:
-      return await handleActiveToolCall(input, operations);
-  }
+  return await toolHandlers[name](input, operations);
 };
 
-/**
- * Schema failures and refused operations stay on the JSON-RPC error channel.
- * Native receipts retain the ownership gate through persistence, including
- * uncancelable work already accepted before a request abort.
- *
- * ```mermaid
- * flowchart TD
- *   Request --> Authority{Server-owned authority}
- *   Authority -->|Private socket| Management[Management operation]
- *   Authority -->|Runtime| Tool{Native inbox or receipt?}
- *   Tool -->|No| Model[Runtime tool operation]
- *   Tool -->|Yes| Gate[Acquire consumer ownership gate]
- *   Gate --> Generation{Current generation?}
- *   Generation -->|No| Refuse[Reject stale receiver]
- *   Generation -->|Yes| Commit[Run persistence in the same fiber]
- *   Commit --> Release[Release gate after completion or cleanup]
- * ```
- */
+/** Schema failures and refused operations stay on the JSON-RPC error channel. */
 const installToolCallHandler = (
   server: McpServer,
-  operations: HarnessMcpOperations,
-  authority: RequestAuthority,
+  operations: ToolOperations,
+  role: HarnessMcpRole,
 ): void => {
   server.server.setRequestHandler("tools/call", (request, context) => {
     const input = {
@@ -803,33 +832,17 @@ const installToolCallHandler = (
       metadata: context.mcpReq._meta,
       signal: context.mcpReq.signal,
     };
-    if (operations.protocolActive() && authority.role === "runtime") {
-      switch (input.name) {
-        case HARNESS_READ_INBOX_TOOL:
-        case HARNESS_ACKNOWLEDGE_DELIVERY_TOOL:
-          return runEventOperation(
-            authority.events.nativeOperation(
-              input.metadata,
-              input.name === HARNESS_ACKNOWLEDGE_DELIVERY_TOOL
-                ? handleAcknowledgeDeliveryToolCall(input, operations)
-                : handleInboxReadToolCall(input, operations),
-            ),
-            input.signal,
-          );
-        case HARNESS_READ_SEND_TOOL:
-          return handleActiveToolCall(input, operations);
-        default:
-          break;
-      }
-    }
-    return handleToolCall(input, operations, authority);
+    return handleToolCall(input, operations, role);
   });
 };
 const runtimeOperations = (
   operations: HarnessMcpOperations,
   events: HarnessEvents,
-): HarnessMcpOperations => ({
+  role: HarnessMcpRole,
+): ToolOperations => ({
   ...operations,
+  events,
+  role,
   acknowledgeDelivery: (token) =>
     operations
       .acknowledgeDelivery(token)
@@ -852,8 +865,8 @@ const makeServer = (
   }
   installToolCallHandler(
     server,
-    runtimeOperations(options.operations, events),
-    { role, events },
+    runtimeOperations(options.operations, events, role),
+    role,
   );
   events.install(server.server, role === "local" ? undefined : role);
   return server;

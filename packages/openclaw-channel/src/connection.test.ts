@@ -12,7 +12,7 @@ import { Data, Effect, FastCheck as fc, Redacted, Stream } from "effect";
 import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, vi, it as vitestIt } from "vitest";
+import { beforeEach, describe, expect, vi } from "vitest";
 import { createMoltzapChannelPlugin } from "./plugin.js";
 
 // eslint-disable-next-line agent-code-guard/async-keyword -- Vitest's hoisted Promise-native mock factory runs before Effect's import binding initializes; no runtime operation or lifetime crosses this test-only boundary.
@@ -28,6 +28,23 @@ const endpoint: HarnessEndpoint = {
 const MCP_URL = "http://127.0.0.1:4319/mcp";
 const GRANT = "openclaw-runtime-credential-00000001";
 const MISSING_FILENAME = "private-path-should-not-leak.txt";
+const CREDENTIAL_ERROR = "must contain exactly one bearer token";
+const malformedGrants = [
+  { name: "empty", value: "" },
+  { name: "newline suffix", value: `${GRANT}\n` },
+  { name: "CRLF suffix", value: `${GRANT}\r\n` },
+  { name: "leading whitespace", value: ` ${GRANT}` },
+  { name: "trailing whitespace", value: `${GRANT} ` },
+  { name: "embedded newline", value: `${GRANT}\n${GRANT}` },
+  { name: "UTF-8 BOM", value: `\uFEFF${GRANT}` },
+  { name: "non-ASCII text", value: `${GRANT}é` },
+  { name: "embedded padding", value: `${GRANT}=suffix` },
+  { name: "oversize token", value: "a".repeat(4097) },
+  {
+    name: "invalid UTF-8",
+    value: new Uint8Array([...new TextEncoder().encode(GRANT), 0xff]),
+  },
+];
 class FileFixtureError extends Data.TaggedError("FileFixtureError")<{
   readonly detail: string;
 }> {}
@@ -60,16 +77,25 @@ describe("OpenClaw configured endpoint", () => {
     "refuses a directory where a credential file is required",
     rejectsDirectory,
   );
-  vitestIt(
+  for (const malformed of malformedGrants) {
+    it(`rejects ${malformed.name} without fallback or credential disclosure`, () =>
+      rejectsMalformedGrant(malformed.value));
+  }
+  it.prop(
     "preserves generated grant bytes without exposing them in serialized options",
-    () =>
-      fc.assert(
-        fc.asyncProperty(
-          fc.string({ minLength: 32, maxLength: 128 }),
-          (grant) => Effect.runPromise(Effect.scoped(readsGrant(grant))),
-        ),
-        { numRuns: 12 },
-      ),
+    [
+      fc
+        .array(
+          fc.constantFrom("a", "b", "0", "1", "-", "_", ".", "~", "+", "/"),
+          {
+            minLength: 32,
+            maxLength: 128,
+          },
+        )
+        .map((characters) => characters.join("")),
+    ],
+    ([grant]) => readsGrant(grant),
+    { fastCheck: { numRuns: 12 } },
   );
 });
 
@@ -97,7 +123,7 @@ function readsGrant(grant: string) {
     const options = vi.mocked(acquireHarnessEndpoint).mock.calls.at(-1)?.[1];
     expect(options).toEqual({ credential: Redacted.make(grant) });
     expect(JSON.stringify(options)).not.toContain(grant);
-  });
+  }).pipe(Effect.scoped);
 }
 
 function reloadsGrant() {
@@ -142,6 +168,19 @@ function rejectsDirectory() {
   return Effect.gen(function* () {
     const directory = yield* temporaryDirectory();
     yield* configuredGrantConnection(directory).pipe(Effect.flip);
+    expect(acquireHarnessEndpoint).not.toHaveBeenCalled();
+  });
+}
+
+function rejectsMalformedGrant(value: string | Uint8Array) {
+  return Effect.gen(function* () {
+    const directory = yield* temporaryDirectory();
+    const file = join(directory, "runtime.txt");
+    yield* writeGrant(file, value);
+    const failure = yield* configuredGrantConnection(file).pipe(Effect.flip);
+    expect(failure.detail).toContain(CREDENTIAL_ERROR);
+    expect(failure.detail).not.toContain(file);
+    expect(failure.detail).not.toContain(GRANT);
     expect(acquireHarnessEndpoint).not.toHaveBeenCalled();
   });
 }
@@ -212,7 +251,7 @@ function temporaryDirectory() {
   );
 }
 
-function writeGrant(file: string, value: string) {
+function writeGrant(file: string, value: string | Uint8Array) {
   const staging = `${file}.next`;
   return Effect.tryPromise({
     try: () => writeFile(staging, value, { mode: 0o400 }),

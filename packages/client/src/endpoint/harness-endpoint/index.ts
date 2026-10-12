@@ -5,9 +5,18 @@ import {
   fromJsonSchema,
   type JsonSchemaType,
   ProtocolError,
+  SdkHttpError,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
-import { Data, Effect, Redacted, Ref, type Scope, Stream } from "effect";
+import {
+  Data,
+  Deferred,
+  Effect,
+  Redacted,
+  Ref,
+  type Scope,
+  Stream,
+} from "effect";
 import type { DeliveryToken } from "../../store/index.js";
 import {
   decodeHarnessReadInboxResult,
@@ -58,6 +67,13 @@ class CloseError extends Data.TaggedError("CloseError") {}
 interface ConnectionOptions {
   readonly delivery: NonNullable<HarnessEndpointOptions["delivery"]>;
   readonly headers: Readonly<Record<string, string>>;
+}
+
+type ConsumerRevocation = Deferred.Deferred<never, DeliveryAcknowledgeError>;
+
+interface ConsumerBinding {
+  readonly metadata: Readonly<Record<string, unknown>>;
+  readonly revoked: ConsumerRevocation;
 }
 
 /**
@@ -134,13 +150,22 @@ function closeQuietly(close: () => Promise<void>): Effect.Effect<void> {
 
 /**
  * Rebuild the typed error of a refused send from its JSON-RPC error data: a
- * collective failure with its id and detail, or a closed send reason.
+ * collective failure with its id and detail, or a closed send reason. A
+ * rejection that is not the daemon's answer, such as a timeout or a dropped
+ * connection, can follow the daemon queueing the post, so it is
+ * `outcome-unknown` unless the request never reached the daemon.
  * @param cause Upstream rejection at the MCP tool boundary.
  * @returns A closed send failure without transport details.
  */
 function sendFailure(cause: unknown): SendError | CollectiveError {
-  const data: unknown = ProtocolError.isInstance(cause) ? cause.data : cause;
-  return decodeHarnessSendErrorData(data).pipe(
+  if (!ProtocolError.isInstance(cause)) {
+    return new SendError({
+      reason: neverReachedDaemon(cause)
+        ? "network-unavailable"
+        : "outcome-unknown",
+    });
+  }
+  return decodeHarnessSendErrorData(cause.data).pipe(
     Effect.map((decoded) =>
       "failure" in decoded
         ? new CollectiveError({ id: decoded.id, failure: decoded.failure })
@@ -157,6 +182,33 @@ function sendFailure(cause: unknown): SendError | CollectiveError {
       () => new SendError({ reason: "network-unavailable" }),
     ),
     Effect.runSync,
+  );
+}
+
+/**
+ * HTTP statuses that the daemon's HTTP layer, or the MCP server SDK before it
+ * dispatches a request, answers with. Any other status may follow a send that
+ * ran: the SDK answers 499 for a call it closed mid-dispatch.
+ */
+const PRE_DISPATCH_STATUSES: ReadonlySet<number> = new Set([
+  400, 401, 403, 404, 405,
+]);
+
+/**
+ * Whether a rejected request certainly ran no daemon tool: the daemon turned
+ * it away before dispatch, or the connection was refused.
+ * @param cause A rejection that is not a JSON-RPC error.
+ * @returns Whether the daemon cannot have acted on the request.
+ */
+function neverReachedDaemon(cause: unknown): boolean {
+  if (SdkHttpError.isInstance(cause)) {
+    return PRE_DISPATCH_STATUSES.has(cause.status);
+  }
+  return (
+    cause instanceof Error &&
+    cause.cause instanceof Error &&
+    "code" in cause.cause &&
+    cause.cause.code === "ECONNREFUSED"
   );
 }
 
@@ -205,8 +257,9 @@ function callAcknowledgeDelivery(
   client: Client,
   deliveryToken: DeliveryToken,
   metadata: Readonly<Record<string, unknown>>,
+  revoked: ConsumerRevocation,
 ): Effect.Effect<void, DeliveryAcknowledgeError> {
-  return Effect.tryPromise({
+  const acknowledge = Effect.tryPromise({
     try: (signal) =>
       client.callTool(
         {
@@ -226,6 +279,12 @@ function callAcknowledgeDelivery(
           )
         : Effect.void,
     ),
+  );
+  return Deferred.isDone(revoked).pipe(
+    Effect.flatMap((closed) =>
+      closed ? Deferred.await(revoked) : acknowledge,
+    ),
+    Effect.raceFirst(Deferred.await(revoked)),
   );
 }
 
@@ -339,7 +398,7 @@ const unseenDeliveries = (
   items: Effect.Effect.Success<
     ReturnType<typeof decodeHarnessReadInboxResult>
   >["items"],
-  metadata: Readonly<Record<string, unknown>>,
+  consumer: ConsumerBinding,
 ): InboundDelivery[] => {
   const deliveries: InboundDelivery[] = [];
   for (const entry of items) {
@@ -350,7 +409,8 @@ const unseenDeliveries = (
     const acknowledge = callAcknowledgeDelivery(
       client,
       entry.deliveryToken,
-      metadata,
+      consumer.metadata,
+      consumer.revoked,
     );
     deliveries.push({
       eventId: eventIdOf(entry.deliveryToken),
@@ -365,13 +425,13 @@ const unseenDeliveries = (
  * Prune completed snapshots so acknowledged history cannot accumulate in a live listener.
  * @param client Scoped connection to the owning daemon.
  * @param seen Tokens already offered by this listener, retained through pending reads.
- * @param metadata Server-issued lifecycle binding carried by native requests.
+ * @param consumer Server-issued generation and local consumer lifetime.
  * @returns New deliveries from one complete bounded inbox snapshot.
  */
 function pendingInbox(
   client: Client,
   seen: Set<DeliveryToken>,
-  metadata: Readonly<Record<string, unknown>>,
+  consumer: ConsumerBinding,
 ): Stream.Stream<InboundDelivery, ListenError> {
   const retained = new Set<DeliveryToken>();
   const page = (cursor?: string): Stream.Stream<InboundDelivery, ListenError> =>
@@ -382,7 +442,7 @@ function pendingInbox(
             {
               name: HARNESS_READ_INBOX_TOOL,
               arguments: cursor === undefined ? {} : { cursor },
-              _meta: metadata,
+              _meta: consumer.metadata,
             },
             { signal },
           ),
@@ -394,7 +454,7 @@ function pendingInbox(
             retained.add(entry.deliveryToken);
           }
           const current = Stream.fromIterable(
-            unseenDeliveries(client, seen, result.items, metadata),
+            unseenDeliveries(client, seen, result.items, consumer),
           );
           return result.nextCursor === undefined
             ? current
@@ -452,20 +512,28 @@ function messages(
       if (typeof delivery === "object") {
         return webhookMessages(client, delivery);
       }
+      const revoked = yield* Deferred.make<never, DeliveryAcknowledgeError>();
+      const fence = Deferred.fail(
+        revoked,
+        new DeliveryAcknowledgeError({ reason: "consumer-revoked" }),
+      ).pipe(Effect.asVoid);
+      yield* Effect.addFinalizer(() => fence);
       const seen = new Set<DeliveryToken>();
       const wakeups: Stream.Stream<
         Readonly<Record<string, unknown>>,
         ListenError
       > =
         delivery === "poll"
-          ? pollWakeups(client).pipe(
+          ? pollWakeups(client, fence).pipe(
               Stream.map((generation) => ({
                 [HARNESS_CONSUMER_META_KEY]: { generation },
               })),
             )
           : inboxWakeups(endpoint).pipe(Stream.as({}));
       return wakeups.pipe(
-        Stream.flatMap((metadata) => pendingInbox(client, seen, metadata)),
+        Stream.flatMap((metadata) =>
+          pendingInbox(client, seen, { metadata, revoked }),
+        ),
       );
     }),
   );

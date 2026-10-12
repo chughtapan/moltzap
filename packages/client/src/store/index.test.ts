@@ -1,10 +1,11 @@
 /** @file Exact preflight, proposal-lock, certification, and delivery tests. */
 
+import { live as it } from "@effect/vitest";
 import { Effect } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests create and inspect exact real-SQLite permission fixtures around the scoped Effect resource.
 import { chmodSync, statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import {
   bytes,
   databasePath,
@@ -57,14 +58,12 @@ function initializesEmptyV0Database() {
       }),
     ),
   );
-  return Effect.runPromise(
-    initialize.pipe(
-      Effect.zipRight(withStore(directory, (store) => store.recover())),
-      Effect.tap(() =>
-        Effect.sync(() => {
-          assertInitializedDatabase(directory);
-        }),
-      ),
+  return initialize.pipe(
+    Effect.zipRight(withStore(directory, (store) => store.recover())),
+    Effect.tap(() =>
+      Effect.sync(() => {
+        assertInitializedDatabase(directory);
+      }),
     ),
   );
 }
@@ -79,16 +78,14 @@ function rejectsV1WithoutMutation() {
   chmodSync(directory, 0o755);
   chmodSync(path, 0o644);
 
-  return Effect.runPromise(
-    expectReason(
-      Effect.scoped(openEndpointStore(directory)),
-      "incompatible",
-    ).pipe(
-      Effect.tap(() =>
-        Effect.sync(() => {
-          assertLegacyDatabaseUnchanged(directory, path);
-        }),
-      ),
+  return expectReason(
+    Effect.scoped(openEndpointStore(directory)),
+    "incompatible",
+  ).pipe(
+    Effect.tap(() =>
+      Effect.sync(() => {
+        assertLegacyDatabaseUnchanged(directory, path);
+      }),
     ),
   );
 }
@@ -100,16 +97,14 @@ function rejectsNonemptyV0WithoutInitialization() {
   database.exec("CREATE TABLE unexpected_state (value TEXT) STRICT");
   database.close();
 
-  return Effect.runPromise(
-    expectReason(
-      Effect.scoped(openEndpointStore(directory)),
-      "incompatible",
-    ).pipe(
-      Effect.tap(() =>
-        Effect.sync(() => {
-          assertNonemptyDatabaseUnchanged(path);
-        }),
-      ),
+  return expectReason(
+    Effect.scoped(openEndpointStore(directory)),
+    "incompatible",
+  ).pipe(
+    Effect.tap(() =>
+      Effect.sync(() => {
+        assertNonemptyDatabaseUnchanged(path);
+      }),
     ),
   );
 }
@@ -118,35 +113,33 @@ function retainsFirstProposalAcrossRestart() {
   const directory = stateDirectory();
   const conversationId = "conversation:lock";
   const first = proposal(conversationId, `ach_${conversationId}:0`);
-  return Effect.runPromise(
-    withStore(directory, (store) =>
-      Effect.gen(function* () {
-        yield* bindLocalIdentity(store);
-        yield* store.putConversationFoundation(foundation(conversationId));
-        const localSignature = localActionEvidence(
-          conversationId,
-          first.actionHash,
-        );
-        yield* expectReason(store.mergeEvidence(localSignature), "not-found");
-        expect(yield* store.lockProposal(first)).toBe(INSERTED_MUTATION);
-        expect(yield* store.mergeEvidence(localSignature)).toBe(
-          INSERTED_MUTATION,
-        );
-        expect(yield* store.lockProposal(first)).toBe(EXISTING_MUTATION);
-        yield* expectReason(
-          store.lockProposal(proposal(conversationId, "ach_competing")),
-          "conflict",
-        );
-      }),
-    ).pipe(
-      Effect.zipRight(
-        withStore(directory, (store) =>
-          store.recover().pipe(
-            Effect.tap((recovery) => {
-              expect(recovery.proposalLocks).toEqual([first]);
-              return Effect.void;
-            }),
-          ),
+  return withStore(directory, (store) =>
+    Effect.gen(function* () {
+      yield* bindLocalIdentity(store);
+      yield* store.putConversationFoundation(foundation(conversationId));
+      const localSignature = localActionEvidence(
+        conversationId,
+        first.actionHash,
+      );
+      yield* expectReason(store.mergeEvidence(localSignature), "not-found");
+      expect(yield* store.lockProposal(first)).toBe(INSERTED_MUTATION);
+      expect(yield* store.mergeEvidence(localSignature)).toBe(
+        INSERTED_MUTATION,
+      );
+      expect(yield* store.lockProposal(first)).toBe(EXISTING_MUTATION);
+      yield* expectReason(
+        store.lockProposal(proposal(conversationId, "ach_competing")),
+        "conflict",
+      );
+    }),
+  ).pipe(
+    Effect.zipRight(
+      withStore(directory, (store) =>
+        store.recover().pipe(
+          Effect.tap((recovery) => {
+            expect(recovery.proposalLocks).toEqual([first]);
+            return Effect.void;
+          }),
         ),
       ),
     ),
@@ -167,37 +160,35 @@ function supersedesAConflictingLockWithItsCertificate() {
   const held = proposal(conversationId, "ach_held");
   const certified = proposal(conversationId, "ach_certified");
   const certificate = actionCertificate(conversationId, certified.actionHash);
-  return Effect.runPromise(
-    withStore(directory, (store) =>
-      Effect.gen(function* () {
-        yield* bindLocalIdentity(store);
-        yield* store.putConversationFoundation(foundation(conversationId));
-        yield* store.lockProposal(held);
-        yield* store.mergeEvidence(
+  return withStore(directory, (store) =>
+    Effect.gen(function* () {
+      yield* bindLocalIdentity(store);
+      yield* store.putConversationFoundation(foundation(conversationId));
+      yield* store.lockProposal(held);
+      yield* store.mergeEvidence(
+        localActionEvidence(conversationId, held.actionHash),
+      );
+      yield* expectReason(
+        store.supersedeProposalLock(certified, [
+          ...certificate.slice(1),
           localActionEvidence(conversationId, held.actionHash),
-        );
-        yield* expectReason(
-          store.supersedeProposalLock(certified, [
-            ...certificate.slice(1),
-            localActionEvidence(conversationId, held.actionHash),
-          ]),
-          "invalid-input",
-        );
-        expect((yield* store.recover()).proposalLocks).toEqual([held]);
-        expect(yield* store.supersedeProposalLock(certified, certificate)).toBe(
-          INSERTED_MUTATION,
-        );
-      }),
-    ).pipe(
-      Effect.zipRight(
-        withStore(directory, (store) =>
-          store.recover().pipe(
-            Effect.tap((recovery) => {
-              expect(recovery.proposalLocks).toEqual([certified]);
-              expect(recovery.evidence).toEqual(certificate);
-              return Effect.void;
-            }),
-          ),
+        ]),
+        "invalid-input",
+      );
+      expect((yield* store.recover()).proposalLocks).toEqual([held]);
+      expect(yield* store.supersedeProposalLock(certified, certificate)).toBe(
+        INSERTED_MUTATION,
+      );
+    }),
+  ).pipe(
+    Effect.zipRight(
+      withStore(directory, (store) =>
+        store.recover().pipe(
+          Effect.tap((recovery) => {
+            expect(recovery.proposalLocks).toEqual([certified]);
+            expect(recovery.evidence).toEqual(certificate);
+            return Effect.void;
+          }),
         ),
       ),
     ),
@@ -210,39 +201,37 @@ function atomicallyBindsFirstIntentWithItsFoundation() {
   const competingConversationId = "conversation:intent:competing";
   const firstIntent = postIntent(firstConversationId, "pst_atomic");
   const competingIntent = postIntent(competingConversationId, "pst_atomic");
-  return Effect.runPromise(
-    withStore(directory, (store) =>
-      Effect.gen(function* () {
-        yield* bindLocalIdentity(store);
-        expect(
-          yield* store.bindPostIntent({
-            kind: "new-conversation",
-            foundation: foundation(firstConversationId),
-            intent: firstIntent,
-          }),
-        ).toBe(INSERTED_MUTATION);
-        expect(
-          yield* store.bindPostIntent({
-            kind: "new-conversation",
-            foundation: foundation(firstConversationId),
-            intent: firstIntent,
-          }),
-        ).toBe(EXISTING_MUTATION);
-        yield* expectReason(
-          store.bindPostIntent({
-            kind: "new-conversation",
-            foundation: foundation(competingConversationId),
-            intent: competingIntent,
-          }),
-          "conflict",
-        );
-        const recovery = yield* store.recover();
-        expect(recovery.postIntents).toEqual([firstIntent]);
-        expect(recovery.memberships.map((item) => item.conversationId)).toEqual(
-          [firstConversationId],
-        );
-      }),
-    ),
+  return withStore(directory, (store) =>
+    Effect.gen(function* () {
+      yield* bindLocalIdentity(store);
+      expect(
+        yield* store.bindPostIntent({
+          kind: "new-conversation",
+          foundation: foundation(firstConversationId),
+          intent: firstIntent,
+        }),
+      ).toBe(INSERTED_MUTATION);
+      expect(
+        yield* store.bindPostIntent({
+          kind: "new-conversation",
+          foundation: foundation(firstConversationId),
+          intent: firstIntent,
+        }),
+      ).toBe(EXISTING_MUTATION);
+      yield* expectReason(
+        store.bindPostIntent({
+          kind: "new-conversation",
+          foundation: foundation(competingConversationId),
+          intent: competingIntent,
+        }),
+        "conflict",
+      );
+      const recovery = yield* store.recover();
+      expect(recovery.postIntents).toEqual([firstIntent]);
+      expect(recovery.memberships.map((item) => item.conversationId)).toEqual([
+        firstConversationId,
+      ]);
+    }),
   );
 }
 
@@ -251,28 +240,26 @@ function atomicallyLocksVerifiedGenesisFoundation() {
   const conversationId = "conversation:genesis-lock";
   const retainedFoundation = foundation(conversationId);
   const first = proposal(conversationId, "ach_genesis:first");
-  return Effect.runPromise(
-    withStore(directory, (store) =>
-      Effect.gen(function* () {
-        expect(
-          yield* store.lockGenesisProposal(retainedFoundation, first),
-        ).toBe(INSERTED_MUTATION);
-        expect(
-          yield* store.lockGenesisProposal(retainedFoundation, first),
-        ).toBe(EXISTING_MUTATION);
-        yield* expectReason(
-          store.lockGenesisProposal(
-            retainedFoundation,
-            proposal(conversationId, "ach_genesis:competing"),
-          ),
-          "conflict",
-        );
-        const recovery = yield* store.recover();
-        expect(recovery.memberships).toHaveLength(1);
-        expect(recovery.anchors).toHaveLength(1);
-        expect(recovery.proposalLocks).toEqual([first]);
-      }),
-    ),
+  return withStore(directory, (store) =>
+    Effect.gen(function* () {
+      expect(yield* store.lockGenesisProposal(retainedFoundation, first)).toBe(
+        INSERTED_MUTATION,
+      );
+      expect(yield* store.lockGenesisProposal(retainedFoundation, first)).toBe(
+        EXISTING_MUTATION,
+      );
+      yield* expectReason(
+        store.lockGenesisProposal(
+          retainedFoundation,
+          proposal(conversationId, "ach_genesis:competing"),
+        ),
+        "conflict",
+      );
+      const recovery = yield* store.recover();
+      expect(recovery.memberships).toHaveLength(1);
+      expect(recovery.anchors).toHaveLength(1);
+      expect(recovery.proposalLocks).toEqual([first]);
+    }),
   );
 }
 
@@ -284,14 +271,12 @@ function promotesRemoteRecordWithStableDelivery() {
     recipientAgentId: LOCAL_AGENT_ID,
     canonicalMessage: bytes("message:remote"),
   };
-  return Effect.runPromise(
-    withStore(directory, (store) =>
-      writeRemoteDelivery(store, record, delivery),
-    ).pipe(
-      Effect.flatMap((retainedToken) =>
-        withStore(directory, (store) =>
-          verifyRemoteDeliveryRecovery(store, record, retainedToken),
-        ),
+  return withStore(directory, (store) =>
+    writeRemoteDelivery(store, record, delivery),
+  ).pipe(
+    Effect.flatMap((retainedToken) =>
+      withStore(directory, (store) =>
+        verifyRemoteDeliveryRecovery(store, record, retainedToken),
       ),
     ),
   );
@@ -301,51 +286,50 @@ function rollsBackRemoteRecordWithoutDelivery() {
   const directory = stateDirectory();
   const conversationId = "conversation:atomic";
   const record = certifiedRecord(conversationId, "agent:remote");
-  return Effect.runPromise(
-    withStore(directory, (store) =>
-      Effect.gen(function* () {
-        yield* bindLocalIdentity(store);
-        yield* store.putConversationFoundation(foundation(conversationId));
-        yield* expectReason(store.applyCatchUpRecord(record), "invalid-input");
-        const recovery = yield* store.recover();
-        expect(recovery.positions[0]?.headRecordHash).toBeUndefined();
-        expect(recovery.stagedRecords).toEqual([]);
-        expect(recovery.certifiedRecords).toEqual([]);
-        expect(recovery.evidence).toEqual([]);
-        expect(recovery.pendingDeliveries).toEqual([]);
-      }),
-    ),
+  return withStore(directory, (store) =>
+    Effect.gen(function* () {
+      yield* bindLocalIdentity(store);
+      yield* store.putConversationFoundation(foundation(conversationId));
+      yield* expectReason(store.applyCertifiedRecord(record), "invalid-input");
+      const recovery = yield* store.recover();
+      expect(recovery.positions[0]?.headRecordHash).toBeUndefined();
+      expect(recovery.stagedRecords).toEqual([]);
+      expect(recovery.certifiedRecords).toEqual([]);
+      expect(recovery.evidence).toEqual([]);
+      expect(recovery.pendingDeliveries).toEqual([]);
+    }),
   );
 }
 
+/**
+ * The endpoint stages its own post for its vote and stores that vote, then
+ * receives the post whole, with its own vote in the durability certificate.
+ * The store applies it over the staged record and the stored vote, completes
+ * the local post intent and retains no delivery to this endpoint itself.
+ * Fails when applying a whole record refuses a vote of this endpoint's own
+ * that it already holds, or delivers a local post to its author.
+ * @returns The trace, run to completion.
+ */
 function completesLocalPostWithoutSelfDelivery() {
   const directory = stateDirectory();
   const conversationId = "conversation:local";
   const record = certifiedRecord(conversationId, LOCAL_AGENT_ID);
-  return Effect.runPromise(
-    withStore(directory, (store) =>
-      Effect.gen(function* () {
-        yield* bindLocalIdentity(store);
-        yield* store.bindPostIntent({
-          kind: "new-conversation",
-          foundation: foundation(conversationId),
-          intent: {
-            conversationId,
-            membershipHash: record.membershipHash,
-            authorAgentId: record.authorAgentId,
-            postId: record.postId,
-            canonicalIntent: bytes("intent:local"),
-          },
-        });
-        yield* store.lockProposal(proposal(conversationId, record.actionHash));
-        yield* store.applyCatchUpRecord(record);
-        const recovery = yield* store.recover();
-        expect(recovery.postIntents[0]?.completedRecordHash).toBe(
-          record.recordHash,
-        );
-        expect(recovery.pendingDeliveries).toEqual([]);
-      }),
-    ),
+  return withStore(directory, (store) =>
+    Effect.gen(function* () {
+      yield* lockLocalPost(store, record);
+      yield* store.stageRecordForDissemination(stagedRecord(record));
+      yield* Effect.forEach(
+        record.durabilityEvidence,
+        (vote) => store.mergeEvidence(vote),
+        { concurrency: 1, discard: true },
+      );
+      yield* store.applyCertifiedRecord(record);
+      const recovery = yield* store.recover();
+      expect(recovery.postIntents[0]?.completedRecordHash).toBe(
+        record.recordHash,
+      );
+      expect(recovery.pendingDeliveries).toEqual([]);
+    }),
   );
 }
 
@@ -362,44 +346,81 @@ function refusesAReanchorAwayFromAStagedSuccessor() {
   const directory = stateDirectory();
   const conversationId = "conversation:staged-successor";
   const head = certifiedRecord(conversationId, LOCAL_AGENT_ID);
-  const successor: StagedRecord = {
-    ...stagedRecord(head),
-    recordHash: `rch_${conversationId}:1`,
-    previousRecordHash: head.recordHash,
-    actionHash: `ach_${conversationId}:1`,
-    canonicalRecordCore: bytes(`record:${conversationId}:1`),
-  };
-  const awayFromTheHead: StagedReanchor = {
-    conversationId,
-    anchorHash: `anc_${conversationId}:1`,
-    previousAnchorHash: head.anchorHash,
-    routerInstanceId: "rti_staged-successor",
-    selectedRecordHash: head.recordHash,
-    canonicalBody: bytes(`reanchor:${conversationId}:1`),
-  };
-  return Effect.runPromise(
-    withStore(directory, (store) =>
-      Effect.gen(function* () {
-        yield* bindLocalIdentity(store);
-        yield* store.bindPostIntent({
-          kind: "new-conversation",
-          foundation: foundation(conversationId),
-          intent: {
-            conversationId,
-            membershipHash: head.membershipHash,
-            authorAgentId: head.authorAgentId,
-            postId: head.postId,
-            canonicalIntent: bytes("intent:staged-successor"),
-          },
-        });
-        yield* store.lockProposal(proposal(conversationId, head.actionHash));
-        yield* store.applyCatchUpRecord(head);
-        yield* store.stageRecordForDissemination(successor);
+  const successor = stagedRecord(
+    certifiedRecord(conversationId, LOCAL_AGENT_ID, 1),
+  );
+  return withStore(directory, (store) =>
+    Effect.gen(function* () {
+      yield* lockLocalPost(store, head);
+      yield* store.applyCertifiedRecord(head);
+      yield* store.stageRecordForDissemination(successor);
 
-        yield* expectReason(store.stageReanchor(awayFromTheHead), "conflict");
-        expect((yield* store.recover()).stagedReanchors).toEqual([]);
-      }),
-    ),
+      yield* expectReason(
+        store.stageReanchor(reanchorAwayFrom(head)),
+        "conflict",
+      );
+      expect((yield* store.recover()).stagedReanchors).toEqual([]);
+    }),
+  );
+}
+
+/**
+ * The endpoint locks a successor of its certified head, then stages a
+ * re-anchor candidate away from the head's anchor, and then receives the
+ * successor whole, which it stores without voting for it. The store refuses
+ * this endpoint's durability vote for the successor, whether a whole record's
+ * durability certificate carries it or the endpoint casts it, so its
+ * signatures never land on both a re-anchor away from the head and a
+ * durability certificate extending it, in this order as in the other. Fails
+ * when the store checks only the proposal lock before it keeps the vote, or
+ * checks the re-anchor only for a vote the endpoint casts.
+ * Value: protects=no local vote is kept under an anchor this endpoint
+ *     re-anchors away from; fails_when=the re-anchor check covers mergeEvidence
+ *     but not a whole record's certificate; why_new=no other test stores a
+ *     whole record carrying this endpoint's vote under such an anchor;
+ *     seam=none.
+ * @returns The trace, run to completion.
+ */
+function refusesALocalVoteUnderAnAnchorItReanchorsAwayFrom() {
+  const directory = stateDirectory();
+  const conversationId = "conversation:reanchored-vote";
+  const head = certifiedRecord(conversationId, LOCAL_AGENT_ID);
+  const successor = certifiedRecord(conversationId, "agent:remote", 1);
+  const localVote: ProtocolEvidence = {
+    conversationId,
+    kind: "durability",
+    subjectId: successor.recordHash,
+    evidenceKey: LOCAL_AGENT_ID,
+    canonicalEvidence: bytes("durability-vote:local"),
+  };
+  const delivery: InboundDeliveryInput = {
+    recipientAgentId: LOCAL_AGENT_ID,
+    canonicalMessage: bytes("message:successor"),
+  };
+  return withStore(directory, (store) =>
+    Effect.gen(function* () {
+      yield* lockLocalPost(store, head);
+      yield* store.applyCertifiedRecord(head);
+      yield* store.lockProposal({
+        ...proposal(conversationId, successor.actionHash),
+        previousRecordHash: head.recordHash,
+      });
+      yield* store.stageReanchor(reanchorAwayFrom(head));
+      yield* expectReason(
+        store.applyCertifiedRecord(
+          {
+            ...successor,
+            durabilityEvidence: [...successor.durabilityEvidence, localVote],
+          },
+          delivery,
+        ),
+        "conflict",
+      );
+      yield* store.applyCertifiedRecord(successor, delivery);
+
+      yield* expectReason(store.mergeEvidence(localVote), "conflict");
+      expect((yield* store.recover()).evidence).not.toContainEqual(localVote);
+    }),
   );
 }
 
@@ -413,11 +434,9 @@ function persistsExactOutboundLifecycleAcrossRestart() {
     directory: stateDirectory(),
     message: outboundMessage("conversation:outbound", "msg_outbound", "outer"),
   };
-  return Effect.runPromise(
-    stageInitialOutbound(fixture).pipe(
-      Effect.zipRight(completeRetriedOutbound(fixture)),
-      Effect.zipRight(verifyOutboundComplete(fixture.directory)),
-    ),
+  return stageInitialOutbound(fixture).pipe(
+    Effect.zipRight(completeRetriedOutbound(fixture)),
+    Effect.zipRight(verifyOutboundComplete(fixture.directory)),
   );
 }
 
@@ -507,31 +526,15 @@ function retainsRecordDisseminationAcrossCrashWindows() {
       "outer:action-certified",
     ),
   };
-  return Effect.runPromise(
-    stageDisseminationObligation(fixture).pipe(
-      Effect.zipRight(reconcileDisseminationCrashWindows(fixture)),
-    ),
+  return stageDisseminationObligation(fixture).pipe(
+    Effect.zipRight(reconcileDisseminationCrashWindows(fixture)),
   );
 }
 
 function stageDisseminationObligation(fixture: DisseminationLifecycleFixture) {
   return withStore(fixture.directory, (store) =>
     Effect.gen(function* () {
-      yield* bindLocalIdentity(store);
-      yield* store.bindPostIntent({
-        kind: "new-conversation",
-        foundation: foundation(fixture.conversationId),
-        intent: {
-          conversationId: fixture.conversationId,
-          membershipHash: fixture.record.membershipHash,
-          authorAgentId: fixture.record.authorAgentId,
-          postId: fixture.record.postId,
-          canonicalIntent: bytes("intent:dissemination"),
-        },
-      });
-      yield* store.lockProposal(
-        proposal(fixture.conversationId, fixture.record.actionHash),
-      );
+      yield* lockLocalPost(store, fixture.record);
       yield* expectReason(
         store.enqueueDisseminationOutbound(
           fixture.actionObligation,
@@ -610,7 +613,7 @@ function restartsOnlyAnEmptyConversationAtomically() {
       replacementFoundation: newFoundation,
     },
   };
-  return Effect.runPromise(restartEmptyConversation(fixture));
+  return restartEmptyConversation(fixture);
 }
 
 function restartEmptyConversation(fixture: EmptyRestartFixture) {
@@ -711,37 +714,23 @@ function refusesEmptyRestartAfterCertification() {
     anchorHash: `anc_${conversationId}:1`,
     canonicalAnchor: bytes(`anchor:${conversationId}:1`),
   };
-  return Effect.runPromise(
-    withStore(directory, (store) =>
-      Effect.gen(function* () {
-        yield* bindLocalIdentity(store);
-        yield* store.bindPostIntent({
-          kind: "new-conversation",
-          foundation: oldFoundation,
-          intent: {
-            conversationId,
-            membershipHash: record.membershipHash,
-            authorAgentId: LOCAL_AGENT_ID,
-            postId: record.postId,
-            canonicalIntent: bytes("intent:certified-restart"),
-          },
-        });
-        yield* store.lockProposal(proposal(conversationId, record.actionHash));
-        yield* store.applyCatchUpRecord(record);
-        yield* expectReason(
-          store.restartEmptyConversation({
-            expectedFoundation: oldFoundation,
-            replacementFoundation: replacement,
-          }),
-          "conflict",
-        );
-        const recovery = yield* store.recover();
-        expect(recovery.positions[0]?.headRecordHash).toBe(record.recordHash);
-        expect(recovery.positions[0]?.currentAnchorHash).toBe(
-          oldFoundation.anchorHash,
-        );
-      }),
-    ),
+  return withStore(directory, (store) =>
+    Effect.gen(function* () {
+      yield* lockLocalPost(store, record);
+      yield* store.applyCertifiedRecord(record);
+      yield* expectReason(
+        store.restartEmptyConversation({
+          expectedFoundation: oldFoundation,
+          replacementFoundation: replacement,
+        }),
+        "conflict",
+      );
+      const recovery = yield* store.recover();
+      expect(recovery.positions[0]?.headRecordHash).toBe(record.recordHash);
+      expect(recovery.positions[0]?.currentAnchorHash).toBe(
+        oldFoundation.anchorHash,
+      );
+    }),
   );
 }
 
@@ -750,35 +739,33 @@ function discardsOnlyAnExactCurrentOutboundSet() {
   const conversationId = "conversation:discard-outbound";
   const first = outboundMessage(conversationId, "msg_discard_a", "outer:a");
   const second = outboundMessage(conversationId, "msg_discard_b", "outer:b");
-  return Effect.runPromise(
-    withStore(directory, (store) =>
-      Effect.gen(function* () {
-        yield* store.putConversationFoundation(foundation(conversationId));
-        const retainedFirst = yield* store.enqueueOutbound(first);
-        const retainedSecond = yield* store.enqueueOutbound(second);
-        yield* expectReason(
-          store.discardOutbound([
-            retainedFirst,
-            {
-              ...retainedSecond,
-              canonicalSignedMessage: bytes("outer:changed"),
-            },
-          ]),
-          "conflict",
-        );
-        expect((yield* store.recover()).outboundMessages).toEqual([
+  return withStore(directory, (store) =>
+    Effect.gen(function* () {
+      yield* store.putConversationFoundation(foundation(conversationId));
+      const retainedFirst = yield* store.enqueueOutbound(first);
+      const retainedSecond = yield* store.enqueueOutbound(second);
+      yield* expectReason(
+        store.discardOutbound([
           retainedFirst,
-          retainedSecond,
-        ]);
-        expect(
-          yield* store.discardOutbound([retainedFirst, retainedSecond]),
-        ).toBe(INSERTED_MUTATION);
-        expect(
-          yield* store.discardOutbound([retainedFirst, retainedSecond]),
-        ).toBe(EXISTING_MUTATION);
-        expect((yield* store.recover()).outboundMessages).toEqual([]);
-      }),
-    ),
+          {
+            ...retainedSecond,
+            canonicalSignedMessage: bytes("outer:changed"),
+          },
+        ]),
+        "conflict",
+      );
+      expect((yield* store.recover()).outboundMessages).toEqual([
+        retainedFirst,
+        retainedSecond,
+      ]);
+      expect(
+        yield* store.discardOutbound([retainedFirst, retainedSecond]),
+      ).toBe(INSERTED_MUTATION);
+      expect(
+        yield* store.discardOutbound([retainedFirst, retainedSecond]),
+      ).toBe(EXISTING_MUTATION);
+      expect((yield* store.recover()).outboundMessages).toEqual([]);
+    }),
   );
 }
 
@@ -840,7 +827,7 @@ function writeRemoteDelivery(
   return Effect.gen(function* () {
     yield* bindLocalIdentity(store);
     yield* store.putConversationFoundation(foundation(record.conversationId));
-    expect(yield* store.applyCatchUpRecord(record, delivery)).toBe(
+    expect(yield* store.applyCertifiedRecord(record, delivery)).toBe(
       INSERTED_MUTATION,
     );
     const firstReplay = yield* store.readPendingDeliveries();
@@ -850,14 +837,14 @@ function writeRemoteDelivery(
       return yield* Effect.die("pending delivery did not retain a row");
     }
     expect(firstDelivery.deliveryToken).toMatch(/^dlv_[A-Za-z0-9_-]{43}$/u);
-    expect(yield* store.applyCatchUpRecord(record, delivery)).toBe(
+    expect(yield* store.applyCertifiedRecord(record, delivery)).toBe(
       EXISTING_MUTATION,
     );
     expect((yield* store.readPendingDeliveries())[0]?.deliveryToken).toBe(
       firstDelivery.deliveryToken,
     );
     yield* expectReason(
-      store.applyCatchUpRecord(record, {
+      store.applyCertifiedRecord(record, {
         ...delivery,
         canonicalMessage: bytes("message:collision"),
       }),
@@ -898,22 +885,35 @@ function verifyRemoteDeliveryRecovery(
   });
 }
 
+/**
+ * A certified record under a conversation's first anchor, with one action
+ * signature and one durability vote, both its author's.
+ * @param conversationId Conversation under whose first foundation it is.
+ * @param authorAgentId Agent that authored it and signed both certificates.
+ * @param ordinal Its position in the conversation, extending the record one
+ *     position before it.
+ * @returns A record whose hashes and bytes follow from its position.
+ */
 function certifiedRecord(
   conversationId: string,
   authorAgentId: string,
+  ordinal = 0,
 ): CertifiedRecord {
-  const actionHash = `ach_${conversationId}:0`;
-  const recordHash = `rch_${conversationId}:0`;
+  const actionHash = `ach_${conversationId}:${ordinal}`;
+  const recordHash = `rch_${conversationId}:${ordinal}`;
   const conversationFoundation = foundation(conversationId);
   return {
     conversationId,
     recordHash,
+    ...(ordinal === 0
+      ? {}
+      : { previousRecordHash: `rch_${conversationId}:${ordinal - 1}` }),
     membershipHash: conversationFoundation.membershipHash,
     anchorHash: conversationFoundation.anchorHash,
     actionHash,
     authorAgentId,
-    postId: `pst_${authorAgentId}`,
-    canonicalRecordCore: bytes(`record:${conversationId}:0`),
+    postId: `pst_${authorAgentId}:${ordinal}`,
+    canonicalRecordCore: bytes(`record:${conversationId}:${ordinal}`),
     actionEvidence: [
       {
         conversationId,
@@ -932,6 +932,39 @@ function certifiedRecord(
         canonicalEvidence: bytes(`durability-vote:${authorAgentId}`),
       },
     ],
+  };
+}
+
+/**
+ * Bind this endpoint's identity and its post intent for `record`, with the
+ * conversation's first foundation, and lock `record`'s action: the state in
+ * which this endpoint proposes its own post.
+ * @param store Store that takes the identity, the intent and the lock.
+ * @param record Record whose post intent is bound and whose action is locked.
+ * @returns Completion once all three are durable.
+ */
+function lockLocalPost(store: EndpointStore, record: StagedRecord) {
+  return Effect.gen(function* () {
+    yield* bindLocalIdentity(store);
+    yield* store.bindPostIntent({
+      kind: "new-conversation",
+      foundation: foundation(record.conversationId),
+      intent: postIntent(record.conversationId, record.postId),
+    });
+    yield* store.lockProposal(
+      proposal(record.conversationId, record.actionHash),
+    );
+  });
+}
+
+function reanchorAwayFrom(head: CertifiedRecord): StagedReanchor {
+  return {
+    conversationId: head.conversationId,
+    anchorHash: `anc_${head.conversationId}:1`,
+    previousAnchorHash: head.anchorHash,
+    routerInstanceId: `rti_${head.conversationId}`,
+    selectedRecordHash: head.recordHash,
+    canonicalBody: bytes(`reanchor:${head.conversationId}:1`),
   };
 }
 
@@ -1045,62 +1078,99 @@ function expectReason<Value>(
 }
 
 describe("endpoint SQLite preflight", () => {
-  it("initializes an empty v0 database directly at the current schema and reopens it", () =>
-    initializesEmptyV0Database());
+  it(
+    "initializes an empty v0 database directly at the current schema and reopens it",
+    initializesEmptyV0Database,
+  );
 
-  it("rejects v1 without changing the database or its permissions", () =>
-    rejectsV1WithoutMutation());
+  it(
+    "rejects v1 without changing the database or its permissions",
+    rejectsV1WithoutMutation,
+  );
 
-  it("rejects a nonempty v0 database without creating current-schema objects", () =>
-    rejectsNonemptyV0WithoutInitialization());
+  it(
+    "rejects a nonempty v0 database without creating current-schema objects",
+    rejectsNonemptyV0WithoutInitialization,
+  );
 });
 
 // @agent-code-guard/regression-only: these cases pin the proposal-lock store contract.
 describe("endpoint proposal locking", () => {
-  it("atomically binds the first post intent with its foundation", () =>
-    atomicallyBindsFirstIntentWithItsFoundation());
+  it(
+    "atomically binds the first post intent with its foundation",
+    atomicallyBindsFirstIntentWithItsFoundation,
+  );
 
-  it("atomically locks a verified genesis with its foundation", () =>
-    atomicallyLocksVerifiedGenesisFoundation());
+  it(
+    "atomically locks a verified genesis with its foundation",
+    atomicallyLocksVerifiedGenesisFoundation,
+  );
 
-  it("retains the first proposal lock across conflicts and restart", () =>
-    retainsFirstProposalAcrossRestart());
+  it(
+    "retains the first proposal lock across conflicts and restart",
+    retainsFirstProposalAcrossRestart,
+  );
 
-  it("replaces a conflicting lock with a certified one and its certificate", () =>
-    supersedesAConflictingLockWithItsCertificate());
+  it(
+    "replaces a conflicting lock with a certified one and its certificate",
+    supersedesAConflictingLockWithItsCertificate,
+  );
 });
 
 describe("endpoint record certification and delivery", () => {
-  it("atomically promotes remote catch-up and replays one stable delivery", () =>
-    promotesRemoteRecordWithStableDelivery());
+  it(
+    "atomically applies a remote record received whole and replays one stable delivery",
+    promotesRemoteRecordWithStableDelivery,
+  );
 
-  it("rolls back remote certification when its delivery is absent", () =>
-    rollsBackRemoteRecordWithoutDelivery());
+  it(
+    "rolls back a record received whole, its staging included, when its delivery is absent",
+    rollsBackRemoteRecordWithoutDelivery,
+  );
 
-  it("completes a local post intent without creating self-delivery", () =>
-    completesLocalPostWithoutSelfDelivery());
+  it(
+    "completes a local post intent without creating self-delivery",
+    completesLocalPostWithoutSelfDelivery,
+  );
 });
 
 describe("endpoint re-anchor candidates", () => {
-  it("refuses a candidate away from a head it holds a staged successor of", () =>
-    refusesAReanchorAwayFromAStagedSuccessor());
+  it(
+    "refuses a candidate away from a head it holds a staged successor of",
+    refusesAReanchorAwayFromAStagedSuccessor,
+  );
+
+  it(
+    "refuses its own durability vote under an anchor it staged a candidate away from",
+    refusesALocalVoteUnderAnAnchorItReanchorsAwayFrom,
+  );
 });
 
 describe("endpoint durable Router outbox", () => {
-  it("replays, retries, and completes exact envelopes", () =>
-    persistsExactOutboundLifecycleAcrossRestart());
+  it(
+    "replays, retries, and completes exact envelopes",
+    persistsExactOutboundLifecycleAcrossRestart,
+  );
 
-  it("invalidates only an exact current envelope set atomically", () =>
-    discardsOnlyAnExactCurrentOutboundSet());
+  it(
+    "invalidates only an exact current envelope set atomically",
+    discardsOnlyAnExactCurrentOutboundSet,
+  );
 
-  it("recovers record dissemination before and after outbox attachment", () =>
-    retainsRecordDisseminationAcrossCrashWindows());
+  it(
+    "recovers record dissemination before and after outbox attachment",
+    retainsRecordDisseminationAcrossCrashWindows,
+  );
 });
 
 describe("endpoint empty-history Router restart", () => {
-  it("retains intents while replacing only incomplete state", () =>
-    restartsOnlyAnEmptyConversationAtomically());
+  it(
+    "retains intents while replacing only incomplete state",
+    restartsOnlyAnEmptyConversationAtomically,
+  );
 
-  it("refuses to replace a foundation after certification", () =>
-    refusesEmptyRestartAfterCertification());
+  it(
+    "refuses to replace a foundation after certification",
+    refusesEmptyRestartAfterCertification,
+  );
 });

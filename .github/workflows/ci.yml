@@ -78,10 +78,10 @@ jobs:
       # consumer contains code/dependencies only and is removed with the runner.
       - name: Verify Linux runtime and private management isolation
         run: |
-          node scripts/test-management-permissions.mjs --prepare \
+          node scripts/test-management-permissions.ts --prepare \
             > "$RUNNER_TEMP/moltzap-permissions-bundle.json"
           CONSUMER=$(jq -er .consumer "$RUNNER_TEMP/moltzap-permissions-bundle.json")
-          sudo "$(command -v node)" scripts/test-management-permissions.mjs "$CONSUMER"
+          sudo "$(command -v node)" scripts/test-management-permissions.ts "$CONSUMER"
       - run: pnpm typecheck
       - name: Lint
         run: pnpm lint
@@ -93,7 +93,7 @@ jobs:
       - name: Verify the Nx project graph
         run: |
           pnpm nx graph --print > "${RUNNER_TEMP}/moltzap-project-graph.json"
-          node scripts/architecture/check-boundaries.js --nx-graph "${RUNNER_TEMP}/moltzap-project-graph.json"
+          node scripts/architecture/check-boundaries.ts --nx-graph "${RUNNER_TEMP}/moltzap-project-graph.json"
       - run: pnpm format:check
       - run: pnpm docs:check:drift
       - run: pnpm docs:check

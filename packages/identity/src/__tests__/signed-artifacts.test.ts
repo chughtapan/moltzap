@@ -21,6 +21,7 @@ import {
 import {
   AgentSigningAuthority,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
+  agentSigningPrivateKey,
   Ed25519PublicKey,
   ed25519PublicKeyThumbprintUri,
 } from "../agent-key.js";
@@ -315,6 +316,31 @@ const replaceSignature = (
   ],
 });
 
+/**
+ * Signs a message's exact protected header and payload with another
+ * authority's key, as that key's holder would to pass the message off as the
+ * original sender's.
+ */
+const resignWith = (
+  representation: RawRepresentation,
+  authority: AgentSigningAuthorityValue,
+) =>
+  Effect.tryPromise({
+    try: () =>
+      crypto.subtle.sign(
+        "Ed25519",
+        agentSigningPrivateKey(authority),
+        new TextEncoder().encode(
+          `${representation.signatures[0].protected}.${representation.payload}`,
+        ),
+      ),
+    catch: (cause) => new Error("re-signing failed", { cause }),
+  }).pipe(
+    Effect.map((signature) =>
+      replaceSignature(representation, new Uint8Array(signature)),
+    ),
+  );
+
 const mutationIsRejected = (
   representation: RawRepresentation,
   agentCard: VerifiedAgentCard,
@@ -530,10 +556,14 @@ it("keeps encoded artifacts unchanged when callers mutate public views", () =>
     }),
   ));
 
-it("rejects every cryptographically covered field mutation", () =>
+it("rejects every cryptographically covered field mutation after the original verifies", () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const fixture = yield* makeSnapshotFixture;
+      yield* SignedMessage.verify({
+        signedMessage: fixture.signedMessage,
+        agentCard: fixture.agentCard,
+      });
       const representation = yield* messageRepresentation(
         fixture.signedMessage,
       );
@@ -545,6 +575,40 @@ it("rejects every cryptographically covered field mutation", () =>
         (mutation) => assertMutationRejected(mutation, fixture.agentCard),
         { concurrency: 1, discard: true },
       );
+    }),
+  ));
+
+it("verifies each message under its own card's key, not another key already imported", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const first = yield* makeIdentityFixture;
+      const second = yield* makeIdentityFixture;
+      const firstMessage = yield* signMessage(
+        first,
+        Uint8Array.from([1]),
+        recipientSet(1),
+        1,
+      );
+      yield* SignedMessage.verify({
+        signedMessage: firstMessage,
+        agentCard: first.agentCard,
+      });
+      const secondMessage = yield* signMessage(
+        second,
+        Uint8Array.from([2]),
+        recipientSet(1),
+        2,
+      );
+      const forged = yield* resignWith(
+        yield* messageRepresentation(secondMessage),
+        first.agentSigningAuthority,
+      );
+
+      expect(yield* mutationIsRejected(forged, second.agentCard)).toBe(true);
+      yield* SignedMessage.verify({
+        signedMessage: secondMessage,
+        agentCard: second.agentCard,
+      });
     }),
   ));
 

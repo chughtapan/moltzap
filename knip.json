@@ -3,8 +3,16 @@
   "workspaces": {
     ".": {
       "entry": [
-        "eslint.shared.mjs",
         "vitest.workspace-aliases.ts",
+        "scripts/architecture/check-package.ts",
+        "scripts/build/*.ts",
+        "scripts/code/*.ts",
+        "scripts/setup/*.ts",
+        "scripts/test-*-package.ts",
+        "scripts/package-native-plugins.ts",
+        "scripts/test-native-plugin-assets.ts",
+        "scripts/architecture/test-graph.ts",
+        "scripts/release/*.test.ts",
         "scripts/docs/check-mermaid.ts",
         "scripts/docs/generate-constants-snippets.ts",
         "scripts/docs/generate-modules.ts",
@@ -12,9 +20,15 @@
         "scripts/docs/__tests__/*.test.ts"
       ],
       "project": [
-        "*.mjs",
         "*.ts",
-        "scripts/docs/**/*.ts"
+        "scripts/docs/**/*.ts",
+        "scripts/architecture/**/*.ts",
+        "scripts/build/**/*.ts",
+        "scripts/code/**/*.ts",
+        "scripts/setup/**/*.ts",
+        "scripts/test/packed-workspace.ts",
+        "scripts/test-*-package.ts",
+        "scripts/release/**/*.ts"
       ],
       "ignoreDependencies": [
         "@effect/tsgo",
@@ -27,36 +41,38 @@
       "entry": [
         "src/**/*.test.ts",
         "src/**/*.types-check.ts",
-        "vitest*.config.mjs"
+        "vitest*.config.ts"
       ],
       "project": [
         "src/**/*.ts",
-        "*.mjs",
-        "vitest*.config.mjs"
+        "*.ts"
       ]
     },
     "packages/nanoclaw-channel": {
       "project": [
-        "src/**/*.ts"
+        "src/**/*.ts",
+        "*.ts"
       ]
     },
     "packages/openclaw-channel": {
-      "entry": ["src/**/*.test.ts", "vitest*.config.mjs"],
+      "entry": [
+        "src/**/*.test.ts",
+        "vitest*.config.ts"
+      ],
       "project": [
         "src/**/*.ts",
-        "*.mjs",
-        "vitest*.config.mjs"
+        "*.ts"
       ]
     },
     "packages/identity": {
       "entry": [
         "src/**/*.test.ts",
         "src/**/*.types-check.ts",
-        "vitest*.config.mjs"
+        "vitest*.config.ts"
       ],
       "project": [
         "src/**/*.ts",
-        "*.mjs"
+        "*.ts"
       ],
       "ignoreDependencies": [
         "@electric-sql/pglite",
@@ -67,11 +83,11 @@
       "entry": [
         "src/**/*.test.ts",
         "src/**/*.types-check.ts",
-        "vitest*.config.mjs"
+        "vitest*.config.ts"
       ],
       "project": [
         "src/**/*.ts",
-        "*.mjs"
+        "*.ts"
       ]
     },
     "plugins": {
@@ -85,7 +101,7 @@
       "project": [
         "src/**/*.ts",
         "bin/**/*.mjs",
-        "*.mjs"
+        "*.ts"
       ]
     }
   },

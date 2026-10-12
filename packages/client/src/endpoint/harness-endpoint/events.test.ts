@@ -1,5 +1,6 @@
 /** @file Native Events handshake bounds and optional-cursor interoperability. */
 
+import { live as it, effect as itOnTestClock } from "@effect/vitest";
 import {
   createMcpHandler,
   fromJsonSchema,
@@ -8,16 +9,8 @@ import {
   type ServerContext,
   SUBSCRIPTION_ID_META_KEY,
 } from "@modelcontextprotocol/server";
-import {
-  Deferred,
-  Duration,
-  Effect,
-  Fiber,
-  Stream,
-  TestClock,
-  TestContext,
-} from "effect";
-import { describe, expect, it } from "vitest";
+import { Deferred, Duration, Effect, Fiber, Stream, TestClock } from "effect";
+import { describe, expect } from "vitest";
 import { loopbackMcpEndpoint } from "../../__tests__/mcp-http-fixtures.js";
 import { INBOX_PENDING_EVENT } from "../mcp/names.js";
 import { inboxWakeups } from "./events.js";
@@ -87,32 +80,30 @@ const streamServer = (
 const INITIAL_HEADERS_BOUND = Duration.seconds(60);
 
 const boundsInitialHeaders = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const entered = yield* Deferred.make<undefined>();
-        const requests: unknown[] = [];
-        const handler = streamServer(requests, () =>
-          Deferred.succeed(entered, undefined).pipe(
-            Effect.zipRight(Effect.never),
-          ),
-        );
-        const endpoint = yield* loopbackMcpEndpoint(handler);
-        const reader = yield* inboxWakeups(endpoint).pipe(
-          Stream.runDrain,
-          Effect.flip,
-          Effect.forkScoped,
-        );
-        yield* Deferred.await(entered);
-        yield* TestClock.adjust(
-          Duration.sum(INITIAL_HEADERS_BOUND, Duration.seconds(1)),
-        );
-        expect((yield* Fiber.join(reader)).reason).toBe("transport-failed");
-        expect(requests).toEqual([
-          expect.objectContaining({ name: INBOX_PENDING_EVENT }),
-        ]);
-      }),
-    ).pipe(Effect.provide(TestContext.TestContext)),
+  Effect.scoped(
+    Effect.gen(function* () {
+      const entered = yield* Deferred.make<undefined>();
+      const requests: unknown[] = [];
+      const handler = streamServer(requests, () =>
+        Deferred.succeed(entered, undefined).pipe(
+          Effect.zipRight(Effect.never),
+        ),
+      );
+      const endpoint = yield* loopbackMcpEndpoint(handler);
+      const reader = yield* inboxWakeups(endpoint).pipe(
+        Stream.runDrain,
+        Effect.flip,
+        Effect.forkScoped,
+      );
+      yield* Deferred.await(entered);
+      yield* TestClock.adjust(
+        Duration.sum(INITIAL_HEADERS_BOUND, Duration.seconds(1)),
+      );
+      expect((yield* Fiber.join(reader)).reason).toBe("transport-failed");
+      expect(requests).toEqual([
+        expect.objectContaining({ name: INBOX_PENDING_EVENT }),
+      ]);
+    }),
   );
 
 /** A server whose `events/list` handler fails with the protocol error `code`. */
@@ -137,16 +128,14 @@ const failingCatalogServer = (code: number) =>
   );
 
 const classifiesCatalogFailure = (code: number, reason: string) =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const endpoint = yield* loopbackMcpEndpoint(failingCatalogServer(code));
+  Effect.scoped(
+    Effect.gen(function* () {
+      const endpoint = yield* loopbackMcpEndpoint(failingCatalogServer(code));
 
-        const error = yield* acquireHarnessEndpoint(endpoint).pipe(Effect.flip);
+      const error = yield* acquireHarnessEndpoint(endpoint).pipe(Effect.flip);
 
-        expect(error.reason).toBe(reason);
-      }),
-    ),
+      expect(error.reason).toBe(reason);
+    }),
   );
 
 const sendFrames = (
@@ -181,36 +170,34 @@ const sendFrames = (
   });
 
 const continuesAfterRecoverableErrors = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const receipts = [
-          yield* Deferred.make<undefined>(),
-          yield* Deferred.make<undefined>(),
-        ];
-        let received = 0;
-        const requests: unknown[] = [];
-        const handler = streamServer(requests, (context) =>
-          sendFrames(context, receipts),
-        );
-        const endpoint = yield* loopbackMcpEndpoint(handler);
-        const failure = yield* inboxWakeups(endpoint).pipe(
-          Stream.tap(() => {
-            const receipt = receipts[received++];
-            return receipt === undefined
-              ? Effect.void
-              : Deferred.succeed(receipt, undefined);
-          }),
-          Stream.runDrain,
-          Effect.flip,
-        );
-        expect(failure.reason).toBe("transport-failed");
-        expect(received).toBe(2);
-        expect(requests).toEqual([
-          expect.objectContaining({ name: INBOX_PENDING_EVENT }),
-        ]);
-      }),
-    ),
+  Effect.scoped(
+    Effect.gen(function* () {
+      const receipts = [
+        yield* Deferred.make<undefined>(),
+        yield* Deferred.make<undefined>(),
+      ];
+      let received = 0;
+      const requests: unknown[] = [];
+      const handler = streamServer(requests, (context) =>
+        sendFrames(context, receipts),
+      );
+      const endpoint = yield* loopbackMcpEndpoint(handler);
+      const failure = yield* inboxWakeups(endpoint).pipe(
+        Stream.tap(() => {
+          const receipt = receipts[received++];
+          return receipt === undefined
+            ? Effect.void
+            : Deferred.succeed(receipt, undefined);
+        }),
+        Stream.runDrain,
+        Effect.flip,
+      );
+      expect(failure.reason).toBe("transport-failed");
+      expect(received).toBe(2);
+      expect(requests).toEqual([
+        expect.objectContaining({ name: INBOX_PENDING_EVENT }),
+      ]);
+    }),
   );
 
 // @agent-code-guard/regression-only: these real HTTP transcripts pin external framing and bounded startup, without mocking transport methods.
@@ -221,7 +208,7 @@ describe("native MCP Events reception", () => {
   ])("classifies $failure catalog failure as $reason", ({ code, reason }) =>
     classifiesCatalogFailure(code, reason),
   );
-  it(
+  itOnTestClock(
     "bounds a connection whose server withholds HTTP headers",
     boundsInitialHeaders,
   );

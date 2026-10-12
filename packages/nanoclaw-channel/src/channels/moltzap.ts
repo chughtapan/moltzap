@@ -174,14 +174,28 @@ function extractOutboundText(message: MoltZapOutboundMessage): string | null {
 }
 
 /**
- * Send failures no retry can fix: the address or content itself is wrong.
- * The model hears of these; any other failure stays with NanoClaw's retry.
+ * Send failures whose post the daemon still delivers, `delivery-pending`, or
+ * may already have sent, `outcome-unknown`. NanoClaw's retry is a new keyless
+ * send and would post the message a second time, so such a row completes even
+ * when the host callback that reports it fails; the model, told the message
+ * may have been sent, can resend it deliberately.
+ */
+const POSTED_REFUSALS: ReadonlySet<SendError["reason"]> = new Set([
+  "delivery-pending",
+  "outcome-unknown",
+]);
+
+/**
+ * Send failures NanoClaw's retry must not repeat. The model hears of these;
+ * any other failure stays with that retry. An invalid address or content
+ * fails the same way again, and `POSTED_REFUSALS` says why the rest do.
  */
 const FINAL_REFUSALS: ReadonlySet<SendError["reason"]> = new Set([
   "invalid-address",
   "unknown-agent",
   "membership-invalid",
   "content-invalid",
+  ...POSTED_REFUSALS,
 ]);
 
 function isFinalRefusal(error: unknown): error is SendError {
@@ -383,7 +397,8 @@ class MoltZapChannelAdapter {
     message: MoltZapOutboundMessage,
   ): Effect.Effect<void, MoltZapChannelError | SendError | CollectiveError> {
     const activation = this.activation;
-    if (activation?.state !== "active") {
+    const config = this.setupConfig;
+    if (activation?.state !== "active" || config === null) {
       return Effect.fail(
         new MoltZapChannelError({
           reason: "MoltZap channel is not connected",
@@ -400,14 +415,15 @@ class MoltZapChannelAdapter {
           MoltZapChannelError | SendError | CollectiveError
         > =>
           Either.match(parseMessageText(to, text), {
-            onLeft: (error) => this.reportRefusedText(to, error.message),
+            onLeft: (error) =>
+              this.reportRefusedText(config, to, error.message),
             onRight: (input) =>
               activation.endpoint
                 .send(input, { failureDelivery: "inbound" })
                 .pipe(
                   Effect.asVoid,
                   Effect.catchIf(isFinalRefusal, (error) =>
-                    this.reportRefusedText(to, error.message),
+                    this.reportFinalRefusal(config, to, error),
                   ),
                 ),
           }),
@@ -416,26 +432,56 @@ class MoltZapChannelAdapter {
   }
 
   /**
+   * Report a send refused for a reason in `FINAL_REFUSALS`. A send in
+   * `POSTED_REFUSALS` completes even when its report cannot reach the host,
+   * since failing its row would hand it to NanoClaw's retry.
+   * @param config The host callbacks the delivery started under.
+   * @param to The conversation the text was sent to.
+   * @param error The send's refusal.
+   * @returns Completion once the report is handed to the host or, for a
+   *     posted refusal, logged as unreported.
+   */
+  private reportFinalRefusal(
+    config: ChannelSetup,
+    to: MessageAddressInput,
+    error: SendError,
+  ): Effect.Effect<void, MoltZapChannelError> {
+    const report = this.reportRefusedText(config, to, error.message);
+    return POSTED_REFUSALS.has(error.reason)
+      ? report.pipe(
+          Effect.catchAll((unreported) =>
+            Effect.logWarning(
+              `MoltZap completed a ${error.reason} send to ${to} without reporting it: ${unreported.message}`,
+            ),
+          ),
+        )
+      : report;
+  }
+
+  /**
    * Hand a refused send back to the model as a MoltZap message in the
    * conversation it was sent to. `send_message` has already returned, so this
-   * is how the model learns of it; the row completes, since NanoClaw retrying
-   * the same text would fail the same way.
+   * is how the model learns of it. The row completes rather than reaching
+   * NanoClaw's retry: a text the parser refuses would fail the same way again,
+   * and a send refused for a reason in `FINAL_REFUSALS` must not be repeated,
+   * for the reasons it gives.
+   * @param config The host callbacks the delivery started under. The channel
+   *     can stop while the send runs, as when the daemon stops, and the report
+   *     still reaches the host rather than failing the row into a retry.
    * @param to The conversation the text was sent to.
    * @param report The refusal's text.
    * @returns Completion after the host callback completed.
    */
   private reportRefusedText(
+    config: ChannelSetup,
     to: MessageAddressInput,
     report: string,
   ): Effect.Effect<void, MoltZapChannelError> {
-    const config = this.setupConfig;
-    return config === null
-      ? Effect.fail(new MoltZapChannelError({ reason: report }))
-      : this.handToHost(
-          config,
-          to,
-          fromEndpoint(`refused:${randomUUID()}`, to, report),
-        );
+    return this.handToHost(
+      config,
+      to,
+      fromEndpoint(`refused:${randomUUID()}`, to, report),
+    );
   }
 
   private handleDelivery(
