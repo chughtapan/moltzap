@@ -24,6 +24,7 @@ import {
   ed25519PublicKeyThumbprintUri,
   ed25519VerificationKey,
   hasCanonicalEd25519SignatureEncoding,
+  sameEd25519PublicKey,
 } from "./agent-key.js";
 import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
 import {
@@ -371,12 +372,17 @@ const snapshotBody = (candidate: Uint8Array) =>
     return body;
   });
 
+/**
+ * `digestAgentCard` admits only a card this package parsed, which is frozen
+ * data, so the card reads after it cannot throw.
+ */
 const prepareSigningMaterial = (input: SignInput) =>
   Effect.gen(function* () {
-    if (
-      AgentSigningAuthority.publicKey(input.signingAuthority).x !==
-      input.agentCard.publicKey.x
-    ) {
+    const sameKey = yield* sameEd25519PublicKey(
+      () => AgentSigningAuthority.publicKey(input.signingAuthority),
+      () => input.agentCard.publicKey,
+    ).pipe(Effect.mapError(signingFailure));
+    if (!sameKey) {
       return yield* new SignedMessageSigningError();
     }
     const recipients = yield* snapshotRecipients(input.recipientAgentIds);

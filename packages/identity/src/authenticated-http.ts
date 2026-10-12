@@ -11,9 +11,12 @@ import {
   Ref,
   Schema,
 } from "effect";
-import type { VerifiedAgentCard } from "./agent-card.js";
 import type { AgentSigningAuthority } from "./agent-key.js";
 import type { RegistryLookupResult } from "./registry/contract.js";
+import {
+  type VerifiedAgentCard,
+  verifiedAgentCardSchema,
+} from "./agent-card.js";
 import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
 import {
   AuthenticationFailedError,
@@ -366,6 +369,14 @@ function lookupCard(
     .pipe(Effect.flatMap(resolveLookupAttempt));
 }
 
+const isVerifiedAgentCard = Schema.is(verifiedAgentCardSchema);
+
+/**
+ * Any layer can provide the `Registry`, so a `found` result's card is read once
+ * under a try and must be one this package verified. A result or card that
+ * throws on read, or a card this package did not verify, fails authentication
+ * as an invalid card, and any other result as a missing identity.
+ */
 function resolveLookupAttempt(
   attempted: Option.Option<RegistryLookupResult>,
 ): Effect.Effect<
@@ -375,9 +386,18 @@ function resolveLookupAttempt(
   if (Option.isNone(attempted)) {
     return Effect.fail(new OverloadedError());
   }
-  return attempted.value.kind === "found"
-    ? Effect.succeed(attempted.value.agentCard)
-    : Effect.fail(new AuthenticationFailedError());
+  const result = attempted.value;
+  return Effect.try({
+    try: () =>
+      result.kind === "found" ? Option.some(result.agentCard) : Option.none(),
+    catch: () => new AuthenticationFailedError(),
+  }).pipe(
+    Effect.flatMap((agentCard) =>
+      Option.isSome(agentCard) && isVerifiedAgentCard(agentCard.value)
+        ? Effect.succeed(agentCard.value)
+        : Effect.fail(new AuthenticationFailedError()),
+    ),
+  );
 }
 
 function beginCardResolution(

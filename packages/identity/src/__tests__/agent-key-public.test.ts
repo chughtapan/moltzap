@@ -1,6 +1,7 @@
 /** @file Canonical Ed25519 public-key, thumbprint, and signature representation tests. */
 
 import { it as effectIt } from "@effect/vitest";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import { Effect, Either, Schema } from "effect";
 import * as fc from "fast-check";
 import { calculateJwkThumbprintUri, exportJWK } from "jose";
@@ -110,27 +111,21 @@ const encodeSucceeds = (value: unknown): boolean =>
     onRight: () => true,
   });
 
-/**
- * A distinct accepted key for each index below 65,536: the index fills the
- * first two bytes, and the 0x11 fill keeps the encoding canonical and away
- * from every small-order point.
- */
-const indexedPublicKey = (index: number) => {
-  const bytes = new Uint8Array(32).fill(0x11);
-  bytes[0] = index % 256;
-  bytes[1] = Math.floor(index / 256);
-  return Schema.decodeUnknownSync(Ed25519PublicKey)({
+/** A distinct on-curve, prime-order Ed25519 public key for each index. */
+const indexedPublicKey = (index: number) =>
+  Schema.decodeUnknownSync(Ed25519PublicKey)({
     crv: "Ed25519",
     kty: "OKP",
-    x: Buffer.from(bytes).toString("base64url"),
+    x: Buffer.from(
+      ed25519.Point.BASE.multiply(BigInt(index + 1)).toBytes(),
+    ).toString("base64url"),
   });
-};
 
 describe("Ed25519PublicKey thumbprints", () => {
   it.effect("derives each key's own thumbprint after another key's", () =>
     Effect.gen(function* () {
-      const first = indexedPublicKey(2_000);
-      const second = indexedPublicKey(2_001);
+      const first = indexedPublicKey(0);
+      const second = indexedPublicKey(1);
       const firstThumbprint = yield* ed25519PublicKeyThumbprintUri(first);
       const secondThumbprint = yield* ed25519PublicKeyThumbprintUri(second);
       const expected = yield* Effect.tryPromise({
@@ -163,8 +158,8 @@ describe("Ed25519PublicKey thumbprints", () => {
  */
 it.effect("stores each import under the key it was imported from", () =>
   Effect.gen(function* () {
-    const stored = indexedPublicKey(4_000);
-    const other = indexedPublicKey(4_001);
+    const stored = indexedPublicKey(2);
+    const other = indexedPublicKey(3);
     const reads = [stored.x, other.x];
     const shifting = Object.freeze({
       crv: "Ed25519" as const,
