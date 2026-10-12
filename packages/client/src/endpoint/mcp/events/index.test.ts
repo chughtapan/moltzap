@@ -2,7 +2,7 @@
 
 import { HttpClient, HttpClientRequest } from "@effect/platform";
 import { NodeHttpClient } from "@effect/platform-node";
-import { scopedLive as it } from "@effect/vitest";
+import { scopedLive as it, scoped as itOnTestClock } from "@effect/vitest";
 import {
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
@@ -11,12 +11,21 @@ import {
   McpServer,
   PROTOCOL_VERSION_META_KEY,
 } from "@modelcontextprotocol/server";
-import { Chunk, Deferred, Effect, Fiber, Schema, Stream } from "effect";
+import {
+  Chunk,
+  Deferred,
+  Effect,
+  Fiber,
+  Schema,
+  Stream,
+  TestClock,
+} from "effect";
 import { describe, expect } from "vitest";
 import type { HarnessMessageReadyEvent } from "../../../delivery/operations.js";
 import { digest } from "../../../__tests__/agent-card-fixtures.js";
 import { loopbackMcpEndpoint } from "../../../__tests__/mcp-http-fixtures.js";
-import { DeliveryToken } from "../../../store/index.js";
+import { stateDirectory } from "../../../__tests__/store-schema-fixtures.js";
+import { DeliveryToken, openEndpointStore } from "../../../store/index.js";
 import { InboundItem } from "../../../transport/collectives/inbound.js";
 import { acquireHarnessEndpoint } from "../../harness-endpoint/index.js";
 import { INBOX_PENDING_EVENT } from "../names.js";
@@ -358,6 +367,35 @@ const preservesExclusiveOwnership = () =>
     ]);
   });
 
+const releasesPollOwnershipWithoutPushSummary = () =>
+  Effect.gen(function* () {
+    const store = yield* openEndpointStore(stateDirectory());
+    const detached = yield* Deferred.make<undefined>();
+    const handler = yield* makeHarnessMcpHttpHandler({
+      implementation,
+      eventStore: store,
+      operations: {
+        ...inboxOperations({ unread: [], sequence: 0 }),
+        readInboxSummary: () => Effect.fail({ reason: "read-refused" }),
+      },
+      onSubscriptionActiveChange: (active) => {
+        if (!active) {
+          Effect.runFork(Deferred.succeed(detached, undefined));
+        }
+      },
+    });
+    const endpoint = yield* loopbackMcpEndpoint(handler);
+    const leased = yield* rawRequest(endpoint, "events/poll", {
+      name: "moltzap.inbox.item",
+      arguments: {},
+    });
+    expect(leased).toMatchObject({ result: { events: [] } });
+    expect(handler.hasActiveSubscription()).toBe(true);
+    yield* TestClock.adjust("61 seconds");
+    expect(handler.hasActiveSubscription()).toBe(false);
+    expect(yield* Deferred.isDone(detached)).toBe(true);
+  });
+
 // @agent-code-guard/regression-only: these finite protocol transcripts pin interoperability with the official SDK and real loopback HTTP.
 describe("MCP Events draft interoperability", () => {
   it(
@@ -377,5 +415,11 @@ describe("MCP Events draft interoperability", () => {
     preservesExclusiveOwnership,
   );
 });
+
+// @agent-code-guard/regression-only: poll lease expiry releases ownership independently of unavailable push-only inbox counters.
+itOnTestClock(
+  "releases expired poll ownership when push summary persistence is unavailable",
+  releasesPollOwnershipWithoutPushSummary,
+);
 
 /* eslint-enable agent-code-guard/no-hardcoded-assertion-literals -- Restore repository defaults. */

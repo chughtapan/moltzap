@@ -206,12 +206,22 @@ const dispatch = (runtime: EventsRuntime, summary: InboxSummary) => {
         ),
       );
 };
+/**
+ * Only push delivery needs inbox counters; idle and polling lease checks must
+ * not depend on persistence.
+ * @param runtime Shared consumer ownership and delivery state.
+ * @returns Delivery followed by an ownership update, with deferred persistence failures.
+ */
 const publish = (runtime: EventsRuntime) =>
   runtime.options.gate
     .withPermits(1)(
-      runtime.options
-        .summary()
-        .pipe(Effect.map((summary) => dispatch(runtime, summary))),
+      Effect.suspend(() =>
+        runtime.active === undefined
+          ? Effect.succeed(runtime.options.webhook?.observe() ?? Effect.void)
+          : runtime.options
+              .summary()
+              .pipe(Effect.map((summary) => dispatch(runtime, summary))),
+      ),
     )
     .pipe(
       Effect.flatten,
