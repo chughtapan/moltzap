@@ -54,6 +54,7 @@ import { Registry } from "../registry.js";
 import {
   type RegistryClientService,
   RegistryConnectionError,
+  type RegistryLookupResult,
 } from "../registry/contract.js";
 
 /* eslint-disable agent-code-guard/no-example-only-tests -- regression-only suite: each case exercises a distinct HTTP proof, replay-ordering, cache, or cancellation contract. The concurrency timelines are not an input domain to generate over. */
@@ -278,25 +279,24 @@ const lookupAgentCard = (controller: LookupController, agentId: AgentIdValue) =>
     return { kind: "found", agentCard: mode.agentCard } as const;
   });
 
-const registryService = (
-  controller: LookupController,
-): RegistryClientService => {
-  const lookup: RegistryClientService["lookup"] = (request) =>
-    "agentId" in request
-      ? lookupAgentCard(controller, request.agentId)
-      : Effect.dieMessage("the request under test must select an AgentId");
-  return {
-    register: () => Effect.dieMessage("registration is outside this test"),
-    lookup,
-    list: () => Effect.dieMessage("listing is outside this test"),
-  };
-};
-
-const deadlineRegistryService = (
-  controller: LookupController,
+/** A Registry whose only operation under test is `lookup`. */
+const registryWithLookup = (
+  lookup: RegistryClientService["lookup"],
 ): RegistryClientService => ({
   register: () => Effect.dieMessage("registration is outside this test"),
-  lookup: (request) =>
+  lookup,
+  list: () => Effect.dieMessage("listing is outside this test"),
+});
+
+const registryService = (controller: LookupController) =>
+  registryWithLookup((request) =>
+    "agentId" in request
+      ? lookupAgentCard(controller, request.agentId)
+      : Effect.dieMessage("the request under test must select an AgentId"),
+  );
+
+const deadlineRegistryService = (controller: LookupController) =>
+  registryWithLookup((request) =>
     "agentId" in request
       ? Effect.gen(function* () {
           yield* Ref.update(controller.count, (count) => count + 1);
@@ -310,8 +310,7 @@ const deadlineRegistryService = (
           );
         })
       : Effect.dieMessage("the request under test must select an AgentId"),
-  list: () => Effect.dieMessage("listing is outside this test"),
-});
+  );
 
 const authenticatedHttpLayerWithRegistry = (
   registry: RegistryClientService,
@@ -330,6 +329,36 @@ const verifyAgentRequest = (prepared: PreparedRequest) =>
   AuthenticatedHttp.verifyAgentRequest({
     httpRequest: prepared.serverRequest,
     bodyBytes: prepared.bodyBytes,
+  });
+
+/** A view of `value` that throws on every member read. */
+const unreadable = <Value extends object>(value: Value): Value =>
+  new Proxy(value, {
+    get: () => {
+      throw new Error("unreadable");
+    },
+  });
+
+/**
+ * Verifies a request from a fresh identity through a Registry whose lookup
+ * returns what `lookupResult` builds from that identity's verified card.
+ */
+const verifyThroughLookupResult = (
+  lookupResult: (agentCard: VerifiedAgentCard) => RegistryLookupResult,
+) =>
+  Effect.gen(function* () {
+    const fixture = yield* makeIdentityFixture;
+    const prepared = yield* prepareRequest({ fixture });
+    const verified = yield* verifyAgentRequest(prepared).pipe(
+      Effect.provide(
+        authenticatedHttpLayerWithRegistry(
+          registryWithLookup(() =>
+            Effect.succeed(lookupResult(fixture.agentCard)),
+          ),
+        ),
+      ),
+    );
+    return { fixture, verified };
   });
 
 const releaseLookups = (controller: LookupController) =>
@@ -817,47 +846,55 @@ it("returns version mismatch to a peer still on the prior MoltZap version", () =
   ));
 
 /**
- * A card from the Registry that this package did not verify is an invalid
- * card, whether it throws on read or is a readable copy, which would pass the
- * signature check because it carries the signer's key.
+ * A Registry result whose card this package did not verify is an invalid card,
+ * whether the result or its card throws on read or the card is a readable
+ * copy, which would pass the signature check because it carries the signer's
+ * key.
  */
 it.each([
   {
-    card: "an AgentCard that cannot be read",
-    replace: (agentCard: VerifiedAgentCard) =>
-      new Proxy(agentCard, {
-        get: () => {
-          throw new Error("unreadable card");
-        },
-      }),
+    result: "a lookup result that cannot be read",
+    lookupResult: (agentCard: VerifiedAgentCard): RegistryLookupResult =>
+      unreadable({ kind: "found", agentCard } as const),
   },
   {
-    card: "a copy of an AgentCard this package did not verify",
-    replace: (agentCard: VerifiedAgentCard) => Object.freeze({ ...agentCard }),
+    result: "an AgentCard that cannot be read",
+    lookupResult: (agentCard: VerifiedAgentCard): RegistryLookupResult => ({
+      kind: "found",
+      agentCard: unreadable(agentCard),
+    }),
   },
-])("fails authentication when the Registry returns $card", ({ replace }) =>
+  {
+    result: "a copy of an AgentCard this package did not verify",
+    lookupResult: (agentCard: VerifiedAgentCard): RegistryLookupResult => ({
+      kind: "found",
+      agentCard: Object.freeze({ ...agentCard }),
+    }),
+  },
+])(
+  "fails authentication when the Registry returns $result",
+  ({ lookupResult }) =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const refusal = yield* Effect.flip(
+          verifyThroughLookupResult(lookupResult),
+        );
+
+        expect(refusal).toStrictEqual(new AuthenticationFailedError());
+      }),
+    ),
+);
+
+it("authenticates when the Registry's result carries members beyond its type", () =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const fixture = yield* makeIdentityFixture;
-      const agentCard = replace(fixture.agentCard);
-      const prepared = yield* prepareRequest({ fixture });
-
-      const refusal = yield* verifyAgentRequest(prepared).pipe(
-        Effect.flip,
-        Effect.provide(
-          authenticatedHttpLayerWithRegistry({
-            register: () =>
-              Effect.dieMessage("registration is outside this test"),
-            lookup: () => Effect.succeed({ kind: "found", agentCard } as const),
-            list: () => Effect.dieMessage("listing is outside this test"),
-          }),
-        ),
+      const { fixture, verified } = yield* verifyThroughLookupResult(
+        (agentCard) => ({ kind: "found", agentCard, etag: "1" }),
       );
 
-      expect(refusal).toStrictEqual(new AuthenticationFailedError());
+      expect(verified.agentCard).toBe(fixture.agentCard);
     }),
-  ),
-);
+  ));
 
 it("retains a replay claim when concurrent verification completes at expiry", () =>
   Effect.runPromise(
