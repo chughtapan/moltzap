@@ -1,6 +1,6 @@
 /** @file Exercises classified delivery durability and loss of request context. */
 
-import { live as it } from "@effect/vitest";
+import { scopedLive as it } from "@effect/vitest";
 import { Effect, Array as EffectArray, Schema } from "effect";
 import { describe, expect } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
@@ -124,40 +124,36 @@ const retiresLostRequests = () => {
 };
 
 const freezesPagesAcrossArrivalsAndAcknowledgments = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const store = yield* openEndpointStore(stateDirectory());
-      yield* Effect.forEach(
-        EffectArray.range(1, 51),
-        (index) =>
-          persistInboxItem(store, {
-            deliveryToken: token(index),
-            item: failure,
-          }),
-        { concurrency: 1, discard: true },
-      );
-      const first = yield* readRuntimeInbox(store, {});
-      expect(first.items).toHaveLength(50);
-      expect(first.nextCursor).toBeDefined();
-      yield* persistInboxItem(store, {
-        deliveryToken: token(52),
-        item: failure,
-      });
-      yield* store.acknowledgeInboxItem(token(1));
-      const second = yield* readRuntimeInbox(store, {
-        cursor: first.nextCursor,
-      });
-      expect(second.items.map((item) => item.deliveryToken)).toEqual([
-        token(51),
-      ]);
-      expect(second.nextCursor).toBeUndefined();
-      expect((yield* store.readInboxSummary()).pendingCount).toBe(51);
-      const invalid = yield* readRuntimeInbox(store, {
-        cursor: "invalid",
-      }).pipe(Effect.flip);
-      expect(invalid.reason).toBe("invalid-continuation");
-    }),
-  );
+  Effect.gen(function* () {
+    const store = yield* openEndpointStore(stateDirectory());
+    yield* Effect.forEach(
+      EffectArray.range(1, 51),
+      (index) =>
+        persistInboxItem(store, {
+          deliveryToken: token(index),
+          item: failure,
+        }),
+      { concurrency: 1, discard: true },
+    );
+    const first = yield* readRuntimeInbox(store, {});
+    expect(first.items).toHaveLength(50);
+    expect(first.nextCursor).toBeDefined();
+    yield* persistInboxItem(store, {
+      deliveryToken: token(52),
+      item: failure,
+    });
+    yield* store.acknowledgeInboxItem(token(1));
+    const second = yield* readRuntimeInbox(store, {
+      cursor: first.nextCursor,
+    });
+    expect(second.items.map((item) => item.deliveryToken)).toEqual([token(51)]);
+    expect(second.nextCursor).toBeUndefined();
+    expect((yield* store.readInboxSummary()).pendingCount).toBe(51);
+    const invalid = yield* readRuntimeInbox(store, {
+      cursor: "invalid",
+    }).pipe(Effect.flip);
+    expect(invalid.reason).toBe("invalid-continuation");
+  });
 
 const commitsReceiptAtomically = () => {
   const path = stateDirectory();

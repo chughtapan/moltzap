@@ -47,8 +47,6 @@ import {
 import { sameBytes } from "../transport/wire/index.js";
 import { unusedEndpointStore } from "./unused-endpoint-store.js";
 
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- The focused tests drive the official Promise-native MCP stream boundary. */
-
 /** The MCP handler the daemon installed; throws before installation. */
 export function requireHandler(
   harness: RuntimeHarness,
@@ -549,16 +547,41 @@ export const makeToolCallRequest = (
     signal: input.signal,
   });
 
-/** A reader over a streamed MCP response body. */
-export const responseReader = (
-  response: Response,
-): ReadableStreamDefaultReader<Uint8Array> => {
-  const reader = response.body?.getReader();
-  if (reader === undefined) {
-    throw new Error("expected retained SSE response body");
-  }
-  return reader;
-};
+/**
+ * Hold the harness engine's next pending read until the barrier is released.
+ * @param harness The daemon's harness.
+ * @returns The installed barrier; `entered` resolves once a read reaches it.
+ */
+export const holdNextRead = (harness: RuntimeHarness) =>
+  Effect.gen(function* () {
+    const barrier: ReadBarrier = {
+      entered: yield* Deferred.make<undefined>(),
+      release: yield* Deferred.make<undefined>(),
+    };
+    harness.delivery.readBarrier = barrier;
+    return barrier;
+  }).pipe(Effect.withSpan("holdNextRead"));
+
+/**
+ * Open a streamed MCP response whose reader the enclosing scope cancels.
+ * @param handler The daemon's MCP handler.
+ * @param request The request whose response streams.
+ * @returns A reader over the response body.
+ */
+export const openStream = (handler: HarnessMcpEventHandler, request: Request) =>
+  Effect.acquireRelease(
+    Effect.tryPromise(() => handler.fetch(request)).pipe(
+      Effect.flatMap((response) =>
+        Effect.fromNullable(response.body).pipe(
+          Effect.orElseFail(
+            () => new Error("expected a streamed response body"),
+          ),
+        ),
+      ),
+      Effect.map((body) => body.getReader()),
+    ),
+    (reader) => Effect.tryPromise(() => reader.cancel()).pipe(Effect.ignore),
+  ).pipe(Effect.withSpan("openStream"));
 
 const frameBuffers = new WeakMap<
   ReadableStreamDefaultReader<Uint8Array>,
@@ -571,35 +594,58 @@ const frameData = (frame: string): string =>
     .map((line) => line.slice(5).trimStart())
     .join("\n");
 
-const readChunk = async (
+/**
+ * The next chunk of a streamed body, as text.
+ * @param reader The streamed response's reader.
+ * @param stage Names the awaited frame in a failure.
+ * @returns The chunk's text; the trace dies when the stream has ended.
+ */
+const readChunk = (
   reader: ReadableStreamDefaultReader<Uint8Array>,
-): Promise<string> => {
-  const result = await reader.read();
-  if (result.done) {
-    throw new Error("Expected an SSE data frame");
-  }
-  return new TextDecoder().decode(result.value);
-};
+  stage: string,
+) =>
+  Effect.tryPromise({
+    try: () => reader.read(),
+    catch: () => new Error(`failed to read ${stage}`),
+  }).pipe(
+    Effect.flatMap((chunk) =>
+      chunk.done
+        ? Effect.dieMessage(
+            `${stage}: the stream ended before an SSE data frame`,
+          )
+        : Effect.succeed(new TextDecoder().decode(chunk.value)),
+    ),
+  );
 
-const readFrame = async (
+/**
+ * The next server-sent frame's data, parsed. Bytes past that frame stay
+ * buffered for the reader's next read.
+ * @param reader The streamed response's reader.
+ * @param stage Names the frame in a failure.
+ * @returns The frame's parsed data.
+ */
+const readFrame = (
   reader: ReadableStreamDefaultReader<Uint8Array>,
-): Promise<unknown> => {
-  let buffered = frameBuffers.get(reader) ?? "";
-  while (true) {
-    const end = buffered.indexOf("\n\n");
-    if (end >= 0) {
-      const frame = buffered.slice(0, end);
-      buffered = buffered.slice(end + 2);
-      frameBuffers.set(reader, buffered);
-      const data = frameData(frame);
-      if (data !== "") {
-        return JSON.parse(data);
+  stage: string,
+) =>
+  Effect.gen(function* () {
+    let buffered = frameBuffers.get(reader) ?? "";
+    while (true) {
+      const end = buffered.indexOf("\n\n");
+      if (end >= 0) {
+        const frame = buffered.slice(0, end);
+        buffered = buffered.slice(end + 2);
+        frameBuffers.set(reader, buffered);
+        const data = frameData(frame);
+        if (data !== "") {
+          const parsed: unknown = JSON.parse(data);
+          return parsed;
+        }
+      } else {
+        buffered += yield* readChunk(reader, stage);
       }
-    } else {
-      buffered += await readChunk(reader);
     }
-  }
-};
+  });
 
 /**
  * How long one stage may wait for its signal. It only bounds a hang, and it
@@ -616,28 +662,17 @@ const STAGE_HANG_BOUND = Duration.seconds(20);
 export const awaitStage = <Value, Failure>(
   effect: Effect.Effect<Value, Failure>,
   stage: string,
-): Promise<Value> =>
-  Effect.runPromise(
-    effect.pipe(
-      Effect.timeoutFail({
-        duration: STAGE_HANG_BOUND,
-        onTimeout: () => new Error(`timed out awaiting ${stage}`),
-      }),
-      Effect.withSpan(stage),
-    ),
+): Effect.Effect<Value, Failure | Error> =>
+  effect.pipe(
+    Effect.timeoutFail({
+      duration: STAGE_HANG_BOUND,
+      onTimeout: () => new Error(`timed out awaiting ${stage}`),
+    }),
+    Effect.withSpan(stage),
   );
 
 /** Await the next server-sent frame for one named stage. */
 export const awaitFrame = (
   reader: ReadableStreamDefaultReader<Uint8Array>,
   stage: string,
-): Promise<unknown> =>
-  awaitStage(
-    Effect.tryPromise({
-      try: () => readFrame(reader),
-      catch: () => new Error(`failed to read ${stage}`),
-    }),
-    stage,
-  );
-
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type -- Restore repository defaults after the harness. */
+): Effect.Effect<unknown, Error> => awaitStage(readFrame(reader, stage), stage);

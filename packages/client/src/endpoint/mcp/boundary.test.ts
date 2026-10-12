@@ -3,7 +3,7 @@
 import type { Implementation } from "@modelcontextprotocol/server";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { it } from "@effect/vitest";
+import { scopedLive as it } from "@effect/vitest";
 import {
   Client,
   fromJsonSchema,
@@ -57,8 +57,6 @@ import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
 } from "./tools.js";
-
-/* eslint-disable agent-code-guard/async-keyword -- These interoperability tests exercise the Promise-native MCP boundary. */
 
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
 const IMPLEMENTATION = {
@@ -173,7 +171,7 @@ function advertisesEventsBeforeRegistration() {
         delivery: pushDelivery,
       }),
     );
-  }).pipe(Effect.scoped);
+  });
 }
 
 function distinguishesProtocolAndDomainFailures() {
@@ -211,7 +209,7 @@ function distinguishesProtocolAndDomainFailures() {
       code: ProtocolErrorCode.InternalError,
       data: { reason: "incompatible-daemon" },
     });
-  }).pipe(Effect.scoped);
+  });
 }
 
 /**
@@ -237,7 +235,7 @@ function reportsOutsideVocabularyStatusFailure() {
       code: ProtocolErrorCode.InternalError,
       data: { reason: "incompatible-daemon" },
     });
-  }).pipe(Effect.scoped);
+  });
 }
 
 function sanitizesUnexpectedOperationDefects() {
@@ -259,7 +257,7 @@ function sanitizesUnexpectedOperationDefects() {
       data: { reason: "incompatible-daemon" },
     });
     expect(String(cause)).not.toContain(PRIVATE_STATUS_DEFECT);
-  }).pipe(Effect.scoped);
+  });
 }
 
 function reportsUnexpectedSubscriptionLoss() {
@@ -277,22 +275,26 @@ function reportsUnexpectedSubscriptionLoss() {
 
     expect(result).toBeInstanceOf(ListenError);
     expect(result).toMatchObject({ reason: "transport-failed" });
-  }).pipe(Effect.scoped);
-}
-
-async function keepsIdleSubscriptionAlive() {
-  expect(await idleSubscriptionOutcome(100)).toEqual({ dropped: false });
-}
-
-async function losesIdleSubscriptionWithoutKeepAlive() {
-  const outcome = await idleSubscriptionOutcome(60_000);
-  expect(outcome).toMatchObject({
-    dropped: true,
-    cause: { reason: "transport-failed" },
   });
-  expect(outcome.dropped ? outcome.cause : undefined).toBeInstanceOf(
-    ListenError,
-  );
+}
+
+function keepsIdleSubscriptionAlive() {
+  return Effect.gen(function* () {
+    expect(yield* idleSubscriptionOutcome(100)).toEqual({ dropped: false });
+  });
+}
+
+function losesIdleSubscriptionWithoutKeepAlive() {
+  return Effect.gen(function* () {
+    const outcome = yield* idleSubscriptionOutcome(60_000);
+    expect(outcome).toMatchObject({
+      dropped: true,
+      cause: { reason: "transport-failed" },
+    });
+    expect(outcome.dropped ? outcome.cause : undefined).toBeInstanceOf(
+      ListenError,
+    );
+  });
 }
 
 /**
@@ -304,28 +306,18 @@ async function losesIdleSubscriptionWithoutKeepAlive() {
  * shares the global-dispatcher symbol Node's own fetch reads; if the two
  * diverge, the control test below fails instead of passing vacuously.
  */
-async function idleSubscriptionOutcome(keepAliveMillis: number) {
-  const dispatcher = getGlobalDispatcher();
-  const agent = new Agent({ bodyTimeout: 1000 });
-  setGlobalDispatcher(agent);
-  try {
-    return await Effect.runPromise(
-      Effect.gen(function* () {
-        const { receive } =
-          yield* observeListeningSubscription(keepAliveMillis);
-        return yield* Fiber.join(receive).pipe(
-          Effect.timeoutTo({
-            duration: Duration.seconds(3),
-            onTimeout: () => ({ dropped: false as const }),
-            onSuccess: (cause) => ({ dropped: true as const, cause }),
-          }),
-        );
-      }).pipe(Effect.scoped),
+function idleSubscriptionOutcome(keepAliveMillis: number) {
+  return Effect.gen(function* () {
+    yield* routeRequestsThrough(new Agent({ bodyTimeout: 1000 }));
+    const { receive } = yield* observeListeningSubscription(keepAliveMillis);
+    return yield* Fiber.join(receive).pipe(
+      Effect.timeoutTo({
+        duration: Duration.seconds(3),
+        onTimeout: () => ({ dropped: false as const }),
+        onSuccess: (cause) => ({ dropped: true as const, cause }),
+      }),
     );
-  } finally {
-    setGlobalDispatcher(dispatcher);
-    await agent.close();
-  }
+  });
 }
 
 /** A boundary server with one endpoint listening on it, and the fiber observing that stream's end. */
@@ -376,116 +368,106 @@ const sendResult = {};
 const MCP_TRACE_TIMEOUT_MS = 30_000;
 
 const distinguishesSendValidationFailures = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const inactive = yield* acquireSendEndpoint(operations);
-      expect(yield* inactive.send(sendInput).pipe(Effect.flip)).toMatchObject({
-        reason: "network-unavailable",
-      });
-      const refused = yield* acquireSendEndpoint({
-        ...operations,
-        protocolActive: () => true,
-        send: () => Effect.fail(new SendError({ reason: "not-registered" })),
-      });
-      expect(yield* refused.send(sendInput).pipe(Effect.flip)).toMatchObject({
-        reason: "not-registered",
-      });
-      const invalidOutput = yield* acquireSendEndpoint({
-        ...operations,
-        protocolActive: () => true,
-        send: () =>
-          Effect.succeed({
-            operationId: Schema.decodeUnknownSync(CollectiveId)(
-              `col_${"A".repeat(43)}`,
-            ),
-            unexpected: true,
-          }),
-      });
-      expect(
-        yield* invalidOutput.send(sendInput).pipe(Effect.flip),
-      ).toMatchObject({
-        reason: "outcome-unknown",
-      });
-    }),
-  );
+  Effect.gen(function* () {
+    const inactive = yield* acquireSendEndpoint(operations);
+    expect(yield* inactive.send(sendInput).pipe(Effect.flip)).toMatchObject({
+      reason: "network-unavailable",
+    });
+    const refused = yield* acquireSendEndpoint({
+      ...operations,
+      protocolActive: () => true,
+      send: () => Effect.fail(new SendError({ reason: "not-registered" })),
+    });
+    expect(yield* refused.send(sendInput).pipe(Effect.flip)).toMatchObject({
+      reason: "not-registered",
+    });
+    const invalidOutput = yield* acquireSendEndpoint({
+      ...operations,
+      protocolActive: () => true,
+      send: () =>
+        Effect.succeed({
+          operationId: Schema.decodeUnknownSync(CollectiveId)(
+            `col_${"A".repeat(43)}`,
+          ),
+          unexpected: true,
+        }),
+    });
+    expect(
+      yield* invalidOutput.send(sendInput).pipe(Effect.flip),
+    ).toMatchObject({
+      reason: "outcome-unknown",
+    });
+  });
 
 const carriesARefusalDetailAcrossTheDaemonBoundary = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const refusal = new SendError({
-        reason: "unknown-agent",
-        detail: "agent:dana is not a known agent",
-      });
-      const endpoint = yield* acquireSendEndpoint({
-        ...operations,
-        protocolActive: () => true,
-        send: () => Effect.fail(refusal),
-      });
+  Effect.gen(function* () {
+    const refusal = new SendError({
+      reason: "unknown-agent",
+      detail: "agent:dana is not a known agent",
+    });
+    const endpoint = yield* acquireSendEndpoint({
+      ...operations,
+      protocolActive: () => true,
+      send: () => Effect.fail(refusal),
+    });
 
-      const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
+    const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
 
-      expect(error.message).toBe(refusal.message);
-    }),
-  );
+    expect(error.message).toBe(refusal.message);
+  });
 
 const carriesDeliveryPendingAcrossTheDaemonBoundary = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const pending = new SendError({ reason: "delivery-pending" });
-      const endpoint = yield* acquireSendEndpoint({
-        ...operations,
-        protocolActive: () => true,
-        send: () => Effect.fail(pending),
-      });
+  Effect.gen(function* () {
+    const pending = new SendError({ reason: "delivery-pending" });
+    const endpoint = yield* acquireSendEndpoint({
+      ...operations,
+      protocolActive: () => true,
+      send: () => Effect.fail(pending),
+    });
 
-      const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
+    const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
 
-      expect(error).toStrictEqual(pending);
-    }),
-  );
+    expect(error).toStrictEqual(pending);
+  });
 
 const answersOutcomeUnknownForAnUntypedSendFailure = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const endpoint = yield* acquireSendEndpoint({
-        ...operations,
-        protocolActive: () => true,
-        send: () => Effect.dieMessage("send defect"),
-      });
+  Effect.gen(function* () {
+    const endpoint = yield* acquireSendEndpoint({
+      ...operations,
+      protocolActive: () => true,
+      send: () => Effect.dieMessage("send defect"),
+    });
 
-      const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
+    const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
 
-      expect(error).toStrictEqual(new SendError({ reason: "outcome-unknown" }));
-    }),
-  );
+    expect(error).toStrictEqual(new SendError({ reason: "outcome-unknown" }));
+  });
 
 const reportsOutcomeUnknownWhenTheConnectionDropsMidSend = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const started = yield* Deferred.make<undefined>();
-      const { port, server } = yield* acquireBoundaryServer({
-        ...operations,
-        protocolActive: () => true,
-        send: () =>
-          Deferred.succeed(started, undefined).pipe(
-            Effect.zipRight(Effect.never),
-          ),
-      });
-      const endpoint = yield* acquireHarnessEndpoint(
-        new URL(`http://127.0.0.1:${port}/mcp`),
-      );
-      const sending = yield* Effect.fork(
-        endpoint.send(sendInput).pipe(Effect.flip),
-      );
-      yield* Deferred.await(started);
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<undefined>();
+    const { port, server } = yield* acquireBoundaryServer({
+      ...operations,
+      protocolActive: () => true,
+      send: () =>
+        Deferred.succeed(started, undefined).pipe(
+          Effect.zipRight(Effect.never),
+        ),
+    });
+    const endpoint = yield* acquireHarnessEndpoint(
+      new URL(`http://127.0.0.1:${port}/mcp`),
+    );
+    const sending = yield* Effect.fork(
+      endpoint.send(sendInput).pipe(Effect.flip),
+    );
+    yield* Deferred.await(started);
 
-      server.closeAllConnections();
+    server.closeAllConnections();
 
-      expect(yield* Fiber.join(sending)).toStrictEqual(
-        new SendError({ reason: "outcome-unknown" }),
-      );
-    }),
-  );
+    expect(yield* Fiber.join(sending)).toStrictEqual(
+      new SendError({ reason: "outcome-unknown" }),
+    );
+  });
 
 /**
  * Route this scope's requests through `dispatcher`, then restore the previous
@@ -539,22 +521,20 @@ const classifiesAnHttpAnswerToASend = (
   status: number,
   reason: SendError["reason"],
 ) =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const { port } = yield* acquireBoundaryServer({
-        ...operations,
-        protocolActive: () => true,
-      });
-      const endpoint = yield* acquireHarnessEndpoint(
-        new URL(`http://127.0.0.1:${port}/mcp`),
-      );
-      yield* routeRequestsThrough(answerSendWithStatus(status));
+  Effect.gen(function* () {
+    const { port } = yield* acquireBoundaryServer({
+      ...operations,
+      protocolActive: () => true,
+    });
+    const endpoint = yield* acquireHarnessEndpoint(
+      new URL(`http://127.0.0.1:${port}/mcp`),
+    );
+    yield* routeRequestsThrough(answerSendWithStatus(status));
 
-      const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
+    const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
 
-      expect(error).toStrictEqual(new SendError({ reason }));
-    }),
-  );
+    expect(error).toStrictEqual(new SendError({ reason }));
+  });
 
 /**
  * A send after the server closed. Its requests open one connection each, so
@@ -562,26 +542,24 @@ const classifiesAnHttpAnswerToASend = (
  * closed, which the request may race.
  */
 const keepsARefusedConnectionNetworkUnavailable = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      yield* routeRequestsThrough(new Agent({ pipelining: 0 }));
-      const serverScope = yield* Scope.make();
-      const { port } = yield* acquireBoundaryServer({
-        ...operations,
-        protocolActive: () => true,
-      }).pipe(Scope.extend(serverScope));
-      const endpoint = yield* acquireHarnessEndpoint(
-        new URL(`http://127.0.0.1:${port}/mcp`),
-      );
-      yield* Scope.close(serverScope, Exit.void);
+  Effect.gen(function* () {
+    yield* routeRequestsThrough(new Agent({ pipelining: 0 }));
+    const serverScope = yield* Scope.make();
+    const { port } = yield* acquireBoundaryServer({
+      ...operations,
+      protocolActive: () => true,
+    }).pipe(Scope.extend(serverScope));
+    const endpoint = yield* acquireHarnessEndpoint(
+      new URL(`http://127.0.0.1:${port}/mcp`),
+    );
+    yield* Scope.close(serverScope, Exit.void);
 
-      const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
+    const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
 
-      expect(error).toStrictEqual(
-        new SendError({ reason: "network-unavailable" }),
-      );
-    }),
-  );
+    expect(error).toStrictEqual(
+      new SendError({ reason: "network-unavailable" }),
+    );
+  });
 
 function acquireSendEndpoint(
   selected: Pick<HarnessMcpOperations, "protocolActive" | "send" | "readSend">,
@@ -717,14 +695,12 @@ function checksRetainedRuntimeSend(directory: string) {
 
 /** The real SDK and overridden dispatcher must preserve options before durable reservation. */
 function preservesRuntimeInvocationMetadata() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const directory = yield* fs.makeTempDirectoryScoped();
-      yield* Effect.scoped(checksRuntimeRetries(directory));
-      yield* Effect.scoped(checksRetainedRuntimeSend(directory));
-    }),
-  ).pipe(Effect.provide(NodeFileSystem.layer));
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const directory = yield* fs.makeTempDirectoryScoped();
+    yield* Effect.scoped(checksRuntimeRetries(directory));
+    yield* Effect.scoped(checksRetainedRuntimeSend(directory));
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 }
 
 const invalidSendCalls = [
@@ -752,13 +728,13 @@ const invalidSendCalls = [
 ];
 
 const checksSemanticSendSchema = (client: Client) =>
-  Effect.tryPromise(async () => {
-    const catalog = await client.listTools();
+  Effect.gen(function* () {
+    const catalog = yield* Effect.tryPromise(() => client.listTools());
     const schema = catalog.tools.find(
       (tool) => tool.name === "send_message",
     )?.inputSchema;
     if (schema === undefined) {
-      throw new Error("Expected the semantic send schema");
+      return yield* Effect.dieMessage("Expected the semantic send schema");
     }
     expect(schema.additionalProperties).toBe(false);
     expect(Object.keys(schema.properties ?? {})).toEqual(["input"]);
@@ -785,164 +761,158 @@ const checksSemanticSendSchema = (client: Client) =>
         collectiveResponse: { action: "accept", content: { ready: true } },
       },
     ]) {
-      expect(await validator["~standard"].validate({ input })).toHaveProperty(
-        "value",
-      );
+      expect(
+        yield* Effect.tryPromise(() =>
+          Promise.resolve(validator["~standard"].validate({ input })),
+        ),
+      ).toHaveProperty("value");
     }
   });
 
 /** Model arguments and malformed metadata must fail before any send reaches execution. */
 function rejectsSendBookkeepingArguments() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const executed: unknown[] = [];
-      const { port } = yield* acquireBoundaryServer({
-        ...operations,
-        protocolActive: () => true,
-        send: (input) =>
-          Effect.sync(() => {
-            executed.push(input);
-            return sendResult;
-          }),
-      });
-      const client = yield* acquireProtocolClient(port, "semantic-send-client");
-      yield* checksSemanticSendSchema(client);
-      for (const call of invalidSendCalls) {
-        const error = yield* Effect.tryPromise(() =>
-          client.callTool({ name: "send_message", ...call }),
-        ).pipe(Effect.flip);
-        expect(error).toMatchObject({
-          cause: { code: ProtocolErrorCode.InvalidParams },
-        });
-      }
-      expect(executed).toEqual([]);
-      yield* Effect.tryPromise(() =>
-        client.callTool({
-          name: "send_message",
-          arguments: { input: sendInput },
-          _meta: {
-            "another.example/trace": { id: "independent" },
-            [HARNESS_SEND_META_KEY]: { idempotencyKey: "é".repeat(64) },
-          },
+  return Effect.gen(function* () {
+    const executed: unknown[] = [];
+    const { port } = yield* acquireBoundaryServer({
+      ...operations,
+      protocolActive: () => true,
+      send: (input) =>
+        Effect.sync(() => {
+          executed.push(input);
+          return sendResult;
         }),
-      );
-      expect(executed).toEqual([
-        { input: sendInput, idempotencyKey: "é".repeat(64) },
-      ]);
-    }),
-  );
+    });
+    const client = yield* acquireProtocolClient(port, "semantic-send-client");
+    yield* checksSemanticSendSchema(client);
+    for (const call of invalidSendCalls) {
+      const error = yield* Effect.tryPromise(() =>
+        client.callTool({ name: "send_message", ...call }),
+      ).pipe(Effect.flip);
+      expect(error).toMatchObject({
+        cause: { code: ProtocolErrorCode.InvalidParams },
+      });
+    }
+    expect(executed).toEqual([]);
+    yield* Effect.tryPromise(() =>
+      client.callTool({
+        name: "send_message",
+        arguments: { input: sendInput },
+        _meta: {
+          "another.example/trace": { id: "independent" },
+          [HARNESS_SEND_META_KEY]: { idempotencyKey: "é".repeat(64) },
+        },
+      }),
+    );
+    expect(executed).toEqual([
+      { input: sendInput, idempotencyKey: "é".repeat(64) },
+    ]);
+  });
 }
 
 function readsRetainedEventThroughSdk() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const store = yield* openEndpointStore(
-        yield* fs.makeTempDirectoryScoped(),
-      );
-      const deliveryToken = Schema.decodeUnknownSync(DeliveryToken)(
-        digest("dlv_", 7),
-      );
-      const item = Schema.decodeUnknownSync(InboundItem)({
-        kind: "operationFailed",
-        id: digest("col_", 7),
-        to: "agent:bob",
-        error: "retained result",
-      });
-      const canonicalItem = yield* encodeRuntimeValue(item);
-      yield* store.putInboxItem({ deliveryToken, canonicalItem });
-      yield* store.acknowledgeInboxItem(deliveryToken);
-      const { port } = yield* acquireBoundaryServer({
-        ...operations,
-        protocolActive: () => true,
-        readEvent: ({ eventId }) => readRuntimeEvent(store, eventId),
-      });
-      const client = yield* acquireProtocolClient(
-        port,
-        "retained-event-client",
-      );
-      const result = yield* Effect.tryPromise(() =>
-        client.callTool({
-          name: "read_event",
-          arguments: { eventId: eventIdOf(deliveryToken) },
-        }),
-      );
-      expect(result.structuredContent).toEqual({ item });
-      expect((yield* store.readInboxSummary()).pendingCount).toBe(0);
-    }),
-  ).pipe(Effect.provide(NodeFileSystem.layer));
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const store = yield* openEndpointStore(yield* fs.makeTempDirectoryScoped());
+    const deliveryToken = Schema.decodeUnknownSync(DeliveryToken)(
+      digest("dlv_", 7),
+    );
+    const item = Schema.decodeUnknownSync(InboundItem)({
+      kind: "operationFailed",
+      id: digest("col_", 7),
+      to: "agent:bob",
+      error: "retained result",
+    });
+    const canonicalItem = yield* encodeRuntimeValue(item);
+    yield* store.putInboxItem({ deliveryToken, canonicalItem });
+    yield* store.acknowledgeInboxItem(deliveryToken);
+    const { port } = yield* acquireBoundaryServer({
+      ...operations,
+      protocolActive: () => true,
+      readEvent: ({ eventId }) => readRuntimeEvent(store, eventId),
+    });
+    const client = yield* acquireProtocolClient(port, "retained-event-client");
+    const result = yield* Effect.tryPromise(() =>
+      client.callTool({
+        name: "read_event",
+        arguments: { eventId: eventIdOf(deliveryToken) },
+      }),
+    );
+    expect(result.structuredContent).toEqual({ item });
+    expect((yield* store.readInboxSummary()).pendingCount).toBe(0);
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 }
 
 // @agent-code-guard/regression-only: this boundary pins the exact capability and closed transport failures.
 describe("Harness MCP HTTP boundary", () => {
-  it.live(
+  it(
     "keeps dispatch and invalid output distinct from rejected send input",
     distinguishesSendValidationFailures,
     MCP_TRACE_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "reads an acknowledged event through the SDK without redelivery",
     readsRetainedEventThroughSdk,
   );
-  it.live(
+  it(
     "preserves runtime send identity through retries, conflicts and restart",
     preservesRuntimeInvocationMetadata,
   );
-  it.live(
+  it(
     "rejects bookkeeping in model arguments and validates runtime metadata",
     rejectsSendBookkeepingArguments,
     MCP_TRACE_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "advertises the event descriptor before registration",
     advertisesEventsBeforeRegistration,
   );
-  it.live(
+  it(
     "keeps malformed input separate from closed domain failures",
     distinguishesProtocolAndDomainFailures,
   );
-  it.live(
+  it(
     "reports a status failure outside its vocabulary as incompatible-daemon",
     reportsOutsideVocabularyStatusFailure,
   );
-  it.live(
+  it(
     "sanitizes unexpected operation defects",
     sanitizesUnexpectedOperationDefects,
   );
-  it("keeps an idle subscription alive past the fetch body timeout", () =>
-    keepsIdleSubscriptionAlive());
-  it("loses an idle subscription to the fetch body timeout without keep-alive", () =>
-    losesIdleSubscriptionWithoutKeepAlive());
-  it.live(
+  it(
+    "keeps an idle subscription alive past the fetch body timeout",
+    keepsIdleSubscriptionAlive,
+  );
+  it(
+    "loses an idle subscription to the fetch body timeout without keep-alive",
+    losesIdleSubscriptionWithoutKeepAlive,
+  );
+  it(
     "reports an unexpected subscription disconnect",
     reportsUnexpectedSubscriptionLoss,
   );
 });
 
 describe("a refused send across the daemon boundary", () => {
-  it.live(
+  it(
     "carries a refusal's detail",
     carriesARefusalDetailAcrossTheDaemonBoundary,
   );
-  it.live(
-    "carries delivery-pending",
-    carriesDeliveryPendingAcrossTheDaemonBoundary,
-  );
-  it.live(
+  it("carries delivery-pending", carriesDeliveryPendingAcrossTheDaemonBoundary);
+  it(
     "answers outcome-unknown for a send that ends without a typed failure",
     answersOutcomeUnknownForAnUntypedSendFailure,
   );
-  it.live(
+  it(
     "reports outcome-unknown when the connection drops during a send",
     reportsOutcomeUnknownWhenTheConnectionDropsMidSend,
     MCP_TRACE_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "keeps a refused connection network-unavailable",
     keepsARefusedConnectionNetworkUnavailable,
     MCP_TRACE_TIMEOUT_MS,
   );
-  it.live.each([
+  it.each([
     [404, "network-unavailable"],
     [499, "outcome-unknown"],
     [500, "outcome-unknown"],
@@ -952,5 +922,3 @@ describe("a refused send across the daemon boundary", () => {
     MCP_TRACE_TIMEOUT_MS,
   );
 });
-
-/* eslint-enable agent-code-guard/async-keyword -- Restore repository defaults after the MCP boundary. */

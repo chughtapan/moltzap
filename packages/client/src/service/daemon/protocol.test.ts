@@ -1,7 +1,7 @@
 /** @file A daemon ignores a peer's outer body that does not open for it, and its Router worker keeps accepting sealed traffic. */
 
 import type { Router } from "@moltzap/router";
-import { live as it } from "@effect/vitest";
+import { scopedLive as it } from "@effect/vitest";
 import {
   MessageId,
   MOLTZAP_VERSION,
@@ -231,48 +231,43 @@ const runProtocol = (input: {
   });
 
 const ignoresRefusedBodyAndKeepsRunning = (refused: RefusedEnvelope) =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      const members: Members = {
-        local: {
-          card: fixture.localCard,
-          authority: fixture.bootstrap.signingAuthority,
-        },
-        peer: yield* memberOf(2, "sealed-peer"),
-        outsider: yield* memberOf(3, "sealed-outsider"),
-      };
-      const packet = catchUpRequestFrom(members.peer.card);
-      const plaintext = yield* encodeCanonical(DirectPacket, packet);
-      const sealed = yield* signOuterPacket({
-        packet,
-        membership: { members: [members.local.card, members.peer.card] },
-        agentCard: members.peer.card,
-        signingAuthority: members.peer.authority,
-      });
-      const released = yield* Deferred.make<undefined>();
-      const polledAgain = yield* Deferred.make<undefined>();
-      const running = yield* runProtocol({
-        fixture,
-        members,
-        feed: [
-          yield* buildRefusedEnvelope(refused, members, plaintext),
-          sealed,
-        ],
-        released,
-        polledAgain,
-      });
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const members: Members = {
+      local: {
+        card: fixture.localCard,
+        authority: fixture.bootstrap.signingAuthority,
+      },
+      peer: yield* memberOf(2, "sealed-peer"),
+      outsider: yield* memberOf(3, "sealed-outsider"),
+    };
+    const packet = catchUpRequestFrom(members.peer.card);
+    const plaintext = yield* encodeCanonical(DirectPacket, packet);
+    const sealed = yield* signOuterPacket({
+      packet,
+      membership: { members: [members.local.card, members.peer.card] },
+      agentCard: members.peer.card,
+      signingAuthority: members.peer.authority,
+    });
+    const released = yield* Deferred.make<undefined>();
+    const polledAgain = yield* Deferred.make<undefined>();
+    const running = yield* runProtocol({
+      fixture,
+      members,
+      feed: [yield* buildRefusedEnvelope(refused, members, plaintext), sealed],
+      released,
+      polledAgain,
+    });
 
-      yield* running.worker.awaitAnchor;
-      yield* Deferred.succeed(released, undefined);
-      yield* Deferred.await(polledAgain).pipe(Effect.timeout("5 seconds"));
+    yield* running.worker.awaitAnchor;
+    yield* Deferred.succeed(released, undefined);
+    yield* Deferred.await(polledAgain).pipe(Effect.timeout("5 seconds"));
 
-      expect(Array.from(yield* Queue.takeAll(running.accepted))).toStrictEqual([
-        { kind: "direct", packet },
-      ]);
-      expect(yield* Deferred.isDone(running.fatal)).toBe(false);
-    }),
-  );
+    expect(Array.from(yield* Queue.takeAll(running.accepted))).toStrictEqual([
+      { kind: "direct", packet },
+    ]);
+    expect(yield* Deferred.isDone(running.fatal)).toBe(false);
+  });
 
 describe("daemon ingress of outer bodies", () => {
   it.each<{ readonly body: string; readonly refused: RefusedEnvelope }>([

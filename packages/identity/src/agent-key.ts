@@ -1,5 +1,6 @@
 /** @file Exact Ed25519 public keys and opaque private signing authority. */
 
+import type { LazyArg } from "effect/Function";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import {
   Data,
@@ -252,8 +253,8 @@ export const Ed25519PublicKey = Schema.transform(
 export type Ed25519PublicKey = typeof Ed25519PublicKey.Type;
 
 /**
- * Reports failure to derive the standard thumbprint URI or the X25519 key for
- * a validated key, or to import it.
+ * Reports failure to read a key, to derive its standard thumbprint URI or
+ * X25519 key, or to import it.
  */
 export class Ed25519PublicKeyOperationError extends Data.TaggedError(
   "Ed25519PublicKeyOperationError",
@@ -263,9 +264,25 @@ const publicKeyOperationFailure = (): Ed25519PublicKeyOperationError =>
   new Ed25519PublicKeyOperationError();
 
 /**
- * Most keys that each per-key cache below keeps. A conversation names at most
- * 128 members, so the bound holds the keys of eight full conversations, and
- * each entry is one short string or one imported public `CryptoKey`.
+ * Calls each thunk and reads its key's `x` under one try, so a key, or a card,
+ * request or authority holding one, that throws on read fails with
+ * `Ed25519PublicKeyOperationError` instead of a defect. `crv` and `kty` are
+ * fixed and `x` has one accepted spelling, so equal `x` means the same key.
+ */
+export const sameEd25519PublicKey = (
+  left: LazyArg<Ed25519PublicKey>,
+  right: LazyArg<Ed25519PublicKey>,
+): Effect.Effect<boolean, Ed25519PublicKeyOperationError> =>
+  Effect.try({
+    try: () => left().x === right().x,
+    catch: publicKeyOperationFailure,
+  });
+
+/**
+ * Most keys that each per-key cache below keeps: eight times
+ * `signed-message.ts → MAXIMUM_RECIPIENTS`, so the keys of eight full
+ * conversations stay cached. Each entry is one short string or one imported
+ * public `CryptoKey`.
  */
 const PUBLIC_KEY_CACHE_ENTRIES = 1_024;
 
@@ -277,7 +294,8 @@ const PUBLIC_KEY_CACHE_ENTRIES = 1_024;
  * share an entry only when they are the same key. Keying by value keeps a hit
  * for every AgentCard decode, each of which makes a new key object. The entry
  * and its derivation share one read of `x`, so an entry holds its own key's
- * value even for an object whose members change between reads. A failed
+ * value even for an object whose members change between reads. A key whose
+ * `x` cannot be read fails with `Ed25519PublicKeyOperationError`. A failed
  * derivation is not kept, and the caches hold key material, never a
  * verification outcome.
  */
@@ -288,20 +306,21 @@ const cachedPerPublicKey = <A>(
     jwk: PublicKeyValue,
   ) => Effect.Effect<A, Ed25519PublicKeyOperationError>,
 ): Effect.Effect<A, Ed25519PublicKeyOperationError> =>
-  Effect.suspend(() => {
-    const jwk: PublicKeyValue = Object.freeze({
-      crv: "Ed25519",
-      kty: "OKP",
-      x: publicKey.x,
-    });
-    return Option.match(entries.get(jwk.x), {
-      onNone: () =>
-        Effect.tap(derive(jwk), (derived) => {
-          entries.set(jwk.x, derived);
-        }),
-      onSome: (cached) => Effect.succeed(cached),
-    });
-  });
+  Effect.try({
+    try: (): PublicKeyValue =>
+      Object.freeze({ crv: "Ed25519", kty: "OKP", x: publicKey.x }),
+    catch: publicKeyOperationFailure,
+  }).pipe(
+    Effect.flatMap((jwk) =>
+      Option.match(entries.get(jwk.x), {
+        onNone: () =>
+          Effect.tap(derive(jwk), (derived) => {
+            entries.set(jwk.x, derived);
+          }),
+        onSome: (cached) => Effect.succeed(cached),
+      }),
+    ),
+  );
 
 const thumbprintUris = makeBoundedCache<string, string>(
   PUBLIC_KEY_CACHE_ENTRIES,
@@ -312,8 +331,8 @@ const thumbprintUris = makeBoundedCache<string, string>(
  *
  * @param publicKey Validated public key.
  * @returns The standard SHA-256 JWK thumbprint URI.
- * @failure Ed25519PublicKeyOperationError when the JOSE implementation cannot
- * derive the URI.
+ * @failure Ed25519PublicKeyOperationError when the key's `x` cannot be read
+ * or the JOSE implementation cannot derive the URI.
  */
 export const ed25519PublicKeyThumbprintUri = (
   publicKey: Ed25519PublicKey,

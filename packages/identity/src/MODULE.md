@@ -131,7 +131,7 @@ export const AgentName = Schema.String.pipe(
 
 Immutable Registry-wide human-facing agent handle.
 
-### [`AgentSigningAuthority (type)`](./agent-key.ts#L406)
+### [`AgentSigningAuthority (type)`](./agent-key.ts#L425)
 
 _Interface_
 
@@ -144,7 +144,7 @@ export interface AgentSigningAuthority {
 Opaque authority over one imported Ed25519 private key and the X25519
 opening key derived from it.
 
-### [`AgentSigningAuthority (value)`](./agent-key.ts#L619)
+### [`AgentSigningAuthority (value)`](./agent-key.ts#L638)
 
 _Variable_
 
@@ -168,7 +168,7 @@ export class AgentSigningError extends Data.TaggedError("AgentSigningError") {}
 
 An agent-owned HTTP request could not be signed.
 
-### [`AuthenticatedHttp`](./authenticated-http.ts#L57)
+### [`AuthenticatedHttp`](./authenticated-http.ts#L60)
 
 _Class_
 
@@ -214,7 +214,7 @@ export class AuthenticationFailedError extends Schema.TaggedError<Authentication
 
 The request does not prove the required identity or admission authority.
 
-### [`Ed25519PublicKey (type)`](./agent-key.ts#L252)
+### [`Ed25519PublicKey (type)`](./agent-key.ts#L253)
 
 _TypeAlias_
 
@@ -224,7 +224,7 @@ export type Ed25519PublicKey = typeof Ed25519PublicKey.Type;
 
 Validated immutable Ed25519 public JWK.
 
-### [`Ed25519PublicKey (value)`](./agent-key.ts#L221)
+### [`Ed25519PublicKey (value)`](./agent-key.ts#L222)
 
 _Variable_
 
@@ -274,7 +274,7 @@ export class InternalServerError extends Schema.TaggedError<InternalServerError>
 
 An unexpected implementation failure prevented a closed result.
 
-### [`InvalidAgentPrivateKeyError`](./agent-key.ts#L415)
+### [`InvalidAgentPrivateKeyError`](./agent-key.ts#L434)
 
 _Class_
 
@@ -301,7 +301,7 @@ export class MalformedRequestError extends Schema.TaggedError<MalformedRequestEr
 
 The request representation is not valid for the selected operation.
 
-### [`MessageId (type)`](./signed-message.ts#L41)
+### [`MessageId (type)`](./signed-message.ts#L42)
 
 _TypeAlias_
 
@@ -311,7 +311,7 @@ export type MessageId = typeof MessageId.Type;
 
 Validated nominal value decoded by MessageId.
 
-### [`MessageId (value)`](./signed-message.ts#L38)
+### [`MessageId (value)`](./signed-message.ts#L39)
 
 _Variable_
 
@@ -407,7 +407,7 @@ export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()
 
 No exact HTTP route owns the request target.
 
-### [`SealedBody`](./sealed-body.ts#L516)
+### [`SealedBody`](./sealed-body.ts#L548)
 
 _Variable_
 
@@ -424,7 +424,7 @@ Seals a SignedMessage body to its recipients, opens a verified sealed body,
 and reports sealed sizes. `SignedMessage.sign` never seals; the caller
 chooses which bodies to seal and signs the sealed bytes.
 
-### [`SealedBodyOpeningError`](./sealed-body.ts#L170)
+### [`SealedBodyOpeningError`](./sealed-body.ts#L171)
 
 _Class_
 
@@ -436,7 +436,7 @@ export class SealedBodyOpeningError extends Data.TaggedError(
 
 A verified SignedMessage body does not open as a sealed body for this agent.
 
-### [`SealedBodySealingError`](./sealed-body.ts#L165)
+### [`SealedBodySealingError`](./sealed-body.ts#L166)
 
 _Class_
 
@@ -448,7 +448,7 @@ export class SealedBodySealingError extends Data.TaggedError(
 
 A body cannot be sealed from the supplied sender to the supplied recipients.
 
-### [`SignedMessage (type)`](./signed-message.ts#L170)
+### [`SignedMessage (type)`](./signed-message.ts#L171)
 
 _Interface_
 
@@ -464,7 +464,7 @@ export interface SignedMessage {
 
 Immutable attributed-message fields exposed to Router consumers.
 
-### [`SignedMessage (value)`](./signed-message.ts#L484)
+### [`SignedMessage (value)`](./signed-message.ts#L490)
 
 _Variable_
 
@@ -485,7 +485,7 @@ export const SignedMessage = Object.assign(signedMessageSchema, {
 
 Opaque attributed message operations and exact representation Schema.
 
-### [`SignedMessageSigningError`](./signed-message.ts#L314)
+### [`SignedMessageSigningError`](./signed-message.ts#L315)
 
 _Class_
 
@@ -497,7 +497,7 @@ export class SignedMessageSigningError extends Data.TaggedError(
 
 A message cannot be signed under the supplied immutable identity.
 
-### [`SignedMessageVerificationError`](./signed-message.ts#L319)
+### [`SignedMessageVerificationError`](./signed-message.ts#L320)
 
 _Class_
 
@@ -545,7 +545,7 @@ export type VerifiedAgentCard = AgentCard & Brand.Brand<"VerifiedAgentCard">;
 
 AgentCard verified against a deployment-pinned Registry signer.
 
-### [`VerifiedAgentRequest`](./authenticated-http.ts#L35)
+### [`VerifiedAgentRequest`](./authenticated-http.ts#L38)
 
 _TypeAlias_
 
@@ -560,7 +560,7 @@ export type VerifiedAgentRequest = Readonly<{
 
 Request body and caller identity established by AuthenticatedHttp.
 
-### [`VerifiedSignedMessage`](./signed-message.ts#L308)
+### [`VerifiedSignedMessage`](./signed-message.ts#L309)
 
 _TypeAlias_
 

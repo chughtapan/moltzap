@@ -694,6 +694,31 @@ it("refuses to open with an AgentCard that does not belong to the authority", ()
     }),
   ));
 
+it("refuses to open with an AgentCard that cannot be read", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const group = yield* makeGroup(2);
+      const sealed = yield* sealFrom(group.sender, group.recipients, plaintext);
+      const signedMessage = yield* signBody(
+        group.sender,
+        group.recipients,
+        sealed,
+      );
+      const agentCard = new Proxy(group.peer.agentCard, {
+        get: () => {
+          throw new Error("unreadable card");
+        },
+      });
+
+      const outcome = yield* openAs(
+        { ...group.peer, agentCard },
+        signedMessage,
+      ).pipe(Effect.either);
+
+      expect(outcome).toStrictEqual(Either.left(new SealedBodyOpeningError()));
+    }),
+  ));
+
 /**
  * Value: protects=open refuses an AgentCard that is not the authority's key
  * even when the entry at that card's position unwraps under the authority;
@@ -1269,6 +1294,26 @@ it("refuses to seal to an AgentCard key that is not an Ed25519 curve point", () 
         messageId: messageIdOf(1),
         plaintext,
       }).pipe(Effect.either);
+
+      expect(outcome).toStrictEqual(Either.left(new SealedBodySealingError()));
+    }),
+  ));
+
+it("refuses to seal to an AgentCard that cannot be read", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const group = yield* makeGroup(2);
+      const agentCard = new Proxy(group.peer.agentCard, {
+        get: () => {
+          throw new Error("unreadable card");
+        },
+      });
+
+      const outcome = yield* sealFrom(
+        group.sender,
+        [group.sender, { ...group.peer, agentCard }],
+        plaintext,
+      ).pipe(Effect.either);
 
       expect(outcome).toStrictEqual(Either.left(new SealedBodySealingError()));
     }),

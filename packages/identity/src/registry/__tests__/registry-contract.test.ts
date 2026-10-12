@@ -559,10 +559,89 @@ const assertRegistrationClientBehavior = (fixture: ClientFixture) =>
     expect(outcomeName(signingFailure)).toBe(SIGNING_ERROR_TAG);
   });
 
+/**
+ * A registered card that matches the request's name and principal but carries
+ * another key is an invalid response: the card must bind the signer's key.
+ */
+const assertWrongKeyRegistration = (fixture: ClientFixture) =>
+  Effect.gen(function* () {
+    const signingAuthority = yield* AgentSigningAuthority.fromPkcs8(
+      Redacted.make(makePrivateKeyPem()),
+    );
+    const request = {
+      ...makeRequest("wrong-key"),
+      publicKey: AgentSigningAuthority.publicKey(signingAuthority),
+    };
+    const wrongKeyCard = yield* makeClientCard(
+      fixture.registrySigningAuthority,
+      {
+        agentId: "agt_AgAAAAAAAAAAAAAAAAAAAA",
+        agentName: request.agentName,
+        principalId: request.principalId,
+      },
+    );
+    const body = yield* encodeResponse(registerResponseSchema, {
+      kind: "registered",
+      agentCard: wrongKeyCard,
+    });
+    const registryLayer = Registry.layer({
+      origin: CLIENT_ORIGIN,
+      registrySignerPublicKey: fixture.registrySignerPublicKey,
+      requestTimeout: CLIENT_TIMEOUT,
+    }).pipe(
+      Layer.provide(Layer.succeed(HttpClient.HttpClient, responseClient(body))),
+    );
+
+    const outcome = yield* Registry.register({
+      request,
+      admissionCredential: Redacted.make("admission-token="),
+      signingAuthority,
+    }).pipe(Effect.provide(registryLayer), Effect.either);
+
+    expect(outcomeName(outcome)).toBe(INVALID_RESPONSE_TAG);
+  });
+
+/** A request whose key throws on read fails as a signing error, not a defect. */
+const assertUnreadableKeyRegistration = Effect.gen(function* () {
+  const signingAuthority = yield* AgentSigningAuthority.fromPkcs8(
+    Redacted.make(makePrivateKeyPem()),
+  );
+  const publicKey = new Proxy(
+    AgentSigningAuthority.publicKey(signingAuthority),
+    {
+      get: () => {
+        throw new Error("unreadable key");
+      },
+    },
+  );
+  const registryLayer = Registry.layer({
+    origin: CLIENT_ORIGIN,
+    registrySignerPublicKey: AgentSigningAuthority.publicKey(signingAuthority),
+    requestTimeout: CLIENT_TIMEOUT,
+  }).pipe(
+    Layer.provide(
+      Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make(() => Effect.dieMessage("no request is sent")),
+      ),
+    ),
+  );
+
+  const outcome = yield* Registry.register({
+    request: { ...makeRequest("unreadable-key"), publicKey },
+    admissionCredential: Redacted.make("admission-token="),
+    signingAuthority,
+  }).pipe(Effect.provide(registryLayer), Effect.either);
+
+  expect(outcomeName(outcome)).toBe(SIGNING_ERROR_TAG);
+});
+
 const clientBehavior = Effect.gen(function* () {
   const fixture = yield* makeClientFixture;
   yield* assertLookupScenarios(fixture);
   yield* assertRegistrationClientBehavior(fixture);
+  yield* assertWrongKeyRegistration(fixture);
+  yield* assertUnreadableKeyRegistration;
 });
 
 describe("Registry private contracts", () => {

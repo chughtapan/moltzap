@@ -8,7 +8,11 @@ import {
 import { Duration, Effect, Either, Encoding, Redacted, Schema } from "effect";
 import type { AgentId } from "../identifiers.js";
 import { AgentCard, type VerifiedAgentCard } from "../agent-card.js";
-import { AgentSigningAuthority, type Ed25519PublicKey } from "../agent-key.js";
+import {
+  AgentSigningAuthority,
+  type Ed25519PublicKey,
+  sameEd25519PublicKey,
+} from "../agent-key.js";
 import { decodeCanonicalJson, encodeCanonicalJson } from "../canonical-json.js";
 import {
   AuthenticationFailedError,
@@ -315,10 +319,15 @@ const makeSignedRegistrationRequest = (
   call: RegistryRegisterCall,
 ) =>
   Effect.gen(function* () {
-    if (
-      AgentSigningAuthority.publicKey(call.signingAuthority).x !==
-      call.request.publicKey.x
-    ) {
+    const sameKey = yield* sameEd25519PublicKey(
+      () => AgentSigningAuthority.publicKey(call.signingAuthority),
+      () => call.request.publicKey,
+    ).pipe(
+      Effect.catchTag("Ed25519PublicKeyOperationError", () =>
+        Effect.fail(new AgentSigningError()),
+      ),
+    );
+    if (!sameKey) {
       return yield* new AgentSigningError();
     }
     const bodyBytes = yield* encodeRequest(registrationBody, {
@@ -338,13 +347,19 @@ const makeSignedRegistrationRequest = (
     });
   });
 
+/**
+ * The returned card must carry the signing authority's key, which
+ * `makeSignedRegistrationRequest` already required the request's key to
+ * equal. Comparing with the authority's key reads no caller-supplied key.
+ */
 const registrationMatchesCall = (
   agentCard: VerifiedAgentCard,
   call: RegistryRegisterCall,
 ): boolean =>
   agentCard.principalId === call.request.principalId &&
   agentCard.agentName === call.request.agentName &&
-  agentCard.publicKey.x === call.request.publicKey.x;
+  agentCard.publicKey.x ===
+    AgentSigningAuthority.publicKey(call.signingAuthority).x;
 
 const decodeRegistrationResult = (
   input: RegistryClientInput,

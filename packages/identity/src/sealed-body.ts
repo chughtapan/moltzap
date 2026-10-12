@@ -9,6 +9,7 @@ import type { VerifiedAgentCard } from "./agent-card.js";
 import {
   agentOpeningPrivateKey,
   AgentSigningAuthority,
+  sameEd25519PublicKey,
   SEALED_BODY_KEY_MANAGEMENT_ALGORITHM,
   x25519SealingKey,
 } from "./agent-key.js";
@@ -189,15 +190,28 @@ const isRecipientCount = (recipientCount: number): boolean =>
   recipientCount >= 1 &&
   recipientCount <= MAXIMUM_RECIPIENTS;
 
+type CardMembers = Pick<VerifiedAgentCard, "agentId" | "publicKey">;
+
+/**
+ * Copies the members sealing and opening read. Callers run it under a try, so
+ * a card that throws on read fails with the caller's typed error.
+ */
+const cardMembers = (card: VerifiedAgentCard): CardMembers => ({
+  agentId: card.agentId,
+  publicKey: card.publicKey,
+});
+
 const snapshotRecipients = (
   recipientAgentCards: readonly VerifiedAgentCard[],
-): Effect.Effect<readonly VerifiedAgentCard[], SealedBodySealingError> =>
+): Effect.Effect<readonly CardMembers[], SealedBodySealingError> =>
   Effect.gen(function* () {
     const recipients = yield* Effect.try({
-      try: () => Array.from(recipientAgentCards),
+      try: () => Array.from(recipientAgentCards, (card) => cardMembers(card)),
       catch: sealingFailure,
     });
-    const distinctAgentIds = new Set(recipients.map((card) => card.agentId));
+    const distinctAgentIds = new Set(
+      recipients.map((recipient) => recipient.agentId),
+    );
     if (
       !isRecipientCount(recipients.length) ||
       distinctAgentIds.size !== recipients.length
@@ -244,7 +258,7 @@ const seal = (
     const commitment = yield* commitmentOf(saltedPlaintext, sealingFailure);
     const recipientKeys = yield* Effect.forEach(
       recipients,
-      (card) => x25519SealingKey(card.publicKey),
+      (recipient) => x25519SealingKey(recipient.publicKey),
       { concurrency: 1 },
     ).pipe(Effect.mapError(sealingFailure));
     const encryption = new GeneralEncrypt(saltedPlaintext).setProtectedHeader(
@@ -370,6 +384,29 @@ interface OpenInput {
 }
 
 /**
+ * Copies the local card's members under a try and requires its key to be the
+ * authority's, so a card that throws on read or belongs to another agent fails
+ * with `SealedBodyOpeningError`.
+ */
+const authorityCard = (
+  input: OpenInput,
+): Effect.Effect<CardMembers, SealedBodyOpeningError> =>
+  Effect.gen(function* () {
+    const card = yield* Effect.try({
+      try: () => cardMembers(input.agentCard),
+      catch: openingFailure,
+    });
+    const sameKey = yield* sameEd25519PublicKey(
+      () => AgentSigningAuthority.publicKey(input.signingAuthority),
+      () => card.publicKey,
+    ).pipe(Effect.mapError(openingFailure));
+    if (!sameKey) {
+      return yield* new SealedBodyOpeningError();
+    }
+    return card;
+  });
+
+/**
  * Decrypts a verified SignedMessage body sealed to the local agent.
  *
  * It first refuses an AgentCard whose key is not the authority's Ed25519 key.
@@ -394,12 +431,7 @@ const open = (
   input: OpenInput,
 ): Effect.Effect<Uint8Array, SealedBodyOpeningError> =>
   Effect.gen(function* () {
-    if (
-      AgentSigningAuthority.publicKey(input.signingAuthority).x !==
-      input.agentCard.publicKey.x
-    ) {
-      return yield* new SealedBodyOpeningError();
-    }
+    const card = yield* authorityCard(input);
     const representation = yield* decodeCanonicalJson(
       sealedBodyRepresentation,
       input.signedMessage.body,
@@ -417,7 +449,7 @@ const open = (
     const entry = yield* recipientEntry(
       representation,
       input.signedMessage.recipientAgentIds,
-      input.agentCard.agentId,
+      card.agentId,
     );
     const decrypted = yield* Effect.tryPromise({
       try: () =>
