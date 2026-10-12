@@ -131,7 +131,7 @@ export const AgentName = Schema.String.pipe(
 
 Immutable Registry-wide human-facing agent handle.
 
-### [`AgentSigningAuthority (type)`](./agent-key.ts#L434)
+### [`AgentSigningAuthority (type)`](./agent-key.ts#L425)
 
 _Interface_
 
@@ -144,7 +144,7 @@ export interface AgentSigningAuthority {
 Opaque authority over one imported Ed25519 private key and the X25519
 opening key derived from it.
 
-### [`AgentSigningAuthority (value)`](./agent-key.ts#L647)
+### [`AgentSigningAuthority (value)`](./agent-key.ts#L638)
 
 _Variable_
 
@@ -168,7 +168,7 @@ export class AgentSigningError extends Data.TaggedError("AgentSigningError") {}
 
 An agent-owned HTTP request could not be signed.
 
-### [`AuthenticatedHttp`](./authenticated-http.ts#L57)
+### [`AuthenticatedHttp`](./authenticated-http.ts#L60)
 
 _Class_
 
@@ -274,7 +274,7 @@ export class InternalServerError extends Schema.TaggedError<InternalServerError>
 
 An unexpected implementation failure prevented a closed result.
 
-### [`InvalidAgentPrivateKeyError`](./agent-key.ts#L443)
+### [`InvalidAgentPrivateKeyError`](./agent-key.ts#L434)
 
 _Class_
 
@@ -407,7 +407,7 @@ export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()
 
 No exact HTTP route owns the request target.
 
-### [`SealedBody`](./sealed-body.ts#L536)
+### [`SealedBody`](./sealed-body.ts#L548)
 
 _Variable_
 
@@ -464,7 +464,7 @@ export interface SignedMessage {
 
 Immutable attributed-message fields exposed to Router consumers.
 
-### [`SignedMessage (value)`](./signed-message.ts#L491)
+### [`SignedMessage (value)`](./signed-message.ts#L490)
 
 _Variable_
 
@@ -545,7 +545,7 @@ export type VerifiedAgentCard = AgentCard & Brand.Brand<"VerifiedAgentCard">;
 
 AgentCard verified against a deployment-pinned Registry signer.
 
-### [`VerifiedAgentRequest`](./authenticated-http.ts#L35)
+### [`VerifiedAgentRequest`](./authenticated-http.ts#L38)
 
 _TypeAlias_
 
