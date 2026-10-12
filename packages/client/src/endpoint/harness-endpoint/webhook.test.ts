@@ -430,8 +430,8 @@ const receiverClockAt = (
   sleep: (duration) => clock.sleep(duration),
 });
 
-const signedCallbackFreshness = (ageSeconds: number, status: number) =>
-  Effect.gen(function* () {
+function signedCallbackFreshness(ageSeconds: number, status: number) {
+  return Effect.gen(function* () {
     const fixture = yield* acquireFixture;
     const native = yield* fixture.native;
     const clock = yield* Effect.clock;
@@ -464,6 +464,7 @@ const signedCallbackFreshness = (ageSeconds: number, status: number) =>
     expect((yield* fixture.store.readInboxSummary()).pendingCount).toBe(1);
     yield* Fiber.interrupt(listener);
   }).pipe(Effect.provide(NodeHttpClient.layer));
+}
 
 function requiresRuntimeGrant() {
   return Effect.gen(function* () {

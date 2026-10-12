@@ -562,18 +562,6 @@ describe("local Dot webhook conformance", () => {
     permitsReadAndRevokeDuringDelivery,
   );
   it(
-    "rejects an expired webhook receipt after a polling consumer acquires its lease",
-    fencesExpiredReceipt,
-  );
-  it.each([200, 410, 413])(
-    "ignores a delayed HTTP %s after expired same-ID refresh and retries exact event bytes",
-    fencesExpiredRefreshReceipt,
-  );
-  it(
-    "accepts an in-flight receipt after active same-ID refresh",
-    acceptsActiveRefreshReceipt,
-  );
-  it(
     "verifies signed callbacks, rotates secrets and enforces the subscription principal",
     signsVerifiesAndRotates,
   );
@@ -588,6 +576,22 @@ describe("local Dot webhook conformance", () => {
   it(
     "rejects private destinations, DNS to loopback and redirects through Effect HttpClient",
     rejectsUnsafeCallbacks,
+  );
+});
+
+// @agent-code-guard/regression-only: lease expiry and replacement fence stale receipts while active renewal retains its receipt authority.
+describe("webhook receipt fencing", () => {
+  it(
+    "rejects an expired webhook receipt after a polling consumer acquires its lease",
+    fencesExpiredReceipt,
+  );
+  it.each([200, 410, 413])(
+    "ignores a delayed HTTP %s after expired same-ID refresh and retries exact event bytes",
+    fencesExpiredRefreshReceipt,
+  );
+  it(
+    "accepts an in-flight receipt after active same-ID refresh",
+    acceptsActiveRefreshReceipt,
   );
 });
 
