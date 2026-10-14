@@ -1,12 +1,20 @@
 # English message policies
 
-Status: **proposal; not implemented or admitted**
+Status: **draft under revision; not implemented or admitted**
 
-This is the complete proposed message-policy contract. It supplements and,
-where the amendment table says so, replaces the cited current contracts only
-after decision admission. Existing normative contracts remain the implementation
-baseline until then. The proposal covers message boundaries and owner review;
-it does not intercept tools, execute tasks, or schedule reminders.
+The API shapes below retain the earlier single-assessment/static-guidance
+proposal. The current design adds a fixed full chain, separate safety/autonomy
+and norm decisions, message-specific incoming reminders, and actionable norm
+errors on the send call. An autonomy contract may require an authenticated human
+approval through a separate owner channel. The
+[maintained experiment plan](https://github.com/social-harness/docs-internal/blob/plan/message-policy-packaging/data/evals/plans/2026-10-14-message-policy-packaging-and-pilot.md)
+specifies the next offline spike. These public schemas need revision using that
+work before this document is a complete candidate for selection or admission.
+
+Existing normative contracts remain the implementation baseline. A complete
+revised proposal must reconcile the cited contracts and amendment table before
+admission. Scope remains message boundaries and owner review; it does not
+intercept tools, execute tasks, or schedule reminders.
 
 ## Capability and trust assumptions
 
