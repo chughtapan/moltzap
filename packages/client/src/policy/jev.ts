@@ -1,0 +1,192 @@
+/** @file Jev's bounded-choice HTTP adapter with no credential-bearing redirects. */
+
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientRequest,
+  type HttpClientResponse,
+} from "@effect/platform";
+import { Effect, Redacted, Schema, Stream } from "effect";
+import {
+  type PolicyDecisionProvider,
+  type PolicyDecisionRequest,
+  PolicyDecisionResponse,
+  PolicyProviderFailure,
+} from "./values.js";
+
+const origin = "https://api.typesafe.ai/v1/systemone";
+const maximumChoices = 255;
+/** Bounded choice answers need little space; large bodies must not enter audits. */
+const maximumResponseBytes = 1_048_576;
+const wireResponse = Schema.Struct({
+  model: Schema.NonEmptyTrimmedString,
+  answers: Schema.Record({
+    key: Schema.NonEmptyTrimmedString,
+    value: Schema.Struct({
+      type: Schema.Literal("choice"),
+      choice: Schema.NonEmptyTrimmedString,
+      probabilities: Schema.Record({
+        key: Schema.NonEmptyTrimmedString,
+        value: Schema.Number.pipe(Schema.between(0, 1)),
+      }),
+      confidence: Schema.optional(Schema.Number.pipe(Schema.between(0, 1))),
+    }),
+  }),
+  usage: Schema.Record({
+    key: Schema.NonEmptyTrimmedString,
+    value: Schema.NonNegativeInt,
+  }),
+});
+
+const prepareJevRequest = Effect.fn("MessagePolicy.Jev.prepareRequest")(
+  function* (
+    input: PolicyDecisionRequest,
+    options: { readonly apiKey: Redacted.Redacted; readonly model: string },
+  ) {
+    return yield* HttpClientRequest.post(origin).pipe(
+      HttpClientRequest.bearerToken(options.apiKey),
+      HttpClientRequest.bodyJson({
+        model: options.model,
+        state: input.state,
+        questions: Object.fromEntries(
+          Object.entries(input.questions).map(([id, question]) => [
+            id,
+            {
+              type: "choice",
+              instructions: question.instructions,
+              criteria: question.criteria,
+            },
+          ]),
+        ),
+      }),
+      Effect.catchTag("HttpBodyError", () =>
+        Effect.fail(new PolicyProviderFailure({ reason: "transport" })),
+      ),
+    );
+  },
+);
+
+const readJevBody = Effect.fn("MessagePolicy.Jev.readBody")(function* (
+  response: HttpClientResponse.HttpClientResponse,
+) {
+  const decoder = new TextDecoder();
+  const body = yield* response.stream.pipe(
+    Stream.runFoldEffect({ bytes: 0, text: "" }, (current, chunk) => {
+      const bytes = current.bytes + chunk.byteLength;
+      return bytes > maximumResponseBytes
+        ? Effect.fail(new PolicyProviderFailure({ reason: "budget" }))
+        : Effect.succeed({
+            bytes,
+            text: current.text + decoder.decode(chunk, { stream: true }),
+          });
+    }),
+    Effect.map((current) => current.text + decoder.decode()),
+    Effect.catchTag("ResponseError", (error) =>
+      error.reason === "EmptyBody"
+        ? Effect.succeed("")
+        : Effect.fail(new PolicyProviderFailure({ reason: "transport" })),
+    ),
+  );
+  return body;
+});
+
+const parseJevResponse = Effect.fn("MessagePolicy.Jev.parseResponse")(
+  function* (
+    response: HttpClientResponse.HttpClientResponse,
+    apiKey: Redacted.Redacted,
+  ) {
+    const raw = yield* readJevBody(response).pipe(
+      Effect.flatMap((text) => redactBody(text, apiKey)),
+    );
+    if (response.status < 200 || response.status >= 300) {
+      return yield* new PolicyProviderFailure({
+        reason: "http",
+        status: response.status,
+        response: raw,
+      });
+    }
+    const value = yield* Schema.decodeUnknown(Schema.parseJson(wireResponse), {
+      onExcessProperty: "error",
+    })(raw).pipe(
+      Effect.catchTag("ParseError", () =>
+        Effect.fail(
+          new PolicyProviderFailure({
+            reason: "invalid-response",
+            response: raw,
+          }),
+        ),
+      ),
+    );
+    return new PolicyDecisionResponse({
+      provider: "typesafe",
+      model: value.model,
+      answers: value.answers,
+      usage: value.usage,
+      raw,
+    });
+  },
+);
+
+const requestJev = Effect.fn("MessagePolicy.Jev.decide")(function* (
+  input: PolicyDecisionRequest,
+  options: {
+    readonly apiKey: Redacted.Redacted;
+    readonly model: string;
+  },
+) {
+  if (
+    Redacted.value(options.apiKey).length === 0 ||
+    options.model.trim().length === 0 ||
+    options.model !== options.model.trim()
+  ) {
+    return yield* new PolicyProviderFailure({ reason: "configuration" });
+  }
+  if (
+    Object.values(input.questions).some(
+      (question) => Object.keys(question.criteria).length > maximumChoices,
+    )
+  ) {
+    return yield* new PolicyProviderFailure({ reason: "budget" });
+  }
+  const client = yield* HttpClient.HttpClient;
+  const request = yield* prepareJevRequest(input, options);
+  const response = yield* client.execute(request).pipe(
+    Effect.catchTags({
+      RequestError: () =>
+        Effect.fail(new PolicyProviderFailure({ reason: "transport" })),
+      ResponseError: () =>
+        Effect.fail(new PolicyProviderFailure({ reason: "transport" })),
+    }),
+  );
+  return yield* parseJevResponse(response, options.apiKey);
+});
+
+/**
+ * Uses the fixed TypeSafe origin and an explicitly pinned model. No retry,
+ * environment lookup or credential serialization occurs here. The evaluator
+ * owns timeouts; the Effect is interruptible through response-body consumption.
+ */
+export function makeJevDecisionProvider(options: {
+  readonly apiKey: Redacted.Redacted;
+  readonly model: string;
+}): PolicyDecisionProvider {
+  const configuration = Object.freeze({ ...options });
+  return {
+    decide: (request) =>
+      requestJev(request, configuration).pipe(
+        Effect.provide(FetchHttpClient.layer),
+        Effect.provideService(FetchHttpClient.RequestInit, {
+          redirect: "error",
+        }),
+      ),
+  };
+}
+
+/** Decode JSON escapes before scrubbing so encoded credential echoes stay private. */
+function redactBody(body: string, apiKey: Redacted.Redacted) {
+  return Schema.decodeUnknown(Schema.parseJson(Schema.Unknown))(body).pipe(
+    Effect.flatMap(Schema.encode(Schema.parseJson(Schema.Unknown))),
+    Effect.catchTag("ParseError", () => Effect.succeed(body)),
+    Effect.map((text) => text.replaceAll(Redacted.value(apiKey), "[REDACTED]")),
+  );
+}

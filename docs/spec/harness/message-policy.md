@@ -1,6 +1,7 @@
 # Message policy execution
 
-Status: **proposal under discussion; not implemented or admitted**
+Status: **owner-selected proposal; experimental evaluator implemented on this
+branch; runtime gate not implemented or admitted**
 
 Client assesses application messages before outgoing intent publication and
 incoming runtime admission. The proposed evaluator separates safety and autonomy
@@ -12,6 +13,13 @@ compares an in-process evaluator with an isolated evaluator worker. It recommend
 the in-process implementation first. Configuration interfaces, live policy
 activation and authenticated human approval channels are deferred. Current
 normative contracts remain the implementation baseline.
+
+The first implementation is a standalone experimental evaluator exposed through
+`@moltzap/client/service`. See the [module guide](https://github.com/chughtapan/moltzap/tree/proposal/message-policy/packages/client/src/policy)
+for construction and English policy examples. It runs the fixed chain with an
+injected provider, validates distributions, and returns a private assessment and
+permitted feedback. It does not intercept a send or deliver an incoming item.
+The admission, persistence, MCP and OpenClaw changes below remain proposed.
 
 ## Ownership and scope
 
@@ -77,6 +85,11 @@ dependent stage with invalid input is explicitly unavailable. Diagnostics never
 override a rejection. Missing required evidence, invalid output and provider
 failure cannot produce admission. They remain distinct in the audit.
 
+In the first conservative chain, uncertainty or failure in applicability and
+subject-reference selection also holds the candidate. Their labels never prune
+active rules. Making these stages optional is a later experiment; increasing
+history length can increase holds even when the central safety answer is clear.
+
 No model call runs inside a database transaction, the delivery semaphore or
 Router consumption. A stale result is reassessed within a bounded refresh
 budget or held. Provider timeouts and cancellation are explicit.
@@ -84,6 +97,14 @@ budget or held. Provider timeouts and cancellation are explicit.
 The initial bounded catalog and authorized history are supplied in full within
 the configured budget. Required omitted context causes a hold. Retrieval
 pruning, summaries, caching and dynamic chains are later experiments.
+
+The experimental evaluator checks each visible message's relevance to each norm
+independently. Several references can anchor one instruction. This increases
+question count with history length; a serialized request byte budget holds an
+oversized request without truncating it. That budget is not a tokenizer or a
+guarantee of fitting a provider's context window. Provider limit failures hold
+the candidate too. Renderer-only guidance and feedback are excluded from the
+assessment rules sent to the model.
 
 ## Incoming projection
 

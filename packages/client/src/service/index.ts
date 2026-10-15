@@ -20,6 +20,27 @@ const REGISTRY_REQUEST_TIMEOUT = Duration.seconds(30);
 const ROUTER_SEND_TIMEOUT = Duration.seconds(30);
 const ROUTER_POLL_TIMEOUT = Duration.seconds(35);
 
+/** Offline and daemon composition share this data-only assessment boundary. */
+export {
+  makeJevDecisionProvider,
+  makeMessagePolicyEvaluator,
+  MessagePolicyInputError,
+  MessagePolicySettings,
+  MessagePolicySnapshot,
+  PolicyDecisionResponse,
+  PolicyProviderFailure,
+} from "../policy/index.js";
+/** Provider and assessment values are not part of the agent-facing endpoint. */
+export type {
+  MessagePolicyAssessment,
+  MessagePolicyEvaluator,
+  PolicyDecisionProvider,
+  PolicyDecisionRequest,
+  PolicyNormGuidance,
+  PolicyStage,
+  PolicyStageTrace,
+} from "../policy/index.js";
+
 // eslint-disable-next-line @typescript-eslint/no-namespace -- The published service subpath intentionally merges its runtime values with the closed startup-error type.
 export namespace MoltZapService {
   /** Closed daemon startup phase without configuration or platform detail. */

@@ -132,6 +132,14 @@ const sharedConfig: ArchitectureConfig = {
  */
 const clientDomains: readonly ClientDomain[] = [
   {
+    name: "policy",
+    root: "policy",
+    entrypoints: ["index.ts"],
+    reason:
+      "Value-only message assessment and decision-provider adapters, without storage, host or protocol capabilities",
+  },
+
+  {
     name: "identity",
     root: "identity",
     entrypoints: ["index.ts"],
