@@ -177,13 +177,13 @@ deadline validity and restart loss of volatile response context.
 
 | Current contract | Required change before implementation |
 | --- | --- |
-| [Screening](screening.md) and [tasks](tasks.md) | Distinguish personal semantic admission from structural protocol signing; do not put provider calls in voting. |
-| [Client](client.md) | Extend the send error union and delivery envelope; define refusal, guidance and unsupported-operation behavior. |
-| [Ingress](ingress.md) | Define one admitted runtime view across subscriptions, lookups and webhooks, including replay and withheld items. |
-| [Output](output.md) | Place policy refusal before intent binding while preserving retries and uncertain outcomes. |
-| [Channels](channels.md) | Permit local norm-context projection and actionable send errors through stock host APIs. |
-| [Daemon](daemon.md) and storage contracts | Compose the evaluator and retain policy state with a preserving migration; do not introduce policy CRUD or human authentication as incidental requirements. |
-| [Management](../management.md) | Preserve the distinction between owner audit access and runtime delivery; this proposal adds no policy-management catalog. |
+| [Screening](/spec/harness/screening) and [tasks](/spec/harness/tasks) | Distinguish personal semantic admission from structural protocol signing; do not put provider calls in voting. |
+| [Client](/spec/harness/client) | Extend the send error union and delivery envelope; define refusal, guidance and unsupported-operation behavior. |
+| [Ingress](/spec/harness/ingress) | Define one admitted runtime view across subscriptions, lookups and webhooks, including replay and withheld items. |
+| [Output](/spec/harness/output) | Place policy refusal before intent binding while preserving retries and uncertain outcomes. |
+| [Channels](/spec/harness/channels) | Permit local norm-context projection and actionable send errors through stock host APIs. |
+| [Daemon](/spec/harness/daemon) and storage contracts | Compose the evaluator and retain policy state with a preserving migration; do not introduce policy CRUD or human authentication as incidental requirements. |
+| [Management](/spec/management) | Preserve the distinction between owner audit access and runtime delivery; this proposal adds no policy-management catalog. |
 
 The implementation must update these contracts together and test their public
 behavior. The private plan records exact integration points and bounded live
