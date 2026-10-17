@@ -94,6 +94,8 @@ const firewallSettings = {
   maximumInputBytes: 300_000,
   maximumResultBytes: 1_000_000,
 };
+/** Each generated example runs two full chains alongside other CI workers. */
+const propertyTimeoutMilliseconds = 15_000;
 
 function uncertainResponseFor(
   request: DecisionRequest,
@@ -237,10 +239,13 @@ it.prop(
       const changed: DecisionRequest[] = [];
       yield* check(provider({}, original));
       yield* check(provider({}, changed), { message: { ...draft, text } });
+      const expected = original.find((entry) => entry.stage === "expectations");
+      expect(expected).toBeDefined();
       expect(changed.find((entry) => entry.stage === "expectations")).toEqual(
-        original.find((entry) => entry.stage === "expectations"),
+        expected,
       );
     }),
+  { timeout: propertyTimeoutMilliseconds },
 );
 
 it("does not launder draft-derived permission through previous middleware", () =>

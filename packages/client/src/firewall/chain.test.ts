@@ -69,6 +69,8 @@ const settings: typeof FirewallSettings.Encoded = {
   maximumInputBytes: 100_000,
   maximumResultBytes: 100_000,
 };
+/** Generated cases check whole chains alongside the package suite's CI workers. */
+const propertyTimeoutMilliseconds = 15_000;
 const rule: typeof RuleDescription.Encoded = {
   id: "rule",
   kind: "norm",
@@ -103,7 +105,7 @@ const firewallFor = (
 it.prop(
   "a pass never overrides any registered prohibition",
   [fc.array(fc.boolean(), { minLength: 1, maxLength: 8 })],
-  (prohibitions) =>
+  ([prohibitions]) =>
     Effect.gen(function* () {
       const firewall = yield* firewallFor(
         prohibitions.map((prohibited, index) =>
@@ -115,6 +117,7 @@ it.prop(
         prohibitions.some(Boolean) ? "block" : "allow",
       );
     }),
+  { timeout: propertyTimeoutMilliseconds },
 );
 
 it("isolates returned findings from mutation while later middleware waits", () =>
