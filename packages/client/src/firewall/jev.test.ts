@@ -5,8 +5,8 @@ import { effect as it } from "@effect/vitest";
 import { Effect, FastCheck as fc, Redacted } from "effect";
 import { expect } from "vitest";
 import {
+  type DecisionRequest,
   makeJevDecisionProvider,
-  type PolicyDecisionRequest,
 } from "../service/index.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- HTTP status, redaction and closed provider failures are the adapter contract under test. */
@@ -17,7 +17,7 @@ const provider = makeJevDecisionProvider({
   apiKey: Redacted.make(secret),
   model,
 });
-const request: PolicyDecisionRequest = {
+const request: DecisionRequest = {
   stage: "safety",
   state: '{"candidate":"test"}',
   questions: {

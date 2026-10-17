@@ -66,14 +66,14 @@
   ],
   "domains": [
     {
-      "name": "policy",
+      "name": "firewall",
       "roots": [
-        "src/policy"
+        "src/firewall"
       ],
       "entrypoints": [
-        "src/policy/index.ts"
+        "src/firewall/index.ts"
       ],
-      "reason": "Value-only message assessment and decision-provider adapters, without storage, host or protocol capabilities"
+      "reason": "Message middleware and optional decision providers, without storage, host or protocol capabilities"
     },
     {
       "name": "identity",
@@ -243,11 +243,11 @@
       "reason": "The agent signing key and secret credential files, read exactly and failing closed"
     },
     {
-      "name": "policy",
+      "name": "firewall",
       "folders": [
-        "policy"
+        "firewall"
       ],
-      "reason": "Value-only message assessment and decision-provider adapters, without storage, host or protocol capabilities"
+      "reason": "Message middleware and optional decision providers, without storage, host or protocol capabilities"
     }
   ],
   "publicTypePackages": [

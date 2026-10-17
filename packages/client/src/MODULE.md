@@ -580,11 +580,11 @@ What a completed send returns: a collecting operation names its id.
 
 ### `@moltzap/client/service`
 
-#### [`MoltZapService`](./service/index.ts#L45)
+#### [`MoltZapService`](./service/index.ts#L50)
 
 _Namespace_
 
-#### [`MoltZapService.StartupError`](./service/index.ts#L47)
+#### [`MoltZapService.StartupError`](./service/index.ts#L52)
 
 _Class_
 
@@ -606,7 +606,7 @@ _Class_
 
 Closed daemon startup phase without configuration or platform detail.
 
-#### [`MoltZapService.layer`](./service/index.ts#L106)
+#### [`MoltZapService.layer`](./service/index.ts#L111)
 
 _Variable_
 
@@ -617,93 +617,104 @@ _Variable_
 
 Complete production process composition for `moltzapd`.
 
-#### [`MoltZapService.MessagePolicyInputError`](./policy/values.ts#L156)
+#### [`MoltZapService.CheckInputError`](./firewall/values.ts#L196)
 
 _Class_
 
 ```ts
-export class MessagePolicyInputError extends Data.TaggedError(
-  "MessagePolicyInputError",
-)<{
-  readonly reason: "settings" | "snapshot";
+export class CheckInputError extends Data.TaggedError("CheckInputError")<{
+  readonly reason: "settings" | "registration" | "message" | "context";
 }> {}
 ```
 
-Invalid composition input never reaches inference or becomes permission.
+Invalid construction or evidence is a typed failure, never permission.
 
-#### [`MoltZapService.MessagePolicySettings`](./policy/values.ts#L73)
+#### [`MoltZapService.DecisionProviderError`](./firewall/values.ts#L305)
 
 _Class_
 
 ```ts
-export class MessagePolicySettings extends Schema.Class<MessagePolicySettings>(
-  "MessagePolicySettings",
-)({
-  minimumProbability: Schema.Number.pipe(Schema.between(0.5, 1)),
-  maximumRequestBytes: Schema.Positive.pipe(Schema.int()),
-  timeoutMilliseconds: Schema.Positive.pipe(Schema.int()),
-}) {}
+export class DecisionProviderError extends Data.TaggedError(
+  "DecisionProviderError",
+)<{
+  readonly reason:
+    | "configuration"
+    | "transport"
+    | "http"
+    | "timeout"
+    | "invalid-response"
+    | "budget"
+    | "defect";
+  readonly status?: number;
+  readonly response?: string;
+}> {}
 ```
 
-Byte budgets bound serialized input without estimating tokenizer output.
-A selected probability is a routing threshold, not provider confidence or
-a claimed safety guarantee. Every stage uses this same recorded setting.
+The adapter scrubs credentials before retaining optional private diagnostics.
 
-#### [`MoltZapService.MessagePolicySnapshot`](./policy/values.ts#L32)
+#### [`MoltZapService.MiddlewareError`](./firewall/values.ts#L142)
 
 _Class_
 
 ```ts
-export class MessagePolicySnapshot extends Schema.Class<MessagePolicySnapshot>(
-  "MessagePolicySnapshot",
-)({
-  binding: identifier,
-  principal: identifier,
-  direction: Schema.Literal("incoming", "outgoing"),
-  candidate: message,
-  policy: Schema.Struct({
-    digest: identifier,
-    rules: Schema.NonEmptyArray(rule),
-  }),
-  history: Schema.Array(
-    message.pipe(
-      Schema.extend(
-        Schema.Struct({
-          visibility,
-          admission: Schema.Literal("admitted", "withheld"),
-        }),
-      ),
-    ),
-  ),
-  facts: Schema.Array(
-    Schema.Struct({
-      id: identifier,
-      source: identifier,
-      text: Schema.NonEmptyString,
-      visibility,
-    }),
-  ),
-  gaps: Schema.Array(Schema.NonEmptyString),
-  authorization: Schema.Union(
-    Schema.Struct({ kind: Schema.Literal("absent") }),
-    Schema.Struct({ kind: Schema.Literal("verified"), binding: identifier }),
-  ),
-}) {}
+export class MiddlewareError extends Data.TaggedError("MiddlewareError")<{
+  readonly reason:
+    | "unavailable"
+    | "timeout"
+    | "invalid-result"
+    | "budget"
+    | "defect";
+}> {}
 ```
 
-Trusted composition supplies authenticated attribution, authorized evidence
-and an opaque binding of the exact candidate, owner, recipients and versions.
-Verified authorization is an upstream capability, never a peer claim. Only
-explicitly publishable rule guidance/feedback and safe evaluator-owned
-fallback feedback may reach the runtime.
+Operational failures carry closed reasons, never arbitrary exception text.
 
-#### [`MoltZapService.PolicyDecisionResponse`](./policy/values.ts#L112)
+#### [`MoltZapService.DecisionProvider`](./firewall/values.ts#L321)
 
-_Class_
+_Interface_
 
 ```ts
-export class PolicyDecisionResponse extends Schema.Class<PolicyDecisionResponse>(
-  "PolicyDecisionResponse",
+export interface DecisionProvider {
+  readonly decide: (
+    request: DecisionRequest,
+  ) => Effect.Effect<DecisionResponse, DecisionProviderError>;
+}
+```
+
+Entirely code-based chains have no dependency on this optional capability.
+
+#### [`MoltZapService.DecisionRequest`](./firewall/values.ts#L269)
+
+_Interface_
+
+```ts
+export interface DecisionRequest {
+  readonly stage: PolicyStage;
+  readonly state: string;
+  readonly questions: Readonly<
+    Record<
+      string,
+      {
+        readonly ruleId: string;
+        readonly purpose: "assessment" | "subject";
+        readonly subject?: string;
+        readonly instructions: string;
+        readonly criteria: Readonly<Record<string, string>>;
+      }
+    >
+  >;
+}
+```
+
+Provider input contains explicit questions and state, never execution authority.
+
+#### [`MoltZapService.DecisionResponse`](./firewall/values.ts#L287)
+
+_Interface_
+
+```ts
+export class DecisionResponse extends Schema.Class<DecisionResponse>(
+  "DecisionResponse",
 )({
   provider: identifier,
   model: identifier,
@@ -722,217 +733,321 @@ export class PolicyDecisionResponse extends Schema.Class<PolicyDecisionResponse>
 
 Raw distributions and provider confidence survive routing unchanged.
 
-#### [`MoltZapService.PolicyProviderFailure`](./policy/values.ts#L134)
-
-_Class_
-
-```ts
-export class PolicyProviderFailure extends Data.TaggedError(
-  "PolicyProviderFailure",
-)<{
-  readonly reason:
-    | "configuration"
-    | "transport"
-    | "http"
-    | "timeout"
-    | "invalid-response"
-    | "budget";
-  readonly status?: number;
-  readonly response?: string;
-}> {}
-```
-
-Closed operational reasons are safe to project without provider diagnostics.
-The optional response belongs only in the private audit and must be scrubbed
-of credentials by the provider adapter.
-
-#### [`MoltZapService.MessagePolicyAssessment`](./policy/values.ts#L198)
+#### [`MoltZapService.EnglishPolicySettings`](./firewall/values.ts#L252)
 
 _Interface_
 
 ```ts
-export interface MessagePolicyAssessment {
-  readonly binding: string;
-  readonly questionEdition: string;
-  readonly policyDigest: string;
-  readonly settings: MessagePolicySettings;
-  readonly judgment: "allow" | "block" | "hold" | "revise";
-  readonly reason:
-    | "eligible"
-    | "prohibited"
-    | "unresolved-evidence"
-    | "assessment-unavailable"
-    | "norm-violation"
-    | "approval-required";
-  readonly feedback: ReadonlyArray<{
-    readonly nextAction: typeof nextAction.Type;
-    readonly text: string;
-  }>;
-  readonly guidance: readonly PolicyNormGuidance[];
-  readonly trace: readonly PolicyStageTrace[];
-}
+export class EnglishPolicySettings extends Schema.Class<EnglishPolicySettings>(
+  "EnglishPolicySettings",
+)({
+  minimumProbability: Schema.Number.pipe(Schema.between(0.5, 1)),
+  maximumRequestBytes: Schema.Positive.pipe(Schema.int()),
+  timeoutMilliseconds: Schema.Positive.pipe(Schema.int()),
+}) {}
 ```
 
-The judgment is not an admission receipt. Client must still fence the binding
-atomically with delivery or intent publication. Guidance is absent on refusals.
+Bytes bound allocation, not tokenizer capacity; probability is a routing setting.
 
-#### [`MoltZapService.MessagePolicyEvaluator`](./policy/values.ts#L220)
+#### [`MoltZapService.EnglishRule`](./firewall/values.ts#L88)
 
 _Interface_
 
 ```ts
-export interface MessagePolicyEvaluator {
-  readonly evaluate: (
-    snapshot: unknown,
-  ) => Effect.Effect<MessagePolicyAssessment, MessagePolicyInputError>;
-}
+export class EnglishRule extends Schema.Class<EnglishRule>("EnglishRule")({
+  ...RuleDescription.fields,
+  text: Schema.NonEmptyString,
+}) {}
 ```
 
-Pure assessment with typed composition errors and normal Effect cancellation.
+Text is interpreted by the provider; it is never compiled into executable code.
 
-#### [`MoltZapService.PolicyDecisionProvider`](./policy/values.ts#L149)
+#### [`MoltZapService.Firewall`](./firewall/values.ts#L240)
 
 _Interface_
 
 ```ts
-export interface PolicyDecisionProvider {
-  readonly decide: (
-    request: PolicyDecisionRequest,
-  ) => Effect.Effect<PolicyDecisionResponse, PolicyProviderFailure>;
+export interface Firewall {
+  readonly checkIncoming: (
+    message: Message,
+    context: MessageContext,
+  ) => Effect.Effect<IncomingCheck, CheckInputError>;
+  readonly checkOutgoing: (
+    draft: Message,
+    context: MessageContext,
+  ) => Effect.Effect<OutgoingCheck, CheckInputError>;
 }
 ```
 
-A provider cannot send, approve, activate policy or query additional facts.
+Checking returns data; Client separately owns fresh, atomic send/delivery admission.
 
-#### [`MoltZapService.PolicyDecisionRequest`](./policy/values.ts#L94)
+#### [`MoltZapService.FirewallSettings`](./firewall/values.ts#L186)
 
 _Interface_
 
 ```ts
-export interface PolicyDecisionRequest {
-  readonly stage: PolicyStage;
-  readonly state: string;
-  readonly questions: Readonly<
-    Record<
-      string,
-      {
-        readonly ruleId: string;
-        readonly purpose: "assessment" | "subject";
-        readonly subject?: string;
-        readonly instructions: string;
-        readonly criteria: Readonly<Record<string, string>>;
-      }
-    >
-  >;
-}
+export class FirewallSettings extends Schema.Class<FirewallSettings>(
+  "FirewallSettings",
+)({
+  timeoutMilliseconds: Schema.Positive.pipe(Schema.int()),
+  middlewareTimeoutMilliseconds: Schema.Positive.pipe(Schema.int()),
+  maximumInputBytes: Schema.Positive.pipe(Schema.int()),
+  maximumResultBytes: Schema.Positive.pipe(Schema.int()),
+}) {}
 ```
 
-State is serialized JSON. Question ids and purpose are audit metadata;
-instructions carry rule identity because providers need not expose ids to
-the underlying model.
+Sequential execution is bounded per entry and across the whole attempt.
 
-#### [`MoltZapService.PolicyNormGuidance`](./policy/values.ts#L187)
+#### [`MoltZapService.Message`](./firewall/values.ts#L11)
 
 _Interface_
 
 ```ts
-export interface PolicyNormGuidance {
-  readonly ruleId: string;
-  readonly expectation: "required" | "permitted" | "wait" | "none";
-  readonly subjects: readonly string[];
-  readonly instruction?: string;
+export class Message extends Schema.Class<Message>("Message")({
+  id: identifier,
+  sender: identifier,
+  recipients: Schema.NonEmptyArray(identifier),
+  text: Schema.String,
+}) {}
+```
+
+Attribution is supplied by Client, never inferred from names in the body.
+
+#### [`MoltZapService.MessageContext`](./firewall/values.ts#L29)
+
+_Interface_
+
+```ts
+export class MessageContext extends Schema.Class<MessageContext>(
+  "MessageContext",
+)({
+  agentId: identifier,
+  principal: identifier,
+  participants: Schema.Array(
+    Schema.Struct({
+      agentId: identifier,
+      principal: identifier,
+    }),
+  ),
+  history: Schema.Array(
+    Schema.Struct({
+      ...Message.fields,
+      visibility,
+      admission: Schema.Literal("admitted", "withheld"),
+    }),
+  ),
+  facts: Schema.Array(
+    Schema.Struct({
+      id: identifier,
+      source: identifier,
+      text: Schema.NonEmptyString,
+      visibility,
+    }),
+  ),
+  gaps: Schema.Array(Schema.NonEmptyString),
+  authorization: Schema.Union(
+    Schema.Struct({ kind: Schema.Literal("absent") }),
+    approval,
+  ),
+}) {}
+```
+
+Trusted composition supplies authorized earlier evidence and candidate-specific
+approval. Agent identity and principal identity have different meanings.
+The first live composition supplies absent approval.
+
+#### [`MoltZapService.MessageMiddleware`](./firewall/values.ts#L176)
+
+_Interface_
+
+```ts
+export interface MessageMiddleware {
+  readonly id: string;
+  readonly revision: string;
+  readonly rules: readonly RuleDescription[];
+  readonly check: (
+    input: MiddlewareInput,
+  ) => Effect.Effect<MiddlewareResult, MiddlewareError>;
 }
 ```
 
-References are selected independently from admitted runtime-visible messages.
+Code and English policies have the same contract. Registered code is trusted;
+it receives no messaging/store capability and must not retain conversation
+state or perform messaging side effects.
 
-#### [`MoltZapService.PolicyStage`](./policy/values.ts#L82)
+#### [`MoltZapService.MiddlewareInput`](./firewall/values.ts#L163)
 
-_TypeAlias_
-
-```ts
-export type PolicyStage =
-  | "applicability"
-  | "safety"
-  | "autonomy"
-  | "expectations"
-  | "conformance";
-```
-
-The fixed chain is versioned independently of policy wording and models.
-
-#### [`MoltZapService.PolicyStageTrace`](./policy/values.ts#L167)
-
-_TypeAlias_
+_Interface_
 
 ```ts
-export type PolicyStageTrace = {
-  readonly stage: PolicyStage;
-  readonly elapsedMilliseconds: number;
-} & (
-  | {
-      readonly status: "answered";
-      readonly request: PolicyDecisionRequest;
-      readonly response: PolicyDecisionResponse;
-      readonly uncertainQuestions: readonly string[];
-    }
-  | {
-      readonly status: "failed";
-      readonly request?: PolicyDecisionRequest;
-      readonly failure: PolicyProviderFailure;
-    }
-  | { readonly status: "empty" }
-  | { readonly status: "unavailable"; readonly dependency: "expectations" }
-);
+export class MiddlewareInput extends Schema.Class<MiddlewareInput>(
+  "MiddlewareInput",
+)({
+  event: messageEvent,
+  context: MessageContext,
+  previous: Schema.Array(MiddlewareObservation),
+}) {}
 ```
 
-An unavailable dependency is distinct from an answered but uncertain question.
-Trace requests, responses and evidence are private assessor material.
-A preparation-budget failure has no request; partial requests never escape.
+Each invocation gets immutable evidence and previously validated observations.
 
-#### [`MoltZapService.makeMessagePolicyEvaluator`](./policy/evaluator.ts#L264)
+#### [`MoltZapService.MiddlewareResult`](./firewall/values.ts#L133)
+
+_Interface_
+
+```ts
+export class MiddlewareResult extends Schema.Class<MiddlewareResult>(
+  "MiddlewareResult",
+)({
+  findings: Schema.Array(policyFinding),
+  expectations: Schema.Array(NormExpectation),
+  trace: Schema.optional(PrivateCheckTrace),
+}) {}
+```
+
+A result is atomic: interrupted middleware has no returned partial findings.
+
+#### [`MoltZapService.RuleDescription`](./firewall/values.ts#L72)
+
+_Interface_
+
+```ts
+export class RuleDescription extends Schema.Class<RuleDescription>(
+  "RuleDescription",
+)({
+  id: identifier,
+  kind: Schema.Literal("safety", "autonomy", "norm"),
+  source: Schema.optional(identifier),
+  guidance: Schema.optional(Schema.NonEmptyString),
+  feedback: Schema.optional(
+    Schema.Struct({
+      text: Schema.NonEmptyString,
+      nextAction,
+    }),
+  ),
+}) {}
+```
+
+Runtime advice can only select templates registered by trusted composition.
+
+#### [`MoltZapService.makeEnglishPolicy`](./firewall/english.ts#L237)
 
 _Variable_
 
 ```ts
-export const makeMessagePolicyEvaluator = Effect.fn(
-  "makeMessagePolicyEvaluator",
-)(function* (options: {
-  readonly provider: PolicyDecisionProvider;
-  readonly settings: unknown;
-}): Effect.fn.Return<MessagePolicyEvaluator, MessagePolicyInputError> {
-  const settings = yield* Schema.decodeUnknown(MessagePolicySettings)(
-    options.settings,
-  ).pipe(
-    Effect.catchTag("ParseError", () =>
-      Effect.fail(new MessagePolicyInputError({ reason: "settings" })),
-    ),
-  );
-  const frozenSettings = Object.freeze(new MessagePolicySettings(settings));
-  const provider = Object.freeze({
-    decide: options.provider.decide.bind(options.provider),
-  });
-  return {
-    evaluate: (input) => evaluateSnapshot(input, provider, frozenSettings),
-  };
-})
+export const makeEnglishPolicy = Effect.fn("makeEnglishPolicy")(
+  function* (options: {
+    readonly id: string;
+    readonly rules: readonly EnglishRule[];
+    readonly provider: DecisionProvider;
+    readonly settings: unknown;
+  }): Effect.fn.Return<MessageMiddleware, CheckInputError> {
+    const settings = yield* decodeFrozen(
+      EnglishPolicySettings,
+      options.settings,
+    ).pipe(
+      Effect.catchTag("ParseError", () =>
+        Effect.fail(new CheckInputError({ reason: "settings" })),
+      ),
+    );
+    const { id, rules } = yield* decodeFrozen(
+      Schema.Struct({
+        id: Schema.NonEmptyTrimmedString,
+        rules: Schema.NonEmptyArray(EnglishRule),
+      }),
+      { id: options.id, rules: options.rules },
+    ).pipe(
+      Effect.catchTag("ParseError", () =>
+        Effect.fail(new CheckInputError({ reason: "registration" })),
+      ),
+    );
+    if (new Set(rules.map((rule) => rule.id)).size !== rules.length) {
+      return yield* new CheckInputError({ reason: "registration" });
+    }
+    const descriptions = yield* Schema.decodeUnknown(
+      Schema.Array(RuleDescription),
+    )(rules).pipe(
+      Effect.flatMap((value) =>
+        decodeFrozen(Schema.Array(RuleDescription), value),
+      ),
+      Effect.catchTag("ParseError", () =>
+        Effect.fail(new CheckInputError({ reason: "registration" })),
+      ),
+    );
+    const revision = englishRevision(rules, settings);
+    const provider = Object.freeze({
+      decide: options.provider.decide.bind(options.provider),
+    });
+    return Object.freeze({
+      id,
+      revision,
+      rules: descriptions,
+      check: (input: MiddlewareInput) =>
+        checkEnglish(input, { rules, revision }, provider, settings),
+    });
+  },
+)
 ```
 
-Builds the same value-oriented evaluator for offline and live composition.
-Interruption propagates normally. A semantic rejection does not skip later
-independent diagnostics; missing expectations make conformance unavailable.
+Freezes English documents and provider settings for repeated checks in either
+direction. Question semantics and documents determine the recorded revision.
 
 ```mermaid
 flowchart TD
-  S[Validated immutable snapshot] --> A[Applicability]
-  A --> F[Safety]
-  F --> U[Autonomy]
-  U --> N[Norm expectations]
-  N --> C[Outgoing conformance when expectations are valid]
-  C --> R[Compose judgment and permitted feedback]
+  I[Original message and context] --> A[Applicability]
+  A --> S[Personal trust]
+  S --> U[Autonomy]
+  U --> N[Norm expectations from permitted evidence]
+  N --> C[Outgoing conformance when expectations are available]
+  C --> R[Return all findings and private stage trace]
 ```
 
-#### [`MoltZapService.makeJevDecisionProvider`](./policy/jev.ts#L169)
+#### [`MoltZapService.makeFirewall`](./firewall/index.ts#L56)
+
+_Variable_
+
+```ts
+export const makeFirewall = Effect.fn("makeFirewall")(function* (options: {
+  readonly incoming: readonly MessageMiddleware[];
+  readonly outgoing: readonly MessageMiddleware[];
+  readonly settings: unknown;
+}): Effect.fn.Return<Firewall, CheckInputError> {
+  const settings = yield* decodeFrozen(FirewallSettings, options.settings).pipe(
+    Effect.catchTag("ParseError", () =>
+      Effect.fail(new CheckInputError({ reason: "settings" })),
+    ),
+  );
+  const incoming = yield* makeChain(options.incoming, settings);
+  const outgoing = yield* makeChain(options.outgoing, settings);
+  return Object.freeze({
+    checkIncoming: (message: Message, context: MessageContext) =>
+      incoming({ direction: "incoming", message }, context).pipe(
+        Effect.flatMap((result) =>
+          result.judgment === "revise"
+            ? Effect.fail(new CheckInputError({ reason: "message" }))
+            : Effect.succeed({ ...result, judgment: result.judgment }),
+        ),
+      ),
+    checkOutgoing: (message: Message, context: MessageContext) =>
+      outgoing({ direction: "outgoing", message }, context),
+  });
+})
+```
+
+Runs every installed check in order within the budget. Refusals accumulate;
+only Client can apply the result to an exact candidate with fresh evidence.
+Cancellation propagates, so an interrupted check never returns permission.
+
+```mermaid
+flowchart TD
+  I[Incoming message or outgoing draft] --> C[Capture immutable context]
+  C --> M[Run each registered middleware]
+  M --> V[Validate and retain each atomic result]
+  V --> D[Compose all findings and permitted advice]
+  D --> R[Return to Client for enforcement]
+```
+
+#### [`MoltZapService.makeJevDecisionProvider`](./firewall/jev.ts#L169)
 
 _Function_
 
@@ -940,7 +1055,7 @@ _Function_
 export function makeJevDecisionProvider(options: {
   readonly apiKey: Redacted.Redacted;
   readonly model: string;
-}): PolicyDecisionProvider
+}): DecisionProvider
 ```
 
 Uses the fixed TypeSafe origin and an explicitly pinned model. No retry,
@@ -973,16 +1088,17 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `endpoint/mcp/schemas.ts`
 - `endpoint/mcp/tools.ts`
 - `endpoint/mcp/webhook.ts`
+- `firewall/chain.ts`
+- `firewall/decision.ts`
+- `firewall/english.ts`
+- `firewall/index.ts`
+- `firewall/jev.ts`
+- `firewall/questions.ts`
+- `firewall/README.md`
+- `firewall/values.ts`
 - `identity/credentials.ts`
 - `identity/index.ts`
 - `index.ts`
-- `policy/assessment.ts`
-- `policy/evaluator.ts`
-- `policy/index.ts`
-- `policy/jev.ts`
-- `policy/questions.ts`
-- `policy/README.md`
-- `policy/values.ts`
 - `README.md`
 - `service/bootstrap.ts`
 - `service/configuration.ts`

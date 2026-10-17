@@ -8,7 +8,7 @@ Production composition for one explicitly configured endpoint daemon.
 
 ## Public surface
 
-### [`layer`](./index.ts#L106)
+### [`layer`](./index.ts#L111)
 
 _Variable_
 
@@ -19,11 +19,11 @@ _Variable_
 
 Complete production process composition for `moltzapd`.
 
-### [`MoltZapService`](./index.ts#L45)
+### [`MoltZapService`](./index.ts#L50)
 
 _Namespace_
 
-### [`StartupError`](./index.ts#L47)
+### [`StartupError`](./index.ts#L52)
 
 _Class_
 

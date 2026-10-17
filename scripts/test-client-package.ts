@@ -87,12 +87,14 @@ const publishedPackages: ReadonlySet<string> = new Set(
   Object.keys(workspacePackageRoots),
 );
 
-/** A plain JavaScript consumer exercises policy assessment without a live provider. */
+/** A packed consumer composes English and code middleware without a live provider. */
 const policyConsumerCheck = `
 const { Effect } = await import("effect");
-const evaluator = await Effect.runPromise(service.makeMessagePolicyEvaluator({
+const english = await Effect.runPromise(service.makeEnglishPolicy({
+  id: "owner",
+  rules: [{ id: "privacy", kind: "safety", text: "Do not disclose unrelated private appointments." }],
   provider: {
-    decide: () => Effect.fail(new service.PolicyProviderFailure({
+    decide: () => Effect.fail(new service.DecisionProviderError({
       reason: "transport",
     })),
   },
@@ -102,32 +104,37 @@ const evaluator = await Effect.runPromise(service.makeMessagePolicyEvaluator({
     timeoutMilliseconds: 1000,
   },
 }));
-const assessment = await Effect.runPromise(evaluator.evaluate({
-  binding: "packed-consumer-candidate",
-  principal: "organizer",
-  direction: "outgoing",
-  candidate: {
+const code = {
+  id: "code", revision: "v1", rules: [{ id: "local", kind: "safety" }],
+  check: () => Effect.succeed({ findings: [{ ruleId: "local", outcome: "pass" }], expectations: [] }),
+};
+const firewall = await Effect.runPromise(service.makeFirewall({
+  incoming: [code], outgoing: [code, english],
+  settings: { timeoutMilliseconds: 10000, middlewareTimeoutMilliseconds: 5000,
+    maximumInputBytes: 60000, maximumResultBytes: 100000 },
+}));
+const message = {
     id: "draft",
     sender: "organizer",
     recipients: ["participant"],
     text: "Are you free Tuesday?",
-  },
-  policy: {
-    digest: "packed-consumer-policy",
-    rules: [{
-      id: "privacy",
-      kind: "safety",
-      text: "Do not disclose unrelated private appointments.",
-    }],
-  },
+};
+const context = {
+  agentId: "organizer", principal: "owner", participants: [],
   history: [],
   facts: [],
   gaps: [],
   authorization: { kind: "absent" },
-}));
+};
+const assessment = await Effect.runPromise(firewall.checkOutgoing(message, context));
 if (assessment.judgment !== "hold" ||
-    assessment.reason !== "assessment-unavailable") {
+    assessment.reason !== "check-unavailable") {
   throw new Error("Client policy assessment did not hold an unavailable check");
+}
+const incoming = { ...message, sender: "participant", recipients: ["organizer"] };
+const received = await Effect.runPromise(firewall.checkIncoming(incoming, context));
+if (received.judgment !== "allow") {
+  throw new Error("Client code middleware could not admit an incoming message");
 }
 `;
 

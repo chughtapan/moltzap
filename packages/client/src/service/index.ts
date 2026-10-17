@@ -20,26 +20,31 @@ const REGISTRY_REQUEST_TIMEOUT = Duration.seconds(30);
 const ROUTER_SEND_TIMEOUT = Duration.seconds(30);
 const ROUTER_POLL_TIMEOUT = Duration.seconds(35);
 
-/** Offline and daemon composition share this data-only assessment boundary. */
+/** Checking factories have no daemon execution authority. */
 export {
+  CheckInputError,
+  DecisionProviderError,
+  makeEnglishPolicy,
+  makeFirewall,
   makeJevDecisionProvider,
-  makeMessagePolicyEvaluator,
-  MessagePolicyInputError,
-  MessagePolicySettings,
-  MessagePolicySnapshot,
-  PolicyDecisionResponse,
-  PolicyProviderFailure,
-} from "../policy/index.js";
-/** Provider and assessment values are not part of the agent-facing endpoint. */
+  MiddlewareError,
+} from "../firewall/index.js";
+/** Policy composition uses data contracts independently of agent-facing transport. */
 export type {
-  MessagePolicyAssessment,
-  MessagePolicyEvaluator,
-  PolicyDecisionProvider,
-  PolicyDecisionRequest,
-  PolicyNormGuidance,
-  PolicyStage,
-  PolicyStageTrace,
-} from "../policy/index.js";
+  DecisionProvider,
+  DecisionRequest,
+  DecisionResponse,
+  EnglishPolicySettings,
+  EnglishRule,
+  Firewall,
+  FirewallSettings,
+  Message,
+  MessageContext,
+  MessageMiddleware,
+  MiddlewareInput,
+  MiddlewareResult,
+  RuleDescription,
+} from "../firewall/index.js";
 
 // eslint-disable-next-line @typescript-eslint/no-namespace -- The published service subpath intentionally merges its runtime values with the closed startup-error type.
 export namespace MoltZapService {

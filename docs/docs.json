@@ -47,7 +47,7 @@
             "pages": [
               "modules/client/delivery",
               "modules/client/endpoint/harness-endpoint",
-              "modules/client/policy",
+              "modules/client/firewall",
               "modules/client/service",
               "modules/client/src",
               "modules/client/transport/collectives",

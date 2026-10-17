@@ -132,11 +132,11 @@ const sharedConfig: ArchitectureConfig = {
  */
 const clientDomains: readonly ClientDomain[] = [
   {
-    name: "policy",
-    root: "policy",
+    name: "firewall",
+    root: "firewall",
     entrypoints: ["index.ts"],
     reason:
-      "Value-only message assessment and decision-provider adapters, without storage, host or protocol capabilities",
+      "Message middleware and optional decision providers, without storage, host or protocol capabilities",
   },
 
   {

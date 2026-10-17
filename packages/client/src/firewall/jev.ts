@@ -8,10 +8,10 @@ import {
 } from "@effect/platform";
 import { Effect, Redacted, Schema, Stream } from "effect";
 import {
-  type PolicyDecisionProvider,
-  type PolicyDecisionRequest,
-  PolicyDecisionResponse,
-  PolicyProviderFailure,
+  type DecisionProvider,
+  DecisionProviderError,
+  type DecisionRequest,
+  DecisionResponse,
 } from "./values.js";
 
 const origin = "https://api.typesafe.ai/v1/systemone";
@@ -40,7 +40,7 @@ const wireResponse = Schema.Struct({
 
 const prepareJevRequest = Effect.fn("MessagePolicy.Jev.prepareRequest")(
   function* (
-    input: PolicyDecisionRequest,
+    input: DecisionRequest,
     options: { readonly apiKey: Redacted.Redacted; readonly model: string },
   ) {
     return yield* HttpClientRequest.post(origin).pipe(
@@ -60,7 +60,7 @@ const prepareJevRequest = Effect.fn("MessagePolicy.Jev.prepareRequest")(
         ),
       }),
       Effect.catchTag("HttpBodyError", () =>
-        Effect.fail(new PolicyProviderFailure({ reason: "transport" })),
+        Effect.fail(new DecisionProviderError({ reason: "transport" })),
       ),
     );
   },
@@ -74,7 +74,7 @@ const readJevBody = Effect.fn("MessagePolicy.Jev.readBody")(function* (
     Stream.runFoldEffect({ bytes: 0, text: "" }, (current, chunk) => {
       const bytes = current.bytes + chunk.byteLength;
       return bytes > maximumResponseBytes
-        ? Effect.fail(new PolicyProviderFailure({ reason: "budget" }))
+        ? Effect.fail(new DecisionProviderError({ reason: "budget" }))
         : Effect.succeed({
             bytes,
             text: current.text + decoder.decode(chunk, { stream: true }),
@@ -84,7 +84,7 @@ const readJevBody = Effect.fn("MessagePolicy.Jev.readBody")(function* (
     Effect.catchTag("ResponseError", (error) =>
       error.reason === "EmptyBody"
         ? Effect.succeed("")
-        : Effect.fail(new PolicyProviderFailure({ reason: "transport" })),
+        : Effect.fail(new DecisionProviderError({ reason: "transport" })),
     ),
   );
   return body;
@@ -99,7 +99,7 @@ const parseJevResponse = Effect.fn("MessagePolicy.Jev.parseResponse")(
       Effect.flatMap((text) => redactBody(text, apiKey)),
     );
     if (response.status < 200 || response.status >= 300) {
-      return yield* new PolicyProviderFailure({
+      return yield* new DecisionProviderError({
         reason: "http",
         status: response.status,
         response: raw,
@@ -110,14 +110,14 @@ const parseJevResponse = Effect.fn("MessagePolicy.Jev.parseResponse")(
     })(raw).pipe(
       Effect.catchTag("ParseError", () =>
         Effect.fail(
-          new PolicyProviderFailure({
+          new DecisionProviderError({
             reason: "invalid-response",
             response: raw,
           }),
         ),
       ),
     );
-    return new PolicyDecisionResponse({
+    return new DecisionResponse({
       provider: "typesafe",
       model: value.model,
       answers: value.answers,
@@ -128,7 +128,7 @@ const parseJevResponse = Effect.fn("MessagePolicy.Jev.parseResponse")(
 );
 
 const requestJev = Effect.fn("MessagePolicy.Jev.decide")(function* (
-  input: PolicyDecisionRequest,
+  input: DecisionRequest,
   options: {
     readonly apiKey: Redacted.Redacted;
     readonly model: string;
@@ -139,23 +139,23 @@ const requestJev = Effect.fn("MessagePolicy.Jev.decide")(function* (
     options.model.trim().length === 0 ||
     options.model !== options.model.trim()
   ) {
-    return yield* new PolicyProviderFailure({ reason: "configuration" });
+    return yield* new DecisionProviderError({ reason: "configuration" });
   }
   if (
     Object.values(input.questions).some(
       (question) => Object.keys(question.criteria).length > maximumChoices,
     )
   ) {
-    return yield* new PolicyProviderFailure({ reason: "budget" });
+    return yield* new DecisionProviderError({ reason: "budget" });
   }
   const client = yield* HttpClient.HttpClient;
   const request = yield* prepareJevRequest(input, options);
   const response = yield* client.execute(request).pipe(
     Effect.catchTags({
       RequestError: () =>
-        Effect.fail(new PolicyProviderFailure({ reason: "transport" })),
+        Effect.fail(new DecisionProviderError({ reason: "transport" })),
       ResponseError: () =>
-        Effect.fail(new PolicyProviderFailure({ reason: "transport" })),
+        Effect.fail(new DecisionProviderError({ reason: "transport" })),
     }),
   );
   return yield* parseJevResponse(response, options.apiKey);
@@ -169,7 +169,7 @@ const requestJev = Effect.fn("MessagePolicy.Jev.decide")(function* (
 export function makeJevDecisionProvider(options: {
   readonly apiKey: Redacted.Redacted;
   readonly model: string;
-}): PolicyDecisionProvider {
+}): DecisionProvider {
   const configuration = Object.freeze({ ...options });
   return {
     decide: (request) =>

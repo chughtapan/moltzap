@@ -1,6 +1,6 @@
 # Message policy execution
 
-Status: **owner-selected proposal; experimental evaluator implemented on this
+Status: **owner-selected proposal; experimental middleware implemented on this
 branch; runtime gate not implemented or admitted**
 
 Client assesses application messages before outgoing intent publication and
@@ -14,19 +14,22 @@ the in-process implementation first. Configuration interfaces, live policy
 activation and authenticated human approval channels are deferred. Current
 normative contracts remain the implementation baseline.
 
-The first implementation is a standalone experimental evaluator exposed through
-`@moltzap/client/service`. See the [module guide](https://github.com/chughtapan/moltzap/tree/proposal/message-policy/packages/client/src/policy)
-for construction and English policy examples. It runs the fixed chain with an
-injected provider, validates distributions, and returns a private assessment and
-permitted feedback. It does not intercept a send or deliver an incoming item.
+The first implementation is a standalone experimental firewall exposed through
+`@moltzap/client/service`. See the [module guide](https://github.com/chughtapan/moltzap/tree/proposal/message-policy/packages/client/src/firewall)
+for construction, middleware contracts and English policy examples. It runs
+separate ordered incoming and outgoing chains. Code policies and English policies
+implement one `MessageMiddleware` interface; English policies can use an injected
+Jev provider. The firewall returns findings and permitted guidance or feedback.
+It does not intercept a send or deliver an incoming item.
 The admission, persistence, MCP and OpenClaw changes below remain proposed.
 
 ## Ownership and scope
 
-Client owns snapshot construction, admission, retained dispositions and recovery.
-A value-oriented evaluator consumes a snapshot and calls an injected decision
-provider. It cannot access the host, sign or send messages, invoke agent tools,
-activate policy, or approve a candidate. Adapters only project the result.
+Client owns context construction, admission, retained dispositions and recovery.
+The firewall consumes an explicit message and context. Its middleware receives
+no host, signing, store or messaging capability; the optional English adapter
+calls an injected decision provider. Registered code is trusted in-process code,
+not sandboxed JavaScript. Adapters only project the result.
 
 The first live slice covers direct and group multicast, matching the paper's
 message primitives. An enabled enforcement gate holds an unsupported application
@@ -46,12 +49,13 @@ These values belong to service composition, not the agent-facing endpoint.
 
 | Capability | Contract |
 | --- | --- |
-| Policy bundle | Immutable digest and English rule documents, question edition, owner facts and visibility-qualified advice/feedback. The first composition loads files and freezes them for the run. |
-| Evidence snapshot | Exact candidate and direction, verified participant attribution, authorized local history with source references and visibility, required evidence gaps, and version binding. |
+| Message middleware | Stable id, revision, declared rule descriptions, and `check(input)` returning an Effect of per-rule findings, norm expectations and optional private trace. Code and English policies share this contract. |
+| English policy | `makeEnglishPolicy` freezes English documents, templates and settings and returns middleware. It interprets text through a provider; it does not generate executable policy code. |
+| Message and context | Exact candidate and direction; local agent and principal identity; verified participant attribution; authorized earlier history, owner facts and evidence gaps. Context is data, not another service. |
 | Decision provider | State and named bounded-choice questions to validated distributions, provider/model identity, usage and latency, or a typed operational failure. Names of external providers/models remain data. |
-| Message evaluator | Snapshot to safety, autonomy, norms, projected guidance/feedback and a complete stage trace. Its contract does not expose a store or execution capability. |
+| Firewall | `makeFirewall({ incoming, outgoing, settings })` returns `checkIncoming(message, context)` and `checkOutgoing(draft, context)`. The runner validates and composes all returned findings and projects registered guidance/feedback. |
 | Authorization evidence | Verified exact-candidate evidence supplied by a trusted integration, or absent. The first live implementation supplies absent evidence; tests may supply explicitly simulated evidence. |
-| Admission store | Retain the assessment and atomically compare its binding before exposing an incoming item or creating an outgoing intent. Preserve existing identity, history, pending deliveries and invocation outcomes. |
+| Client admission state (proposed) | Retain the assessment and atomically compare candidate, policy and evidence versions before runtime admission or outgoing intent creation. Freshness is private Client state; there is no public Snapshot or Binding service. |
 
 Evaluator construction is exposed through the existing service composition
 subpath so offline experiments can exercise the same code. It is not a new
@@ -67,9 +71,29 @@ runtime-generated token or assessment reference is not approval. Future evidence
 must bind owner, candidate, recipients and applicable validity/version
 constraints. This proposal does not select an approval transport or release API.
 
-## Fixed execution chains
+## Middleware execution
 
-1. Validate the candidate and capture the policy/evidence snapshot.
+Each direction installs a nonempty, ordered list of middleware. The runner copies
+and freezes registration metadata and input data, then supplies each check with
+the original event, context and earlier validated observations. Those observations
+exclude private traces. There is no middleware-owned `next()` callback.
+
+Every declared rule must return a finding. A local `pass` or `not-applicable`
+cannot erase another finding. Code and English checks have identical weight and
+the same rule-reference, visibility and feedback validation. Conflicting response
+expectations hold for review. Full static execution continues after rejection
+within per-middleware and total attempt budgets.
+
+A middleware result is atomic. Completed results survive a later failure;
+an outer timeout cannot recover unreturned internal findings. English middleware
+catches typed provider failures and defects per stage, preserving completed
+stages. Exhausted total budgets mark remaining checks unavailable. Cancellation
+interrupts the attempt rather than producing an admission result. These deadlines
+are cooperative; in-process trusted code is not a process-isolation boundary.
+
+The English middleware runs this fixed internal chain:
+
+1. Use the captured message, context and frozen English rules.
 2. Assess applicability across every active document. The first implementation
    records relevance but does not prune active rules.
 3. Assess safety: compliant, prohibited or unresolved for each safety rule.
@@ -77,8 +101,9 @@ constraints. This proposal does not select an approval transport or release API.
 5. Assess norm expectations: required response, permitted response, wait or no
    response, with selected rule and subject references.
 6. For outgoing messages, assess the candidate's conformance to those norms.
-7. Validate all outputs, compose the result, project permitted feedback, and
-   fence admission.
+7. Return all stage findings and a private trace to the common runner for
+   validation, composition and permitted feedback projection. Client admission
+   remains a subsequent integration step.
 
 All configured stages run even after a semantic rejection, except that a
 dependent stage with invalid input is explicitly unavailable. Diagnostics never
@@ -98,7 +123,14 @@ The initial bounded catalog and authorized history are supplied in full within
 the configured budget. Required omitted context causes a hold. Retrieval
 pruning, summaries, caching and dynamic chains are later experiments.
 
-The experimental evaluator checks each visible message's relevance to each norm
+The English adapter ignores previous middleware observations because they may be
+derived from an outgoing draft. Outgoing expectations also exclude the draft's
+text, id and approval evidence. Conformance sees the draft only after expectations
+are established from the original evidence. The question edition and rules are
+part of the English revision; provider/model identity is recorded in the trace
+and must be pinned separately in experiment manifests.
+
+The English middleware checks each visible message's relevance to each norm
 independently. Several references can anchor one instruction. This increases
 question count with history length; a serialized request byte budget holds an
 oversized request without truncating it. That budget is not a tokenizer or a
@@ -213,7 +245,14 @@ repository's decision process.
 
 ## Validation and limits
 
-Deterministic tests cover actual Client storage and message paths: no intent on
+The standalone component is tested through its public service API with code-only,
+English-only and mixed chains, immutable evidence, complete findings, private
+subject rejection, timeouts, cancellation and provider faults. A packed consumer
+checks the installed API. These tests establish component behavior, not runtime
+enforcement or real-provider classification accuracy. Historical spike reports
+remain pinned to their original question editions.
+
+The later integration must test actual Client storage and message paths: no intent on
 refusal, no alternate delivery bypass, stale snapshot conflicts, provider
 failures, visibility-safe projections, same-key outcomes and restart recovery.
 Provider fakes supply decisions; they do not replace those mechanisms.
