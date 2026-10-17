@@ -1,0 +1,466 @@
+---
+title: "client/firewall"
+description: "Personal firewall composition for code and English policies."
+---
+
+# client/firewall
+
+_`packages/client/src/firewall`_
+
+## Purpose
+
+Personal firewall composition for code and English policies.
+
+## Public surface
+
+### [`CheckInputError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L196)
+
+_Class_
+
+```ts
+export class CheckInputError extends Data.TaggedError("CheckInputError")<{
+  readonly reason: "settings" | "registration" | "message" | "context";
+}> {}
+```
+
+Invalid construction or evidence is a typed failure, never permission.
+
+### [`DecisionProvider`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L321)
+
+_Interface_
+
+```ts
+export interface DecisionProvider {
+  readonly decide: (
+    request: DecisionRequest,
+  ) => Effect.Effect<DecisionResponse, DecisionProviderError>;
+}
+```
+
+Entirely code-based chains have no dependency on this optional capability.
+
+### [`DecisionProviderError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L305)
+
+_Class_
+
+```ts
+export class DecisionProviderError extends Data.TaggedError(
+  "DecisionProviderError",
+)<{
+  readonly reason:
+    | "configuration"
+    | "transport"
+    | "http"
+    | "timeout"
+    | "invalid-response"
+    | "budget"
+    | "defect";
+  readonly status?: number;
+  readonly response?: string;
+}> {}
+```
+
+The adapter scrubs credentials before retaining optional private diagnostics.
+
+### [`DecisionRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L269)
+
+_Interface_
+
+```ts
+export interface DecisionRequest {
+  readonly stage: PolicyStage;
+  readonly state: string;
+  readonly questions: Readonly<
+    Record<
+      string,
+      {
+        readonly ruleId: string;
+        readonly purpose: "assessment" | "subject";
+        readonly subject?: string;
+        readonly instructions: string;
+        readonly criteria: Readonly<Record<string, string>>;
+      }
+    >
+  >;
+}
+```
+
+Provider input contains explicit questions and state, never execution authority.
+
+### [`DecisionResponse`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L287)
+
+_Interface_
+
+```ts
+export class DecisionResponse extends Schema.Class<DecisionResponse>(
+  "DecisionResponse",
+)({
+  provider: identifier,
+  model: identifier,
+  answers: Schema.Record({
+    key: identifier,
+    value: Schema.Struct({
+      choice: identifier,
+      probabilities: Schema.Record({ key: identifier, value: probability }),
+      confidence: Schema.optional(probability),
+    }),
+  }),
+  usage: Schema.Record({ key: identifier, value: Schema.NonNegativeInt }),
+  raw: Schema.String,
+}) {}
+```
+
+Raw distributions and provider confidence survive routing unchanged.
+
+### [`EnglishPolicySettings`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L252)
+
+_Interface_
+
+```ts
+export class EnglishPolicySettings extends Schema.Class<EnglishPolicySettings>(
+  "EnglishPolicySettings",
+)({
+  minimumProbability: Schema.Number.pipe(Schema.between(0.5, 1)),
+  maximumRequestBytes: Schema.Positive.pipe(Schema.int()),
+  timeoutMilliseconds: Schema.Positive.pipe(Schema.int()),
+}) {}
+```
+
+Bytes bound allocation, not tokenizer capacity; probability is a routing setting.
+
+### [`EnglishRule`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L88)
+
+_Interface_
+
+```ts
+export class EnglishRule extends Schema.Class<EnglishRule>("EnglishRule")({
+  ...RuleDescription.fields,
+  text: Schema.NonEmptyString,
+}) {}
+```
+
+Text is interpreted by the provider; it is never compiled into executable code.
+
+### [`Firewall`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L240)
+
+_Interface_
+
+```ts
+export interface Firewall {
+  readonly checkIncoming: (
+    message: Message,
+    context: MessageContext,
+  ) => Effect.Effect<IncomingCheck, CheckInputError>;
+  readonly checkOutgoing: (
+    draft: Message,
+    context: MessageContext,
+  ) => Effect.Effect<OutgoingCheck, CheckInputError>;
+}
+```
+
+Checking returns data; Client separately owns fresh, atomic send/delivery admission.
+
+### [`FirewallSettings`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L186)
+
+_Interface_
+
+```ts
+export class FirewallSettings extends Schema.Class<FirewallSettings>(
+  "FirewallSettings",
+)({
+  timeoutMilliseconds: Schema.Positive.pipe(Schema.int()),
+  middlewareTimeoutMilliseconds: Schema.Positive.pipe(Schema.int()),
+  maximumInputBytes: Schema.Positive.pipe(Schema.int()),
+  maximumResultBytes: Schema.Positive.pipe(Schema.int()),
+}) {}
+```
+
+Sequential execution is bounded per entry and across the whole attempt.
+
+### [`makeEnglishPolicy`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/english.ts#L237)
+
+_Variable_
+
+```ts
+export const makeEnglishPolicy = Effect.fn("makeEnglishPolicy")(
+  function* (options: {
+    readonly id: string;
+    readonly rules: readonly EnglishRule[];
+    readonly provider: DecisionProvider;
+    readonly settings: unknown;
+  }): Effect.fn.Return<MessageMiddleware, CheckInputError> {
+    const settings = yield* decodeFrozen(
+      EnglishPolicySettings,
+      options.settings,
+    ).pipe(
+      Effect.catchTag("ParseError", () =>
+        Effect.fail(new CheckInputError({ reason: "settings" })),
+      ),
+    );
+    const { id, rules } = yield* decodeFrozen(
+      Schema.Struct({
+        id: Schema.NonEmptyTrimmedString,
+        rules: Schema.NonEmptyArray(EnglishRule),
+      }),
+      { id: options.id, rules: options.rules },
+    ).pipe(
+      Effect.catchTag("ParseError", () =>
+        Effect.fail(new CheckInputError({ reason: "registration" })),
+      ),
+    );
+    if (new Set(rules.map((rule) => rule.id)).size !== rules.length) {
+      return yield* new CheckInputError({ reason: "registration" });
+    }
+    const descriptions = yield* Schema.decodeUnknown(
+      Schema.Array(RuleDescription),
+    )(rules).pipe(
+      Effect.flatMap((value) =>
+        decodeFrozen(Schema.Array(RuleDescription), value),
+      ),
+      Effect.catchTag("ParseError", () =>
+        Effect.fail(new CheckInputError({ reason: "registration" })),
+      ),
+    );
+    const revision = englishRevision(rules, settings);
+    const provider = Object.freeze({
+      decide: options.provider.decide.bind(options.provider),
+    });
+    return Object.freeze({
+      id,
+      revision,
+      rules: descriptions,
+      check: (input: MiddlewareInput) =>
+        checkEnglish(input, { rules, revision }, provider, settings),
+    });
+  },
+)
+```
+
+Freezes English documents and provider settings for repeated checks in either
+direction. Question semantics and documents determine the recorded revision.
+
+```mermaid
+flowchart TD
+  I[Original message and context] --> A[Applicability]
+  A --> S[Personal trust]
+  S --> U[Autonomy]
+  U --> N[Norm expectations from permitted evidence]
+  N --> C[Outgoing conformance when expectations are available]
+  C --> R[Return all findings and private stage trace]
+```
+
+### [`makeFirewall`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/index.ts#L56)
+
+_Variable_
+
+```ts
+export const makeFirewall = Effect.fn("makeFirewall")(function* (options: {
+  readonly incoming: readonly MessageMiddleware[];
+  readonly outgoing: readonly MessageMiddleware[];
+  readonly settings: unknown;
+}): Effect.fn.Return<Firewall, CheckInputError> {
+  const settings = yield* decodeFrozen(FirewallSettings, options.settings).pipe(
+    Effect.catchTag("ParseError", () =>
+      Effect.fail(new CheckInputError({ reason: "settings" })),
+    ),
+  );
+  const incoming = yield* makeChain(options.incoming, settings);
+  const outgoing = yield* makeChain(options.outgoing, settings);
+  return Object.freeze({
+    checkIncoming: (message: Message, context: MessageContext) =>
+      incoming({ direction: "incoming", message }, context).pipe(
+        Effect.flatMap((result) =>
+          result.judgment === "revise"
+            ? Effect.fail(new CheckInputError({ reason: "message" }))
+            : Effect.succeed({ ...result, judgment: result.judgment }),
+        ),
+      ),
+    checkOutgoing: (message: Message, context: MessageContext) =>
+      outgoing({ direction: "outgoing", message }, context),
+  });
+})
+```
+
+Runs every installed check in order within the budget. Refusals accumulate;
+only Client can apply the result to an exact candidate with fresh evidence.
+Cancellation propagates, so an interrupted check never returns permission.
+
+```mermaid
+flowchart TD
+  I[Incoming message or outgoing draft] --> C[Capture immutable context]
+  C --> M[Run each registered middleware]
+  M --> V[Validate and retain each atomic result]
+  V --> D[Compose all findings and permitted advice]
+  D --> R[Return to Client for enforcement]
+```
+
+### [`makeJevDecisionProvider`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/jev.ts#L169)
+
+_Function_
+
+```ts
+export function makeJevDecisionProvider(options: {
+  readonly apiKey: Redacted.Redacted;
+  readonly model: string;
+}): DecisionProvider
+```
+
+Uses the fixed TypeSafe origin and an explicitly pinned model. No retry,
+environment lookup or credential serialization occurs here. The evaluator
+owns timeouts; the Effect is interruptible through response-body consumption.
+
+### [`Message`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L11)
+
+_Interface_
+
+```ts
+export class Message extends Schema.Class<Message>("Message")({
+  id: identifier,
+  sender: identifier,
+  recipients: Schema.NonEmptyArray(identifier),
+  text: Schema.String,
+}) {}
+```
+
+Attribution is supplied by Client, never inferred from names in the body.
+
+### [`MessageContext`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L29)
+
+_Interface_
+
+```ts
+export class MessageContext extends Schema.Class<MessageContext>(
+  "MessageContext",
+)({
+  agentId: identifier,
+  principal: identifier,
+  participants: Schema.Array(
+    Schema.Struct({
+      agentId: identifier,
+      principal: identifier,
+    }),
+  ),
+  history: Schema.Array(
+    Schema.Struct({
+      ...Message.fields,
+      visibility,
+      admission: Schema.Literal("admitted", "withheld"),
+    }),
+  ),
+  facts: Schema.Array(
+    Schema.Struct({
+      id: identifier,
+      source: identifier,
+      text: Schema.NonEmptyString,
+      visibility,
+    }),
+  ),
+  gaps: Schema.Array(Schema.NonEmptyString),
+  authorization: Schema.Union(
+    Schema.Struct({ kind: Schema.Literal("absent") }),
+    approval,
+  ),
+}) {}
+```
+
+Trusted composition supplies authorized earlier evidence and candidate-specific
+approval. Agent identity and principal identity have different meanings.
+The first live composition supplies absent approval.
+
+### [`MessageMiddleware`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L176)
+
+_Interface_
+
+```ts
+export interface MessageMiddleware {
+  readonly id: string;
+  readonly revision: string;
+  readonly rules: readonly RuleDescription[];
+  readonly check: (
+    input: MiddlewareInput,
+  ) => Effect.Effect<MiddlewareResult, MiddlewareError>;
+}
+```
+
+Code and English policies have the same contract. Registered code is trusted;
+it receives no messaging/store capability and must not retain conversation
+state or perform messaging side effects.
+
+### [`MiddlewareError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L142)
+
+_Class_
+
+```ts
+export class MiddlewareError extends Data.TaggedError("MiddlewareError")<{
+  readonly reason:
+    | "unavailable"
+    | "timeout"
+    | "invalid-result"
+    | "budget"
+    | "defect";
+}> {}
+```
+
+Operational failures carry closed reasons, never arbitrary exception text.
+
+### [`MiddlewareInput`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L163)
+
+_Interface_
+
+```ts
+export class MiddlewareInput extends Schema.Class<MiddlewareInput>(
+  "MiddlewareInput",
+)({
+  event: messageEvent,
+  context: MessageContext,
+  previous: Schema.Array(MiddlewareObservation),
+}) {}
+```
+
+Each invocation gets immutable evidence and previously validated observations.
+
+### [`MiddlewareResult`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L133)
+
+_Interface_
+
+```ts
+export class MiddlewareResult extends Schema.Class<MiddlewareResult>(
+  "MiddlewareResult",
+)({
+  findings: Schema.Array(policyFinding),
+  expectations: Schema.Array(NormExpectation),
+  trace: Schema.optional(PrivateCheckTrace),
+}) {}
+```
+
+A result is atomic: interrupted middleware has no returned partial findings.
+
+### [`RuleDescription`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L72)
+
+_Interface_
+
+```ts
+export class RuleDescription extends Schema.Class<RuleDescription>(
+  "RuleDescription",
+)({
+  id: identifier,
+  kind: Schema.Literal("safety", "autonomy", "norm"),
+  source: Schema.optional(identifier),
+  guidance: Schema.optional(Schema.NonEmptyString),
+  feedback: Schema.optional(
+    Schema.Struct({
+      text: Schema.NonEmptyString,
+      nextAction,
+    }),
+  ),
+}) {}
+```
+
+Runtime advice can only select templates registered by trusted composition.
+
+## Files
+
+- `english.ts`
+- `index.ts`
+- `jev.ts`
+- `values.ts`

@@ -66,6 +66,16 @@
   ],
   "domains": [
     {
+      "name": "firewall",
+      "roots": [
+        "src/firewall"
+      ],
+      "entrypoints": [
+        "src/firewall/index.ts"
+      ],
+      "reason": "Message middleware and optional decision providers, without storage, host or protocol capabilities"
+    },
+    {
       "name": "identity",
       "roots": [
         "src/identity"
@@ -231,6 +241,13 @@
         "identity"
       ],
       "reason": "The agent signing key and secret credential files, read exactly and failing closed"
+    },
+    {
+      "name": "firewall",
+      "folders": [
+        "firewall"
+      ],
+      "reason": "Message middleware and optional decision providers, without storage, host or protocol capabilities"
     }
   ],
   "publicTypePackages": [

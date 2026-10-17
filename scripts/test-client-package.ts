@@ -87,6 +87,57 @@ const publishedPackages: ReadonlySet<string> = new Set(
   Object.keys(workspacePackageRoots),
 );
 
+/** A packed consumer composes English and code middleware without a live provider. */
+const policyConsumerCheck = `
+const { Effect } = await import("effect");
+const english = await Effect.runPromise(service.makeEnglishPolicy({
+  id: "owner",
+  rules: [{ id: "privacy", kind: "safety", text: "Do not disclose unrelated private appointments." }],
+  provider: {
+    decide: () => Effect.fail(new service.DecisionProviderError({
+      reason: "transport",
+    })),
+  },
+  settings: {
+    minimumProbability: 0.5,
+    maximumRequestBytes: 60000,
+    timeoutMilliseconds: 1000,
+  },
+}));
+const code = {
+  id: "code", revision: "v1", rules: [{ id: "local", kind: "safety" }],
+  check: () => Effect.succeed({ findings: [{ ruleId: "local", outcome: "pass" }], expectations: [] }),
+};
+const firewall = await Effect.runPromise(service.makeFirewall({
+  incoming: [code], outgoing: [code, english],
+  settings: { timeoutMilliseconds: 10000, middlewareTimeoutMilliseconds: 5000,
+    maximumInputBytes: 60000, maximumResultBytes: 100000 },
+}));
+const message = {
+    id: "draft",
+    sender: "organizer",
+    recipients: ["participant"],
+    text: "Are you free Tuesday?",
+};
+const context = {
+  agentId: "organizer", principal: "owner", participants: [],
+  history: [],
+  facts: [],
+  gaps: [],
+  authorization: { kind: "absent" },
+};
+const assessment = await Effect.runPromise(firewall.checkOutgoing(message, context));
+if (assessment.judgment !== "hold" ||
+    assessment.reason !== "check-unavailable") {
+  throw new Error("Client policy assessment did not hold an unavailable check");
+}
+const incoming = { ...message, sender: "participant", recipients: ["organizer"] };
+const received = await Effect.runPromise(firewall.checkIncoming(incoming, context));
+if (received.judgment !== "allow") {
+  throw new Error("Client code middleware could not admit an incoming message");
+}
+`;
+
 runGate("moltzap-client-pack-", (temporaryRoot) =>
   Effect.gen(function* () {
     const { archives, manifests } = yield* packWorkspaceClosure(
@@ -96,15 +147,27 @@ runGate("moltzap-client-pack-", (temporaryRoot) =>
     );
     const archive = archives["@moltzap/client"];
     const manifest = manifests["@moltzap/client"];
-    if (archive === undefined || manifest === undefined) {
-      return yield* new PackGateError({ message: "client did not pack" });
+    const effectDependency = manifest?.dependencies?.effect;
+    if (
+      archive === undefined ||
+      manifest === undefined ||
+      effectDependency === undefined
+    ) {
+      return yield* new PackGateError({
+        message: "client package or Effect dependency is missing",
+      });
     }
     const publicSpecifiers = yield* verifyPackedManifest(
       archive,
       manifest,
       temporaryRoot,
     );
-    yield* verifyConsumerImports(archives, publicSpecifiers, temporaryRoot);
+    yield* verifyConsumerImports(
+      archives,
+      publicSpecifiers,
+      temporaryRoot,
+      effectDependency,
+    );
     return "client package consumer check passed";
   }),
 );
@@ -265,6 +328,7 @@ function verifyConsumerImports(
   archives: Archives,
   publicSpecifiers: readonly string[],
   temporaryRoot: string,
+  effectDependency: string,
 ): Effect.Effect<void, GateError, GateServices> {
   return Effect.gen(function* () {
     const consumerRoot = yield* installPackedConsumer({
@@ -272,6 +336,7 @@ function verifyConsumerImports(
       workspaceRoot,
       name: "moltzap-client-packed-consumer",
       archives,
+      dependencies: { effect: effectDependency },
     });
     const checkPath = join(consumerRoot, "check.mjs");
     const fs = yield* FileSystem.FileSystem;
@@ -283,8 +348,8 @@ function verifyConsumerImports(
         `\nconst root = await import("@moltzap/client");\n` +
         `if (!("HistoryExportRecord" in root)) throw new Error("Client root does not export HistoryExportRecord");\n` +
         `\nconst service = await import("@moltzap/client/service");\n` +
-        `if (Object.keys(service).join(",") !== "MoltZapService") throw new Error("unexpected Client service exports");\n` +
-        `if (Object.keys(service.MoltZapService).sort().join(",") !== "StartupError,layer") throw new Error("unexpected MoltZapService namespace");\n`,
+        `if (Object.keys(service.MoltZapService).sort().join(",") !== "StartupError,layer") throw new Error("unexpected MoltZapService namespace");\n` +
+        policyConsumerCheck,
     );
     yield* runCommand(process.execPath, [checkPath], {
       cwd: consumerRoot,
