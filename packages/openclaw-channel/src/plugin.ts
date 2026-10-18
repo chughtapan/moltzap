@@ -107,21 +107,21 @@ interface OpenClawAccountRuntime {
   >;
 }
 
-const moltZapAccountSchema = Schema.Struct({
+const accountSchema = Schema.Struct({
   id: Schema.String,
   enabled: Schema.optional(Schema.Boolean),
   mode: Schema.optional(Schema.Literal("shared", "private")),
 });
 
 /** One OpenClaw account bound to the process-local MCP endpoint. */
-type MoltZapAccount = Schema.Schema.Type<typeof moltZapAccountSchema>;
+type Account = Schema.Schema.Type<typeof accountSchema>;
 
-const moltZapChannelConfigSchema = Schema.Struct({
-  accounts: Schema.optional(Schema.Tuple(moltZapAccountSchema)),
+const channelConfigSchema = Schema.Struct({
+  accounts: Schema.optional(Schema.Tuple(accountSchema)),
 });
-const moltZapOpenClawConfigSchema = Schema.Struct({
+const openClawConfigSchema = Schema.Struct({
   channels: Schema.optional(
-    Schema.Struct({ moltzap: Schema.optional(moltZapChannelConfigSchema) }),
+    Schema.Struct({ moltzap: Schema.optional(channelConfigSchema) }),
   ),
 });
 
@@ -169,7 +169,7 @@ interface HostTurn {
 }
 
 interface InboundTurnInput {
-  readonly ctx: ChannelGatewayContext<MoltZapAccount>;
+  readonly ctx: ChannelGatewayContext<Account>;
   readonly runtime: OpenClawAccountRuntime;
   readonly turn: HostTurn;
 }
@@ -181,10 +181,10 @@ interface TextSend {
   readonly text: unknown;
 }
 
-interface MoltzapChannelPluginDeps {
+interface ChannelPluginDeps {
   readonly harnessEndpointForAccount?: (
     accountId: string,
-    account: MoltZapAccount,
+    account: Account,
   ) => HarnessEndpoint | undefined;
 }
 
@@ -269,8 +269,8 @@ const carriesTargets = Schema.is(Schema.NonEmptyArray(Schema.Unknown));
  * @returns The JSON Schema embedded in the OpenClaw plugin manifest.
  * @internal
  */
-export function makeMoltZapChannelConfigJsonSchema() {
-  return JSONSchema.make(moltZapChannelConfigSchema);
+export function makeChannelConfigJsonSchema() {
+  return JSONSchema.make(channelConfigSchema);
 }
 
 /**
@@ -300,12 +300,12 @@ export function makeMoltZapChannelConfigJsonSchema() {
  * @returns The MoltZap channel plugin.
  * @internal
  */
-export function createMoltzapChannelPlugin(
-  deps: MoltzapChannelPluginDeps = {},
-): ChannelPlugin<MoltZapAccount> {
+export function createChannelPlugin(
+  deps: ChannelPluginDeps = {},
+): ChannelPlugin<Account> {
   const connectedAccount: ConnectedAccountState = {};
   return {
-    ...createChannelPluginBase<MoltZapAccount>({
+    ...createChannelPluginBase<Account>({
       id: CHANNEL_ID,
       meta: createPluginMeta(),
     }),
@@ -361,13 +361,13 @@ function createConfigSection() {
         .filter((id) => id.length > 0);
     },
     resolveAccount,
-    isConfigured(account: MoltZapAccount): boolean {
+    isConfigured(account: Account): boolean {
       return account.enabled !== false && account.id.trim().length > 0;
     },
     unconfiguredReason(): string {
       return "A nonempty MoltZap OpenClaw account id is required";
     },
-    isEnabled(account: MoltZapAccount): boolean {
+    isEnabled(account: Account): boolean {
       return account.enabled !== false;
     },
   };
@@ -475,7 +475,7 @@ function createMessageSection(connectedAccount: ConnectedAccountState) {
 function resolveAccount(
   cfg: OpenClawConfig,
   accountId?: string | null,
-): MoltZapAccount {
+): Account {
   if (accountId === undefined || accountId === null) {
     return { id: "", enabled: false };
   }
@@ -487,14 +487,11 @@ function resolveAccount(
   );
 }
 
-function resolveAccountList(cfg: OpenClawConfig): readonly MoltZapAccount[] {
-  return Option.match(
-    Schema.decodeUnknownOption(moltZapOpenClawConfigSchema)(cfg),
-    {
-      onNone: () => [],
-      onSome: (decoded) => decoded.channels?.moltzap?.accounts ?? [],
-    },
-  );
+function resolveAccountList(cfg: OpenClawConfig): readonly Account[] {
+  return Option.match(Schema.decodeUnknownOption(openClawConfigSchema)(cfg), {
+    onNone: () => [],
+    onSome: (decoded) => decoded.channels?.moltzap?.accounts ?? [],
+  });
 }
 
 function isExplicitMessageTarget(raw: string): boolean {
@@ -515,9 +512,9 @@ function normalizeMessageTarget(raw: string): ResolvedMessageTarget | null {
 }
 
 function startAccountConnection(
-  ctx: ChannelGatewayContext<MoltZapAccount>,
+  ctx: ChannelGatewayContext<Account>,
   connectedAccount: ConnectedAccountState,
-  deps: MoltzapChannelPluginDeps,
+  deps: ChannelPluginDeps,
 ) {
   if (ctx.abortSignal.aborted) {
     return Promise.resolve();
@@ -545,7 +542,7 @@ function startAccountConnection(
  * @returns The routing and inbound services scoped to this account task.
  */
 function requireOpenClawAccountRuntime(
-  ctx: ChannelGatewayContext<MoltZapAccount>,
+  ctx: ChannelGatewayContext<Account>,
 ): Effect.Effect<OpenClawAccountRuntime, OpenClawRuntimeError> {
   if (
     ctx.channelRuntime !== undefined &&
@@ -596,9 +593,9 @@ function hasOpenClawRoutingRuntime(runtime: ChannelRuntimeSurface): boolean {
 }
 
 function acquireAccountEndpoint(
-  deps: MoltzapChannelPluginDeps,
+  deps: ChannelPluginDeps,
   accountId: string,
-  account: MoltZapAccount,
+  account: Account,
 ) {
   const injected = deps.harnessEndpointForAccount?.(accountId, account);
   if (injected !== undefined) {
@@ -612,7 +609,7 @@ function configuredMcpEndpoint() {
 }
 
 function runAccountConnection(
-  ctx: ChannelGatewayContext<MoltZapAccount>,
+  ctx: ChannelGatewayContext<Account>,
   runtime: OpenClawAccountRuntime,
   endpoint: HarnessEndpoint,
   connectedAccount: ConnectedAccountState,
@@ -661,7 +658,7 @@ function runAccountConnection(
  * @returns An effect that ends with the stream or the abort signal.
  */
 function consumeInboundMessages(
-  ctx: ChannelGatewayContext<MoltZapAccount>,
+  ctx: ChannelGatewayContext<Account>,
   runtime: OpenClawAccountRuntime,
   endpoint: HarnessEndpoint,
 ) {
@@ -684,7 +681,7 @@ function consumeInboundMessages(
 }
 
 function reportConnected(
-  ctx: ChannelGatewayContext<MoltZapAccount>,
+  ctx: ChannelGatewayContext<Account>,
 ): Effect.Effect<void> {
   return Effect.sync(() => {
     ctx.log?.info?.(`MoltZap: connected for account ${ctx.accountId}`);
@@ -699,7 +696,7 @@ function reportConnected(
 }
 
 function handleInboundDelivery(
-  ctx: ChannelGatewayContext<MoltZapAccount>,
+  ctx: ChannelGatewayContext<Account>,
   runtime: OpenClawAccountRuntime,
   delivery: InboundDelivery,
 ) {
@@ -798,7 +795,7 @@ function agentSender(address: string): TurnSender {
 }
 
 function logInbound(
-  ctx: ChannelGatewayContext<MoltZapAccount>,
+  ctx: ChannelGatewayContext<Account>,
   turn: HostTurn,
 ): Effect.Effect<void> {
   return Effect.sync(() => {
@@ -815,7 +812,7 @@ function logInbound(
 }
 
 function runOpenClawTurn(
-  ctx: ChannelGatewayContext<MoltZapAccount>,
+  ctx: ChannelGatewayContext<Account>,
   runtime: OpenClawAccountRuntime,
   turn: HostTurn,
 ): Effect.Effect<void, OpenClawInboundError> {
@@ -984,7 +981,7 @@ function inboundGroupFacts(turn: HostTurn) {
  * warning is the only trace of that, so it names the size, never the text.
  */
 function withholdFinalText(
-  ctx: ChannelGatewayContext<MoltZapAccount>,
+  ctx: ChannelGatewayContext<Account>,
   payload: ReplyPayload,
 ) {
   if (payload.text !== undefined && payload.text.length > 0) {
@@ -1217,7 +1214,7 @@ const plugin: OpenClawPluginDefinition &
     id: "openclaw-channel",
     name: "MoltZap",
     description: "Agent-to-agent messaging through the local MoltZap endpoint",
-    plugin: createMoltzapChannelPlugin(),
+    plugin: createChannelPlugin(),
   });
 
 // eslint-disable-next-line import-x/no-default-export -- OpenClaw discovers plugins through a required default export.

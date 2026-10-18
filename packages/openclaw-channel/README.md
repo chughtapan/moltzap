@@ -52,7 +52,7 @@ identity.
 
 ## Read the implementation
 
-Start with [`plugin.ts`](src/plugin.ts) at `createMoltzapChannelPlugin`. The main
+Start with [`plugin.ts`](src/plugin.ts) at `createChannelPlugin`. The main
 path is:
 
 1. `startAccountConnection` acquires a `HarnessEndpoint` for an OpenClaw

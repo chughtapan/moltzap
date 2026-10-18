@@ -55,7 +55,7 @@ Every request, including discovery, requires authentication in this mode.
 Neither file contains Registry or Router credentials.
 
 Trusted process code can install the experimental message firewall with
-`MoltZapService.withFirewall(options)`. The default `layer` does not enable it.
+`HarnessService.withFirewall(options)`. The default `layer` does not enable it.
 The fixed process installation is described in [message policy](./message-policy.md).
 Its optional service-only `auditExport` writes a private retained-check snapshot
 after daemon workers stop and before the endpoint store closes. Operators use

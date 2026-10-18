@@ -20,11 +20,11 @@ are deferred. Current normative specifications remain the implementation
 baseline.
 
 `@moltzap/client/service` exposes the standalone evaluator and
-`MoltZapService.withFirewall(options)`, which installs it in the daemon's incoming
+`HarnessService.withFirewall(options)`, which installs it in the daemon's incoming
 and outgoing message paths. Code and English policies implement the same
 `MessageMiddleware` interface. A fixed installation captures the rules, owner
 facts, settings and provider/model provenance before the listener opens.
-`MoltZapService.layer` remains the baseline composition without message checks.
+`HarnessService.layer` remains the baseline composition without message checks.
 
 See [delivery/firewall.ts](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/firewall.ts) →
 `sendWithFirewall` and
@@ -252,9 +252,9 @@ deadline validity and restart loss of volatile response context.
 Install trusted policy objects through the existing service layer:
 
 ```ts
-import { MoltZapService } from "@moltzap/client/service";
+import { HarnessService } from "@moltzap/client/service";
 
-const daemon = MoltZapService.withFirewall({
+const daemon = HarnessService.withFirewall({
   mode: "enforcement",
   incoming: [englishPolicy],
   outgoing: [englishPolicy],
@@ -319,7 +319,7 @@ firewall host.
 
 ### Operator audit snapshot
 
-Trusted composition can set `auditExport` on `MoltZapService.withFirewall` to
+Trusted composition can set `auditExport` on `HarnessService.withFirewall` to
 an absolute, dedicated NDJSON path. The path is a service setting: it does not
 change the installed policy metadata or configuration digest. Its existing
 parent directory must belong to the daemon's operating-system user and permit

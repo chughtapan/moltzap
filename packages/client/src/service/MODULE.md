@@ -24,6 +24,10 @@ _TypeAlias_
 
 Trusted fixed process composition; agents receive no policy mutation capability.
 
+### [`HarnessService`](./index.ts#L61)
+
+_Namespace_
+
 ### [`layer`](./index.ts#L129)
 
 _Variable_
@@ -36,17 +40,13 @@ _Variable_
 
 Complete production process composition for `moltzapd`.
 
-### [`MoltZapService`](./index.ts#L61)
-
-_Namespace_
-
 ### [`StartupError`](./index.ts#L72)
 
 _Class_
 
 ```ts
   export class StartupError extends Data.TaggedError(
-    "MoltZapServiceStartupError",
+    "HarnessServiceStartupError",
   )<{
     readonly phase: "configuration" | "storage" | "listener";
   }> {

@@ -4,38 +4,38 @@
  */
 
 import type { Layer, Types } from "effect";
-import type { MoltZapService } from "./index.js";
+import type { HarnessService } from "./index.js";
 
 type Expect<Value extends true> = Value;
 
 type NamespaceIsExact = Expect<
   Types.Equals<
-    keyof typeof MoltZapService,
+    keyof typeof HarnessService,
     "StartupError" | "layer" | "withFirewall"
   >
 >;
-type StartupValue = InstanceType<typeof MoltZapService.StartupError>;
+type StartupValue = InstanceType<typeof HarnessService.StartupError>;
 type StartupTagIsExact = Expect<
-  Types.Equals<StartupValue["_tag"], "MoltZapServiceStartupError">
+  Types.Equals<StartupValue["_tag"], "HarnessServiceStartupError">
 >;
 type StartupPhaseIsExact = Expect<
   Types.Equals<StartupValue["phase"], "configuration" | "storage" | "listener">
 >;
 type LayerIsExact = Expect<
   Types.Equals<
-    typeof MoltZapService.layer,
-    Layer.Layer<never, MoltZapService.StartupError>
+    typeof HarnessService.layer,
+    Layer.Layer<never, HarnessService.StartupError>
   >
 >;
 type AuditPathIsOptional = Expect<
   Types.Equals<
-    MoltZapService.FirewallOptions["auditExport"],
+    HarnessService.FirewallOptions["auditExport"],
     string | undefined
   >
 >;
 
 /** Compile-time witnesses for the closed Client process boundary. */
-export type MoltZapServiceCanaries = [
+export type HarnessServiceCanaries = [
   NamespaceIsExact,
   StartupTagIsExact,
   StartupPhaseIsExact,

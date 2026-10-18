@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { NodeRuntime } from "@effect/platform-node";
 import { ConfigProvider, Effect, Layer } from "effect";
-import { MoltZapService } from "../dist/service/index.js";
+import { HarnessService } from "../dist/service/index.js";
 
-Layer.launch(MoltZapService.layer).pipe(
+Layer.launch(HarnessService.layer).pipe(
   Effect.withConfigProvider(ConfigProvider.fromEnv()),
   NodeRuntime.runMain,
 );

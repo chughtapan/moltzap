@@ -1,6 +1,7 @@
 /** @file Projects the public MoltZap endpoint capability into NanoClaw. */
 import {
   acquireHarnessEndpoint,
+  type InboundMessage as ClientInboundMessage,
   type CollectiveError,
   type ConnectError,
   type DeliveryAcknowledgeError,
@@ -10,7 +11,6 @@ import {
   type InboundDelivery,
   type InboundItem,
   MessageAddressInput,
-  type InboundMessage as MoltZapInboundMessage,
   parseMessageText,
   renderCollectiveRequest,
   renderCollectiveResult,
@@ -39,7 +39,7 @@ import { registerChannelAdapter } from "./channel-registry.js";
 /* eslint-disable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- NanoClaw's mirrored ChannelAdapter lifecycle is Promise-based. */
 
 /** A NanoClaw host value cannot cross the addressed Client boundary. */
-class MoltZapChannelError extends Data.TaggedError("MoltZapChannelError")<{
+class ChannelError extends Data.TaggedError("ChannelError")<{
   readonly reason: string;
 }> {
   override get message(): string {
@@ -72,13 +72,13 @@ const MOLTZAP_CHANNEL_DEFAULTS = Object.freeze({
  */
 const MOLTZAP_INBOUND_TIMESTAMP = "1970-01-01T00:00:00.000Z";
 
-const moltZapChannelEnv = Config.all({
+const channelEnv = Config.all({
   mcpEndpoint: Config.option(Config.string("MOLTZAP_MCP_URL")).pipe(
     Config.map(Option.getOrNull),
   ),
 });
 
-interface MoltZapActivation {
+interface Activation {
   readonly endpoint: HarnessEndpoint;
   readonly finished: Deferred.Deferred<undefined>;
   readonly scope: Scope.CloseableScope;
@@ -86,15 +86,15 @@ interface MoltZapActivation {
   state: "active" | "stopping";
 }
 
-interface MoltZapOutboundFile {
+interface OutboundFile {
   readonly filename: string;
   readonly data: Uint8Array;
 }
 
-interface MoltZapOutboundMessage {
+interface OutboundMessage {
   readonly kind: string;
   readonly content: unknown;
-  readonly files?: readonly MoltZapOutboundFile[];
+  readonly files?: readonly OutboundFile[];
 }
 
 /** One outbound row's address and text, ready for the Client's parser. */
@@ -109,8 +109,8 @@ interface OutboundText {
  */
 function decodeOutboundText(
   address: string,
-  message: MoltZapOutboundMessage,
-): Effect.Effect<OutboundText, MoltZapChannelError> {
+  message: OutboundMessage,
+): Effect.Effect<OutboundText, ChannelError> {
   return decodeOutboundOperation(message).pipe(
     Effect.flatMap((text) =>
       Schema.decodeUnknown(MessageAddressInput)(address).pipe(
@@ -119,7 +119,7 @@ function decodeOutboundText(
     ),
     Effect.catchTag("ParseError", () =>
       Effect.fail(
-        new MoltZapChannelError({
+        new ChannelError({
           reason:
             "MoltZap outbound delivery requires an explicit agent or group address",
         }),
@@ -129,18 +129,18 @@ function decodeOutboundText(
 }
 
 function decodeOutboundOperation(
-  message: MoltZapOutboundMessage,
-): Effect.Effect<string, MoltZapChannelError> {
+  message: OutboundMessage,
+): Effect.Effect<string, ChannelError> {
   if (message.kind !== "chat") {
     return Effect.fail(
-      new MoltZapChannelError({
+      new ChannelError({
         reason: "MoltZap outbound messages must use NanoClaw chat delivery",
       }),
     );
   }
   if (message.files !== undefined && message.files.length > 0) {
     return Effect.fail(
-      new MoltZapChannelError({
+      new ChannelError({
         reason: "MoltZap outbound messages do not accept native files",
       }),
     );
@@ -148,7 +148,7 @@ function decodeOutboundOperation(
   const text = extractOutboundText(message);
   return text === null
     ? Effect.fail(
-        new MoltZapChannelError({
+        new ChannelError({
           reason: "MoltZap outbound messages require text content",
         }),
       )
@@ -161,7 +161,7 @@ function decodeOutboundOperation(
  * @param message One outbound row as NanoClaw delivers it.
  * @returns The text, or null when the row carries none.
  */
-function extractOutboundText(message: MoltZapOutboundMessage): string | null {
+function extractOutboundText(message: OutboundMessage): string | null {
   const content = message.content;
   if (typeof content === "string") {
     return content;
@@ -249,7 +249,7 @@ function endpointInbound(input: {
  * ```mermaid
  * sequenceDiagram
  *   participant Client as HarnessEndpoint
- *   participant Adapter as MoltZapChannelAdapter
+ *   participant Adapter as HarnessChannelAdapter
  *   participant Host as NanoClaw host
  *   Client->>Adapter: InboundDelivery<br>multicast, request, result or failure
  *   Adapter->>Host: onMetadata<br>address and group shape
@@ -262,14 +262,14 @@ function endpointInbound(input: {
  *
  * The stream acknowledges after the stock host callback completes.
  */
-class MoltZapChannelAdapter {
+class HarnessChannelAdapter {
   readonly name = MOLTZAP_CHANNEL;
   readonly channelType = MOLTZAP_CHANNEL;
   readonly supportsThreads = false;
 
   private readonly lifecycleGate = Effect.runSync(Effect.makeSemaphore(1));
   private readonly mcpEndpoint: string;
-  private activation: MoltZapActivation | null = null;
+  private activation: Activation | null = null;
   private setupConfig: ChannelSetup | null = null;
 
   constructor(mcpEndpoint: string) {
@@ -298,7 +298,7 @@ class MoltZapChannelAdapter {
 
   deliver(
     platformId: string,
-    ...args: [threadId: string | null, message: MoltZapOutboundMessage]
+    ...args: [threadId: string | null, message: OutboundMessage]
     // #ignore-sloppy-code-next-line[promise-type]: NanoClaw's ChannelAdapter delivery contract is Promise-native at the host boundary.
   ): Promise<string | undefined> {
     return Effect.runPromise(
@@ -308,7 +308,7 @@ class MoltZapChannelAdapter {
 
   private start(
     config: ChannelSetup,
-  ): Effect.Effect<void, ConnectError | MoltZapChannelError> {
+  ): Effect.Effect<void, ConnectError | ChannelError> {
     const current = this.activation;
     if (current?.state === "active") {
       this.setupConfig = config;
@@ -320,12 +320,12 @@ class MoltZapChannelAdapter {
       );
     }
     return Effect.gen(
-      function* (this: MoltZapChannelAdapter) {
+      function* (this: HarnessChannelAdapter) {
         const scope = yield* Scope.make();
         const endpoint = yield* this.acquireEndpoint(scope).pipe(
           Effect.onError(() => Scope.close(scope, Exit.void)),
         );
-        const activation: MoltZapActivation = {
+        const activation: Activation = {
           endpoint,
           finished: yield* Deferred.make<undefined>(),
           scope,
@@ -356,7 +356,7 @@ class MoltZapChannelAdapter {
         );
   }
 
-  private finishActivation(activation: MoltZapActivation): Effect.Effect<void> {
+  private finishActivation(activation: Activation): Effect.Effect<void> {
     return this.beginStopping(activation).pipe(
       Effect.zipRight(Scope.close(activation.scope, Exit.void)),
       Effect.zipRight(
@@ -372,7 +372,7 @@ class MoltZapChannelAdapter {
     );
   }
 
-  private beginStopping(activation: MoltZapActivation): Effect.Effect<void> {
+  private beginStopping(activation: Activation): Effect.Effect<void> {
     return Effect.sync(() => {
       if (this.activation === activation) {
         activation.state = "stopping";
@@ -383,11 +383,11 @@ class MoltZapChannelAdapter {
 
   private acquireEndpoint(
     scope: Scope.CloseableScope,
-  ): Effect.Effect<HarnessEndpoint, ConnectError | MoltZapChannelError> {
+  ): Effect.Effect<HarnessEndpoint, ConnectError | ChannelError> {
     return Effect.try({
       try: () => new URL(this.mcpEndpoint),
       catch: () =>
-        new MoltZapChannelError({
+        new ChannelError({
           reason: "MoltZap channel MCP endpoint is invalid",
         }),
     }).pipe(Effect.flatMap(acquireHarnessEndpoint), Scope.extend(scope));
@@ -395,16 +395,16 @@ class MoltZapChannelAdapter {
 
   private deliverEffect(
     address: string,
-    message: MoltZapOutboundMessage,
+    message: OutboundMessage,
   ): Effect.Effect<
     void,
-    MoltZapChannelError | SendError | CollectiveError | FirewallSendError
+    ChannelError | SendError | CollectiveError | FirewallSendError
   > {
     const activation = this.activation;
     const config = this.setupConfig;
     if (activation?.state !== "active" || config === null) {
       return Effect.fail(
-        new MoltZapChannelError({
+        new ChannelError({
           reason: "MoltZap channel is not connected",
         }),
       );
@@ -416,7 +416,7 @@ class MoltZapChannelAdapter {
           text,
         }): Effect.Effect<
           void,
-          MoltZapChannelError | SendError | CollectiveError | FirewallSendError
+          ChannelError | SendError | CollectiveError | FirewallSendError
         > =>
           Either.match(parseMessageText(to, text), {
             onLeft: (error) =>
@@ -452,7 +452,7 @@ class MoltZapChannelAdapter {
     config: ChannelSetup,
     to: MessageAddressInput,
     error: SendError,
-  ): Effect.Effect<void, MoltZapChannelError> {
+  ): Effect.Effect<void, ChannelError> {
     const report = this.reportRefusedText(config, to, error.message);
     return POSTED_REFUSALS.has(error.reason)
       ? report.pipe(
@@ -483,7 +483,7 @@ class MoltZapChannelAdapter {
     config: ChannelSetup,
     to: MessageAddressInput,
     report: string,
-  ): Effect.Effect<void, MoltZapChannelError> {
+  ): Effect.Effect<void, ChannelError> {
     return this.handToHost(
       config,
       to,
@@ -493,14 +493,14 @@ class MoltZapChannelAdapter {
 
   private handleDelivery(
     delivery: InboundDelivery,
-  ): Effect.Effect<void, MoltZapChannelError | DeliveryAcknowledgeError> {
+  ): Effect.Effect<void, ChannelError | DeliveryAcknowledgeError> {
     const config = this.setupConfig;
     if (config === null) {
       return Effect.void;
     }
     if (delivery.guidance !== undefined) {
       return Effect.fail(
-        new MoltZapChannelError({
+        new ChannelError({
           reason:
             "MoltZap local guidance requires a supported host projection; use the OpenClaw adapter for this experiment",
         }),
@@ -524,7 +524,7 @@ class MoltZapChannelAdapter {
   private handleItem(
     config: ChannelSetup,
     item: InboundItem,
-  ): Effect.Effect<void, MoltZapChannelError> {
+  ): Effect.Effect<void, ChannelError> {
     switch (item.kind) {
       case "multicast":
         return this.handToHost(
@@ -579,12 +579,12 @@ class MoltZapChannelAdapter {
     config: ChannelSetup,
     address: string,
     inbound: InboundMessage,
-  ): Effect.Effect<void, MoltZapChannelError> {
+  ): Effect.Effect<void, ChannelError> {
     const isGroup = inbound.isGroup === true;
     const content = JSON.stringify(inbound.content);
     if (content === undefined) {
       return Effect.fail(
-        new MoltZapChannelError({
+        new ChannelError({
           reason: `NanoClaw could not serialize inbound content for ${address}`,
         }),
       );
@@ -611,7 +611,7 @@ class MoltZapChannelAdapter {
         );
       },
       catch: (cause) =>
-        new MoltZapChannelError({
+        new ChannelError({
           reason: `NanoClaw inbound callback failed for ${address}: ${String(cause)}`,
         }),
     }).pipe(Effect.asVoid);
@@ -623,7 +623,7 @@ class MoltZapChannelAdapter {
    * @param message Addressed message delivered by Client.
    * @returns NanoClaw's stable native inbox representation.
    */
-  private toInboundMessage(message: MoltZapInboundMessage): InboundMessage {
+  private toInboundMessage(message: ClientInboundMessage): InboundMessage {
     return endpointInbound({
       id: message.postId,
       address: message.address,
@@ -633,16 +633,16 @@ class MoltZapChannelAdapter {
   }
 }
 
-function makeMoltZapChannelAdapter(): MoltZapChannelAdapter | null {
+function makeHarnessChannelAdapter(): HarnessChannelAdapter | null {
   const { mcpEndpoint } = Effect.runSync(
-    moltZapChannelEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
+    channelEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
   );
-  return mcpEndpoint === null ? null : new MoltZapChannelAdapter(mcpEndpoint);
+  return mcpEndpoint === null ? null : new HarnessChannelAdapter(mcpEndpoint);
 }
 
 registerChannelAdapter(MOLTZAP_CHANNEL, {
   defaults: MOLTZAP_CHANNEL_DEFAULTS,
-  factory: makeMoltZapChannelAdapter,
+  factory: makeHarnessChannelAdapter,
 });
 
 /* eslint-enable jsdoc/text-escaping -- Restore strict defaults after the Mermaid block. */

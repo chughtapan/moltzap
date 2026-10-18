@@ -8,7 +8,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/channel-core";
 import { Data, Effect, FastCheck as fc } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createMoltzapChannelPlugin } from "./plugin.js";
+import { createChannelPlugin } from "./plugin.js";
 
 const HIDE_COLLECTIVES = "MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES";
 const REFUSAL = "gather, all_gather and answers are not available";
@@ -71,7 +71,7 @@ function switchLeavesActionsUnchanged() {
 }
 
 function describeTool() {
-  return createMoltzapChannelPlugin().actions?.describeMessageTool({
+  return createChannelPlugin().actions?.describeMessageTool({
     cfg: CONFIG,
   });
 }
@@ -146,7 +146,7 @@ function messageAction(
   action: "send" | "reply",
   params: ChannelMessageActionContext["params"],
 ) {
-  const handleAction = createMoltzapChannelPlugin().actions?.handleAction;
+  const handleAction = createChannelPlugin().actions?.handleAction;
   return Effect.tryPromise({
     try: () =>
       handleAction?.({

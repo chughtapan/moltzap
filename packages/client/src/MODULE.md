@@ -617,17 +617,17 @@ What a completed send returns: a collecting operation names its id.
 
 ### `@moltzap/client/service`
 
-#### [`MoltZapService`](./service/index.ts#L61)
+#### [`HarnessService`](./service/index.ts#L61)
 
 _Namespace_
 
-#### [`MoltZapService.StartupError`](./service/index.ts#L72)
+#### [`HarnessService.StartupError`](./service/index.ts#L72)
 
 _Class_
 
 ```ts
   export class StartupError extends Data.TaggedError(
-    "MoltZapServiceStartupError",
+    "HarnessServiceStartupError",
   )<{
     readonly phase: "configuration" | "storage" | "listener";
   }> {
@@ -643,7 +643,7 @@ _Class_
 
 Closed daemon startup phase without configuration or platform detail.
 
-#### [`MoltZapService.FirewallOptions`](./service/index.ts#L63)
+#### [`HarnessService.FirewallOptions`](./service/index.ts#L63)
 
 _TypeAlias_
 
@@ -659,7 +659,7 @@ _TypeAlias_
 
 Trusted fixed process composition; agents receive no policy mutation capability.
 
-#### [`MoltZapService.layer`](./service/index.ts#L129)
+#### [`HarnessService.layer`](./service/index.ts#L129)
 
 _Variable_
 
@@ -671,7 +671,7 @@ _Variable_
 
 Complete production process composition for `moltzapd`.
 
-#### [`MoltZapService.withFirewall`](./service/index.ts#L138)
+#### [`HarnessService.withFirewall`](./service/index.ts#L138)
 
 _Function_
 
@@ -685,7 +685,7 @@ Fixed middleware and owner evidence are installed before the daemon accepts host
 
 **Returns:** The complete daemon layer with both message boundaries checked.
 
-#### [`MoltZapService.CheckInputError`](./firewall/values.ts#L198)
+#### [`HarnessService.CheckInputError`](./firewall/values.ts#L198)
 
 _Class_
 
@@ -697,7 +697,7 @@ export class CheckInputError extends Data.TaggedError("CheckInputError")<{
 
 Invalid construction or evidence is a typed failure, never permission.
 
-#### [`MoltZapService.DecisionProviderError`](./firewall/values.ts#L307)
+#### [`HarnessService.DecisionProviderError`](./firewall/values.ts#L307)
 
 _Class_
 
@@ -720,7 +720,7 @@ export class DecisionProviderError extends Data.TaggedError(
 
 The adapter scrubs credentials before retaining optional private diagnostics.
 
-#### [`MoltZapService.MiddlewareError`](./firewall/values.ts#L142)
+#### [`HarnessService.MiddlewareError`](./firewall/values.ts#L142)
 
 _Class_
 
@@ -737,7 +737,7 @@ export class MiddlewareError extends Data.TaggedError("MiddlewareError")<{
 
 Operational failures carry closed reasons, never arbitrary exception text.
 
-#### [`MoltZapService.DecisionProvider`](./firewall/values.ts#L323)
+#### [`HarnessService.DecisionProvider`](./firewall/values.ts#L323)
 
 _Interface_
 
@@ -753,7 +753,7 @@ export interface DecisionProvider {
 
 Entirely code-based chains have no dependency on this optional capability.
 
-#### [`MoltZapService.DecisionRequest`](./firewall/values.ts#L271)
+#### [`HarnessService.DecisionRequest`](./firewall/values.ts#L271)
 
 _Interface_
 
@@ -778,7 +778,7 @@ export interface DecisionRequest {
 
 Provider input contains explicit questions and state, never execution authority.
 
-#### [`MoltZapService.DecisionResponse`](./firewall/values.ts#L289)
+#### [`HarnessService.DecisionResponse`](./firewall/values.ts#L289)
 
 _Interface_
 
@@ -803,7 +803,7 @@ export class DecisionResponse extends Schema.Class<DecisionResponse>(
 
 Raw distributions and provider confidence survive routing unchanged.
 
-#### [`MoltZapService.EnglishPolicySettings`](./firewall/values.ts#L254)
+#### [`HarnessService.EnglishPolicySettings`](./firewall/values.ts#L254)
 
 _Interface_
 
@@ -819,7 +819,7 @@ export class EnglishPolicySettings extends Schema.Class<EnglishPolicySettings>(
 
 Bytes bound allocation, not tokenizer capacity; probability is a routing setting.
 
-#### [`MoltZapService.EnglishRule`](./firewall/values.ts#L88)
+#### [`HarnessService.EnglishRule`](./firewall/values.ts#L88)
 
 _Interface_
 
@@ -832,7 +832,7 @@ export class EnglishRule extends Schema.Class<EnglishRule>("EnglishRule")({
 
 Text is interpreted by the provider; it is never compiled into executable code.
 
-#### [`MoltZapService.Firewall`](./firewall/values.ts#L242)
+#### [`HarnessService.Firewall`](./firewall/values.ts#L242)
 
 _Interface_
 
@@ -851,7 +851,7 @@ export interface Firewall {
 
 Checking returns data; Client separately owns fresh, atomic send/delivery admission.
 
-#### [`MoltZapService.FirewallSettings`](./firewall/values.ts#L188)
+#### [`HarnessService.FirewallSettings`](./firewall/values.ts#L188)
 
 _Interface_
 
@@ -868,7 +868,7 @@ export class FirewallSettings extends Schema.Class<FirewallSettings>(
 
 Sequential execution is bounded per entry and across the whole attempt.
 
-#### [`MoltZapService.Message`](./firewall/values.ts#L11)
+#### [`HarnessService.Message`](./firewall/values.ts#L11)
 
 _Interface_
 
@@ -883,7 +883,7 @@ export class Message extends Schema.Class<Message>("Message")({
 
 Attribution is supplied by Client, never inferred from names in the body.
 
-#### [`MoltZapService.MessageContext`](./firewall/values.ts#L29)
+#### [`HarnessService.MessageContext`](./firewall/values.ts#L29)
 
 _Interface_
 
@@ -926,7 +926,7 @@ Trusted composition supplies authorized earlier evidence and candidate-specific
 approval. Agent identity and principal identity have different meanings.
 The first live composition supplies absent approval.
 
-#### [`MoltZapService.MessageMiddleware`](./firewall/values.ts#L176)
+#### [`HarnessService.MessageMiddleware`](./firewall/values.ts#L176)
 
 _Interface_
 
@@ -947,7 +947,7 @@ Code and English policies have the same contract. Registered code is trusted;
 it receives no messaging/store capability and must not retain conversation
 state or perform messaging side effects.
 
-#### [`MoltZapService.MiddlewareInput`](./firewall/values.ts#L163)
+#### [`HarnessService.MiddlewareInput`](./firewall/values.ts#L163)
 
 _Interface_
 
@@ -963,7 +963,7 @@ export class MiddlewareInput extends Schema.Class<MiddlewareInput>(
 
 Each invocation gets immutable evidence and previously validated observations.
 
-#### [`MoltZapService.MiddlewareResult`](./firewall/values.ts#L133)
+#### [`HarnessService.MiddlewareResult`](./firewall/values.ts#L133)
 
 _Interface_
 
@@ -979,7 +979,7 @@ export class MiddlewareResult extends Schema.Class<MiddlewareResult>(
 
 A result is atomic: interrupted middleware has no returned partial findings.
 
-#### [`MoltZapService.RuleDescription`](./firewall/values.ts#L72)
+#### [`HarnessService.RuleDescription`](./firewall/values.ts#L72)
 
 _Interface_
 
@@ -1002,7 +1002,7 @@ export class RuleDescription extends Schema.Class<RuleDescription>(
 
 Runtime advice can only select templates registered by trusted composition.
 
-#### [`MoltZapService.FirewallAuditRecord (type)`](./delivery/firewall-values.ts#L161)
+#### [`HarnessService.FirewallAuditRecord (type)`](./delivery/firewall-values.ts#L161)
 
 _TypeAlias_
 
@@ -1012,7 +1012,7 @@ export type FirewallAuditRecord = typeof FirewallAuditRecord.Type;
 
 Completion verifies the snapshot, not completion or delivery of each attempt.
 
-#### [`MoltZapService.FirewallAuditRecord (value)`](./delivery/firewall-values.ts#L126)
+#### [`HarnessService.FirewallAuditRecord (value)`](./delivery/firewall-values.ts#L126)
 
 _Variable_
 
@@ -1059,7 +1059,7 @@ Candidate bytes are opaque canonical Client data, encoded as base64. A null
 result or checking/interrupted disposition never represents permission.
 The nullable post reference identifies supported messages without decoding candidate bytes.
 
-#### [`MoltZapService.makeEnglishPolicy`](./firewall/english.ts#L237)
+#### [`HarnessService.makeEnglishPolicy`](./firewall/english.ts#L237)
 
 _Variable_
 
@@ -1123,7 +1123,7 @@ flowchart TD
   C --> R[Return all findings and private stage trace]
 ```
 
-#### [`MoltZapService.makeFirewall`](./firewall/index.ts#L63)
+#### [`HarnessService.makeFirewall`](./firewall/index.ts#L63)
 
 _Variable_
 
@@ -1168,7 +1168,7 @@ flowchart TD
   D --> R[Return to Client for enforcement]
 ```
 
-#### [`MoltZapService.makeJevDecisionProvider`](./firewall/jev.ts#L169)
+#### [`HarnessService.makeJevDecisionProvider`](./firewall/jev.ts#L169)
 
 _Function_
 

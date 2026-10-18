@@ -121,7 +121,7 @@ beforeAll(async () => {
   );
   writeFixture(
     "packages/client/src/service/index.ts",
-    "/** @file Process composition. */\nexport namespace MoltZapService {}\n",
+    "/** @file Process composition. */\nexport namespace HarnessService {}\n",
   );
 
   writeFixture("docs/modules/legacy/src.mdx", "stale page\n");
@@ -246,7 +246,7 @@ beforeAll(async () => {
               children: [
                 {
                   id: 22,
-                  name: "MoltZapService",
+                  name: "HarnessService",
                   kind: ReflectionKind.Namespace,
                   sources: source("packages/client/src/service/index.ts", 2),
                 },

@@ -37,7 +37,7 @@ import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   MOLTZAP_VERSION_SOURCE,
-  readMoltzapVersion,
+  readCompatibilityVersion,
 } from "./moltzap-version.js";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -60,7 +60,7 @@ const collect = (): readonly Constant[] => {
   const requireString = (
     name: string,
     sourcePath: string,
-    read: ReturnType<typeof readMoltzapVersion>,
+    read: ReturnType<typeof readCompatibilityVersion>,
     note: string,
   ): Constant | null => {
     if ("error" in read) {
@@ -73,7 +73,7 @@ const collect = (): readonly Constant[] => {
     requireString(
       "V2_PROTOCOL_VERSION",
       MOLTZAP_VERSION_SOURCE,
-      readMoltzapVersion(workspaceRoot),
+      readCompatibilityVersion(workspaceRoot),
       "Current MoltZap wire compatibility value for Identity and Router representations; package release versions are independent of it.",
     ),
   ];

@@ -39,17 +39,14 @@ import {
   sessionKeyForPeer,
   testError,
 } from "./__tests__/runtime.js";
-import {
-  createMoltzapChannelPlugin,
-  makeMoltZapChannelConfigJsonSchema,
-} from "./plugin.js";
+import { createChannelPlugin, makeChannelConfigJsonSchema } from "./plugin.js";
 
 const TEST_SESSION_STORE_PATH = join(
   openClawTestStateDirectory,
   "sessions.json",
 );
 
-type MoltZapPlugin = ReturnType<typeof createMoltzapChannelPlugin>;
+type Plugin = ReturnType<typeof createChannelPlugin>;
 interface FakeHarnessEndpoint {
   readonly endpoint: HarnessEndpoint;
   readonly sends: readonly SendInput[];
@@ -181,7 +178,7 @@ function guidanceRemainsLocal() {
     events,
   );
   const runtime = makeObservedRuntime({ events, calls, routePeers: [] });
-  const plugin = createMoltzapChannelPlugin({
+  const plugin = createChannelPlugin({
     harnessEndpointForAccount: () => fake.endpoint,
   });
   return startAccount(
@@ -240,7 +237,7 @@ function upstreamRunnerAndAcknowledgment() {
   const plans: ChannelInboundTurnPlan[] = [];
   const routePeers: RuntimeFixtureParams["routePeers"] = [];
   const runtime = makeObservedRuntime({ events, calls, plans, routePeers });
-  const plugin = createMoltzapChannelPlugin({
+  const plugin = createChannelPlugin({
     harnessEndpointForAccount: () => fake.endpoint,
   });
 
@@ -285,7 +282,7 @@ function privateModeUsesHostResolvedPeerSession() {
     plans,
     routePeers: [],
   });
-  const plugin = createMoltzapChannelPlugin({
+  const plugin = createChannelPlugin({
     harnessEndpointForAccount: () => fake.endpoint,
   });
   const sessionKey = sessionKeyFor(message.address);
@@ -317,7 +314,7 @@ function failedHostTurnPreservesDelivery() {
     routePeers: [],
     failDispatch: true,
   });
-  const plugin = createMoltzapChannelPlugin({
+  const plugin = createChannelPlugin({
     harnessEndpointForAccount: () => fake.endpoint,
   });
 
@@ -347,7 +344,7 @@ function replayRemainsHostOwned() {
   );
   const calls: DispatchObservation[] = [];
   const runtime = makeObservedRuntime({ events, calls, routePeers: [] });
-  const plugin = createMoltzapChannelPlugin({
+  const plugin = createChannelPlugin({
     harnessEndpointForAccount: () => fake.endpoint,
   });
 
@@ -370,7 +367,7 @@ function proactiveSendUsesLocalReceiptIdentity() {
     calls: [],
     routePeers: [],
   });
-  const plugin = createMoltzapChannelPlugin({
+  const plugin = createChannelPlugin({
     harnessEndpointForAccount: () => fake.endpoint,
   });
   const controller = new AbortController();
@@ -405,7 +402,7 @@ function proactiveSendUsesLocalReceiptIdentity() {
 }
 
 function proactiveSendFailsWhenDisconnected(
-  plugin: MoltZapPlugin,
+  plugin: Plugin,
   fake: FakeHarnessEndpoint,
   expectedSendCount: number,
 ) {
@@ -425,7 +422,7 @@ function proactiveSendFailsWhenDisconnected(
   });
 }
 
-function executeProactiveSends(plugin: MoltZapPlugin) {
+function executeProactiveSends(plugin: Plugin) {
   const sendText = requireSendText(plugin);
   return Effect.gen(function* () {
     const direct = yield* Effect.tryPromise({
@@ -459,7 +456,7 @@ function rejectsInvalidTarget() {
     calls: [],
     routePeers: [],
   });
-  const plugin = createMoltzapChannelPlugin({
+  const plugin = createChannelPlugin({
     harnessEndpointForAccount: () => fake.endpoint,
   });
   const controller = new AbortController();
@@ -505,7 +502,7 @@ const SLOT_SCHEMA = {
 
 function messageToolOffersSendAndReply() {
   expect(
-    createMoltzapChannelPlugin().actions?.describeMessageTool({
+    createChannelPlugin().actions?.describeMessageTool({
       cfg: makeConfig(),
     }),
   ).toEqual({ actions: ["send", "reply"] });
@@ -619,7 +616,7 @@ function messageToolRefusesInvalidOperationText() {
  * group address.
  */
 function messageToolSendRejectsTargets() {
-  return handleSendAction(createMoltzapChannelPlugin(), {
+  return handleSendAction(createChannelPlugin(), {
     to: "agent:nova",
     targets: ["agent:nova", "agent:luna", "agent:orion"],
     message: "Which slots work for you?",
@@ -689,12 +686,12 @@ function messageToolSendSurfacesCollectiveError() {
  * returns `result`, and hands the outcome and the recorded sends to `check`.
  */
 function withConnectedSend<A, E>(
-  run: (plugin: MoltZapPlugin) => Effect.Effect<A, E | OpenClawTestError>,
+  run: (plugin: Plugin) => Effect.Effect<A, E | OpenClawTestError>,
   check: (sends: readonly SendInput[], outcome: A) => void,
   result: Effect.Effect<SendResult, CollectiveError | FirewallSendError>,
 ) {
   const fake = makeEndpoint(Stream.never, [], result);
-  const plugin = createMoltzapChannelPlugin({
+  const plugin = createChannelPlugin({
     harnessEndpointForAccount: () => fake.endpoint,
   });
   const controller = new AbortController();
@@ -820,7 +817,7 @@ function runItemTurn(item: InboundItem) {
   const calls: DispatchObservation[] = [];
   const fake = makeInboundEndpoint([item], events);
   const runtime = makeObservedRuntime({ events, calls, routePeers: [] });
-  const plugin = createMoltzapChannelPlugin({
+  const plugin = createChannelPlugin({
     harnessEndpointForAccount: () => fake.endpoint,
   });
   return startAccount(
@@ -843,7 +840,7 @@ function collectiveId(): CollectiveError["id"] {
   return item.id;
 }
 
-function connectAccount(plugin: MoltZapPlugin, abortSignal: AbortSignal) {
+function connectAccount(plugin: Plugin, abortSignal: AbortSignal) {
   const runtime = makeObservedRuntime({
     events: [],
     calls: [],
@@ -861,14 +858,14 @@ function connectAccount(plugin: MoltZapPlugin, abortSignal: AbortSignal) {
 }
 
 function handleSendAction(
-  plugin: MoltZapPlugin,
+  plugin: Plugin,
   params: ChannelMessageActionContext["params"],
 ) {
   return handleMessageAction(plugin, "send", params);
 }
 
 function handleMessageAction(
-  plugin: MoltZapPlugin,
+  plugin: Plugin,
   action: "send" | "reply",
   params: ChannelMessageActionContext["params"],
 ) {
@@ -899,7 +896,7 @@ function emptyReplyRemainsInvisible() {
     routePeers: [],
     replyText: "",
   });
-  const plugin = createMoltzapChannelPlugin({
+  const plugin = createChannelPlugin({
     harnessEndpointForAccount: () => fake.endpoint,
   });
 
@@ -920,7 +917,7 @@ function emptyReplyRemainsInvisible() {
 
 function missingAccountRuntimeFailsStartup() {
   const endpointFactory = vi.fn(() => makeListeningEndpoint().endpoint);
-  const plugin = createMoltzapChannelPlugin({
+  const plugin = createChannelPlugin({
     harnessEndpointForAccount: endpointFactory,
   });
 
@@ -943,7 +940,7 @@ function inboundStreamFailureDisconnects() {
     calls: [],
     routePeers: [],
   });
-  const plugin = createMoltzapChannelPlugin({
+  const plugin = createChannelPlugin({
     harnessEndpointForAccount: () => fake.endpoint,
   });
   const setStatus = vi.fn();
@@ -963,8 +960,8 @@ function inboundStreamFailureDisconnects() {
 }
 
 function manifestMatchesRuntimeSchema() {
-  expect(createMoltzapChannelPlugin().agentPrompt).toBeUndefined();
-  const { $schema, ...generated } = makeMoltZapChannelConfigJsonSchema();
+  expect(createChannelPlugin().agentPrompt).toBeUndefined();
+  const { $schema, ...generated } = makeChannelConfigJsonSchema();
   expect($schema).toBeDefined();
   if (!("required" in generated)) {
     throw new Error("expected an object schema");
@@ -1106,7 +1103,7 @@ function makeConfig(mode: "shared" | "private" = "shared"): OpenClawConfig {
 }
 
 function startAccount(
-  plugin: MoltZapPlugin,
+  plugin: Plugin,
   ctx: ChannelGatewayContext<{
     readonly id: string;
     readonly enabled?: boolean;
@@ -1123,7 +1120,7 @@ function startAccount(
   });
 }
 
-function requireSendText(plugin: MoltZapPlugin) {
+function requireSendText(plugin: Plugin) {
   const sendText = plugin.message?.send?.text;
   if (sendText === undefined) {
     throw new Error("missing OpenClaw text sender");

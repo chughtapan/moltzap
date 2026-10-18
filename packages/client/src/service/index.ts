@@ -58,7 +58,7 @@ export type {
 } from "../firewall/index.js";
 
 // eslint-disable-next-line @typescript-eslint/no-namespace -- The published service subpath intentionally merges its runtime values with the closed startup-error type.
-export namespace MoltZapService {
+export namespace HarnessService {
   /** Trusted fixed process composition; agents receive no policy mutation capability. */
   export type FirewallOptions = InstalledFirewallOptions & {
     /**
@@ -70,7 +70,7 @@ export namespace MoltZapService {
 
   /** Closed daemon startup phase without configuration or platform detail. */
   export class StartupError extends Data.TaggedError(
-    "MoltZapServiceStartupError",
+    "HarnessServiceStartupError",
   )<{
     readonly phase: "configuration" | "storage" | "listener";
   }> {
@@ -123,7 +123,7 @@ export namespace MoltZapService {
         // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- The public process layer deliberately projects private runtime failures onto its closed startup phase.
         Effect.mapError((error) => new StartupError({ phase: error.phase })),
       );
-    }).pipe(Effect.withSpan("MoltZapService.layer"));
+    }).pipe(Effect.withSpan("HarnessService.layer"));
 
   /** Complete production process composition for `moltzapd`. */
   export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
