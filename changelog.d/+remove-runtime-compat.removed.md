@@ -1,1 +1,0 @@
-Remove the message-policy runtime revision handshake, earlier-store migrations and automatic cutover resets, and the legacy `enumNames` form schema. Client and adapters use the current formats together. Existing current-schema stores reopen normally; earlier state requires an explicit reset.

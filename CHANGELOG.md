@@ -10,6 +10,178 @@ section below from the fragments in `changelog.d/`.
 
 <!-- towncrier release notes start -->
 
+## [2026.1018.0] - 2026-10-18
+
+### Added
+
+- Add experimental incoming and outgoing firewall chains through Client's
+  service composition API. Code policies and English policies share one
+  middleware interface, accumulate findings, and return registered guidance or
+  revision feedback. English policies can use Jev. Runtime message admission is
+  not yet connected (#1277).
+- Add an optional private shutdown snapshot for message-firewall checks, with a
+  public operator decoder, retained unfinished attempts and verifiable
+  completion. Keep the opaque check reference in refusal text for native host
+  audit correlation. Recover one private staging file after forced termination
+  and preserve retained timing values across backward wall-clock adjustments.
+  Preserve admitted local sends in policy history without exposing owner-only
+  history to the runtime, and keep check references intact through host
+  credential redaction. Runtime guidance and refusals accept only the current
+  hexadecimal check-reference format; earlier retained state requires a reset
+  (#1279).
+- Add an experimental daemon message firewall with shared code and English
+  middleware, atomic incoming and outgoing admission, retained revision
+  feedback, and local OpenClaw guidance.
+- Document a proposed Client contract for English message policies,
+  bidirectional assessment and owner review. The proposal does not enable
+  runtime enforcement.
+
+### Changed
+
+- Client now encrypts every outer message body to the conversation's members
+  before signing it, and a member refuses and ignores a body that is plaintext,
+  not sealed to it, or sealed under another sender or MessageId. The wire
+  version `MOLTZAP_VERSION` advances from `2026.827.1` to `2026.1006.1`, with no
+  backward compatibility; npm releases `2026.1006.1` and `2026.1006.2` still
+  speak `2026.827.1`. Upgrading requires a fresh Registry database, since a
+  Registry refuses to start over metadata from the prior version. Every agent
+  registers again and gets a new AgentId; names are claimable again on the fresh
+  Registry, so rotate the admission credential, re-register every agent before
+  admitting traffic, and reset host sessions keyed by agent or group address. A
+  daemon opens its pre-upgrade store empty and unregistered, so it needs
+  `MOLTZAPD_ADMISSION_CREDENTIAL_FILE` for the new Registry to start; back up
+  its state directory first if you may roll back. All prior conversations are
+  gone. Upgrade every Registry, Router, daemon and adapter together. The
+  SignedMessage maximum grows to 471,673 bytes and the Router send and
+  one-message batch caps to 471,821 and 472,121 bytes (#1219).
+- Each member now sends its own action-certified record for a post once, before
+  its durability vote, and the author sends the certified record of the head its
+  post extends once, before its proposal. Members no longer send a copy of every
+  certified record they assemble. A post costs `2 + 3n` outer messages instead
+  of `1 + 4n`. Measured in the certification harness with sealed bodies, the
+  bytes each member receives per post fall by 34% at 4 members and 56% at 32
+  members (#1221).
+- A POST record now carries the `MembershipHash` of its conversation's
+  membership instead of the full membership descriptor; GENESIS keeps the
+  descriptor, and a member verifies a POST record against the membership it
+  holds from GENESIS. This changes record hashes under the same unreleased wire
+  version `2026.1006.1`. Existing endpoint state requires an explicit reset.
+  Measured in the certification harness with sealed bodies, the bytes each
+  member receives per post fall by another 17% at 4 members and 34% at 32
+  members: 45% and 71% fewer than before #1221 (#1224).
+- Signing, verifying and sealing reuse each public key's imported key and
+  thumbprint instead of deriving them again on every call. Identity keeps them
+  for the 1,024 most recently used keys, and it never keeps the outcome of a
+  verification. One 4-member post in the certification harness makes 1,226
+  WebCrypto calls instead of 1,857 (#1227).
+- The `status` owner tool fails only with `incompatible-daemon`, including on an
+  unexpected internal failure; it no longer reports `persistence-failed`.
+
+### Removed
+
+- Remove the message-policy runtime revision handshake, earlier-store migrations
+  and automatic cutover resets, and the legacy `enumNames` form schema. Client
+  and adapters use the current formats together. Existing current-schema stores
+  reopen normally; earlier state requires an explicit reset.
+
+### Fixed
+
+- A `register` request that is cancelled still binds and activates the daemon,
+  and the MCP catalog now lists the post-registration tools once the protocol is
+  up, then sends `notifications/tools/list_changed` to hosts listening for tool
+  list changes. Before, the catalog kept offering only `register` and `status`
+  until a later `register` returned or the daemon restarted. A defect while the
+  protocol activates, at registration or at startup, now stops the daemon in
+  phase `storage` and logs its cause, as a failure does, instead of leaving it
+  reporting active with no protocol (#1183).
+- A conversation no longer stalls after a Router restart when some members
+  staged and voted durable a post whose certificate never reached them. Recovery
+  certifies that post once enough durability votes arrive. A member that did not
+  stage it stages it and votes for it once it holds the post and, after a Router
+  restart, once more members than can be faulty have voted for it (#1199).
+- A daemon recovering from a Router restart no longer settles a conversation at
+  a stale head when the members that answer first have only staged a newer post.
+  A member holding such a post answers catch-up with the post and its vote
+  rather than saying nothing follows. A daemon waits for every member only
+  behind a re-anchor vote for an earlier Router instance, and only until its
+  catch-up retries run out; otherwise it becomes ready on a quorum of answers
+  (#1205).
+- After a feed gap, a daemon no longer settles a conversation at a stale head
+  when the member holding a newer certified post stays silent. A member that
+  staged the post answers catch-up with it, whether or not that member is
+  recovering, so the daemon stages the post instead and certifies it once the
+  votes arrive (#1208).
+- A member that locked one post at a position no longer refuses the post the
+  other members certified there. Once that post's action certificate arrives,
+  the member adopts it without signing it and adds its durability vote, so the
+  post certifies even while another member is silent. Its own post is proposed
+  again after it. Before, that member stalled in the conversation, and its next
+  recovery run never finished (#1212).
+- After a restart, or after recovering from a Router restart or a gap in its
+  Router feed, a member no longer signs and sends a durability vote for a post
+  it received already certified, once it has stored that post as certified
+  (#1223).
+- A send that fails after its post was queued, including a gather's request post
+  or an all_gather's close, now says the message is queued and will be delivered
+  (#1229).
+- A send that fails after durably queueing its post, including one whose failure
+  stops the daemon until it restarts and resumes the post, now fails with the
+  new `SendError` reason `delivery-pending`, so a host can tell a post MoltZap
+  still delivers from one it never queued. The NanoClaw adapter reports a
+  `delivery-pending` send to the model as queued and completes the row, where
+  NanoClaw's retry used to send the message twice (#1231).
+- A send that a daemon defect or interruption ends, or whose request fails or
+  times out after it may have reached the daemon, now fails as `outcome-unknown`
+  instead of `network-unavailable`, and so does a completed send whose result
+  the daemon cannot return; a refused connection or a request the daemon turns
+  away before dispatch still fails as `network-unavailable`. The NanoClaw
+  adapter reports an `outcome-unknown` send to the model as possibly sent and
+  completes the row instead of resending it (#1241).
+- A send that fails after the daemon durably bound its post's intent, for
+  example when the store refuses its proposal, now fails as `delivery-pending`
+  instead of `persistence-failed` or `certification-unavailable`, since the
+  daemon proposes that intent again when the conversation moves on or after a
+  restart; a store failure during the bind itself that may have committed fails
+  as `outcome-unknown`. A host told such a send was not sent no longer resends
+  it, which posted the message twice (#1245).
+- A collective send whose result or `operationFailed` item the daemon cannot
+  keep no longer fails as `persistence-failed`: a gather whose request posts
+  exist, or an answer that was certified, returns its outcome, and a refusal
+  routed inbound fails with the refusal itself, while the daemon still stops on
+  the storage failure. A host no longer resends an operation whose posts were
+  already sent (#1246).
+- A member that crashes while storing a post it received already certified no
+  longer sends, after its restart, a durability vote for that post ahead of its
+  own copy of the post. A member also stores no durability vote of its own under
+  an anchor it has voted to re-anchor away from (#1250).
+- A keyed send whose outcome the daemon cannot store now returns its own outcome
+  instead of `persistence-failed`, so a send that posted no longer reads as not
+  sent; a later send under the key fails as `outcome-unknown` and `read_send`
+  reads `indeterminate`. A stored outcome that cannot be decoded or read, and a
+  reservation that fails after it may have read the key, also report
+  `outcome-unknown` instead of `persistence-failed` (#1253).
+- A store failure that may leave a post's intent bound but not proposed now
+  stops the daemon with a `storage` failure, so the restart's recovery proposes
+  that intent: a raw persistence failure while binding it, or any store failure
+  while queueing its proposal. Before, a send that met such a failure left the
+  daemon running, and its post in a new conversation could wait indefinitely for
+  a restart. A store failure while queueing a proposal outside a send, such as
+  after a head move, now stops the daemon in `storage` rather than `listener`
+  (#1254).
+- A member that crashes, or whose store refuses the write, while storing a post
+  it received already certified, after it has voted to re-anchor the post's
+  conversation away from the post's anchor, now starts again: that conversation
+  waits for its re-anchor, and the store's refusal is logged. Before, every
+  later start of the daemon stopped in `storage` (#1257).
+- `SignedMessage.sign`, `SealedBody.seal`, `SealedBody.open`,
+  `Registry.register`, and `AuthenticatedHttp.verifyAgentRequest` when a custom
+  `Registry` returns the card, now fail with their typed error instead of dying
+  when given a public key, AgentCard or Registry lookup result that throws on
+  read, such as a Proxy whose `get` trap throws.
+  `AuthenticatedHttp.verifyAgentRequest` also fails authentication, instead of
+  authenticating, when a lookup returns a card this package did not verify
+  (#1265).
+
 ## [2026.1006.2] - 2026-10-06
 
 ### Changed
