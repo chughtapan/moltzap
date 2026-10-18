@@ -119,6 +119,7 @@ export function checkProductManifests(
   run: BoundaryRun,
 ): ReadonlyMap<string, string> {
   const knipWorkspaces = knipWorkspacesOf(run);
+  const workspaceNode = readWorkspaceNodeRange(run);
   const publishedVersions = new Map<string, string>();
   for (const dir of FINAL_PACKAGE_DIRS) {
     const where = `packages/${dir}/package.json`;
@@ -134,6 +135,9 @@ export function checkProductManifests(
     const version = checkPublication(run, product);
     if (version !== undefined) {
       publishedVersions.set(where, version);
+      if (workspaceNode !== undefined) {
+        checkPublishedEngines(run, product, workspaceNode);
+      }
     }
     checkExports(run, product);
     checkBinaries(run, product);
@@ -287,6 +291,40 @@ function checkNotices(
         `packages/${dir}/${notice}: must be an identical copy of the repository ${notice}`,
       );
     }
+  }
+}
+
+/**
+ * The root `package.json` range is the one source of the supported Node.js
+ * versions; each published manifest carries a copy because npm reads
+ * `engines` from the tarball alone.
+ * @param run Run collecting failures.
+ * @returns The root `engines.node`, or undefined after recording its absence.
+ */
+function readWorkspaceNodeRange(run: BoundaryRun): string | undefined {
+  const range = stringAt(
+    objectAt(readJsonObject(path.join(run.repo, "package.json")), "engines"),
+    "node",
+  );
+  if (range === undefined) {
+    run.failures.push(
+      "package.json: engines.node is missing; published manifests copy it",
+    );
+  }
+  return range;
+}
+
+/** A published package declares exactly the root Node.js range. */
+function checkPublishedEngines(
+  run: BoundaryRun,
+  { where, manifest }: ProductManifest,
+  workspaceNode: string,
+): void {
+  const node = stringAt(objectAt(manifest, "engines"), "node");
+  if (node !== workspaceNode) {
+    run.failures.push(
+      `${where}: engines.node is "${node ?? "missing"}", expected the root package.json range "${workspaceNode}"`,
+    );
   }
 }
 
