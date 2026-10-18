@@ -156,7 +156,7 @@ export type DirectMessage = typeof directMessage.Type;
 
 One certified remote-authored direct message.
 
-### [`FirewallSendError`](./firewall/runtime.ts#L70)
+### [`FirewallSendError`](./firewall/runtime.ts#L68)
 
 _Class_
 
@@ -412,7 +412,7 @@ export class ListenError extends Data.TaggedError("ListenError")<{
 
 The endpoint's sole inbound subscription failed.
 
-### [`LocalGuidance`](./firewall/runtime.ts#L38)
+### [`LocalGuidance`](./firewall/runtime.ts#L36)
 
 _TypeAlias_
 

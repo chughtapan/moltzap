@@ -157,7 +157,7 @@ export interface Firewall {
 
 Checking returns data; Client separately owns fresh, atomic send/delivery admission.
 
-### [`FirewallSendError`](./runtime.ts#L70)
+### [`FirewallSendError`](./runtime.ts#L68)
 
 _Class_
 
@@ -193,7 +193,7 @@ export class FirewallSettings extends Schema.Class<FirewallSettings>(
 
 Sequential execution is bounded per entry and across the whole attempt.
 
-### [`LocalGuidance`](./runtime.ts#L38)
+### [`LocalGuidance`](./runtime.ts#L36)
 
 _TypeAlias_
 
