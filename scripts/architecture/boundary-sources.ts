@@ -299,10 +299,7 @@ function isInsidePackage(
  * Package code imports them by their emitted `.js` name.
  */
 function sharedPackageConfigImports(run: BoundaryRun): ReadonlySet<string> {
-  return new Set([
-    path.join(run.repo, "eslint.shared.js"),
-    path.join(run.repo, "vitest.workspace-aliases.js"),
-  ]);
+  return new Set([path.join(run.repo, "eslint.shared.js")]);
 }
 
 function importSpecifiers(text: string): readonly ImportSpecifier[] {
