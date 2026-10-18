@@ -22,9 +22,9 @@ and outgoing message paths. Code and English policies implement the same
 facts, settings and provider/model provenance before the listener opens.
 `MoltZapService.layer` remains the baseline composition without message checks.
 
-See [delivery/firewall.ts](../../../packages/client/src/delivery/firewall.ts) →
+See [delivery/firewall.ts](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/firewall.ts) →
 `sendWithFirewall` and
-[delivery/host-delivery.ts](../../../packages/client/src/delivery/host-delivery.ts) →
+[delivery/host-delivery.ts](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/host-delivery.ts) →
 `makeHostDelivery` for the outgoing and incoming flows. The standalone runner
 remains usable by offline experiments without acquiring a daemon or store.
 

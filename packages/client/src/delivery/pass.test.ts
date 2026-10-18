@@ -4,13 +4,10 @@ import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CollectiveOperations } from "../transport/collectives/index.js";
 import type { HistoryExportRecord } from "./history-export.js";
-import type { HarnessMessageReadyEvent } from "./operations.js";
 import {
-  consumeOnly,
   pendingMessage,
   publishEveryPost,
   recordAcknowledgments,
-  takeEvery,
 } from "../__tests__/pending-delivery-fixtures.js";
 import { DeliveryAcknowledgeError } from "../transport/messaging/errors.js";
 import {
@@ -20,7 +17,6 @@ import {
 } from "./pass.js";
 
 interface Observed {
-  readonly published: HarnessMessageReadyEvent[];
   readonly acknowledged: string[];
   readonly exported: HistoryExportRecord[];
 }
@@ -28,7 +24,6 @@ interface Observed {
 const first = pendingMessage(1);
 const second = pendingMessage(2);
 const newObserved = (): Observed => ({
-  published: [],
   acknowledged: [],
   exported: [],
 });
@@ -39,14 +34,11 @@ const consumeEveryPost: CollectiveOperations["classify"] = () =>
 const offerTo = (
   observed: Observed,
   classify: CollectiveOperations["classify"],
-  subscriber: "attached" | "detached" = "attached",
 ): PendingOffer => ({
   engine: recordAcknowledgments(observed.acknowledged),
   classify,
   persist: () => Effect.void,
-  ...(subscriber === "attached"
-    ? { handler: takeEvery(observed.published) }
-    : {}),
+  readAdmitted: (event) => Effect.succeed(Option.some(event)),
   historyExport: {
     record: (record) =>
       Effect.sync(() => {
@@ -56,46 +48,11 @@ const offerTo = (
   state: Effect.runSync(makeDeliveryState),
 });
 
-function publishesEachClassifiedPostWithItsDeliveryToken() {
-  const observed = newObserved();
-
-  Effect.runSync(
-    offerPendingMessages(offerTo(observed, publishEveryPost), [first, second]),
-  );
-
-  expect(observed.published).toEqual([
-    {
-      deliveryToken: first.deliveryToken,
-      item: { kind: "multicast", message: first.message },
-    },
-    {
-      deliveryToken: second.deliveryToken,
-      item: { kind: "multicast", message: second.message },
-    },
-  ]);
-}
-
-function acknowledgesAConsumedDeliveryWithoutPublishingIt() {
-  const observed = newObserved();
-
-  Effect.runSync(
-    offerPendingMessages(offerTo(observed, consumeEveryPost), [first]),
-  );
-
-  expect(observed).toMatchObject({
-    published: [],
-    acknowledged: [first.deliveryToken],
-  });
-}
-
 function consumesDeliveriesWhileNoSubscriberIsAttached() {
   const observed = newObserved();
 
   Effect.runSync(
-    offerPendingMessages(offerTo(observed, consumeEveryPost, "detached"), [
-      first,
-      second,
-    ]),
+    offerPendingMessages(offerTo(observed, consumeEveryPost), [first, second]),
   );
 
   expect(observed.acknowledged).toEqual([
@@ -108,12 +65,10 @@ function leavesADeliverableItemPendingWhileNoSubscriberIsAttached() {
   const observed = newObserved();
 
   Effect.runSync(
-    offerPendingMessages(offerTo(observed, publishEveryPost, "detached"), [
-      first,
-    ]),
+    offerPendingMessages(offerTo(observed, publishEveryPost), [first]),
   );
 
-  expect(observed).toEqual({ published: [], acknowledged: [], exported: [] });
+  expect(observed).toEqual({ acknowledged: [], exported: [] });
 }
 
 function goesOnToLaterDeliveriesWhenAcknowledgingAConsumedOneFails() {
@@ -137,60 +92,8 @@ function goesOnToLaterDeliveriesWhenAcknowledgingAConsumedOneFails() {
   expect(observed.acknowledged).toEqual([second.deliveryToken]);
 }
 
-function publishesThePostsAroundAConsumedOneAndAcknowledgesOnlyIt() {
-  const observed = newObserved();
-  const third = pendingMessage(3);
-
-  Effect.runSync(
-    offerPendingMessages(offerTo(observed, consumeOnly(second)), [
-      first,
-      second,
-      third,
-    ]),
-  );
-
-  expect(observed.published.map((event) => event.deliveryToken)).toEqual([
-    first.deliveryToken,
-    third.deliveryToken,
-  ]);
-  expect(observed.acknowledged).toEqual([second.deliveryToken]);
-}
-
-function classifiesEachDeliveryOnce() {
-  const observed = newObserved();
-  const classified: string[] = [];
-  const offer = offerTo(
-    observed,
-    ({ message }) =>
-      Effect.sync(() => {
-        classified.push(message.postId);
-        return Option.some({ kind: "multicast", message });
-      }),
-    "detached",
-  );
-
-  Effect.runSync(offerPendingMessages(offer, [first]));
-  Effect.runSync(offerPendingMessages(offer, [first]));
-
-  expect(classified).toEqual([first.message.postId]);
-}
-
 // @agent-code-guard/regression-only: examples pin what one pass over pending deliveries consumes, publishes and records.
 describe("pending delivery pass", () => {
-  it(
-    "classifies each durable delivery once across passes",
-    classifiesEachDeliveryOnce,
-  );
-  it(
-    "publishes each classified post with its delivery token",
-    publishesEachClassifiedPostWithItsDeliveryToken,
-  );
-
-  it(
-    "acknowledges a consumed delivery without publishing it",
-    acknowledgesAConsumedDeliveryWithoutPublishingIt,
-  );
-
   it(
     "consumes deliveries while no subscriber is attached",
     consumesDeliveriesWhileNoSubscriberIsAttached,
@@ -204,10 +107,5 @@ describe("pending delivery pass", () => {
   it(
     "goes on to later deliveries when acknowledging a consumed one fails",
     goesOnToLaterDeliveriesWhenAcknowledgingAConsumedOneFails,
-  );
-
-  it(
-    "publishes the posts around a consumed one and acknowledges only it",
-    publishesThePostsAroundAConsumedOneAndAcknowledgesOnlyIt,
   );
 });

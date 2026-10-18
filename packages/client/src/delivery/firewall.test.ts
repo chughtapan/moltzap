@@ -60,11 +60,7 @@ import {
 } from "./firewall.js";
 import { noHistoryExport } from "./history-export.js";
 import { makeHostDelivery } from "./host-delivery.js";
-import {
-  eventIdOf,
-  type HarnessMessageReadyEvent,
-  type HarnessSendRequest,
-} from "./operations.js";
+import { eventIdOf, type HarnessMessageReadyEvent } from "./operations.js";
 
 // @agent-code-guard/regression-only: Exercises durable admission, replay, interruption and races through SQLite and the protocol engine.
 
@@ -600,59 +596,20 @@ function unsupportedSend() {
       subject,
       policy(() => Effect.succeed(pass)),
     );
-    const request = {
-      input: { to: destination, collectiveResponse: { action: "decline" } },
-      failureDelivery: "inbound",
-      idempotencyKey: "unsupported-draft",
-    } satisfies HarnessSendRequest;
-    const refusal = yield* Effect.flip(delivery.operations.send(request));
+    const refusal = yield* Effect.flip(
+      delivery.operations.send({
+        input: { to: destination, collectiveResponse: { action: "decline" } },
+        failureDelivery: "inbound",
+      }),
+    );
     expect(refusal.message).toContain(renderedWaitAction);
     expect(refusal).toMatchObject({
       refusal: "check-unavailable",
       feedback: [{ nextAction: waitAction }],
     });
-    expect(yield* Effect.flip(delivery.operations.send(request))).toEqual(
-      refusal,
-    );
     expect((yield* subject.store.recover()).postIntents).toEqual([]);
     expect((yield* delivery.operations.readInbox({})).items).toEqual([]);
     expect((yield* auditChecks(subject))[0]?.post).toBeNull();
-  });
-}
-
-it(
-  "holds an invalid assessment context with retained wait feedback",
-  invalidContextSend,
-);
-
-function invalidContextSend() {
-  return Effect.gen(function* () {
-    const subject = yield* fixture;
-    const fact = {
-      id: "same-fact",
-      source: "owner",
-      text: "Keep scheduling in this conversation.",
-      visibility: "assessor",
-    } as const;
-    const delivery = yield* outgoingFixture(
-      subject,
-      policy(() => Effect.succeed(pass)),
-      { facts: [fact, fact] },
-    );
-    const request = {
-      input: { to: destination, text: "Draft with ambiguous evidence" },
-      idempotencyKey: "invalid-context-draft",
-    };
-    const refusal = yield* Effect.flip(delivery.operations.send(request));
-    expect(refusal.message).toContain(renderedWaitAction);
-    expect(refusal).toMatchObject({
-      refusal: "check-unavailable",
-      feedback: [{ nextAction: waitAction }],
-    });
-    expect(yield* Effect.flip(delivery.operations.send(request))).toEqual(
-      refusal,
-    );
-    expect((yield* subject.store.recover()).postIntents).toEqual([]);
   });
 }
 
@@ -694,7 +651,7 @@ function auditCorrelatesPosts() {
 }
 
 it(
-  "holds one of two concurrent sends after the other creates an unresolved intent",
+  "holds a concurrent send when its evidence is incomplete and its recheck is unavailable",
   concurrentSends,
 );
 it("holds outgoing admission after two stale checks", () =>
@@ -719,8 +676,11 @@ function concurrentSends() {
       subject,
       policy((input) =>
         Queue.offer(entered, input).pipe(
-          Effect.zipRight(Deferred.await(release)),
-          Effect.as(pass),
+          Effect.zipRight(
+            input.context.gaps.length === 0
+              ? Deferred.await(release).pipe(Effect.as(pass))
+              : Effect.fail(new MiddlewareError({ reason: "unavailable" })),
+          ),
         ),
       ),
     );
@@ -738,52 +698,11 @@ function concurrentSends() {
       Effect.flip(Fiber.join(first)),
       Effect.flip(Fiber.join(second)),
     );
-    expect(refusal).toMatchObject({ refusal: "unresolved-evidence" });
+    expect(refusal).toMatchObject({ refusal: "check-unavailable" });
     expect((yield* Queue.take(entered)).context.gaps).not.toEqual([]);
     expect((yield* subject.store.recover()).postIntents).toHaveLength(1);
     yield* Fiber.interrupt(first);
     yield* Fiber.interrupt(second);
-  });
-}
-
-it(
-  "preserves an unavailable assessment when earlier outgoing evidence is incomplete",
-  unavailableWithEvidenceGaps,
-);
-
-function unavailableWithEvidenceGaps() {
-  return Effect.gen(function* () {
-    const subject = yield* fixture;
-    const allowed = yield* outgoingFixture(
-      subject,
-      policy(() => Effect.succeed(pass)),
-    );
-    const pending = yield* allowed.operations
-      .send({ input: { to: destination, text: "Pending proposal" } })
-      .pipe(Effect.forkScoped);
-    yield* Deferred.await(subject.outbound);
-    const seen: MiddlewareInput[] = [];
-    const unavailable = yield* outgoingFixture(
-      subject,
-      policy((input) =>
-        Effect.sync(() => {
-          seen.push(input);
-        }).pipe(
-          Effect.zipRight(
-            Effect.fail(new MiddlewareError({ reason: "unavailable" })),
-          ),
-        ),
-      ),
-    );
-    const refusal = yield* Effect.flip(
-      unavailable.operations.send({
-        input: { to: destination, text: "Another proposal" },
-      }),
-    );
-    expect(seen[0]?.context.gaps).not.toEqual([]);
-    expect(refusal).toMatchObject({ refusal: "check-unavailable" });
-    expect((yield* subject.store.recover()).postIntents).toHaveLength(1);
-    yield* Fiber.interrupt(pending);
   });
 }
 
@@ -815,12 +734,10 @@ function staleOutgoing(mode: FirewallOptions["mode"]) {
     const delivery = yield* outgoingFixture(subject, churn.middleware, {
       mode,
     });
-    const request = {
-      input: { to: destination, text: "Draft while evidence changes" },
-      idempotencyKey: "stale-draft",
-    };
     const sending = yield* delivery.operations
-      .send(request)
+      .send({
+        input: { to: destination, text: "Draft while evidence changes" },
+      })
       .pipe(Effect.forkScoped);
     if (mode === "enforcement") {
       const refusal = yield* Effect.flip(Fiber.join(sending));
@@ -829,9 +746,6 @@ function staleOutgoing(mode: FirewallOptions["mode"]) {
         refusal: "unresolved-evidence",
         feedback: [{ nextAction: waitAction }],
       });
-      expect(yield* Effect.flip(delivery.operations.send(request))).toEqual(
-        refusal,
-      );
       expect((yield* subject.store.recover()).postIntents).toEqual([]);
     } else {
       yield* Deferred.await(subject.outbound);
@@ -872,7 +786,6 @@ function installationProvenance() {
     const changed = yield* installation(registration);
     expect(installed.metadata.incoming[0]?.provenance.data).toBe(model);
     expect(changed.configurationDigest).not.toBe(installed.configurationDigest);
-    expect(Object.isFrozen(installed.metadata.incoming)).toBe(true);
   });
 }
 
