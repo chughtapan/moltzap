@@ -589,6 +589,20 @@ const testPublicationGuards = (): void => {
   restoreAllPlants();
 
   plantFile("packages/router/package.json", (s) =>
+    s.replace(/"node": "[^"]+"/, '"node": ">=20"'),
+  );
+  const driftedEngines = runBoundaries();
+  assert(
+    "flags a published Node.js range that differs from the workspace root",
+    driftedEngines.code !== 0 &&
+      /router\/package\.json: engines\.node is ">=20", expected the root/.test(
+        driftedEngines.stderr,
+      ),
+    `expected engines failure. exit=${driftedEngines.code}, stderr=${driftedEngines.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile("packages/router/package.json", (s) =>
     s.replace(/"version": "[^"]+"/, '"version": "1.2.3"'),
   );
   const semver = runBoundaries();

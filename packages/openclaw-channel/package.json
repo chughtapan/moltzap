@@ -5,9 +5,17 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/chughtapan/moltzap.git"
+    "url": "git+https://github.com/chughtapan/moltzap.git",
+    "directory": "packages/openclaw-channel"
+  },
+  "homepage": "https://github.com/chughtapan/moltzap/tree/main/packages/openclaw-channel#readme",
+  "bugs": {
+    "url": "https://github.com/chughtapan/moltzap/issues"
   },
   "type": "module",
+  "engines": {
+    "node": ">=22.19.0 <25"
+  },
   "files": [
     "dist",
     "!dist/__tests__",
