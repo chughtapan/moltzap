@@ -9,6 +9,7 @@
         "scripts/setup/*.ts",
         "scripts/test-*-package.ts",
         "scripts/test-two-agents-example.ts",
+        "examples/*/*.ts",
         "scripts/docs/check-mermaid.ts",
         "scripts/docs/generate-constants-snippets.ts",
         "scripts/docs/generate-modules.ts",

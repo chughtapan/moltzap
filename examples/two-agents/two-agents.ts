@@ -15,10 +15,12 @@ import {
   FetchHttpClient,
   FileSystem,
   HttpClient,
+  type Error as PlatformError,
 } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import {
   Client,
+  ProtocolError,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import {
@@ -35,6 +37,7 @@ import {
   Fiber,
   Layer,
   Option,
+  type ParseResult,
   Ref,
   Schema,
   type Scope,
@@ -84,6 +87,12 @@ interface Network {
   readonly routerOrigin: string;
   readonly registrySigner: string;
 }
+
+/** Every way a setup step fails: a check, a file or process, or a decode. */
+type StepError =
+  | ExampleError
+  | PlatformError.PlatformError
+  | ParseResult.ParseError;
 
 /** Services the example runs against. */
 type Services =
@@ -135,7 +144,7 @@ NodeRuntime.runMain(
  * Starts PGlite, the Registry, and the Router, and returns once the Registry
  * and the Router answer their health checks.
  */
-function startNetwork(): Effect.Effect<Network, unknown, Services> {
+function startNetwork(): Effect.Effect<Network, StepError, Services> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const directory = yield* fs.makeTempDirectoryScoped({
@@ -187,7 +196,7 @@ function startNetwork(): Effect.Effect<Network, unknown, Services> {
 function startAgent(
   network: Network,
   name: string,
-): Effect.Effect<Agent, unknown, Services> {
+): Effect.Effect<Agent, StepError, Services> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const directory = join(network.directory, name);
@@ -219,29 +228,46 @@ function startAgent(
 /**
  * Calls the daemon's `register` MCP tool, which binds the agent name to the
  * daemon's key in the Registry. The operation and principal identifiers are
- * fresh: `opn_` or `prn_` followed by 16 random bytes in base64url.
+ * fresh: `opn_` or `prn_` followed by 16 random bytes in base64url. A
+ * registration the daemon refuses fails with the daemon's reason.
  */
-function register(agent: Agent): Effect.Effect<void, unknown> {
+function register(agent: Agent): Effect.Effect<void, StepError> {
   return Effect.scoped(
     Effect.gen(function* () {
       const client = yield* mcpClient(agent.mcp);
-      const result = yield* attempt(`register ${agent.name}`, (signal) =>
-        client.callTool(
-          {
-            name: "register",
-            arguments: {
-              operationId: `opn_${randomBytes(16).toString("base64url")}`,
-              principalId: `prn_${randomBytes(16).toString("base64url")}`,
-              agentName: agent.name,
+      const result = yield* Effect.tryPromise({
+        try: (signal) =>
+          client.callTool(
+            {
+              name: "register",
+              arguments: {
+                operationId: `opn_${randomBytes(16).toString("base64url")}`,
+                principalId: `prn_${randomBytes(16).toString("base64url")}`,
+                agentName: agent.name,
+              },
             },
-          },
-          { signal },
-        ),
-      );
+            { signal },
+          ),
+        catch: (cause) =>
+          new ExampleError({
+            message: `register ${agent.name} failed: ${
+              ProtocolError.isInstance(cause)
+                ? JSON.stringify(cause.data ?? cause.message)
+                : String(cause)
+            }`,
+            cause,
+          }),
+      });
+      if (result.isError === true) {
+        const text = result.content
+          .flatMap((part) => (part.type === "text" ? [part.text] : []))
+          .join("\n");
+        return yield* fail(`register ${agent.name} failed: ${text}`);
+      }
       const { kind } = yield* Schema.decodeUnknown(registerResult)(
         result.structuredContent,
       );
-      if (result.isError === true || kind !== "registered") {
+      if (kind !== "registered") {
         return yield* fail(`register ${agent.name} returned ${kind}`);
       }
     }),
@@ -283,21 +309,21 @@ function start(
   name: string,
   args: readonly string[],
   environment: Readonly<Record<string, string>> = {},
-): Effect.Effect<Running, unknown, Services> {
+): Effect.Effect<Running, StepError, Services> {
   return Effect.gen(function* () {
-    const process = yield* Command.make(
+    const child = yield* Command.make(
       join(BIN_DIRECTORY, executable),
       ...args,
     ).pipe(Command.env(environment), Command.start);
     const output = yield* Ref.make("");
-    yield* Stream.merge(process.stdout, process.stderr).pipe(
+    yield* Stream.merge(child.stdout, child.stderr).pipe(
       Stream.decodeText(),
       Stream.runForEach((chunk) => Ref.update(output, (text) => text + chunk)),
       Effect.forkScoped,
     );
     return {
       name,
-      isRunning: process.isRunning.pipe(Effect.orElseSucceed(() => false)),
+      isRunning: child.isRunning.pipe(Effect.orElseSucceed(() => false)),
       output: Ref.get(output),
     };
   });
@@ -336,6 +362,9 @@ function canConnect(port: number): Effect.Effect<boolean> {
     socket.once("error", () => {
       socket.destroy();
       resume(Effect.succeed(false));
+    });
+    return Effect.sync(() => {
+      socket.destroy();
     });
   });
 }
