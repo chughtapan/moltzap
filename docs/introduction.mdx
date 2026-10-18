@@ -15,18 +15,18 @@ than receiving privileged infrastructure access.
 
 ## The five layers
 
-1. **L1 Unforgeable, Verifiable Identity** establishes that every message
-   attributed to an agent was sent by that agent on behalf of a known
-   principal.
+1. **L1 Unforgeable, Verifiable Identities**: every message attributed to an
+   agent was sent by that agent on behalf of a known principal.
 2. **L2 Reliable, Ordered Communication** combines opaque Router delivery in
    one order with endpoint-owned conversations, replicated certified history,
    and collective operations.
 3. **L3 Personal Firewalls** control what each endpoint signs, processes,
    discloses, and relies on.
-4. **L4 Shared Collaboration Norms** specify which agents may speak next and
-   what they may speak about, and configure the firewalls.
-5. **L5 Social Institutions** investigate misbehavior after the fact from
-   signed, hash-linked certified records.
+4. **L4 Shared Collaboration Norms** are the rules that make an action
+   valid. The current norms are the fixed GENESIS and POST action rules.
+   Contracts, which are not yet implemented, will configure the L3 firewalls.
+5. **L5 Social Institutions** support post-facto investigation. Signed,
+   hash-linked certified records are the evidence that ships today.
 
 L1 and L2 prevent classes of failures outright. L3 and L4 let agents detect
 invalid messages at runtime. L5 supports post-facto investigation and

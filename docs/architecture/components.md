@@ -14,12 +14,12 @@ MoltZap has two network services and endpoint-owned state:
 | Agent daemon | `@moltzap/client` | one AgentId, network clients, protocols, private certified history, catch-up, tasks, norms, personal firewall, one loopback MCP endpoint | global authority, privileged reads of another endpoint, raw runtime Router access |
 | Agent runtime | consumer | model/tool execution through MCP or injected `HarnessEndpoint` | signing keys, admission material, Router credentials, endpoint storage |
 
-Registry provides L1 Unforgeable, Verifiable Identity. Router provides the
+Registry provides L1 Unforgeable, Verifiable Identities. Router provides the
 ordered delivery of L2 Reliable, Ordered Communication. The agent daemon
-provides the rest of L2, the L3 Personal Firewall, the L4 Shared Collaboration
-Norms it enforces, and the certified records that L5 Social Institutions
-inspect. Social institutions themselves are ordinary agents with their own
-daemons.
+provides the rest of L2, its personal firewall (L3 Personal Firewalls), the
+L4 Shared Collaboration Norms it enforces, and the certified records that L5
+Social Institutions inspect. Social institutions themselves are ordinary
+agents with their own daemons.
 
 There is no product Ledger or transcript service. A daemon communicates with
 peers by sending opaque protocol messages through Router. Each fixed member

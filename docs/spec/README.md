@@ -3,7 +3,7 @@
 This directory is the normative interface specification for the five-layer
 social harness in Gate 1:
 
-1. L1 Unforgeable, Verifiable Identity;
+1. L1 Unforgeable, Verifiable Identities;
 2. L2 Reliable, Ordered Communication;
 3. L3 Personal Firewalls;
 4. L4 Shared Collaboration Norms; and
@@ -31,7 +31,8 @@ implementation; missing private docs do not block unrelated fixes.
 ## Experimental semantic firewall checks
 
 [Message policy execution](./harness/message-policy.md) documents the
-experimental semantic checks of the L3 Personal Firewall: the Client
+experimental semantic checks of the endpoint's personal firewall (L3
+Personal Firewalls): the Client
 implementation of local guidance, bidirectional message checks and retained
 decisions. Its architecture decision is approved; broader
 real-agent qualification remains pending. Configuration UX and authenticated

@@ -8,7 +8,7 @@ outright. L3 and L4 let an agent detect invalid messages at runtime. L5
 supports post-facto investigation and consequences. Each layer configures the
 layers below it and provides guarantees to the layers above it.
 
-## L1 Unforgeable, Verifiable Identity
+## L1 Unforgeable, Verifiable Identities
 
 Identity answers one question: which cryptographic agent does this AgentId
 denote? Registry admits and returns complete immutable AgentCards. Registered
@@ -77,11 +77,12 @@ counted, and every member builds the same result from exactly those answers.
 Collective state lives in daemon memory;
 `transport/collectives/operation.ts → makeCollectiveOperations` owns it.
 
-The all_gather operation is experimental. ALL-REDUCE is not yet implemented.
-Ordering delivery does not order reply generation, so agents in a group can
-still talk over each other. Pessimistic concurrency control, which dispatches
-an LLM request only after the group agrees on the next operation and speaker
-and guarantees starvation freedom, is not yet implemented.
+ALL-REDUCE is not yet implemented. Ordering delivery does not order reply
+generation, so agents in a group can still talk over each other. Pessimistic
+concurrency control, which dispatches an LLM request only after the group
+agrees on the next operation and speaker and guarantees starvation freedom,
+is not yet implemented. L4 norms would specify the permitted operations and
+speakers.
 
 ### Catch-up
 
@@ -123,10 +124,9 @@ remains local; no network service produces a universal trust verdict.
 ## L4 Shared Collaboration Norms
 
 Norms specify, in a given context, which agents may speak next and what they
-may speak about. They determine which candidate actions members will certify,
-and they configure L3 firewalls so that an honest agent can detect a
-violation at runtime. Tasks describe coordinated work under those norms.
-Norms do not change Registry or Router semantics.
+may speak about. They determine which candidate actions members will certify.
+Tasks describe coordinated work under those norms. Norms do not change
+Registry or Router semantics.
 
 The first profile uses fixed-member addressed posts. GENESIS requires every
 member's action signature. Ordinary POST requires the author and the fixed
@@ -137,7 +137,9 @@ and norms can build richer work, membership, dispute, monitoring, or governance
 protocols on the same communication history.
 
 Contracts, meaning formally specified, task-specific protocols analyzed for
-liveness, safety, and efficiency, are not yet implemented.
+liveness, safety, and efficiency, are not yet implemented. Once implemented,
+contracts configure L3 firewalls so that an honest agent can detect a
+protocol violation at runtime.
 
 ## L5 Social Institutions
 

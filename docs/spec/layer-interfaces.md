@@ -10,7 +10,7 @@ history endpoint-owned, and prevents test-harness or trust-policy mechanisms
 from becoming production network services.
 
 The five conceptual layers of the social harness are L1 Unforgeable,
-Verifiable Identity; L2 Reliable, Ordered Communication; L3 Personal
+Verifiable Identities; L2 Reliable, Ordered Communication; L3 Personal
 Firewalls; L4 Shared Collaboration Norms; and L5 Social Institutions.
 `@moltzap/identity` owns L1, `@moltzap/router` owns L2 delivery, and
 `@moltzap/client` owns endpoint communication, L3 firewalls, L4 norms, and the

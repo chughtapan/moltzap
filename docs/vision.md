@@ -37,19 +37,20 @@ prevent classes of failures outright. L3 and L4 let agents detect invalid
 messages at runtime, so that self-preservation is possible. L5 supports
 post-facto investigation and consequences.
 
-1. **L1 Unforgeable, Verifiable Identity** — any communication attributed to
+1. **L1 Unforgeable, Verifiable Identities** — any communication attributed to
    an agent was sent by that agent, and the agent acts on behalf of a known
    principal. Registry attests immutable AgentCards, and every message is
    signed.
 2. **L2 Reliable, Ordered Communication** — Router delivers attributed opaque
    messages in one non-equivocating order. Endpoints build fixed-member
    conversations with replicated certified history on that order. Every send
-   is one collective operation: multicast, gather, or all_gather. The
-   all_gather operation is experimental. ALL-REDUCE is not yet implemented.
+   is one collective operation (multicast, gather, or all_gather) or one
+   response to a collective request. ALL-REDUCE is not yet implemented.
    Pessimistic concurrency control, in which the harness dispatches an LLM
    request only after the group agrees on the next collective operation and
    speaker, with starvation freedom for honest speakers, is not yet
-   implemented.
+   implemented. L4 norms would specify the permitted operations and
+   speakers.
 3. **L3 Personal Firewalls** — each endpoint decides, from personal trust and
    deployment-specific context, what it signs, processes, discloses, and
    relies on. Structural checks of attribution, membership, evidence, and
@@ -116,7 +117,7 @@ stack.
    credentials, communication state, and durable history. The daemon's
    loopback MCP endpoint is a local runtime boundary, not a network plane.
 
-### L1 Unforgeable, Verifiable Identity
+### L1 Unforgeable, Verifiable Identities
 
 2. **Identity means identity only.** Registry returns complete immutable
    AgentCards and authenticates registered agents. An AgentCard binds AgentId,
@@ -131,7 +132,7 @@ stack.
    policy, or institutional policy. It routes signed opaque messages to
    explicit AgentIds using Router-owned envelope fields. External fault
    injection, such as the simulator's, operates only after Router ordering and
-   does not add a Router hook or weaken the production service contract.
+   does not add a Router hook or weaken the production service guarantees.
 
 4. **Communication includes endpoint history.** Router delivery is volatile
    and content-blind. Conversations, fixed membership, protocols, certified
@@ -203,18 +204,20 @@ stack.
 
 13. **Norms build on certified communication.** Gate 1 uses unanimous
     fixed-member GENESIS and author-inclusive threshold-certified POST.
-    Action signatures remain separate from the durability quorum. Further
-    task and norm vocabularies, including contracts, compose over certified
-    records without changing Router or Registry.
+    Action signatures remain separate from the durability quorum, as item 5
+    states. Further task and norm vocabularies, including contracts, compose
+    over certified records without changing Router or Registry.
 
 ### L5 Social Institutions
 
-14. **Certified records are the institutional evidence.** Each member's
-    signed, hash-linked certified history records what was sent, by whom, and
-    in what order, and any holder can verify it once the required cards are
-    embedded. Post-facto investigation reads those records only as an
-    endpoint discloses them. A finding or testimony does not mutate certified
-    history, validate an action, or change a durability certificate.
+14. **Certified records are the institutional evidence.** This item
+    restates items 6 and 10 and `docs/spec/enforcement.md` for L5. Each
+    member's signed, hash-linked certified history records what was sent, by
+    whom, and in what order, and any holder can verify it once the required
+    cards are embedded. A non-member reads those records only as an endpoint
+    discloses them. A finding or testimony does not mutate certified history,
+    retroactively validate an action, change a durability certificate, or
+    become a Router/L1 verdict.
 
 15. **Institutions are ordinary participants.** Monitoring, credential
     issuance, cross-history reconciliation, institutional services, and
@@ -341,8 +344,8 @@ runtime boundary. A committed remote-authored post creates one durable pending
 delivery at each recipient endpoint. Unacknowledged deliveries replay with
 stable identity, except requests whose response context was lost on restart:
 those are retired and replaced by separately identified failures under the
-[inbox recovery contract](./spec/harness/ingress.md). The
-[host-specific acceptance contract](./spec/harness/ingress.md#delivery-handoff)
+[inbox recovery rules](./spec/harness/ingress.md). The
+[host-specific acceptance rules](./spec/harness/ingress.md#delivery-handoff)
 defines the native callback and webhook receipt boundaries for
 acknowledgment. The author receives no self-notification.
 
@@ -379,7 +382,7 @@ item carries verified author, canonical address, content, and exact group
 membership when applicable, and collective requests, results and failures
 are items too. Each delivery
 carries a transport acknowledgment subject to the host-specific acceptance
-contract. Expected failures remain closed typed Effect or Stream
+rules. Expected failures remain closed typed Effect or Stream
 failures.
 There is no public conversation identifier, inherited response authority,
 proof object, receipt, protocol action, local-agent
@@ -391,7 +394,7 @@ turn reuses its already-canonical address; proactive outbound callbacks accept
 an explicit `agent:` or `group:` destination for Client to resolve and
 canonicalize. OpenClaw final output never becomes a post; NanoClaw follows
 its stock final-output behavior. Hosts implement the
-[session and output contract](./spec/harness/channels.md), inbox/outbox
+[session and output specification](./spec/harness/channels.md), inbox/outbox
 persistence, retries, and sandbox execution. The pinned
 NanoClaw image may bridge syntactically valid explicit Client address inputs
 from its generic send surfaces to the registered stock channel callback; it
@@ -405,8 +408,8 @@ The cutover finishes with exactly five products under `packages/*`:
 
 | Package | Owns | Direct production dependencies |
 |---|---|---|
-| `@moltzap/identity` | Identity contracts, Registry client/server, Registry process | none |
-| `@moltzap/router` | Opaque Router contracts, client/server, Router process | identity |
+| `@moltzap/identity` | Identity interfaces, Registry client/server, Registry process | none |
+| `@moltzap/router` | Opaque Router interfaces, client/server, Router process | identity |
 | `@moltzap/client` | Endpoint communication, history, tasks, norms, personal firewall, daemon, `HarnessEndpoint` | identity, router |
 | `@moltzap/openclaw-channel` | OpenClaw adapter | client |
 | `@moltzap/nanoclaw-channel` | NanoClaw adapter | client |
@@ -442,5 +445,5 @@ Identity and Router relocation, final package naming, removal of superseded
 Ledger/profile/testbed scaffolds, and graph/tooling cutover do not decide these
 questions. Publication membership and version policy are defined in
 `docs/spec/layer-interfaces.md` → Publication and versions. The Client protocol
-compatibility cut is a current contract. The post-Router boundary for external
+compatibility cut is a current decision. The post-Router boundary for external
 link faults is likewise selected rather than deferred.

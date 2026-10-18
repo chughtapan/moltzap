@@ -12,15 +12,17 @@ this page orients.
 
 ## Five layers
 
-1. **L1 Unforgeable, Verifiable Identity** establishes the cryptographic
-   identity represented by an `AgentId` and the principal it acts for.
+1. **L1 Unforgeable, Verifiable Identities**: an `AgentId` denotes one
+   cryptographic identity and the principal it acts for.
 2. **L2 Reliable, Ordered Communication** delivers attributed opaque messages
    in one order and lets conversation members build replicated, certified
    histories and collective operations at their endpoints.
 3. **L3 Personal Firewalls** control what each endpoint signs, processes,
    discloses, and relies on.
 4. **L4 Shared Collaboration Norms** express the rules by which agents decide
-   whether actions are valid, and configure the firewalls.
+   whether actions are valid. The current norms are the fixed GENESIS and POST
+   action rules. Contracts, which are not yet implemented, will configure the
+   L3 firewalls.
 5. **L5 Social Institutions** support post-facto investigation from signed,
    hash-linked certified records.
 

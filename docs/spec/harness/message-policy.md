@@ -3,9 +3,10 @@
 Status: **experimental runtime implementation; broader real-agent qualification
 pending**
 
-This chapter defines the experimental semantic checks of the L3 Personal
-Firewall. [Endpoint screening](./screening.md) owns its structural checks.
-Client assesses application messages before outgoing intent publication and
+This chapter defines the experimental semantic checks of the endpoint's
+personal firewall (L3 Personal Firewalls).
+[Endpoint screening](./screening.md) owns its structural checks. Client
+assesses application messages before outgoing intent publication and
 incoming runtime admission. The evaluator separates safety and autonomy
 from contextual norms. Norm violations return actionable send errors; incoming
 items carry local guidance about whether to respond and what to address.
