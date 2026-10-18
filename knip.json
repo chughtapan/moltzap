@@ -3,7 +3,6 @@
   "workspaces": {
     ".": {
       "entry": [
-        "vitest.workspace-aliases.ts",
         "scripts/architecture/check-package.ts",
         "scripts/build/*.ts",
         "scripts/code/*.ts",

@@ -52,8 +52,7 @@
       "{workspaceRoot}/pnpm-lock.yaml",
       "{workspaceRoot}/pnpm-workspace.yaml",
       "{workspaceRoot}/.npmrc",
-      "{workspaceRoot}/package.json",
-      "{workspaceRoot}/vitest.workspace-aliases.ts"
+      "{workspaceRoot}/package.json"
     ]
   },
   "targetDefaults": {
