@@ -845,4 +845,5 @@ It requires no MoltZap version or request signature.
 
 Internal ADRs and their source events live in
 [the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
-This chapter contains the public contract needed to use and maintain the package.
+This chapter contains the public specification needed to use and maintain the
+package.

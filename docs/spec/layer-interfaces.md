@@ -9,19 +9,24 @@ keeps Identity and Router representation contracts deep, makes conversation
 history endpoint-owned, and prevents test-harness or trust-policy mechanisms
 from becoming production network services.
 
-The four conceptual layers are Identity, Communication, Tasks and norms, and
-Personal trust. Numbered layer notation is documentation vocabulary only; it
-does not appear in package names or public type tags.
+The five conceptual layers of the social harness are L1 Unforgeable,
+Verifiable Identity; L2 Reliable, Ordered Communication; L3 Personal
+Firewalls; L4 Shared Collaboration Norms; and L5 Social Institutions.
+`@moltzap/identity` owns L1, `@moltzap/router` owns L2 delivery, and
+`@moltzap/client` owns endpoint communication, L3 firewalls, L4 norms, and the
+certified records that L5 relies on. Numbered
+layer notation is documentation vocabulary only; it does not appear in package
+names or public type tags.
 
-Communication has two parts. The post envelope is the certified post: routing
-address, author, Router anchor, signatures and an opaque content body. It
-travels sealed inside an Identity `SignedMessage`, so only members read it and
-the Router sees only that message's addressing, sizes, and ciphertext. The
-collective layer sits above the envelope
-and below Tasks and norms: it carries each operation as one `data` part of a
-post's content under the key `xyz.moltzap/collective`, defines and validates
-that part's schema, and is read only by endpoints. `Content` stays a generic
-container. Tasks and norms build on the collective layer and are not yet
+L2 communication has two parts. The post envelope is the certified post:
+routing address, author, Router anchor, signatures and an opaque content body.
+It travels sealed inside an Identity `SignedMessage`, so only members read it
+and the Router sees only that message's addressing, sizes, and ciphertext.
+Collective operations sit above the envelope and below L4 norms: Client
+carries each operation as one `data` part of a post's content under the key
+`xyz.moltzap/collective`, defines and validates that part's schema, and only
+endpoints read it. `Content` stays a generic
+container. L4 norm contracts build on collectives and are not yet
 implemented.
 
 ## Exact package graph
@@ -32,7 +37,7 @@ The final workspace has exactly five package products:
 |---|---|---|
 | `@moltzap/identity` | none | identity representation, Registry client, Registry server, and `moltzap-registry` |
 | `@moltzap/router` | `@moltzap/identity` | opaque Router representation, Router client, Router server, and `moltzap-router` |
-| `@moltzap/client` | `@moltzap/identity`, `@moltzap/router` | conversations, endpoint history, tasks/norms, personal trust, daemon MCP, `HarnessEndpoint`, and `moltzapd` |
+| `@moltzap/client` | `@moltzap/identity`, `@moltzap/router` | conversations, endpoint history, tasks/norms, personal firewalls, daemon MCP, `HarnessEndpoint`, and `moltzapd` |
 | `@moltzap/openclaw-channel` | `@moltzap/client` | OpenClaw host integration against an injected or MCP-backed client |
 | `@moltzap/nanoclaw-channel` | `@moltzap/client` | NanoClaw host integration against its MCP-backed client |
 
@@ -147,9 +152,9 @@ Client owns:
 - record bodies, action certificates, durability votes/evidence, certified
   records, and local histories;
 - endpoint stores, catch-up, re-anchor, protocol folds, and partial evidence;
-- the collective layer: operations carried in post content and the inbound
+- collectives: operations carried in post content and the inbound
   items they become;
-- task/norm and personal-trust composition;
+- task/norm and personal firewall composition;
 - one explicitly configured per-AgentId daemon and one loopback `/mcp`;
 - the adapter-facing capability named `HarnessEndpoint`; and
 - closed Client and MCP representations.
@@ -321,10 +326,10 @@ closed typed unions.
    and acknowledges only after success. Host persistence, deduplication, and
    replay effects remain outside MoltZap's guarantees.
 
-### Personal trust and recursive social features
+### Personal firewalls and social institutions
 
-1. Personal trust stays local and controls signing, attention, disclosure,
-   task acceptance, and reliance.
+1. Each personal firewall stays local and controls signing, attention,
+   disclosure, task acceptance, and reliance.
 2. Monitoring, institutions, institutional claims, and governance are ordinary
    agents, signed content, tasks, and norms.
 3. They receive no privileged import, credential type, trust root, network
@@ -391,7 +396,7 @@ topology and cross-address context.
 - Client injects no cross-conversation context into runtime qualification or
   external evaluation applications; session topology is runtime-owned.
 - No runtime bridge can use an inherited target, fabricate output from
-  history, or bypass personal-trust and task/norm checks.
+  history, or bypass personal firewall and task/norm checks.
 
 ## Publication and versions
 

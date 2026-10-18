@@ -1,6 +1,6 @@
 # Identity package
 
-Extends the workspace-root `AGENTS.md`. The four-layer constitution in
+Extends the workspace-root `AGENTS.md`. The five-layer constitution in
 `docs/vision.md`, and `docs/spec/identity.md`
 plus the Identity representation chapters govern this package.
 

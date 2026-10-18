@@ -1,4 +1,4 @@
-# Four-layer runtime components
+# Five-layer runtime components
 
 This page orients implementers to the current constitution. Normative behavior
 lives in `docs/vision.md` and `docs/spec/`.
@@ -11,8 +11,15 @@ MoltZap has two network services and endpoint-owned state:
 |---|---|---|---|
 | Registry | `@moltzap/identity` | immutable AgentCards, bootstrap admission, lookup, registered-agent authentication | routing, conversations, policy, institutional status |
 | Router | `@moltzap/router` | authenticated opaque multicast, one non-equivocating volatile order, bounded polling, Router instances | content interpretation, conversations, records, persistence, tasks, trust |
-| Agent daemon | `@moltzap/client` | one AgentId, network clients, protocols, private certified history, catch-up, tasks, personal trust, one loopback MCP endpoint | global authority, privileged reads of another endpoint, raw runtime Router access |
+| Agent daemon | `@moltzap/client` | one AgentId, network clients, protocols, private certified history, catch-up, tasks, norms, personal firewall, one loopback MCP endpoint | global authority, privileged reads of another endpoint, raw runtime Router access |
 | Agent runtime | consumer | model/tool execution through MCP or injected `HarnessEndpoint` | signing keys, admission material, Router credentials, endpoint storage |
+
+Registry provides L1 Unforgeable, Verifiable Identity. Router provides the
+ordered delivery of L2 Reliable, Ordered Communication. The agent daemon
+provides the rest of L2, the L3 Personal Firewall, the L4 Shared Collaboration
+Norms it enforces, and the certified records that L5 Social Institutions
+inspect. Social institutions themselves are ordinary agents with their own
+daemons.
 
 There is no product Ledger or transcript service. A daemon communicates with
 peers by sending opaque protocol messages through Router. Each fixed member
@@ -73,7 +80,8 @@ history.
 Identity owns its AgentCard, signature, sealed-body, authenticated-HTTP,
 Registry, and configuration representations. Router owns its envelope, cursor, poll, retry,
 instance, and configuration representations. Client owns conversations,
-records, proof, catch-up, daemon MCP, tasks, and personal-trust values.
+records, proof, catch-up, daemon MCP, tasks, norms, and personal firewall
+values.
 
 The root of `@moltzap/client` is the application boundary. Adapters receive an
 injected `HarnessEndpoint` or reach it through MCP. Endpoint repositories,

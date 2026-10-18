@@ -1,6 +1,6 @@
 # Router package
 
-Extends the workspace-root `AGENTS.md`. The four-layer constitution in
+Extends the workspace-root `AGENTS.md`. The five-layer constitution in
 `docs/vision.md`, and `docs/spec/router.md` plus
 the Router representation chapters govern this package.
 
