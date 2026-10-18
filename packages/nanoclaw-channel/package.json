@@ -11,6 +11,7 @@
   "type": "module",
   "files": [
     "dist",
+    "!dist/tsconfig.tsbuildinfo",
     "LICENSE",
     "NOTICE"
   ],
@@ -33,8 +34,13 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/nanoclaw-channel",
-          "command": "tsc -b"
-        }
+          "command": "node ../../scripts/build/clean-dist.ts && tsc -b"
+        },
+        "inputs": [
+          "production",
+          "^production",
+          "{workspaceRoot}/scripts/build/clean-dist.ts"
+        ]
       },
       "lint": {
         "executor": "nx:run-commands",
