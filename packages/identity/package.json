@@ -49,11 +49,12 @@
         "executor": "nx:run-commands",
         "inputs": [
           "production",
-          "^production"
+          "^production",
+          "{workspaceRoot}/scripts/build/clean-dist.ts"
         ],
         "options": {
           "cwd": "packages/identity",
-          "command": "tsc -b"
+          "command": "node ../../scripts/build/clean-dist.ts && tsc -b"
         }
       },
       "typecheck": {
