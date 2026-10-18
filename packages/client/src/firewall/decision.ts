@@ -75,6 +75,31 @@ export function composeDecision(
   };
 }
 
+/** Missing applicable advice receives the safe default for the final reason. */
+export function projectFeedback(
+  middleware: readonly MessageMiddleware[],
+  checks: readonly MiddlewareCheck[],
+  reason: Reason,
+): FirewallCheck["feedback"] {
+  const feedback = middleware.flatMap((entry) => {
+    const selected =
+      checks
+        .find((check) => check.middlewareId === entry.id)
+        ?.findings.filter((finding) => matchesReason(finding, reason))
+        .map((finding) => finding.ruleId) ?? [];
+    return entry.rules.flatMap((rule) =>
+      selected.includes(rule.id) &&
+      rule.feedback !== undefined &&
+      validNextAction(reason, rule.feedback.nextAction)
+        ? [{ ...rule.feedback }]
+        : [],
+    );
+  });
+  return feedback.length === 0
+    ? defaultFeedback[reason].map((entry) => ({ ...entry }))
+    : feedback;
+}
+
 function selectReason(
   event: MessageEvent,
   context: MessageContext,
@@ -180,30 +205,6 @@ function matchesReason(finding: PolicyFinding, reason: Reason): boolean {
   return finding.outcome === "hold"
     ? finding.reason === reason
     : findingReasons[finding.outcome] === reason;
-}
-
-function projectFeedback(
-  middleware: readonly MessageMiddleware[],
-  checks: readonly MiddlewareCheck[],
-  reason: Reason,
-): FirewallCheck["feedback"] {
-  const feedback = middleware.flatMap((entry) => {
-    const selected =
-      checks
-        .find((check) => check.middlewareId === entry.id)
-        ?.findings.filter((finding) => matchesReason(finding, reason))
-        .map((finding) => finding.ruleId) ?? [];
-    return entry.rules.flatMap((rule) =>
-      selected.includes(rule.id) &&
-      rule.feedback !== undefined &&
-      validNextAction(reason, rule.feedback.nextAction)
-        ? [{ ...rule.feedback }]
-        : [],
-    );
-  });
-  return feedback.length === 0
-    ? defaultFeedback[reason].map((entry) => ({ ...entry }))
-    : feedback;
 }
 
 function projectGuidance(

@@ -18,6 +18,7 @@ import {
   Message,
   MessageContext,
   type MessageMiddleware,
+  projectFeedback,
 } from "../firewall/index.js";
 import { FirewallSendError, type LocalGuidance } from "../firewall/runtime.js";
 import {
@@ -359,7 +360,7 @@ const assess = Effect.fn("assessMessage")(function* (
   });
   const assessed = yield* runAssessment(environment, input, context);
   const projection = yield* guidanceProjection(
-    withEvidenceGaps(assessed, context),
+    assessed,
     input,
     context,
     checkId,
@@ -404,15 +405,6 @@ function runAssessment(
       Effect.succeed(unavailable("check-unavailable")),
     ),
   );
-}
-
-function withEvidenceGaps(
-  assessed: FirewallCheck,
-  context: MessageContext,
-): FirewallCheck {
-  return context.gaps.length > 0 && assessed.judgment !== "block"
-    ? { ...unavailable("unresolved-evidence"), checks: assessed.checks }
-    : assessed;
 }
 
 /** The check permit covers capture and inference, never intent activation or protocol work. */
@@ -566,7 +558,13 @@ export const sendWithFirewall = (
 function unavailable(
   reason: "check-unavailable" | "unresolved-evidence",
 ): FirewallCheck {
-  return { judgment: "hold", reason, feedback: [], guidance: [], checks: [] };
+  return {
+    judgment: "hold",
+    reason,
+    feedback: projectFeedback([], [], reason),
+    guidance: [],
+    checks: [],
+  };
 }
 
 /** Only already admitted history and the incoming candidate can explain a selected subject. */

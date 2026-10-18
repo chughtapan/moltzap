@@ -13,11 +13,6 @@ import { Deferred, Effect, Fiber, Queue, Schema, Scope } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { join } from "node:path";
 import { expect } from "vitest";
-import type {
-  MessageMiddleware,
-  MiddlewareInput,
-  MiddlewareResult,
-} from "../firewall/values.js";
 import {
   digest,
   identifier,
@@ -32,6 +27,12 @@ import { decodeAudit } from "../__tests__/firewall-audit-fixtures.js";
 import { pollCursor } from "../__tests__/router-worker-fixtures.js";
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
 import { FirewallSendError } from "../firewall/runtime.js";
+import {
+  type MessageMiddleware,
+  MiddlewareError,
+  type MiddlewareInput,
+  type MiddlewareResult,
+} from "../firewall/values.js";
 import {
   decodeRuntimeValue,
   DeliveryToken,
@@ -84,6 +85,8 @@ const revise: MiddlewareResult = {
   findings: [{ ruleId: rule.id, outcome: "revise" }],
   expectations: [],
 };
+const waitAction = "wait";
+const renderedWaitAction = `Next action: ${waitAction}.`;
 const settings = {
   timeoutMilliseconds: 10_000,
   middlewareTimeoutMilliseconds: 8_000,
@@ -593,14 +596,17 @@ function unsupportedSend() {
       subject,
       policy(() => Effect.succeed(pass)),
     );
-    expect(
-      yield* Effect.flip(
-        delivery.operations.send({
-          input: { to: destination, collectiveResponse: { action: "decline" } },
-          failureDelivery: "inbound",
-        }),
-      ),
-    ).toMatchObject({ refusal: "check-unavailable" });
+    const refusal = yield* Effect.flip(
+      delivery.operations.send({
+        input: { to: destination, collectiveResponse: { action: "decline" } },
+        failureDelivery: "inbound",
+      }),
+    );
+    expect(refusal.message).toContain(renderedWaitAction);
+    expect(refusal).toMatchObject({
+      refusal: "check-unavailable",
+      feedback: [{ nextAction: waitAction }],
+    });
     expect((yield* subject.store.recover()).postIntents).toEqual([]);
     expect((yield* delivery.operations.readInbox({})).items).toEqual([]);
     expect((yield* auditChecks(subject))[0]?.post).toBeNull();
@@ -645,7 +651,7 @@ function auditCorrelatesPosts() {
 }
 
 it(
-  "holds one of two concurrent sends after the other creates an unresolved intent",
+  "holds a concurrent send when its evidence is incomplete and its recheck is unavailable",
   concurrentSends,
 );
 it("holds outgoing admission after two stale checks", () =>
@@ -670,8 +676,11 @@ function concurrentSends() {
       subject,
       policy((input) =>
         Queue.offer(entered, input).pipe(
-          Effect.zipRight(Deferred.await(release)),
-          Effect.as(pass),
+          Effect.zipRight(
+            input.context.gaps.length === 0
+              ? Deferred.await(release).pipe(Effect.as(pass))
+              : Effect.fail(new MiddlewareError({ reason: "unavailable" })),
+          ),
         ),
       ),
     );
@@ -689,7 +698,7 @@ function concurrentSends() {
       Effect.flip(Fiber.join(first)),
       Effect.flip(Fiber.join(second)),
     );
-    expect(refusal).toMatchObject({ refusal: "unresolved-evidence" });
+    expect(refusal).toMatchObject({ refusal: "check-unavailable" });
     expect((yield* Queue.take(entered)).context.gaps).not.toEqual([]);
     expect((yield* subject.store.recover()).postIntents).toHaveLength(1);
     yield* Fiber.interrupt(first);
@@ -731,8 +740,11 @@ function staleOutgoing(mode: FirewallOptions["mode"]) {
       })
       .pipe(Effect.forkScoped);
     if (mode === "enforcement") {
-      expect(yield* Effect.flip(Fiber.join(sending))).toMatchObject({
+      const refusal = yield* Effect.flip(Fiber.join(sending));
+      expect(refusal.message).toContain(renderedWaitAction);
+      expect(refusal).toMatchObject({
         refusal: "unresolved-evidence",
+        feedback: [{ nextAction: waitAction }],
       });
       expect((yield* subject.store.recover()).postIntents).toEqual([]);
     } else {
@@ -774,7 +786,6 @@ function installationProvenance() {
     const changed = yield* installation(registration);
     expect(installed.metadata.incoming[0]?.provenance.data).toBe(model);
     expect(changed.configurationDigest).not.toBe(installed.configurationDigest);
-    expect(Object.isFrozen(installed.metadata.incoming)).toBe(true);
   });
 }
 

@@ -6,9 +6,11 @@ ordered middleware. A code policy and an English policy implement the same
 `checkOutgoing`; each returns a judgment, registered advice, and private audit.
 The component is available through `@moltzap/client/service`.
 
-This component does not yet intercept live messages. Client admission, send-call
-errors, persistence and OpenClaw projection remain in the
-[implementation proposal](../../../../docs/spec/harness/message-policy.md).
+`MoltZapService.withFirewall` installs the chains at Client's incoming and
+outgoing message boundaries. Client retains admission decisions and send-call
+errors; OpenClaw presents local guidance and refusal feedback to the agent.
+See the [runtime specification](../../../../docs/spec/harness/message-policy.md)
+for composition, persistence, host support and qualification limits.
 
 ## Compose a chain
 
@@ -159,17 +161,18 @@ relationships and delegation. A name in message text is not authenticated identi
 
 Approval is trusted integration input for the same principal and exact candidate
 (id, sender, recipients and text). The firewall does not authenticate humans or
-check external freshness. Future Client integration must revalidate policy and
-evidence versions at admission. Its private state is not a public snapshot or
-binding service. The first live integration supplies absent approval.
+check external freshness. Client revalidates policy and evidence versions at
+admission. Its private state is not a public snapshot or binding service.
+The live integration supplies absent approval.
 
 Only registered `guidance` and compatible `feedback` templates can reach runtime
 projections; arbitrary provider prose cannot. Held messages have no guidance.
 Raw responses, assessor facts and requests stay in `checks`, whose optional
 traces use an explicit `format` and serialized `data`. English traces use
-`english-policy/v1`. Never pass the complete check to an agent. The later inbound
-adapter will project guidance with an admitted message; the outbound adapter
-will project refusal feedback through the send-call error.
+`english-policy/v1`. Never pass the complete check to an agent. Client attaches
+guidance to admitted incoming deliveries and returns refusal feedback through
+the send-call error. Each feedback entry's next action is included in the error
+text for hosts that retain only that text.
 
 ## English rule examples
 
@@ -202,10 +205,12 @@ result proves that a calendar write occurred.
 
 ## Code organization and verification
 
-Everything lives in this folder: `chain.ts` runs middleware, `decision.ts`
+The evaluator lives in this folder: `chain.ts` runs middleware, `decision.ts`
 composes findings, `english.ts` adapts English rules, `questions.ts` constructs
 versioned questions, `jev.ts` handles TypeSafe HTTP, and `values.ts` defines the
-shared values. `index.ts` is the module entry point.
+shared values. `index.ts` is the module entry point. Client's
+`delivery/firewall.ts` owns live admission; `runtime.ts` here defines the
+guidance and send-refusal values exposed to hosts.
 
 Execution diagrams live with their owners:
 [`index.ts`](./index.ts) → `makeFirewall` and
@@ -214,6 +219,8 @@ Execution diagrams live with their owners:
 
 `chain.test.ts`, `english.test.ts` and `jev.test.ts` check behavior through the
 public service API. Provider fakes verify composition, failure closure and
-projection; real-provider experiments measure classification separately. Actual
-send refusal, model-authored repair and peer delivery still require the planned
-Client gate and OpenClaw experiment.
+projection; real-provider experiments measure classification separately.
+Client runtime and adapter tests cover send refusal, retained admission and
+guidance projection. Real-agent experiments must separately retain actual tool
+errors, model-authored repair, rendered guidance and peer delivery; component
+tests do not establish those outcomes.

@@ -57,7 +57,7 @@ const refusalText = {
   prohibited: "local policy prohibits this message",
   "unresolved-evidence": "local policy needs more evidence or owner review",
   "check-unavailable": "the message policy check could not complete",
-  "norm-violation": "the message needs revision to satisfy local norms",
+  "norm-violation": "the message does not satisfy local norms",
   "approval-required": "this message requires owner approval",
 } as const;
 
@@ -69,7 +69,9 @@ export class FirewallSendError extends Data.TaggedError("FirewallSendError")<
   typeof firewallRefusalSchema.Type
 > {
   override get message(): string {
-    const feedback = this.feedback.map((item) => item.text).join(" ");
+    const feedback = this.feedback
+      .map((item) => `Next action: ${item.nextAction}. ${item.text}`)
+      .join(" ");
     const description = `send withheld (check ${this.checkId}): ${refusalText[this.refusal]}.`;
     return feedback.length === 0 ? description : `${description} ${feedback}`;
   }

@@ -63,6 +63,7 @@ const cursorSchema = Schema.Struct({
 
 /**
  * Persist a classified item before any host can observe its delivery identity.
+ * Reclassification retains guidance admitted under an earlier daemon composition.
  * @param store Daemon-owned endpoint persistence.
  * @param event Stable delivery identity and classified payload.
  * @returns Completion once the immutable token binding is durable.
@@ -71,12 +72,17 @@ export const persistInboxItem = (
   store: EndpointStore,
   event: HarnessMessageReadyEvent,
 ): Effect.Effect<void, EndpointStoreError> =>
-  encodeRuntimeValue(event.item).pipe(
-    Effect.flatMap((canonicalItem) =>
-      store.putInboxItem({ deliveryToken: event.deliveryToken, canonicalItem }),
-    ),
-    Effect.asVoid,
-  );
+  Effect.gen(function* () {
+    const canonicalItem = yield* encodeRuntimeValue(event.item);
+    const retained = yield* store.readInboxItem(event.deliveryToken);
+    yield* store.putInboxItem({
+      deliveryToken: event.deliveryToken,
+      canonicalItem,
+      ...(retained?.canonicalGuidance === undefined
+        ? {}
+        : { canonicalGuidance: retained.canonicalGuidance }),
+    });
+  }).pipe(Effect.withSpan("persistInboxItem"));
 
 const decodeCursor = (
   cursor?: string,

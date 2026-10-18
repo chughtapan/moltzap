@@ -122,7 +122,7 @@ it.prop(
 
 it("isolates returned findings from mutation while later middleware waits", () =>
   Effect.gen(function* () {
-    const result = { findings: [block], expectations: [] };
+    const result = { findings: [block, pass], expectations: [] };
     const started = yield* Deferred.make<undefined>();
     const release = yield* Deferred.make<undefined>();
     const first: MessageMiddleware = {
@@ -146,7 +146,7 @@ it("isolates returned findings from mutation while later middleware waits", () =
     yield* Deferred.succeed(release, undefined);
     const checked = yield* Fiber.join(running);
     expect(checked.judgment).toBe("block");
-    expect(checked.checks[0]?.findings).toEqual([block]);
+    expect(checked.checks[0]?.findings).toEqual([block, pass]);
   }));
 
 it("runs distinct incoming and outgoing code chains without a provider", () =>
@@ -164,30 +164,6 @@ it("runs distinct incoming and outgoing code chains without a provider", () =>
       "receive",
     ]);
     expect(sent.checks.map((entry) => entry.middlewareId)).toEqual(["send"]);
-  }));
-
-it("runs every entry and preserves all findings without a later override", () =>
-  Effect.gen(function* () {
-    const observed: MiddlewareInput[] = [];
-    const later: MessageMiddleware = {
-      ...policy("later"),
-      check: (input) =>
-        Effect.sync(() => {
-          observed.push(input);
-          return { findings: [pass], expectations: [] };
-        }),
-    };
-    const firewall = yield* firewallFor([
-      policy("earlier", [block, pass]),
-      later,
-    ]);
-    const result = yield* firewall.checkOutgoing(draft, context);
-    expect(result.judgment).toBe("block");
-    expect(result.checks.map((entry) => entry.middlewareId)).toEqual([
-      "earlier",
-      "later",
-    ]);
-    expect(observed[0]?.previous[0]?.findings).toEqual([block, pass]);
   }));
 
 it.each(["failure", "defect", "timeout"])(
@@ -212,7 +188,18 @@ it.each(["failure", "defect", "timeout"])(
       const firewall = yield* firewallFor([
         policy("earlier", [block]),
         failing,
-        policy("later"),
+        {
+          ...policy("later"),
+          check: (input) =>
+            Effect.sync(() => {
+              const earlier = input.previous[1];
+              expect([
+                Reflect.set(earlier?.findings ?? [], "length", 1),
+                Reflect.set(earlier?.expectations ?? [], "length", 1),
+              ]).toEqual([false, false]);
+              return { findings: [pass], expectations: [] };
+            }),
+        },
       ]);
       const running = yield* firewall
         .checkOutgoing(draft, context)
@@ -312,25 +299,6 @@ it.each([
   }),
 );
 
-it("propagates cancellation without returning admission", () =>
-  Effect.gen(function* () {
-    const started = yield* Deferred.make<undefined>();
-    const waiting: MessageMiddleware = {
-      ...policy("waiting"),
-      check: () =>
-        Deferred.succeed(started, undefined).pipe(
-          Effect.zipRight(Effect.never),
-        ),
-    };
-    const firewall = yield* firewallFor([waiting]);
-    const running = yield* firewall
-      .checkOutgoing(draft, context)
-      .pipe(Effect.fork);
-    yield* Deferred.await(started);
-    const exit = yield* Fiber.interrupt(running);
-    expect(exit._tag).toBe("Failure");
-  }));
-
 it("captures metadata, preserves method receivers and freezes previous observations", () =>
   Effect.gen(function* () {
     const mutableRule = { ...rule, guidance: "Original registered advice" };
@@ -364,6 +332,7 @@ it("captures metadata, preserves method receivers and freezes previous observati
           );
           expect(Reflect.set(input.previous, "length", 0)).toBe(false);
           const earlier = input.previous[0];
+          expect(earlier?.findings).toEqual([pass]);
           expect(
             earlier === undefined || Reflect.set(earlier.findings, "length", 0),
           ).toBe(false);

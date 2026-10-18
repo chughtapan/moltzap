@@ -1,10 +1,16 @@
 /** @file Exercises classified delivery durability and loss of request context. */
 
 import { scopedLive as it } from "@effect/vitest";
-import { Effect, Array as EffectArray, Schema } from "effect";
+import { Effect, Array as EffectArray, Schema, Scope } from "effect";
 import { describe, expect } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
 import { localGuidance } from "../__tests__/message-policy-fixtures.js";
+import {
+  pendingMessage,
+  publishEveryPost,
+  recordAcknowledgments,
+  takeEvery,
+} from "../__tests__/pending-delivery-fixtures.js";
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
 import {
   decodeRuntimeValue,
@@ -13,13 +19,15 @@ import {
   openEndpointStore,
 } from "../store/index.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
+import { noHistoryExport } from "./history-export.js";
+import { makeHostDelivery } from "./host-delivery.js";
 import {
   persistInboxItem,
   readRuntimeEvent,
   readRuntimeInbox,
   recoverRuntimeInbox,
 } from "./inbox.js";
-import { eventIdOf } from "./operations.js";
+import { eventIdOf, type HarnessMessageReadyEvent } from "./operations.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Durable tombstone and snapshot fixtures pin exact store outcomes. */
 
@@ -54,9 +62,10 @@ const preservesTokenBindings = () => {
     yield* Effect.scoped(
       Effect.gen(function* () {
         const store = yield* openEndpointStore(path);
-        yield* persistInboxItem(store, {
+        yield* store.putInboxItem({
           deliveryToken: token(1),
-          item: failure,
+          canonicalItem: yield* encodeRuntimeValue(failure),
+          canonicalGuidance: yield* encodeRuntimeValue(localGuidance(1)),
         });
         yield* store.acknowledgeInboxItem(token(1));
       }),
@@ -275,30 +284,52 @@ it("retires queued requests across pages and behind another conversation item", 
   });
 });
 
-it("retains admitted guidance and its subject map across reopen and acknowledgment", () => {
+it("replays the admitted envelope across restart and retains it after acknowledgment", () => {
   const path = stateDirectory();
   const guidance = localGuidance(1);
+  const pending = pendingMessage(1);
+  const item: InboundItem = { kind: "multicast", message: pending.message };
+  const event = { deliveryToken: pending.deliveryToken, item, guidance };
   return Effect.gen(function* () {
     yield* Effect.scoped(
       Effect.gen(function* () {
         const store = yield* openEndpointStore(path);
         yield* store.putInboxItem({
-          deliveryToken: token(1),
-          canonicalItem: yield* encodeRuntimeValue(failure),
+          deliveryToken: event.deliveryToken,
+          canonicalItem: yield* encodeRuntimeValue(item),
           canonicalGuidance: yield* encodeRuntimeValue(guidance),
         });
       }),
     );
     const store = yield* openEndpointStore(path);
-    yield* recoverRuntimeInbox(store, true);
-    expect((yield* readRuntimeInbox(store, {})).items).toEqual([
-      { deliveryToken: token(1), item: failure, guidance },
-    ]);
-    yield* store.acknowledgeInboxItem(token(1));
-    expect(yield* readRuntimeEvent(store, eventIdOf(token(1)))).toEqual({
-      item: failure,
-      guidance,
+    const delivery = yield* makeHostDelivery({
+      store,
+      historyExport: noHistoryExport,
+      collectives: () => ({ send: () => Effect.dieMessage("unexpected send") }),
+      scope: yield* Scope.Scope,
     });
+    const published: HarnessMessageReadyEvent[] = [];
+    const pass = () => ({
+      readPending: Effect.succeed([pending]),
+      engine: recordAcknowledgments([]),
+      classify: publishEveryPost,
+      handler: takeEvery(published),
+    });
+    yield* delivery.runPass(pass);
+    expect(published).toEqual([event]);
+    expect(yield* delivery.operations.readInbox({})).toEqual({
+      items: [event],
+    });
+    yield* delivery.operations.acknowledgeDelivery(event.deliveryToken);
+    yield* delivery.detach;
+    yield* delivery.runPass(pass);
+    expect(published).toEqual([event]);
+    expect(yield* delivery.operations.readInbox({})).toEqual({ items: [] });
+    expect(
+      yield* delivery.operations.readEvent({
+        eventId: eventIdOf(event.deliveryToken),
+      }),
+    ).toEqual({ item, guidance });
   });
 });
 

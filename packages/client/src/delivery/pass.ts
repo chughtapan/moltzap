@@ -107,8 +107,8 @@ export interface PendingOffer {
   readonly persist: (
     event: HarnessMessageReadyEvent,
   ) => Effect.Effect<void, EndpointStoreError>;
-  /** Enabled policy reads the admitted projection before any export or notification. */
-  readonly readAdmitted?: (
+  /** Read the durable admitted projection before any export or notification. */
+  readonly readAdmitted: (
     event: HarnessMessageReadyEvent,
   ) => Effect.Effect<
     Option.Option<HarnessMessageReadyEvent>,
@@ -164,10 +164,7 @@ const publishItem = (
   event: HarnessMessageReadyEvent,
 ): Effect.Effect<boolean, EndpointStoreError> =>
   Effect.gen(function* () {
-    const admitted =
-      offer.readAdmitted === undefined
-        ? Option.some(event)
-        : yield* offer.readAdmitted(event);
+    const admitted = yield* offer.readAdmitted(event);
     if (Option.isNone(admitted)) {
       return true;
     }

@@ -13,7 +13,6 @@ import {
   type MiddlewareCheck,
   MiddlewareError,
   MiddlewareInput,
-  MiddlewareObservation,
   MiddlewareResult,
   type PolicyFinding,
   RuleDescription,
@@ -270,18 +269,15 @@ const checkMessage = Effect.fn("Firewall.check")(function* (
     (yield* Clock.currentTimeMillis) + settings.timeoutMilliseconds;
   const checks: MiddlewareCheck[] = [];
   for (const entry of middleware) {
-    const previous = yield* decodeFrozen(
-      Schema.Array(MiddlewareObservation),
-      checks.map((check) => ({
-        middlewareId: check.middlewareId,
-        revision: check.revision,
-        status: check.status,
-        findings: check.findings,
-        expectations: check.expectations,
-      })),
-    ).pipe(
-      Effect.catchTag("ParseError", () =>
-        Effect.fail(new CheckInputError({ reason: "context" })),
+    const previous = Object.freeze(
+      checks.map((check) =>
+        Object.freeze({
+          middlewareId: check.middlewareId,
+          revision: check.revision,
+          status: check.status,
+          findings: Object.freeze(check.findings),
+          expectations: Object.freeze(check.expectations),
+        }),
       ),
     );
     const input = Object.freeze({ ...captured, previous });

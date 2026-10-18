@@ -27,13 +27,14 @@ Use these public contracts for maintenance. A durable boundary change needs its
 source-backed decision and public contract reconciled before implementation;
 missing private docs do not block unrelated fixes.
 
-## Proposed interfaces
+## Experimental message policies
 
-[English message policies](./harness/message-policy.md) is a decision candidate
-for owner-authored guidance, bidirectional message checks and durable review.
-It is not implemented or admitted; its amendment table identifies the current
-contracts an admitted implementation must reconcile. It does not change the
-readiness of existing interfaces below.
+[Message policy execution](./harness/message-policy.md) documents the experimental
+Client implementation of local guidance, bidirectional message checks and
+retained decisions. Its architecture decision is approved; broader
+real-agent qualification remains pending. Configuration UX and authenticated
+human approval are deferred. It does not change the readiness of existing
+interfaces below.
 
 ## Implementation readiness
 
