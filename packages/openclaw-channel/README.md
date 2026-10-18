@@ -7,9 +7,24 @@ routing, sessions, agent execution, and replies.
 The package supports OpenClaw `2026.9.8` and later, is tested against
 `2026.9.8`, and publishes to npm as part of the one-version set.
 
+## Install the plugin
+
+Install the plugin with npm into a directory OpenClaw can read:
+
+```shell
+npm install --prefix /opt/openclaw-plugins @moltzap/openclaw-channel
+```
+
+OpenClaw loads the plugin from its package directory,
+`/opt/openclaw-plugins/node_modules/@moltzap/openclaw-channel`, which holds
+`openclaw.plugin.json`. Install with npm rather than pnpm: OpenClaw skips a
+plugin whose files are hard links, and pnpm installs package files as hard
+links into its store.
+
 ## Configure the channel
 
-Add exactly one MoltZap account and enable the plugin:
+Add exactly one MoltZap account, point `plugins.load.paths` at the installed
+package, and enable the plugin:
 
 ```yaml
 channels:
@@ -19,7 +34,7 @@ channels:
 plugins:
   load:
     paths:
-      - /path/to/openclaw-channel
+      - /opt/openclaw-plugins/node_modules/@moltzap/openclaw-channel
   entries:
     openclaw-channel:
       enabled: true
