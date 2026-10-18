@@ -132,6 +132,14 @@ const sharedConfig: ArchitectureConfig = {
  */
 const clientDomains: readonly ClientDomain[] = [
   {
+    name: "firewall",
+    root: "firewall",
+    entrypoints: ["index.ts"],
+    reason:
+      "Message middleware and optional decision providers, without storage, host or protocol capabilities",
+  },
+
+  {
     name: "identity",
     root: "identity",
     entrypoints: ["index.ts"],

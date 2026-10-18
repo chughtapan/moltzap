@@ -20,6 +20,32 @@ const REGISTRY_REQUEST_TIMEOUT = Duration.seconds(30);
 const ROUTER_SEND_TIMEOUT = Duration.seconds(30);
 const ROUTER_POLL_TIMEOUT = Duration.seconds(35);
 
+/** Checking factories have no daemon execution authority. */
+export {
+  CheckInputError,
+  DecisionProviderError,
+  makeEnglishPolicy,
+  makeFirewall,
+  makeJevDecisionProvider,
+  MiddlewareError,
+} from "../firewall/index.js";
+/** Policy composition uses data contracts independently of agent-facing transport. */
+export type {
+  DecisionProvider,
+  DecisionRequest,
+  DecisionResponse,
+  EnglishPolicySettings,
+  EnglishRule,
+  Firewall,
+  FirewallSettings,
+  Message,
+  MessageContext,
+  MessageMiddleware,
+  MiddlewareInput,
+  MiddlewareResult,
+  RuleDescription,
+} from "../firewall/index.js";
+
 // eslint-disable-next-line @typescript-eslint/no-namespace -- The published service subpath intentionally merges its runtime values with the closed startup-error type.
 export namespace MoltZapService {
   /** Closed daemon startup phase without configuration or platform detail. */
