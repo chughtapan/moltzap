@@ -33,9 +33,8 @@ description: Contribution guidelines and conventions
   with **Start a new version** checked: the run leaves the release commit
   alone, takes the next free version from the tip, and the maintainer
   deprecates whatever the abandoned version did publish.
-- The OpenClaw and NanoClaw agent images are built and published by the
-  private `social-harness/deployment` repository, not by a release here; see
-  its [`images/README.md`](https://github.com/social-harness/deployment/blob/main/images/README.md).
+- The OpenClaw and NanoClaw agent images are built and published outside
+  this repository, not by a release here.
 - Public design contracts live in `docs/vision.md` and `docs/spec/`; see
   `AGENTS.md` for package-specific instructions.
 
@@ -47,13 +46,18 @@ gets one plan; a durable design choice gets one complete ADR with source
 evidence, independent review, and explicit owner approval. The original request
 or issue authorizes bounded implementation without another approval ritual.
 
-Internal plans, ADRs, and source evidence live in
-[the shared docs repo](https://github.com/social-harness/docs-internal/blob/main/README.md).
-Contributors with access set `DOCS_INTERNAL_ROOT` to a checkout at the revision
+Public specifications in `docs/vision.md` and `docs/spec/`, together with the
+checks in this repository, are the authority for every contribution. A new
+boundary choice updates its public specification before implementation. You do
+not need access to any private repository to contribute.
+
+### Maintainer records
+
+Maintainers keep internal plans, ADRs, and source evidence in
+[a private shared docs repository](https://github.com/social-harness/docs-internal/blob/main/README.md).
+Maintainers with access set `DOCS_INTERNAL_ROOT` to a checkout at the revision
 in `.agents/internal-skills.json` and start with its README. The workflow pin
-does not establish approval of proposed ADRs. Public maintenance uses the
-contracts and checks here without a private-docs dependency. A new boundary choice needs its decision resolved and
-public specification updated before implementation.
+does not establish approval of proposed ADRs.
 
 The internal `shared-sdlc` and `records` skills are pinned in
 `.agents/internal-skills.json` and readable under `.agents/skills/` and
@@ -74,6 +78,10 @@ pnpm build
 pnpm test
 pnpm check
 ```
+
+`pnpm check` runs `pnpm lint` and `pnpm format:check`. A documentation change
+also runs `pnpm docs:check:drift`, which regenerates module pages and
+constants before comparing them.
 
 ## Documentation
 
