@@ -75,15 +75,6 @@ const titledOptions = keyword(
   'an array of {"const": string, "title": string}',
 );
 
-/** A single-select whose options carry display names in `enumNames`. */
-const LegacyTitledEnumSchema = Schema.Struct({
-  type: stringType,
-  ...labels,
-  enum: keyword(StringList, STRING_LIST),
-  enumNames: optionalKeyword(StringList, STRING_LIST),
-  default: optionalString,
-});
-
 const UntitledSingleSelectEnumSchema = Schema.Struct({
   type: stringType,
   ...labels,
@@ -151,7 +142,6 @@ const NumberSchema = Schema.Struct({
 
 /** One admitted form field: a primitive property of a form-mode schema. */
 export type FormField =
-  | typeof LegacyTitledEnumSchema.Type
   | typeof UntitledSingleSelectEnumSchema.Type
   | typeof TitledSingleSelectEnumSchema.Type
   | typeof UntitledMultiSelectEnumSchema.Type
@@ -177,7 +167,6 @@ const decoderOf =
 
 /** The shapes in the specification's union order; the first match wins. */
 const fieldShapes: readonly ShapeDecoder[] = [
-  decoderOf(LegacyTitledEnumSchema),
   decoderOf(UntitledSingleSelectEnumSchema),
   decoderOf(TitledSingleSelectEnumSchema),
   decoderOf(UntitledMultiSelectEnumSchema),

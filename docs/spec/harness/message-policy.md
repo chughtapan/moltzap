@@ -64,10 +64,9 @@ Evaluator construction is exposed through the existing service composition
 subpath so offline experiments can exercise the same code. It is not a new
 method on HarnessEndpoint and does not introduce a new npm package.
 
-Native and MCP schemas, discovery and error decoding change together. A
-mixed-version connection that cannot carry guidance or policy errors fails
-explicitly through the compatibility boundary. The first pilot uses matching
-Client and adapter versions; peer wire formats remain unchanged.
+Native and MCP schemas and error decoding change together. Client and adapter
+versions are deployed together and use the current schemas directly. Peer wire
+formats remain unchanged.
 
 Human authentication is upstream of authorization evidence. A peer claim,
 runtime-generated token or assessment reference is not approval. Future evidence
@@ -283,9 +282,10 @@ Missing subjects or a projection exceeding the 2 MiB inbox-item budget produces
 an unavailable check; guidance mode admits without that advice. Peer text is
 never relabelled as a registered instruction.
 
-Schema 6 preserves schema-5 identity, protocol, inbox and invocation state while
-adding a private incoming queue, evidence revision and check records. Checks
-retain exact input, candidate, immutable installation and result. Startup marks
+The current store contains the private incoming queue, evidence revision and
+check records alongside identity, protocol, inbox and invocation state. It
+reopens only the current schema; earlier state requires a reset. Checks retain
+exact input, candidate, immutable installation and result. Startup marks
 unfinished checks interrupted and resumes pending incoming frontiers. A held
 item stays held. Previously admitted items remain readable with their original
 token and guidance, including after acknowledgment. A lost collective request's
@@ -293,9 +293,8 @@ replacement failure enters the same admission queue before exposure. Recovery
 visits queued requests as well as admitted ones, including successors behind a
 conversation frontier, and atomically retires the original raw delivery.
 
-The matching native adapter negotiates message-policy runtime revision 1. An
-enabled daemon rejects older runtime requests before dispatch; owner audit access
-remains separate. OpenClaw carries guidance in its ordinary model-facing context
+The native adapter uses the current runtime schemas. OpenClaw carries guidance
+in its ordinary model-facing context
 and returns outbound feedback through the stock tool error. NanoClaw currently
 refuses guidance-bearing deliveries without acknowledging them and reports send
 refusals through its existing refused-message callback; it is not a qualified
@@ -312,7 +311,7 @@ remain pinned to their original question editions.
 Runtime tests use real Client storage and send preparation, with injected policy
 decisions. They cover withheld inbox visibility, retained send refusals, stale
 admission and shadow mode, concurrent sends, cancellation, independent
-conversations, schema migration, interrupted checks, MCP errors and compatibility,
+conversations, current-store restart, interrupted checks, MCP errors,
 and OpenClaw projection. Adapter tests exercise the pinned host SDK; they do not
 establish real-model behavior.
 

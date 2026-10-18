@@ -18,7 +18,7 @@ import {
 } from "effect";
 import { randomUUID } from "node:crypto";
 import { ListenError } from "../../transport/messaging/errors.js";
-import { INBOX_PENDING_EVENT, RUNTIME_REVISION_HEADER } from "../mcp/names.js";
+import { INBOX_PENDING_EVENT } from "../mcp/names.js";
 
 const protocolVersion = "2026-07-28";
 const metadataSchema = Schema.Struct({
@@ -264,9 +264,7 @@ export const inboxWakeups = (
       const state: Reception = {
         queue,
         active,
-        transport: new StreamableHTTPClientTransport(endpoint, {
-          requestInit: { headers: { [RUNTIME_REVISION_HEADER]: "1" } },
-        }),
+        transport: new StreamableHTTPClientTransport(endpoint),
         abort: new AbortController(),
         id: randomUUID(),
         stopped: false,

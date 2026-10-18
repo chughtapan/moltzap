@@ -34,8 +34,6 @@ import {
   HARNESS_SEND_META_KEY,
   HARNESS_SEND_TOOL,
   INBOX_PENDING_EVENT,
-  MESSAGE_POLICY_CAPABILITY,
-  RUNTIME_REVISION_HEADER,
 } from "../mcp/names.js";
 import {
   ConnectError,
@@ -310,27 +308,13 @@ function connect(
 ): Effect.Effect<Client, ConnectError> {
   return Effect.tryPromise({
     try: (signal) =>
-      client.connect(
-        new StreamableHTTPClientTransport(endpoint, {
-          requestInit: { headers: { [RUNTIME_REVISION_HEADER]: "1" } },
-        }),
-        { signal },
-      ),
-    catch: (cause) =>
-      new ConnectError({
-        reason:
-          SdkHttpError.isInstance(cause) && cause.status === 409
-            ? "incompatible-daemon"
-            : "transport-failed",
-      }),
+      client.connect(new StreamableHTTPClientTransport(endpoint), { signal }),
+    catch: () => new ConnectError({ reason: "transport-failed" }),
   }).pipe(
     Effect.flatMap(() =>
       supportsInboxEvents(client).pipe(
         Effect.flatMap((supported) =>
-          supported &&
-          client.getServerCapabilities()?.experimental?.[
-            MESSAGE_POLICY_CAPABILITY
-          ]?.revision === 1
+          supported
             ? Effect.succeed(client)
             : Effect.fail(new ConnectError({ reason: "incompatible-daemon" })),
         ),
