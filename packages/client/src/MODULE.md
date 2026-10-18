@@ -619,7 +619,7 @@ What a completed send returns: a collecting operation names its id.
 
 _Namespace_
 
-#### [`MoltZapService.StartupError`](./service/index.ts#L69)
+#### [`MoltZapService.StartupError`](./service/index.ts#L72)
 
 _Class_
 
@@ -647,14 +647,17 @@ _TypeAlias_
 
 ```ts
   export type FirewallOptions = InstalledFirewallOptions & {
-    /** Dedicated file in a daemon-owned private directory, published on shutdown. */
+    /**
+     * Dedicated file and adjacent `.partial` staging name for this endpoint's
+     * state directory, privately owned by the daemon and published on shutdown.
+     */
     readonly auditExport?: string;
   };
 ```
 
 Trusted fixed process composition; agents receive no policy mutation capability.
 
-#### [`MoltZapService.layer`](./service/index.ts#L126)
+#### [`MoltZapService.layer`](./service/index.ts#L129)
 
 _Variable_
 
@@ -666,7 +669,7 @@ _Variable_
 
 Complete production process composition for `moltzapd`.
 
-#### [`MoltZapService.withFirewall`](./service/index.ts#L135)
+#### [`MoltZapService.withFirewall`](./service/index.ts#L138)
 
 _Function_
 
@@ -997,7 +1000,7 @@ export class RuleDescription extends Schema.Class<RuleDescription>(
 
 Runtime advice can only select templates registered by trusted composition.
 
-#### [`MoltZapService.FirewallAuditRecord (type)`](./delivery/firewall-values.ts#L160)
+#### [`MoltZapService.FirewallAuditRecord (type)`](./delivery/firewall-values.ts#L161)
 
 _TypeAlias_
 
@@ -1007,7 +1010,7 @@ export type FirewallAuditRecord = typeof FirewallAuditRecord.Type;
 
 Completion verifies the snapshot, not completion or delivery of each attempt.
 
-#### [`MoltZapService.FirewallAuditRecord (value)`](./delivery/firewall-values.ts#L125)
+#### [`MoltZapService.FirewallAuditRecord (value)`](./delivery/firewall-values.ts#L126)
 
 _Variable_
 

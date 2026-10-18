@@ -105,7 +105,8 @@ const firewallAuditResult = exactStruct({
   checks: Schema.Array(
     Schema.Struct({
       ...MiddlewareObservation.fields,
-      elapsedMilliseconds: Schema.NonNegative,
+      /** Wall-clock subtraction can be negative after a clock adjustment. */
+      elapsedMilliseconds: Schema.Finite,
       failure: Schema.optional(middlewareFailure),
       trace: Schema.optional(PrivateCheckTrace),
     }),

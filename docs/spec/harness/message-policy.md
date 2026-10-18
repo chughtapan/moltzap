@@ -312,6 +312,12 @@ no group or other access. Keep it outside the agent host's filesystem authority.
 The destination must be absent or a regular file with one link. Directory and
 destination symlinks are refused. Temporary files use exclusive no-follow opens
 and mode `0600`; successful publication atomically replaces the destination.
+Reserve that path and its `<auditExport>.partial` staging name for one endpoint
+state directory. They must not be shared by different daemons. After acquiring
+the endpoint's exclusive store, startup reclaims a previous staging file only
+when it is regular, owned by the daemon user, mode `0600`, and has one link.
+Unsafe staging entries fail startup without being removed. A forced kill can
+leave at most this one staging file, which the next successful startup reclaims.
 
 Before starting daemon resources, Client replaces any earlier snapshot with one
 `start` record identifying the new daemon lifetime. Failure prevents startup.
@@ -331,6 +337,8 @@ match all emitted check lines, including each trailing newline, in file order.
 Missing or malformed records, truncation, or a mismatched count or digest make
 the artifact incomplete. Check records preserve the exact semantic input,
 installation metadata, private provider traces, judgment and applied disposition.
+Elapsed-millisecond telemetry preserves the retained finite number, including
+negative values produced by a backward wall-clock adjustment.
 Each supported message has a `post` reference with `authorAgentId` and `postId`
 for exact correlation with sender and peer history. Unsupported candidates and
 attempts without a projected message have `post: null`.

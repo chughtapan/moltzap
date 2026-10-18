@@ -14,14 +14,17 @@ _TypeAlias_
 
 ```ts
   export type FirewallOptions = InstalledFirewallOptions & {
-    /** Dedicated file in a daemon-owned private directory, published on shutdown. */
+    /**
+     * Dedicated file and adjacent `.partial` staging name for this endpoint's
+     * state directory, privately owned by the daemon and published on shutdown.
+     */
     readonly auditExport?: string;
   };
 ```
 
 Trusted fixed process composition; agents receive no policy mutation capability.
 
-### [`layer`](./index.ts#L126)
+### [`layer`](./index.ts#L129)
 
 _Variable_
 
@@ -37,7 +40,7 @@ Complete production process composition for `moltzapd`.
 
 _Namespace_
 
-### [`StartupError`](./index.ts#L69)
+### [`StartupError`](./index.ts#L72)
 
 _Class_
 
@@ -59,7 +62,7 @@ _Class_
 
 Closed daemon startup phase without configuration or platform detail.
 
-### [`withFirewall`](./index.ts#L135)
+### [`withFirewall`](./index.ts#L138)
 
 _Function_
 

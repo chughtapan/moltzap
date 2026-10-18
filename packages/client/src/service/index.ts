@@ -61,7 +61,10 @@ export type {
 export namespace MoltZapService {
   /** Trusted fixed process composition; agents receive no policy mutation capability. */
   export type FirewallOptions = InstalledFirewallOptions & {
-    /** Dedicated file in a daemon-owned private directory, published on shutdown. */
+    /**
+     * Dedicated file and adjacent `.partial` staging name for this endpoint's
+     * state directory, privately owned by the daemon and published on shutdown.
+     */
     readonly auditExport?: string;
   };
 

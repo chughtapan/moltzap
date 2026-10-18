@@ -1,7 +1,6 @@
 /** @file Private regular files publish audit snapshots only after complete writes. */
 
 import { Data, Effect } from "effect";
-import { randomBytes } from "node:crypto";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Effect FileSystem does not expose O_NOFOLLOW or descriptor ownership checks required for private audit publication.
 import { constants } from "node:fs";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Numeric no-follow exclusive opens and descriptor checks keep operator evidence out of symlink targets.
@@ -23,7 +22,10 @@ export class FirewallAuditError extends Data.TaggedError("FirewallAuditError")<{
   readonly reason: "path" | "persistence" | "records";
 }> {}
 
-/** A dedicated directory is owned by this daemon and inaccessible to its host. */
+/**
+ * The endpoint's exclusive store is acquired before its dedicated audit path.
+ * Its private staging entry can therefore belong only to a previous lifetime.
+ */
 export function privateAuditPath(path: string) {
   return Effect.gen(function* () {
     if (!isAbsolute(path)) {
@@ -43,21 +45,44 @@ export function privateAuditPath(path: string) {
       basename(path),
     );
     yield* requireRegularDestination(resolved);
+    yield* reclaimStagingFile(`${resolved}.partial`);
     return resolved;
   }).pipe(Effect.withSpan("privateAuditPath"));
 }
 
-/** The temporary descriptor closes before the atomic replacement can publish a footer. */
+/**
+ * The descriptor closes before atomic publication. Cleanup belongs only to the
+ * successful exclusive opener, so a competing writer cannot remove its staging
+ * file. Publication ends that ownership before another writer can acquire it.
+ */
 export function writeAuditFile(
   path: string,
   write: (file: AuditFile) => Effect.Effect<void, FirewallAuditError>,
 ) {
   return Effect.gen(function* () {
-    const temporary = `${path}.${randomBytes(32).toString("hex")}.partial`;
-    yield* Effect.scoped(writeTemporaryFile(temporary, write)).pipe(
+    const temporary = `${path}.partial`;
+    let owned = false;
+    const markOwned = () => {
+      owned = true;
+    };
+    const publish = auditIo(() => rename(temporary, path)).pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          owned = false;
+        }),
+      ),
+      Effect.uninterruptible,
+    );
+    yield* Effect.scoped(writeTemporaryFile(temporary, write, markOwned)).pipe(
       Effect.zipRight(requireRegularDestination(path)),
-      Effect.zipRight(auditIo(() => rename(temporary, path))),
-      Effect.ensuring(auditIo(() => unlink(temporary)).pipe(Effect.ignore)),
+      Effect.zipRight(publish),
+      Effect.ensuring(
+        Effect.suspend(() =>
+          owned
+            ? auditIo(() => unlink(temporary)).pipe(Effect.ignore)
+            : Effect.void,
+        ),
+      ),
     );
   }).pipe(Effect.withSpan("writeAuditFile"));
 }
@@ -70,20 +95,42 @@ export function appendAuditText(file: AuditFile, text: string) {
 /** Only absence is acceptable when inspecting an as-yet unwritten destination. */
 function requireRegularDestination(path: string) {
   return Effect.gen(function* () {
-    const status = yield* Effect.tryPromise({
-      try: () => lstat(path),
-      catch: (cause) => cause,
-    }).pipe(
-      Effect.catchAll((cause) =>
-        isAbsent(cause)
-          ? Effect.succeed(undefined)
-          : Effect.fail(new FirewallAuditError({ reason: "persistence" })),
-      ),
-    );
+    const status = yield* auditFileStatus(path);
     if (status !== undefined && (!status.isFile() || status.nlink !== 1)) {
       return yield* new FirewallAuditError({ reason: "path" });
     }
   });
+}
+
+function reclaimStagingFile(path: string) {
+  return Effect.gen(function* () {
+    const status = yield* auditFileStatus(path);
+    if (status === undefined) {
+      return;
+    }
+    if (
+      !status.isFile() ||
+      status.uid !== process.getuid?.() ||
+      status.nlink !== 1 ||
+      (status.mode & 0o7777) !== 0o600
+    ) {
+      return yield* new FirewallAuditError({ reason: "path" });
+    }
+    yield* auditIo(() => unlink(path));
+  });
+}
+
+function auditFileStatus(path: string) {
+  return Effect.tryPromise({
+    try: () => lstat(path),
+    catch: (cause) => cause,
+  }).pipe(
+    Effect.catchAll((cause) =>
+      isAbsent(cause)
+        ? Effect.succeed(undefined)
+        : Effect.fail(new FirewallAuditError({ reason: "persistence" })),
+    ),
+  );
 }
 
 function isAbsent(cause: unknown): boolean {
@@ -96,14 +143,16 @@ function isAbsent(cause: unknown): boolean {
 function writeTemporaryFile(
   temporary: string,
   write: (file: AuditFile) => Effect.Effect<void, FirewallAuditError>,
+  markOwned: () => void,
 ) {
   return Effect.gen(function* () {
-    const file = yield* openTemporaryFile(temporary);
+    const file = yield* openTemporaryFile(temporary, markOwned);
     const status = yield* auditIo(() => file.stat());
     if (
       !status.isFile() ||
+      status.uid !== process.getuid?.() ||
       status.nlink !== 1 ||
-      (status.mode & 0o777) !== 0o600
+      (status.mode & 0o7777) !== 0o600
     ) {
       return yield* new FirewallAuditError({ reason: "path" });
     }
@@ -112,7 +161,7 @@ function writeTemporaryFile(
   });
 }
 
-function openTemporaryFile(path: string) {
+function openTemporaryFile(path: string, markOwned: () => void) {
   return Effect.acquireRelease(
     auditIo(() =>
       open(
@@ -123,7 +172,7 @@ function openTemporaryFile(path: string) {
           constants.O_NOFOLLOW,
         0o600,
       ),
-    ),
+    ).pipe(Effect.tap(() => Effect.sync(markOwned))),
     (file) => auditIo(() => file.close()).pipe(Effect.orDie),
   );
 }

@@ -8,18 +8,28 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect } from "vitest";
 import { awaitStage } from "../__tests__/daemon-runtime-harness.js";
-import { decodeAudit } from "../__tests__/firewall-audit-fixtures.js";
+import {
+  decodeAudit,
+  makeAuditFixture,
+} from "../__tests__/firewall-audit-fixtures.js";
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
 
 const childProgram = fileURLToPath(
   new URL("../__tests__/firewall-audit-child.ts", import.meta.url),
 );
+const recoveryProgram = fileURLToPath(
+  new URL("../__tests__/firewall-audit-recovery-child.ts", import.meta.url),
+);
 const PROCESS_TEST_TIMEOUT = 20_000;
 
-function startAuditedChild(directory: string, block: boolean) {
+function startAuditedChild(
+  directory: string,
+  block: boolean,
+  program = childProgram,
+) {
   return Effect.gen(function* () {
     const child = yield* Command.start(
-      Command.make(process.execPath, "--import", "tsx", childProgram).pipe(
+      Command.make(process.execPath, "--import", "tsx", program).pipe(
         Command.stderr("inherit"),
         Command.env({
           MOLTZAP_TEST_AUDIT_DIRECTORY: directory,
@@ -86,6 +96,60 @@ const forcedSignalLeavesIncomplete = () =>
     expect(records.map((record) => record.kind)).toEqual(["start"]);
   }).pipe(Effect.provide(NodeContext.layer));
 
+function expectPrivateStaging(path: string) {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const trace = (yield* makeAuditFixture).result.checks[0]?.trace;
+    expect(trace).toBeDefined();
+    const staged = decodeAudit(yield* fileSystem.readFileString(path));
+    expect(
+      staged.records.find((record) => record.kind === "check"),
+    ).toMatchObject({
+      kind: "check",
+      result: { checks: [{ trace }] },
+    });
+  });
+}
+
+const repeatedKillsRecoverStaging = () =>
+  Effect.gen(function* () {
+    const directory = stateDirectory();
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = join(directory, "audit.ndjson");
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const { child, exporting } = yield* startAuditedChild(
+        directory,
+        true,
+        recoveryProgram,
+      );
+      yield* awaitStage(Deferred.await(exporting), "partial audit write");
+      yield* child.kill("SIGKILL");
+      const files = yield* fileSystem.readDirectory(directory);
+      expect(files.filter((name) => name.endsWith(".partial"))).toEqual([
+        "audit.ndjson.partial",
+      ]);
+      yield* expectPrivateStaging(`${path}.partial`);
+      expect(
+        decodeAudit(yield* fileSystem.readFileString(path)).records.map(
+          (record) => record.kind,
+        ),
+      ).toEqual(["start"]);
+    }
+    const { child } = yield* startAuditedChild(
+      directory,
+      false,
+      recoveryProgram,
+    );
+    expect(yield* child.exitCode).toBe(0);
+    expect(yield* fileSystem.exists(`${path}.partial`)).toBe(false);
+    const snapshot = decodeAudit(yield* fileSystem.readFileString(path));
+    expect(snapshot.records.at(-1)).toMatchObject({
+      kind: "complete",
+      checkCount: 3,
+      sha256: snapshot.sha256,
+    });
+  }).pipe(Effect.provide(NodeContext.layer));
+
 describe("daemon audit process shutdown", () => {
   it(
     "waits for the snapshot after SIGTERM before exiting",
@@ -95,6 +159,11 @@ describe("daemon audit process shutdown", () => {
   it(
     "leaves no published completion after SIGKILL during export",
     forcedSignalLeavesIncomplete,
+    PROCESS_TEST_TIMEOUT,
+  );
+  it(
+    "bounds private staging across repeated SIGKILLs and removes it on successful restart",
+    repeatedKillsRecoverStaging,
     PROCESS_TEST_TIMEOUT,
   );
 });
