@@ -20,7 +20,13 @@ export { makeJevDecisionProvider } from "./jev.js";
 export {
   CheckInputError,
   DecisionProviderError,
+  decodeFrozen,
+  FirewallSettings,
+  Message,
+  MessageContext,
   MiddlewareError,
+  PrivateCheckTrace,
+  RuleDescription,
 } from "./values.js";
 /** Policy authors exchange validated data; only guidance and feedback are runtime projections. */
 export type {
@@ -30,13 +36,10 @@ export type {
   EnglishPolicySettings,
   EnglishRule,
   Firewall,
-  FirewallSettings,
-  Message,
-  MessageContext,
+  FirewallCheck,
   MessageMiddleware,
   MiddlewareInput,
   MiddlewareResult,
-  RuleDescription,
 } from "./values.js";
 
 /**

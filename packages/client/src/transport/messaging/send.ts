@@ -2,9 +2,12 @@
 
 import { AgentCard, MOLTZAP_VERSION } from "@moltzap/identity";
 import { Deferred, Duration, Effect, Schema } from "effect";
+import type { FirewallSendError } from "../../firewall/runtime.js";
 import type {
   ConversationFoundation,
   EndpointStoreError,
+  FirewallCompletion,
+  PostIntentBinding,
   PostIntent as StoredPostIntent,
 } from "../../store/index.js";
 import type { RouterWorkerUnavailableError } from "../router/index.js";
@@ -435,21 +438,72 @@ export const prepareSend = (
   awaitRouterAttachment(runtime).pipe(
     Effect.zipRight(prepareIntent(runtime, input)),
     Effect.flatMap((prepared) =>
-      activateIntent(runtime, prepared).pipe(
-        Effect.map((completion) => ({
-          postId: prepared.intent.postId,
-          completion,
-        })),
+      activateIntent(runtime, prepared, (binding) =>
+        runtime.input.store
+          .bindPostIntent(binding)
+          .pipe(Effect.as("admitted" as const)),
+      ).pipe(
+        Effect.flatMap((activation) =>
+          activation.kind === "refused"
+            ? Effect.fail(representationFailure())
+            : Effect.succeed({
+                postId: prepared.intent.postId,
+                completion: activation.completion,
+              }),
+        ),
       ),
     ),
     Effect.withSpan("prepareSend"),
   );
 
-interface PreparedSend {
+/** Prepared data has no execution authority until the atomic store transition succeeds. */
+export interface PreparedSend {
   readonly membership: VerifiedMembership;
   readonly intent: PostIntent;
   readonly canonicalIntent: EnginePostIntent["canonicalIntent"];
 }
+
+/** The application boundary supplies checking without gaining engine capabilities. */
+export type PreparedSendCheck = (
+  prepared: PreparedSend,
+  terminal: boolean,
+) => Effect.Effect<
+  {
+    readonly completion: FirewallCompletion;
+    readonly refusal: FirewallSendError;
+  },
+  EndpointStoreError
+>;
+
+/** One recheck bounds stale policy decisions; terminal shadow observations carry no advice. */
+export const prepareCheckedSend = (
+  runtime: EngineRuntime,
+  input: EngineSendInput,
+  check: PreparedSendCheck,
+): Effect.Effect<PreparedSendHandle, SendError | FirewallSendError> =>
+  Effect.gen(function* () {
+    yield* awaitRouterAttachment(runtime);
+    const prepared = yield* prepareIntent(runtime, input);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const terminal = attempt === 2;
+      const checked = yield* check(prepared, terminal).pipe(
+        Effect.mapError(storeFailure),
+      );
+      const activation = yield* activateIntent(runtime, prepared, (binding) =>
+        runtime.input.store.bindCheckedPostIntent(binding, checked.completion),
+      );
+      if (activation.kind === "ready") {
+        return {
+          postId: prepared.intent.postId,
+          completion: activation.completion,
+        };
+      }
+      if (activation.disposition === "withheld") {
+        return yield* checked.refusal;
+      }
+    }
+    return yield* Effect.fail(representationFailure());
+  }).pipe(Effect.withSpan("prepareCheckedSend"));
 
 function prepareIntent(
   runtime: EngineRuntime,
@@ -490,7 +544,8 @@ function storedIntent(prepared: PreparedSend): StoredPostIntent {
 function bindPreparedIntent(
   runtime: EngineRuntime,
   prepared: PreparedSend,
-): Effect.Effect<EngineConversation, SendError> {
+  bind: IntentAdmission,
+): Effect.Effect<"admitted" | "withheld" | "stale", SendError> {
   return Effect.gen(function* () {
     const retained = runtime.conversations.get(prepared.intent.conversationId);
     if (retained !== undefined) {
@@ -499,33 +554,44 @@ function bindPreparedIntent(
           new SendError({ reason: "certification-unavailable" }),
         );
       }
-      yield* runtime.input.store
-        .bindPostIntent({
-          kind: "existing-conversation",
-          intent: storedIntent(prepared),
-        })
-        .pipe(Effect.catchAll((error) => failBind(runtime, error)));
-      return retained;
+      return yield* bind({
+        kind: "existing-conversation",
+        intent: storedIntent(prepared),
+      }).pipe(
+        Effect.catchTag("EndpointStoreError", (error) =>
+          failBind(runtime, error),
+        ),
+      );
     }
     const created = yield* createConversation(runtime, prepared.membership);
-    yield* runtime.input.store
-      .bindPostIntent({
-        kind: "new-conversation",
-        foundation: created.foundation,
-        intent: storedIntent(prepared),
-      })
-      .pipe(Effect.catchAll((error) => failBind(runtime, error)));
+    const disposition = yield* bind({
+      kind: "new-conversation",
+      foundation: created.foundation,
+      intent: storedIntent(prepared),
+    }).pipe(
+      Effect.catchTag("EndpointStoreError", (error) =>
+        failBind(runtime, error),
+      ),
+    );
+    if (disposition !== "admitted") {
+      return disposition;
+    }
     yield* Effect.sync(() => {
       runtime.conversations.set(
         created.conversation.conversationId,
         created.conversation,
       );
     });
-    return created.conversation;
+    return disposition;
   });
 }
 
+type IntentAdmission = (
+  binding: PostIntentBinding,
+) => Effect.Effect<"admitted" | "withheld" | "stale", EndpointStoreError>;
+
 type IntentActivation =
+  | Readonly<{ kind: "refused"; disposition: "withheld" | "stale" }>
   | Readonly<{
       kind: "ready";
       completion: Deferred.Deferred<RecordHash, SendError>;
@@ -538,22 +604,24 @@ type IntentActivation =
 function activateIntent(
   runtime: EngineRuntime,
   prepared: PreparedSend,
-): Effect.Effect<Deferred.Deferred<RecordHash, SendError>, SendError> {
+  bind: IntentAdmission,
+): Effect.Effect<Exclude<IntentActivation, { kind: "waiting" }>, SendError> {
   return runtime.gate
     .withPermits(1)(
-      Effect.uninterruptible(activateIntentOnce(runtime, prepared)),
+      Effect.uninterruptible(activateIntentOnce(runtime, prepared, bind)),
     )
     .pipe(
       Effect.flatMap((activation) => {
         switch (activation.kind) {
           case "ready":
-            return Effect.succeed(activation.completion);
+          case "refused":
+            return Effect.succeed(activation);
           case "waiting":
             return runtime.phases
               .rearmCatchUp(runtime, prepared.intent.conversationId)
               .pipe(
                 Effect.zipRight(Deferred.await(activation.barrier)),
-                Effect.zipRight(activateIntent(runtime, prepared)),
+                Effect.zipRight(activateIntent(runtime, prepared, bind)),
               );
           default: {
             const exhaustive: never = activation;
@@ -567,6 +635,7 @@ function activateIntent(
 function activateIntentOnce(
   runtime: EngineRuntime,
   prepared: PreparedSend,
+  bind: IntentAdmission,
 ): Effect.Effect<IntentActivation, SendError> {
   const { intent } = prepared;
   return Effect.gen(function* () {
@@ -574,7 +643,10 @@ function activateIntentOnce(
     if (barrier !== undefined) {
       return { kind: "waiting", barrier } satisfies IntentActivation;
     }
-    yield* bindPreparedIntent(runtime, prepared);
+    const disposition = yield* bindPreparedIntent(runtime, prepared, bind);
+    if (disposition !== "admitted") {
+      return { kind: "refused", disposition } satisfies IntentActivation;
+    }
     return yield* activateBoundIntent(runtime, prepared);
   });
 }

@@ -42,6 +42,7 @@ export function withStore<Value, Failure>(
 
 /** The statements that make a current store read as each earlier version. */
 const REWIND_TO_VERSION = {
+  5: "PRAGMA user_version = 5",
   4: "PRAGMA user_version = 4",
   3: `CREATE TABLE runtime_legacy_deliveries (
         delivery_token TEXT PRIMARY KEY REFERENCES pending_deliveries(delivery_token)
@@ -68,6 +69,15 @@ export const rewindToPreCutoverSchema = (
 ): Effect.Effect<void> =>
   Effect.sync(() => {
     const database = new DatabaseSync(databasePath(directory));
+    database.exec(`
+      DROP TRIGGER firewall_history_changed;
+      DROP TRIGGER firewall_intent_changed;
+      DROP TRIGGER firewall_visibility_changed;
+      DROP TABLE firewall_checks;
+      DROP TABLE firewall_incoming;
+      DROP TABLE firewall_evidence;
+      ALTER TABLE runtime_inbox DROP COLUMN canonical_guidance;
+    `);
     database.exec(REWIND_TO_VERSION[version]);
     database.close();
   });

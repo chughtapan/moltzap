@@ -13,6 +13,7 @@ import type { EndpointStore } from "../store/index.js";
 export function unusedEndpointStore(label: string): EndpointStore {
   const unused = () => Effect.dieMessage(`store operation outside ${label}`);
   return {
+    ...unusedFirewallOperations(unused),
     readInboxItem: unused,
     completeWebhookDelivery: unused,
     putInboxItem: unused,
@@ -51,5 +52,18 @@ export function unusedEndpointStore(label: string): EndpointStore {
     readConversation: unused,
     releaseContinuation: unused,
     recover: unused,
+  };
+}
+
+function unusedFirewallOperations(unused: () => Effect.Effect<never>) {
+  return {
+    queueFirewallItem: unused,
+    readFirewallFrontiers: unused,
+    readPendingFirewallItems: unused,
+    readFirewallEvidence: unused,
+    beginFirewallAttempt: unused,
+    finishFirewallAttempt: unused,
+    admitFirewallItem: unused,
+    bindCheckedPostIntent: unused,
   };
 }

@@ -32,12 +32,14 @@ import {
 import { describe, expect } from "vitest";
 import type { HarnessEndpoint } from "../harness-endpoint/capability.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
+import { localGuidance } from "../../__tests__/message-policy-fixtures.js";
 import { readRuntimeEvent } from "../../delivery/inbox.js";
 import {
   eventIdOf,
   type HarnessSendRequest,
 } from "../../delivery/operations.js";
 import { makeSendInvocations } from "../../delivery/send-invocations.js";
+import { FirewallSendError } from "../../firewall/runtime.js";
 import {
   DeliveryToken,
   encodeRuntimeValue,
@@ -823,7 +825,12 @@ function readsRetainedEventThroughSdk() {
       error: "retained result",
     });
     const canonicalItem = yield* encodeRuntimeValue(item);
-    yield* store.putInboxItem({ deliveryToken, canonicalItem });
+    const guidance = localGuidance(7);
+    yield* store.putInboxItem({
+      deliveryToken,
+      canonicalItem,
+      canonicalGuidance: yield* encodeRuntimeValue(guidance),
+    });
     yield* store.acknowledgeInboxItem(deliveryToken);
     const { port } = yield* acquireBoundaryServer({
       ...operations,
@@ -837,7 +844,7 @@ function readsRetainedEventThroughSdk() {
         arguments: { eventId: eventIdOf(deliveryToken) },
       }),
     );
-    expect(result.structuredContent).toEqual({ item });
+    expect(result.structuredContent).toEqual({ item, guidance });
     expect((yield* store.readInboxSummary()).pendingCount).toBe(0);
   }).pipe(Effect.provide(NodeFileSystem.layer));
 }
@@ -892,7 +899,33 @@ describe("Harness MCP HTTP boundary", () => {
   );
 });
 
+function preservesFirewallRefusal() {
+  return Effect.gen(function* () {
+    const refusal = new FirewallSendError({
+      checkId: digest("chk_", 31),
+      refusal: "norm-violation",
+      feedback: [{ nextAction: "revise", text: "Include Carol in the reply." }],
+    });
+    const endpoint = yield* acquireSendEndpoint({
+      protocolActive: () => true,
+      readSend: operations.readSend,
+      send: () => Effect.fail(refusal),
+    });
+    const error = yield* Effect.flip(endpoint.send(sendInput));
+    expect(error).toBeInstanceOf(FirewallSendError);
+    expect(error.message).toBe(refusal.message);
+    expect(error).toMatchObject({
+      checkId: refusal.checkId,
+      feedback: refusal.feedback,
+    });
+  });
+}
+
 describe("a refused send across the daemon boundary", () => {
+  it(
+    "preserves the typed firewall refusal and feedback through MCP",
+    preservesFirewallRefusal,
+  );
   it(
     "carries a refusal's detail",
     carriesARefusalDetailAcrossTheDaemonBoundary,

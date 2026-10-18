@@ -3,6 +3,11 @@
 import { Effect, type ParseResult, Schema, type SchemaAST } from "effect";
 import type { SendError } from "../transport/messaging/errors.js";
 import {
+  firewallRefusalSchema,
+  type FirewallSendError,
+  localGuidanceSchema,
+} from "../firewall/runtime.js";
+import {
   DeliveryToken,
   type EndpointStore,
   type InboxSummary,
@@ -28,7 +33,10 @@ export const eventIdSchema = Schema.String.pipe(
 /** Read-only content lookup never acknowledges or retries delivery. */
 export const readEventRequestSchema = exactStruct({ eventId: eventIdSchema });
 /** The original classified payload, including after its handoff. */
-export const readEventResultSchema = exactStruct({ item: InboundItem });
+export const readEventResultSchema = exactStruct({
+  item: InboundItem,
+  guidance: Schema.optionalWith(localGuidanceSchema, { exact: true }),
+});
 
 /** A delivery acknowledgment names the delivery it retires. */
 export const harnessAcknowledgeDeliveryRequestSchema = exactStruct({
@@ -72,6 +80,7 @@ export const harnessSendResultSchema = exactStruct({
 const harnessMessageReadyEventSchema = exactStruct({
   deliveryToken: DeliveryToken,
   item: InboundItem,
+  guidance: Schema.optionalWith(localGuidanceSchema, { exact: true }),
 });
 
 /** One page request over the classified inbox. */
@@ -95,6 +104,10 @@ export const readSendRequestSchema = exactStruct({
  * validates.
  */
 const harnessSendErrorDataSchema = Schema.Union(
+  exactStruct({
+    reason: Schema.Literal("firewall-refused"),
+    ...firewallRefusalSchema.fields,
+  }),
   exactStruct({
     reason: Schema.Literal("collective-failed"),
     id: CollectiveId,
@@ -173,6 +186,9 @@ export type HarnessSendRequest = typeof harnessSendRequestSchema.Type;
 
 /** Decoded error data of one refused `send_message` call. */
 export type HarnessSendErrorData =
+  | (typeof firewallRefusalSchema.Type & {
+      readonly reason: "firewall-refused";
+    })
   | Readonly<{ reason: string; detail?: string }>
   | Readonly<{
       reason: "collective-failed";
@@ -191,8 +207,16 @@ export type HarnessSendErrorData =
  * @returns The JSON error data.
  */
 export function sendErrorData(
-  error: SendError | CollectiveError,
+  error: SendError | CollectiveError | FirewallSendError,
 ): HarnessSendErrorData {
+  if (error._tag === "FirewallSendError") {
+    return {
+      reason: "firewall-refused",
+      checkId: error.checkId,
+      refusal: error.refusal,
+      feedback: error.feedback,
+    };
+  }
   if (error._tag === "CollectiveError") {
     return {
       reason: "collective-failed",
@@ -303,7 +327,10 @@ export interface DeliveryOperations {
   ) => Effect.Effect<HarnessReadSendResult, ClosedOperationError>;
   readonly send: (
     request: HarnessSendRequest,
-  ) => Effect.Effect<HarnessSendResult, SendError | CollectiveError>;
+  ) => Effect.Effect<
+    HarnessSendResult,
+    SendError | CollectiveError | FirewallSendError
+  >;
   readonly acknowledgeDelivery: (
     deliveryToken: DeliveryToken,
   ) => Effect.Effect<void, ClosedOperationError>;

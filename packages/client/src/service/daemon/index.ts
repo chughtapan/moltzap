@@ -7,6 +7,7 @@ import type { VerifiedAgentCard } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Cause, Deferred, Effect, Option, Queue, Scope } from "effect";
+import type { InstalledFirewall } from "../../delivery/index.js";
 import type { HistoryExportPort } from "../../delivery/history-export.js";
 import type { HarnessMcpEventHandler } from "../../endpoint/mcp/index.js";
 import type { EndpointStore } from "../../store/index.js";
@@ -39,6 +40,7 @@ export interface DaemonStartup {
   readonly store: EndpointStore;
   readonly bootstrap: DaemonBootstrap;
   readonly registration: DaemonRegistrationState;
+  readonly firewall?: InstalledFirewall;
 }
 
 /** The running daemon the lifecycle composes into MCP operations. */
@@ -365,12 +367,7 @@ export const makeDaemon = (
       registration: input.registration,
       subscriptionActive: false,
     };
-    const delivery = yield* makeHostDelivery({
-      store: input.store,
-      historyExport: input.historyExport,
-      collectives: () => state.activeProtocol?.collectives,
-      scope: daemonScope,
-    }).pipe(Effect.mapError(() => runtimeFailure("storage")));
+    const delivery = yield* daemonDelivery(input, state, daemonScope);
     const environment: DaemonEnvironment = {
       store: input.store,
       bootstrap: input.bootstrap,
@@ -381,8 +378,15 @@ export const makeDaemon = (
       fatal: yield* Deferred.make<never, DaemonRuntimeError>(),
       state,
       delivery,
+      ...(input.firewall === undefined ? {} : { firewall: input.firewall }),
     };
     const reconciler = publishPendingMessages(environment);
+    yield* delivery.runAdmission(Effect.ignore(reconciler)).pipe(
+      Effect.catchAllCause((cause) =>
+        failFromBackgroundCause(environment.fatal, cause),
+      ),
+      Effect.forkIn(daemonScope),
+    );
     return assembleDaemon({
       environment,
       changes,
@@ -391,3 +395,31 @@ export const makeDaemon = (
         initializeProtocol(environment, activationGate, reconciler, agentCard),
     });
   }).pipe(Effect.withSpan("makeDaemon"));
+
+function daemonDelivery(
+  input: DaemonInput,
+  state: DaemonState,
+  scope: Scope.Scope,
+) {
+  return makeHostDelivery({
+    store: input.store,
+    historyExport: input.historyExport,
+    collectives: () => state.activeProtocol?.application,
+    ...(input.firewall === undefined
+      ? {}
+      : {
+          firewall: input.firewall,
+          firewallEnvironment: () => {
+            const localAgentCard = state.activeProtocol?.agentCard;
+            return localAgentCard === undefined || input.firewall === undefined
+              ? undefined
+              : {
+                  store: input.store,
+                  installed: input.firewall,
+                  localAgentCard,
+                };
+          },
+        }),
+    scope,
+  }).pipe(Effect.mapError(() => runtimeFailure("storage")));
+}

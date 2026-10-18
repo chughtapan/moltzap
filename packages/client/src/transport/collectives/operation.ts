@@ -94,12 +94,7 @@ import {
   type PostId,
   type RecordHash,
 } from "../wire/index.js";
-import {
-  type CollectiveSendOutcome,
-  refusedAs,
-  type RefusedSend,
-  reportFailure,
-} from "./failures.js";
+import { refusedAs, type RefusedSend, reportFailure } from "./failures.js";
 import {
   closeFailureText,
   type CollectiveEmitError,
@@ -108,6 +103,7 @@ import {
   type CollectiveId,
   type CollectiveOperation,
   type CollectiveResponse,
+  type CollectiveSendOutcome,
   describeIssues,
   type FailureDelivery,
   MAXIMUM_DEADLINE_SECONDS,

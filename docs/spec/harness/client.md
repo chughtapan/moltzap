@@ -27,7 +27,7 @@ The Client root exports closed Effect Schemas and corresponding types for:
 - `InboundMessage`, `InboundItem` and `InboundDelivery`;
 - `HistoryExportRecord`, one line of the daemon's optional history export
   (`harness/daemon.md`); and
-- closed `SendError`, `CollectiveError`, `ListenError`,
+- closed `SendError`, `CollectiveError`, `FirewallSendError`, `ListenError`,
   `DeliveryAcknowledgeError`, and `ConnectError`.
 
 `Content` is a nonempty sequence of the exact closed union
@@ -151,6 +151,7 @@ type InboundItem =
 
 interface InboundDelivery {
   readonly item: InboundItem
+  readonly guidance?: LocalGuidance
   readonly acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>
 }
 
@@ -161,7 +162,7 @@ interface HarnessEndpoint {
       readonly failureDelivery?: "result" | "inbound"
       readonly idempotencyKey?: string
     },
-  ) => Effect.Effect<SendResult, SendError | CollectiveError>
+  ) => Effect.Effect<SendResult, SendError | CollectiveError | FirewallSendError>
   readonly messages: Stream.Stream<InboundDelivery, ListenError>
 }
 
@@ -478,6 +479,16 @@ and private state do not cross the boundary.
 
 ## Host ownership
 
+The experimental [message firewall](./message-policy.md) adds optional
+`LocalGuidance` to the delivery envelope, separately attributed to local policy.
+Its check reference, rule references, expectations and permitted instructions
+contain no private check trace. The certified `InboundItem` is unchanged.
+`FirewallSendError` means the invocation created no message intent. Its closed
+reason is `prohibited`, `unresolved-evidence`, `check-unavailable`,
+`norm-violation` or `approval-required`; feedback comes from registered policy
+templates. A corrected draft is a new explicit send invocation. Enforced
+unsupported application operations return `check-unavailable` before sending.
+
 Client does not construct prompts, session context, checkpoints, or automatic
 responses. Stock hosts own sessions, model-output interpretation, destination
 discovery, inbox and outbox persistence, and retries. Adapters project complete
@@ -523,3 +534,13 @@ methods and cannot create a delivery or authorize output.
   establishes the [acceptance and replay requirements](./ingress.md#delivery-handoff).
 - No public export or MCP adapter path restores a retired turn-grant interface,
   public conversation identity, inherited target, or proof-shaped success.
+
+### Local guidance
+
+An admitted delivery may carry `LocalGuidance` beside its unchanged `InboundItem`.
+It contains a local `checkId`, registered instructions with middleware/rule IDs,
+response expectations and subject references, and the selected runtime-visible
+subject messages (`id`, verified `sender`, `recipients`, `text`). Subject text is
+peer evidence; it is quoted separately from local instructions. The check ID
+conveys no approval or management authority. Private traces and owner-only facts
+are never part of this projection.

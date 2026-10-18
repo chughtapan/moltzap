@@ -11,6 +11,11 @@ import { Cause, type Context, Deferred, Effect, Schema, Scope } from "effect";
 import type { EndpointStore, StoredMembership } from "../../store/index.js";
 import type { DaemonBootstrap } from "../bootstrap.js";
 import {
+  type ApplicationSender,
+  type InstalledFirewall,
+  sendWithFirewall,
+} from "../../delivery/index.js";
+import {
   type CollectiveEmitError,
   type CollectiveOperations,
   type InboundItem,
@@ -64,6 +69,7 @@ export interface ActiveProtocol {
   readonly worker: RouterWorker;
   readonly engine: EndpointEngine;
   readonly collectives: CollectiveOperations;
+  readonly application: ApplicationSender;
 }
 
 /** The daemon resources a protocol is acquired from and supervised in. */
@@ -75,6 +81,7 @@ export interface ProtocolEnvironment {
   readonly router: Context.Tag.Service<typeof Router>;
   readonly daemonScope: Scope.Scope;
   readonly fatal: Deferred.Deferred<never, DaemonRuntimeError>;
+  readonly firewall?: InstalledFirewall;
 }
 
 /** How an acquired protocol reaches back into the daemon that runs it. */
@@ -353,18 +360,46 @@ export const acquireProtocol = (
       publishPending: hooks.publishPending,
     });
     const engine = yield* acquireProtocolEngine(environment, agentCard, worker);
+    const collectives = makeProtocolCollectives(
+      environment,
+      hooks.emit,
+      agentCard,
+      engine,
+    );
     hooks.retain({
       agentCard,
       worker,
       engine,
-      collectives: makeProtocolCollectives(
+      collectives,
+      application: applicationSender(
         environment,
-        hooks.emit,
         agentCard,
         engine,
+        collectives,
       ),
     });
     yield* Deferred.succeed(engineReady, engine);
     yield* superviseBackground(environment, worker.run);
     yield* superviseBackground(environment, engine.runOutbound);
   }).pipe(Effect.withSpan("acquireProtocol"));
+
+function applicationSender(
+  environment: ProtocolEnvironment,
+  localAgentCard: VerifiedAgentCard,
+  engine: EndpointEngine,
+  collectives: CollectiveOperations,
+): ApplicationSender {
+  const installed = environment.firewall;
+  if (installed === undefined) {
+    return collectives;
+  }
+  return {
+    send: (input, failureDelivery) =>
+      sendWithFirewall(
+        { store: environment.store, installed, localAgentCard },
+        engine,
+        collectives,
+        { input, failureDelivery },
+      ),
+  };
+}

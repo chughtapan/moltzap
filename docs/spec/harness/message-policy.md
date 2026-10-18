@@ -1,10 +1,10 @@
 # Message policy execution
 
-Status: **owner-selected proposal; experimental middleware implemented on this
-branch; runtime gate not implemented or admitted**
+Status: **experimental runtime implementation on this branch; architecture admission
+and real-agent qualification pending**
 
 Client assesses application messages before outgoing intent publication and
-incoming runtime admission. The proposed evaluator separates safety and autonomy
+incoming runtime admission. The evaluator separates safety and autonomy
 from contextual norms. Norm violations return actionable send errors; incoming
 items carry local guidance about whether to respond and what to address.
 
@@ -14,14 +14,17 @@ the in-process implementation first. Configuration interfaces, live policy
 activation and authenticated human approval channels are deferred. Current
 normative contracts remain the implementation baseline.
 
-The first implementation is a standalone experimental firewall exposed through
-`@moltzap/client/service`. See the [module guide](https://github.com/chughtapan/moltzap/tree/proposal/message-policy/packages/client/src/firewall)
-for construction, middleware contracts and English policy examples. It runs
-separate ordered incoming and outgoing chains. Code policies and English policies
-implement one `MessageMiddleware` interface; English policies can use an injected
-Jev provider. The firewall returns findings and permitted guidance or feedback.
-It does not intercept a send or deliver an incoming item.
-The admission, persistence, MCP and OpenClaw changes below remain proposed.
+`@moltzap/client/service` exposes the standalone evaluator and
+`MoltZapService.withFirewall(options)`, which installs it in the daemon's incoming
+and outgoing message paths. Code and English policies implement the same
+`MessageMiddleware` interface. A fixed installation captures the rules, owner
+facts, settings and provider/model provenance before the listener opens.
+`MoltZapService.layer` remains the baseline composition without message checks.
+
+See `delivery/firewall.ts → sendWithFirewall` and
+`delivery/host-delivery.ts → makeHostDelivery` in the generated module guides for
+the outgoing and incoming flows. The standalone runner remains usable by offline
+experiments without acquiring a daemon or store.
 
 ## Ownership and scope
 
@@ -43,7 +46,7 @@ composition is controlled by its operator. It does not claim isolation from a
 compromised privileged host. Agents in the first experiment receive messaging
 and fixture tools, not owner management tools.
 
-## Proposed composition interfaces
+## Composition interfaces
 
 These values belong to service composition, not the agent-facing endpoint.
 
@@ -55,7 +58,7 @@ These values belong to service composition, not the agent-facing endpoint.
 | Decision provider | State and named bounded-choice questions to validated distributions, provider/model identity, usage and latency, or a typed operational failure. Names of external providers/models remain data. |
 | Firewall | `makeFirewall({ incoming, outgoing, settings })` returns `checkIncoming(message, context)` and `checkOutgoing(draft, context)`. The runner validates and composes all returned findings and projects registered guidance/feedback. |
 | Authorization evidence | Verified exact-candidate evidence supplied by a trusted integration, or absent. The first live implementation supplies absent evidence; tests may supply explicitly simulated evidence. |
-| Client admission state (proposed) | Retain the assessment and atomically compare candidate, policy and evidence versions before runtime admission or outgoing intent creation. Freshness is private Client state; there is no public Snapshot or Binding service. |
+| Client admission state | Retain the assessment and atomically compare candidate, policy and evidence versions before runtime admission or outgoing intent creation. Freshness is private Client state; there is no public Snapshot or Binding service. |
 
 Evaluator construction is exposed through the existing service composition
 subpath so offline experiments can exercise the same code. It is not a new
@@ -102,8 +105,8 @@ The English middleware runs this fixed internal chain:
    response, with selected rule and subject references.
 6. For outgoing messages, assess the candidate's conformance to those norms.
 7. Return all stage findings and a private trace to the common runner for
-   validation, composition and permitted feedback projection. Client admission
-   remains a subsequent integration step.
+   validation, composition and permitted feedback projection. Client then commits
+   the result and applies the configured admission mode.
 
 All configured stages run even after a semantic rejection, except that a
 dependent stage with invalid input is explicitly unavailable. Diagnostics never
@@ -127,8 +130,9 @@ The English adapter ignores previous middleware observations because they may be
 derived from an outgoing draft. Outgoing expectations also exclude the draft's
 text, id and approval evidence. Conformance sees the draft only after expectations
 are established from the original evidence. The question edition and rules are
-part of the English revision; provider/model identity is recorded in the trace
-and must be pinned separately in experiment manifests.
+part of the English revision; provider/model identity is captured in immutable installation provenance before
+inference, including attempts that fail or are interrupted. Experiment manifests
+also pin the requested provider/model.
 
 The English middleware checks each visible message's relevance to each norm
 independently. Several references can anchor one instruction. This increases
@@ -140,8 +144,10 @@ assessment rules sent to the model.
 
 ## Incoming projection
 
-Extend the existing delivery envelope with optional local guidance while
-preserving its original InboundItem. The proposed guidance contains:
+The existing delivery envelope carries optional local guidance. It preserves
+its original InboundItem. This replaces no peer content.
+
+The guidance contains:
 
 - response expectation: required, permitted, wait or none;
 - subject references to runtime-visible messages or operations; and
@@ -169,9 +175,9 @@ create no runtime obligation and are not delivered instead of the message.
 
 ## Outgoing projection
 
-Add a typed PolicySendError to the semantic send error union and carry it
-through the MCP error channel. It contains an opaque assessment reference, a
-reason and permitted feedback. The proposed reasons distinguish:
+`FirewallSendError` crosses the semantic send and MCP error boundaries. It
+contains an opaque check reference, a reason and permitted feedback. Reasons
+distinguish:
 
 - prohibited message;
 - unresolved required evidence;
@@ -226,38 +232,89 @@ must not change shared history or the answers in a canonical all_gather result.
 Collective qualification must retain request identity, whole-result attribution,
 deadline validity and restart loss of volatile response context.
 
-## Required contract reconciliation
+## Runtime composition and persistence
 
-| Current contract | Required change before implementation |
-| --- | --- |
-| [Screening](/spec/harness/screening) and [tasks](/spec/harness/tasks) | Distinguish personal semantic admission from structural protocol signing; do not put provider calls in voting. |
-| [Client](/spec/harness/client) | Extend the send error union and delivery envelope; define refusal, guidance and unsupported-operation behavior. |
-| [Ingress](/spec/harness/ingress) | Define one admitted runtime view across subscriptions, lookups and webhooks, including replay and withheld items. |
-| [Output](/spec/harness/output) | Place policy refusal before intent binding while preserving retries and uncertain outcomes. |
-| [Channels](/spec/harness/channels) | Permit local norm-context projection and actionable send errors through stock host APIs. |
-| [Daemon](/spec/harness/daemon) and storage contracts | Compose the evaluator and retain policy state with a preserving migration; do not introduce policy CRUD or human authentication as incidental requirements. |
-| [Management](/spec/management) | Preserve the distinction between owner audit access and runtime delivery; this proposal adds no policy-management catalog. |
+Install trusted policy objects through the existing service layer:
 
-The implementation must update these contracts together and test their public
-behavior. The private plan records exact integration points and bounded live
-experiments. A subsequent production boundary change still follows the
-repository's decision process.
+```ts
+import { MoltZapService } from "@moltzap/client/service";
+
+const daemon = MoltZapService.withFirewall({
+  mode: "enforcement",
+  incoming: [englishPolicy],
+  outgoing: [englishPolicy],
+  settings,
+  facts: ownerFacts,
+  codeDigest: experimentCodeSha256,
+  maximumHistoryRecords: 256,
+  maximumConcurrentChecks: 4,
+});
+```
+
+The supplied middleware, settings and facts are captured for that process.
+`codeDigest` is the operator's SHA-256 identifier for the experiment code; it is
+recorded, not independently attested. No model-facing policy mutation tool or new
+environment variable is introduced. Approval evidence remains absent.
+
+Both directions share a bounded inference semaphore. Incoming workers serialize
+within each conversation and progress independently across conversations. Checks
+run outside protocol/delivery locks and SQLite transactions. The store compares
+the captured evidence revision and exact bytes in the same transaction that
+admits the item or creates its outgoing intent. One stale result gets one fresh
+full-chain attempt. The initial revision is intentionally broad: unrelated later
+traffic can invalidate an incoming check even when its earlier history is
+unchanged, causing extra inference and conservative holds. Independent workers
+guarantee scheduling progress, not admission under continuous churn. Range-specific
+revision checks are deferred. Further churn holds enforcement without another provider
+call; guidance records that hold and admits the original without stale advice.
+
+Earlier endpoint-certified history is captured in certification order, strictly
+before an incoming candidate. History is bounded by the configured record count
+and 2 MiB of whole retained record/membership bytes. Exceeding either bound is an
+explicit gap, never silent truncation. Unresolved outgoing intents are also gaps:
+a concurrent send may have committed without certified history yet. Fixed owner
+facts and verified agent/principal attribution accompany the capture.
+
+Only inbox-admitted history is marked runtime-visible. Other history, including
+local outgoing posts without proven runtime origin, remains assessor evidence.
+Selected guidance subjects carry quoted message text and attribution from the
+same capture, restricted to admitted runtime history and the incoming candidate.
+Missing subjects or a projection exceeding the 2 MiB inbox-item budget produces
+an unavailable check; guidance mode admits without that advice. Peer text is
+never relabelled as a registered instruction.
+
+Schema 6 preserves schema-5 identity, protocol, inbox and invocation state while
+adding a private incoming queue, evidence revision and check records. Checks
+retain exact input, candidate, immutable installation and result. Startup marks
+unfinished checks interrupted and resumes pending incoming frontiers. A held
+item stays held. Previously admitted items remain readable with their original
+token and guidance, including after acknowledgment. A lost collective request's
+replacement failure enters the same admission queue before exposure. Recovery
+visits queued requests as well as admitted ones, including successors behind a
+conversation frontier, and atomically retires the original raw delivery.
+
+The matching native adapter negotiates message-policy runtime revision 1. An
+enabled daemon rejects older runtime requests before dispatch; owner audit access
+remains separate. OpenClaw carries guidance in its ordinary model-facing context
+and returns outbound feedback through the stock tool error. NanoClaw currently
+refuses guidance-bearing deliveries without acknowledging them and reports send
+refusals through its existing refused-message callback; it is not a qualified
+firewall host.
 
 ## Validation and limits
 
 The standalone component is tested through its public service API with code-only,
 English-only and mixed chains, immutable evidence, complete findings, private
 subject rejection, timeouts, cancellation and provider faults. A packed consumer
-checks the installed API. These tests establish component behavior, not runtime
-enforcement or real-provider classification accuracy. Historical spike reports
+checks the installed API. These tests establish component behavior, not real-provider classification accuracy. Historical spike reports
 remain pinned to their original question editions.
 
-The later integration must test actual Client storage and message paths: no intent on
-refusal, no alternate delivery bypass, stale snapshot conflicts, provider
-failures, visibility-safe projections, same-key outcomes and restart recovery.
-Provider fakes supply decisions; they do not replace those mechanisms.
-Include a slow predecessor, a settled held predecessor and restart ordering,
-plus migration of existing identity, history, deliveries and invocation data.
+Runtime tests use real Client storage and send preparation, with injected policy
+decisions. They cover withheld inbox visibility, retained send refusals, stale
+admission and shadow mode, concurrent sends, cancellation, independent
+conversations, schema migration, interrupted checks, MCP errors and compatibility,
+and OpenClaw projection. Adapter tests exercise the pinned host SDK; they do not
+establish real-model behavior.
 
 Real OpenClaw tests must retain a model's attempted send, actual tool error,
 model-authored revision, rendered incoming guidance and actual peer delivery.

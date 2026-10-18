@@ -152,7 +152,8 @@ const collectExports = (filePath: string): ExportSet => {
       ts.isClassDeclaration(node) ||
       ts.isInterfaceDeclaration(node) ||
       ts.isTypeAliasDeclaration(node) ||
-      ts.isEnumDeclaration(node)
+      ts.isEnumDeclaration(node) ||
+      (ts.isModuleDeclaration(node) && ts.isIdentifier(node.name))
     ) {
       const mods = ts.canHaveModifiers(node)
         ? ts.getModifiers(node)

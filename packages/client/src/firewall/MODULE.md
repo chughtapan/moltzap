@@ -8,7 +8,7 @@ Personal firewall composition for code and English policies.
 
 ## Public surface
 
-### [`CheckInputError`](./values.ts#L196)
+### [`CheckInputError`](./values.ts#L198)
 
 _Class_
 
@@ -20,12 +20,14 @@ export class CheckInputError extends Data.TaggedError("CheckInputError")<{
 
 Invalid construction or evidence is a typed failure, never permission.
 
-### [`DecisionProvider`](./values.ts#L321)
+### [`DecisionProvider`](./values.ts#L323)
 
 _Interface_
 
 ```ts
 export interface DecisionProvider {
+  /** Requested provider configuration, retained even when no response arrives. */
+  readonly provenance?: PrivateCheckTrace;
   readonly decide: (
     request: DecisionRequest,
   ) => Effect.Effect<DecisionResponse, DecisionProviderError>;
@@ -34,7 +36,7 @@ export interface DecisionProvider {
 
 Entirely code-based chains have no dependency on this optional capability.
 
-### [`DecisionProviderError`](./values.ts#L305)
+### [`DecisionProviderError`](./values.ts#L307)
 
 _Class_
 
@@ -57,7 +59,7 @@ export class DecisionProviderError extends Data.TaggedError(
 
 The adapter scrubs credentials before retaining optional private diagnostics.
 
-### [`DecisionRequest`](./values.ts#L269)
+### [`DecisionRequest`](./values.ts#L271)
 
 _Interface_
 
@@ -82,7 +84,7 @@ export interface DecisionRequest {
 
 Provider input contains explicit questions and state, never execution authority.
 
-### [`DecisionResponse`](./values.ts#L287)
+### [`DecisionResponse`](./values.ts#L289)
 
 _Interface_
 
@@ -107,7 +109,7 @@ export class DecisionResponse extends Schema.Class<DecisionResponse>(
 
 Raw distributions and provider confidence survive routing unchanged.
 
-### [`EnglishPolicySettings`](./values.ts#L252)
+### [`EnglishPolicySettings`](./values.ts#L254)
 
 _Interface_
 
@@ -136,7 +138,7 @@ export class EnglishRule extends Schema.Class<EnglishRule>("EnglishRule")({
 
 Text is interpreted by the provider; it is never compiled into executable code.
 
-### [`Firewall`](./values.ts#L240)
+### [`Firewall`](./values.ts#L242)
 
 _Interface_
 
@@ -155,7 +157,25 @@ export interface Firewall {
 
 Checking returns data; Client separately owns fresh, atomic send/delivery admission.
 
-### [`FirewallSettings`](./values.ts#L186)
+### [`FirewallSendError`](./runtime.ts#L67)
+
+_Class_
+
+```ts
+export class FirewallSendError extends Data.TaggedError("FirewallSendError")<
+  typeof firewallRefusalSchema.Type
+> {
+  override get message(): string {
+    const feedback = this.feedback.map((item) => item.text).join(" ");
+    const description = `send withheld: ${refusalText[this.refusal]}.`;
+    return feedback.length === 0 ? description : `${description} ${feedback}`;
+  }
+}
+```
+
+A refusal is returned only before an application invocation creates any intent.
+
+### [`FirewallSettings`](./values.ts#L188)
 
 _Interface_
 
@@ -171,6 +191,16 @@ export class FirewallSettings extends Schema.Class<FirewallSettings>(
 ```
 
 Sequential execution is bounded per entry and across the whole attempt.
+
+### [`LocalGuidance`](./runtime.ts#L38)
+
+_TypeAlias_
+
+```ts
+export type LocalGuidance = typeof localGuidanceSchema.Type;
+```
+
+Local advice accompanies the envelope and never changes a certified item.
 
 ### [`makeEnglishPolicy`](./english.ts#L237)
 
@@ -206,16 +236,7 @@ export const makeEnglishPolicy = Effect.fn("makeEnglishPolicy")(
     if (new Set(rules.map((rule) => rule.id)).size !== rules.length) {
       return yield* new CheckInputError({ reason: "registration" });
     }
-    const descriptions = yield* Schema.decodeUnknown(
-      Schema.Array(RuleDescription),
-    )(rules).pipe(
-      Effect.flatMap((value) =>
-        decodeFrozen(Schema.Array(RuleDescription), value),
-      ),
-      Effect.catchTag("ParseError", () =>
-        Effect.fail(new CheckInputError({ reason: "registration" })),
-      ),
-    );
+    const descriptions = yield* ruleDescriptions(rules);
     const revision = englishRevision(rules, settings);
     const provider = Object.freeze({
       decide: options.provider.decide.bind(options.provider),
@@ -224,6 +245,7 @@ export const makeEnglishPolicy = Effect.fn("makeEnglishPolicy")(
       id,
       revision,
       rules: descriptions,
+      provenance: englishProvenance(rules, settings, options.provider),
       check: (input: MiddlewareInput) =>
         checkEnglish(input, { rules, revision }, provider, settings),
     });
@@ -244,7 +266,7 @@ flowchart TD
   C --> R[Return all findings and private stage trace]
 ```
 
-### [`makeFirewall`](./index.ts#L56)
+### [`makeFirewall`](./index.ts#L59)
 
 _Variable_
 
@@ -371,6 +393,8 @@ export interface MessageMiddleware {
   readonly id: string;
   readonly revision: string;
   readonly rules: readonly RuleDescription[];
+  /** Descriptive audit data declared by trusted composition, never authority. */
+  readonly provenance?: PrivateCheckTrace;
   readonly check: (
     input: MiddlewareInput,
   ) => Effect.Effect<MiddlewareResult, MiddlewareError>;
@@ -458,4 +482,5 @@ Runtime advice can only select templates registered by trusted composition.
 - `english.ts`
 - `index.ts`
 - `jev.ts`
+- `runtime.ts`
 - `values.ts`

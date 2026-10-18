@@ -8,6 +8,7 @@ import {
 import { Effect, Match, Schema } from "effect";
 import { INBOX_ITEM_EVENT } from "../endpoint/mcp/names.js";
 import { makeWebhookEvents } from "../endpoint/mcp/webhook.js";
+import { localGuidanceSchema } from "../firewall/runtime.js";
 import {
   DeliveryToken,
   encodeRuntimeValue,
@@ -42,7 +43,11 @@ const occurrence = Schema.Struct({
   name: Schema.String,
   timestamp: Schema.String,
   data: Schema.Union(
-    Schema.Struct({ kind: Schema.Literal("item"), item: InboundItem }),
+    Schema.Struct({
+      kind: Schema.Literal("item"),
+      item: InboundItem,
+      guidance: Schema.optional(localGuidanceSchema),
+    }),
     Schema.Struct({
       kind: Schema.Literal("reference"),
       itemKind: Schema.String,

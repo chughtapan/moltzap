@@ -9,6 +9,7 @@ import {
   Schema,
   type Scope,
 } from "effect";
+import { FirewallSendError } from "../firewall/runtime.js";
 import {
   decodeRuntimeValue,
   encodeRuntimeValue,
@@ -36,7 +37,7 @@ import {
   sendErrorData,
 } from "./operations.js";
 
-type SendFailure = SendError | CollectiveError;
+type SendFailure = SendError | CollectiveError | FirewallSendError;
 type PendingSend = Deferred.Deferred<SendResult, SendFailure>;
 const storedInputSchema = Schema.Struct({
   input: SendInput,
@@ -63,19 +64,22 @@ const storedError = (value: unknown): Effect.Effect<never, SendFailure> =>
     Effect.catchTag("ParseError", () =>
       Effect.fail(new SendError({ reason: "outcome-unknown" })),
     ),
-    Effect.flatMap(
-      (error): Effect.Effect<never, SendFailure> =>
-        Effect.fail(
-          "failure" in error
-            ? new CollectiveError({ id: error.id, failure: error.failure })
-            : new SendError({
-                reason: isSendReason(error.reason)
-                  ? error.reason
-                  : "outcome-unknown",
-                ...(error.detail === undefined ? {} : { detail: error.detail }),
-              }),
-        ),
-    ),
+    Effect.flatMap((error): Effect.Effect<never, SendFailure> => {
+      if ("refusal" in error) {
+        return Effect.fail(new FirewallSendError(error));
+      }
+      if ("failure" in error) {
+        return Effect.fail(
+          new CollectiveError({ id: error.id, failure: error.failure }),
+        );
+      }
+      return Effect.fail(
+        new SendError({
+          reason: isSendReason(error.reason) ? error.reason : "outcome-unknown",
+          ...(error.detail === undefined ? {} : { detail: error.detail }),
+        }),
+      );
+    }),
   );
 
 /**

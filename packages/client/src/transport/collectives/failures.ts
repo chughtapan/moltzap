@@ -2,21 +2,15 @@
 
 import { Effect } from "effect";
 import type { SendError } from "../messaging/errors.js";
-import type { EngineSentPost } from "../messaging/index.js";
 import type { MessageAddressInput } from "../wire/values.js";
 import type {
   CollectiveEmitError,
   CollectiveError,
   CollectiveId,
+  CollectiveSendOutcome,
   FailureDelivery,
-  SendResult,
 } from "./forms.js";
 import type { InboundItem } from "./inbound.js";
-
-/** One completed send: the posts certified by its return, and a collective id. */
-export interface CollectiveSendOutcome extends SendResult {
-  readonly postIds: ReadonlyArray<EngineSentPost["postId"]>;
-}
 
 /**
  * A refused collective send, with the address its failure item routes to.

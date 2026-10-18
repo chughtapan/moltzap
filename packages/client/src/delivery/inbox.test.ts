@@ -4,14 +4,22 @@ import { scopedLive as it } from "@effect/vitest";
 import { Effect, Array as EffectArray, Schema } from "effect";
 import { describe, expect } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
+import { localGuidance } from "../__tests__/message-policy-fixtures.js";
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
-import { DeliveryToken, openEndpointStore } from "../store/index.js";
+import {
+  decodeRuntimeValue,
+  DeliveryToken,
+  encodeRuntimeValue,
+  openEndpointStore,
+} from "../store/index.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
 import {
   persistInboxItem,
+  readRuntimeEvent,
   readRuntimeInbox,
   recoverRuntimeInbox,
 } from "./inbox.js";
+import { eventIdOf } from "./operations.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Durable tombstone and snapshot fixtures pin exact store outcomes. */
 
@@ -23,13 +31,14 @@ const failure = Schema.decodeUnknownSync(InboundItem)({
   to: "agent:bob",
   error: "request unavailable",
 });
+const requestConversation = "group:alice,bob,carol";
 const request = Schema.decodeUnknownSync(InboundItem)({
   kind: "collectiveRequest",
   op: "all_gather",
   id: digest("col_", 2),
   postId: digest("pst_", 2),
   from: "agent:bob",
-  to: "group:alice,bob,carol",
+  to: requestConversation,
   question: "Answer independently",
   requestedSchema: {
     type: "object",
@@ -123,6 +132,34 @@ const retiresLostRequests = () => {
   });
 };
 
+const holdsRestartReplacement = () => {
+  const path = stateDirectory();
+  return Effect.gen(function* () {
+    yield* storeRequestAndFailure(path);
+    const store = yield* openEndpointStore(path);
+    yield* recoverRuntimeInbox(store, true);
+    expect((yield* readRuntimeInbox(store, {})).items).toEqual([
+      { deliveryToken: token(1), item: failure },
+    ]);
+    expect((yield* readRuntimeEvent(store, eventIdOf(token(2)))).item).toEqual(
+      request,
+    );
+    const pending = yield* store.readFirewallFrontiers();
+    expect(pending).toHaveLength(1);
+    const replacement = pending[0];
+    if (replacement === undefined) {
+      return yield* Effect.dieMessage("missing restart replacement");
+    }
+    expect(
+      yield* Effect.flip(
+        readRuntimeEvent(store, eventIdOf(replacement.deliveryToken)),
+      ),
+    ).toEqual({ reason: "unknown-event" });
+    yield* recoverRuntimeInbox(store, true);
+    expect(yield* store.readFirewallFrontiers()).toEqual(pending);
+  });
+};
+
 const freezesPagesAcrossArrivalsAndAcknowledgments = () =>
   Effect.gen(function* () {
     const store = yield* openEndpointStore(stateDirectory());
@@ -190,6 +227,80 @@ const commitsReceiptAtomically = () => {
     );
   });
 };
+
+it(
+  "holds a restart replacement privately while preserving the original token",
+  holdsRestartReplacement,
+);
+
+it("retires queued requests across pages and behind another conversation item", () => {
+  const path = stateDirectory();
+  return Effect.gen(function* () {
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const store = yield* openEndpointStore(path);
+        yield* store.queueFirewallItem({
+          deliveryToken: token(1),
+          conversation: requestConversation,
+          canonicalItem: yield* encodeRuntimeValue(failure),
+        });
+        for (const index of EffectArray.range(2, 36)) {
+          yield* store.queueFirewallItem({
+            deliveryToken: token(index),
+            conversation: requestConversation,
+            canonicalItem: yield* encodeRuntimeValue(request),
+          });
+        }
+      }),
+    );
+    const store = yield* openEndpointStore(path);
+    yield* recoverRuntimeInbox(store, true);
+    const first = yield* store.readPendingFirewallItems(0);
+    const last = first.at(-1);
+    expect(last).toBeDefined();
+    const remaining = yield* store.readPendingFirewallItems(
+      last?.sequence ?? 0,
+    );
+    const pending = [...first, ...remaining];
+    expect(pending).toHaveLength(36);
+    const items = yield* Effect.forEach(
+      pending,
+      (entry) => decodeRuntimeValue(InboundItem, entry.canonicalItem),
+      { concurrency: 1 },
+    );
+    expect(items.every((item) => item.kind === "operationFailed")).toBe(true);
+    expect((yield* readRuntimeInbox(store, {})).items).toEqual([]);
+    yield* recoverRuntimeInbox(store, true);
+    expect(yield* store.readPendingFirewallItems(0)).toEqual(first);
+  });
+});
+
+it("retains admitted guidance and its subject map across reopen and acknowledgment", () => {
+  const path = stateDirectory();
+  const guidance = localGuidance(1);
+  return Effect.gen(function* () {
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const store = yield* openEndpointStore(path);
+        yield* store.putInboxItem({
+          deliveryToken: token(1),
+          canonicalItem: yield* encodeRuntimeValue(failure),
+          canonicalGuidance: yield* encodeRuntimeValue(guidance),
+        });
+      }),
+    );
+    const store = yield* openEndpointStore(path);
+    yield* recoverRuntimeInbox(store, true);
+    expect((yield* readRuntimeInbox(store, {})).items).toEqual([
+      { deliveryToken: token(1), item: failure, guidance },
+    ]);
+    yield* store.acknowledgeInboxItem(token(1));
+    expect(yield* readRuntimeEvent(store, eventIdOf(token(1)))).toEqual({
+      item: failure,
+      guidance,
+    });
+  });
+});
 
 describe("durable runtime inbox", () => {
   it(

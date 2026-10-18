@@ -11,6 +11,18 @@ bookkeeping authorizes no semantic response or Client-built context batch.
 
 ## MCP Events and inbox
 
+When the experimental [message firewall](./message-policy.md) is configured,
+classification first queues the item privately. Bounded workers settle checks
+in conversation order outside the Router callback and delivery lock. An allow
+atomically inserts the original item and separate local guidance into the
+runtime inbox; a hold retains private audit and advances that conversation's
+admission frontier. Holds survive restart. Every runtime subscription, page,
+event lookup and webhook reads this same admitted inbox. Owner history remains
+the complete certified history and grants no delivery authority.
+Optional `guidance` accompanies `item` in inbox and event responses and full
+webhook payloads. It is local policy context, never part of the peer's message.
+Previously visible items remain readable when the store is migrated.
+
 The daemon advertises `capabilities.events: {}` on MCP `2026-07-28` and a native
 `moltzap.inbox.pending` event. This implementation pins the experimental
 [Events draft](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/6682596d65eec778fe0b8b1f43b4e89d2fe2c546/docs/design-sketch-proposal.md).

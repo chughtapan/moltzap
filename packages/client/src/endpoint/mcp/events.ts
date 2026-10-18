@@ -19,6 +19,7 @@ import {
 } from "effect";
 import { randomUUID } from "node:crypto";
 import type { InboxSummary } from "../../store/index.js";
+import { localGuidanceSchema } from "../../firewall/runtime.js";
 import { InboundItem } from "../../transport/collectives/inbound.js";
 import { exactStruct } from "../../transport/wire/values.js";
 import {
@@ -42,7 +43,11 @@ export { webhookHttpClientLayer } from "./event-signing.js";
 
 /** Inline content or an explicit reference without truncating stored content. */
 const itemEventDataSchema = Schema.Union(
-  exactStruct({ kind: Schema.Literal("item"), item: InboundItem }),
+  exactStruct({
+    kind: Schema.Literal("item"),
+    item: InboundItem,
+    guidance: Schema.optionalWith(localGuidanceSchema, { exact: true }),
+  }),
   exactStruct({
     kind: Schema.Literal("reference"),
     itemKind: Schema.Literal(

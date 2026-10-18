@@ -2,6 +2,10 @@
 
 import { Data, type Effect, type Stream } from "effect";
 import type {
+  FirewallSendError,
+  LocalGuidance,
+} from "../../firewall/runtime.js";
+import type {
   CollectiveError,
   FailureDelivery,
   SendInput,
@@ -31,6 +35,7 @@ export class ConnectError extends Data.TaggedError("ConnectError")<{
 /** One inbound item plus its transport-only acknowledgment. */
 export interface InboundDelivery {
   readonly item: InboundItem;
+  readonly guidance?: LocalGuidance;
   readonly acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>;
 }
 
@@ -43,6 +48,8 @@ export interface InboundDelivery {
  * `failureDelivery: "inbound"`: a refused gather, all_gather or response
  * then completes and its error arrives as an `operationFailed` item on the
  * stream. A multicast has no operation id, so its failure is always returned.
+ * A firewall refusal always returns on the send call before creating an intent,
+ * including when inbound failure delivery was requested.
  */
 export interface HarnessEndpoint {
   readonly send: (
@@ -51,6 +58,9 @@ export interface HarnessEndpoint {
       failureDelivery?: FailureDelivery;
       idempotencyKey?: string;
     }>,
-  ) => Effect.Effect<SendResult, SendError | CollectiveError>;
+  ) => Effect.Effect<
+    SendResult,
+    SendError | CollectiveError | FirewallSendError
+  >;
   readonly messages: Stream.Stream<InboundDelivery, ListenError>;
 }

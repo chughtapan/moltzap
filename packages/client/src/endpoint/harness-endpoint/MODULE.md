@@ -8,7 +8,7 @@ Scoped MCP implementation of the public semantic HarnessEndpoint.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](./index.ts#L58)
+### [`acquireHarnessEndpoint`](./index.ts#L61)
 
 _Function_
 
@@ -22,7 +22,7 @@ Acquire one real MCP-backed endpoint and its scoped connection.
 
 **Returns:** An endpoint whose resources remain live for the caller's scope.
 
-### [`ConnectError`](./capability.ts#L23)
+### [`ConnectError`](./capability.ts#L27)
 
 _Class_
 
@@ -38,7 +38,7 @@ export class ConnectError extends Data.TaggedError("ConnectError")<{
 
 Acquiring the endpoint connection failed.
 
-### [`HarnessEndpoint`](./capability.ts#L47)
+### [`HarnessEndpoint`](./capability.ts#L54)
 
 _Interface_
 
@@ -50,7 +50,10 @@ export interface HarnessEndpoint {
       failureDelivery?: FailureDelivery;
       idempotencyKey?: string;
     }>,
-  ) => Effect.Effect<SendResult, SendError | CollectiveError>;
+  ) => Effect.Effect<
+    SendResult,
+    SendError | CollectiveError | FirewallSendError
+  >;
   readonly messages: Stream.Stream<InboundDelivery, ListenError>;
 }
 ```
@@ -63,14 +66,17 @@ A host whose tool returns before the send completes passes
 `failureDelivery: "inbound"`: a refused gather, all_gather or response
 then completes and its error arrives as an `operationFailed` item on the
 stream. A multicast has no operation id, so its failure is always returned.
+A firewall refusal always returns on the send call before creating an intent,
+including when inbound failure delivery was requested.
 
-### [`InboundDelivery`](./capability.ts#L32)
+### [`InboundDelivery`](./capability.ts#L36)
 
 _Interface_
 
 ```ts
 export interface InboundDelivery {
   readonly item: InboundItem;
+  readonly guidance?: LocalGuidance;
   readonly acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>;
 }
 ```

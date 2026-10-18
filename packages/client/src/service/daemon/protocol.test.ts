@@ -155,6 +155,7 @@ const recordingEngine = (
   accepted: Queue.Queue<DecodedOuterBody>,
 ): EndpointEngine => ({
   send: () => Effect.dieMessage("the daemon sends nothing in this test"),
+  sendChecked: () => Effect.dieMessage("the daemon sends nothing in this test"),
   resolveAddress: () => Effect.dieMessage("no address is resolved here"),
   readPendingMessages: () => Effect.succeed([]),
   acknowledgeMessage: () => Effect.dieMessage("nothing is delivered here"),

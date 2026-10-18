@@ -11,9 +11,11 @@ import {
 } from "../__tests__/store-schema-fixtures.js";
 import {
   decodeRuntimeValue,
+  encodeRuntimeValue,
   type EndpointStore,
   openEndpointStore,
 } from "../store/index.js";
+import { InboundItem } from "../transport/collectives/inbound.js";
 import { makeCollectiveOperations } from "../transport/collectives/index.js";
 import { collectiveIdOf } from "../transport/collectives/part/index.js";
 import { InboundMessage } from "../transport/messaging/message.js";
@@ -145,3 +147,60 @@ it(
   "keeps an unprojected request answerable after restart of a current store",
   preservesUnprojectedRequest,
 );
+
+it("retires a privately queued request and its raw delivery before resuming admission", () => {
+  const path = stateDirectory();
+  const counter = { count: 0 };
+  return Effect.gen(function* () {
+    yield* queueRequestBeforeRestart(path, counter);
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const store = yield* openEndpointStore(path);
+        yield* recoverRuntimeInbox(store, true);
+        expect(yield* store.readPendingDeliveries()).toEqual([]);
+        expect((yield* readRuntimeInbox(store, {})).items).toEqual([]);
+        const pending = yield* store.readFirewallFrontiers();
+        expect(pending).toHaveLength(1);
+        const replacement = pending[0];
+        if (replacement === undefined) {
+          return yield* Effect.dieMessage("missing restart failure");
+        }
+        const item = yield* decodeRuntimeValue(
+          InboundItem,
+          replacement.canonicalItem,
+        );
+        expect(item).toMatchObject({ kind: "operationFailed", id });
+        yield* recoverRuntimeInbox(store, true);
+        expect(yield* store.readFirewallFrontiers()).toEqual(pending);
+      }),
+    );
+  });
+});
+
+function queueRequestBeforeRestart(path: string, counter: { count: number }) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const store = yield* openEndpointStore(path);
+      const request = message();
+      yield* seedRequest(store, request);
+      const pending = yield* store.readPendingDeliveries();
+      const entry = pending[0];
+      if (entry === undefined) {
+        return yield* Effect.dieMessage("missing request delivery");
+      }
+      const collectives = makeCollectives(counter, yield* Scope.Scope);
+      const classified = yield* collectives.classify({
+        message: request,
+        recordHash,
+      });
+      if (Option.isNone(classified)) {
+        return yield* Effect.dieMessage("missing classified request");
+      }
+      yield* store.queueFirewallItem({
+        deliveryToken: entry.deliveryToken,
+        conversation: "agent:bob",
+        canonicalItem: yield* encodeRuntimeValue(classified.value),
+      });
+    }),
+  );
+}

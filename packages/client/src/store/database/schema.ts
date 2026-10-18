@@ -30,12 +30,10 @@ export interface StoreState {
 
 const DATABASE_NAME = "moltzapd.sqlite3";
 /**
- * Version 5 is the first store whose POST record cores carry only the
- * membership's `MembershipHash`. Versions 2 and 3 predate sealed outer bodies,
- * and version 4 stores record cores that embed the membership descriptor, so
- * its record hashes no longer verify.
+ * Message admission and private assessments coexist with unchanged certified
+ * history. A compatible store is extended without resealing protocol records.
  */
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 /**
  * How a state directory's store opens: `create` replaces an absent, empty, or
@@ -54,6 +52,7 @@ const DISPOSITION_BY_VERSION: ReadonlyMap<number, StoreOpening> = new Map([
   [2, "create"],
   [3, "create"],
   [4, "create"],
+  [5, "reopen"],
   [SCHEMA_VERSION, "reopen"],
 ]);
 
@@ -178,7 +177,12 @@ function initializeStoreState(stateDirectory: string): StoreState {
     configureDatabase(database);
     if (disposition === "create") {
       createStore(database);
+    } else {
+      migrateStore(database);
     }
+    database.exec(
+      "UPDATE firewall_checks SET disposition = 'interrupted' WHERE disposition = 'checking'",
+    );
     return { database, snapshots: new Map(), closed: false };
   } catch (failure) {
     try {
@@ -302,6 +306,7 @@ const runtimeSchemaSql = `
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     delivery_token TEXT NOT NULL UNIQUE,
     canonical_item BLOB NOT NULL,
+    canonical_guidance BLOB,
     acknowledged INTEGER NOT NULL DEFAULT 0 CHECK (acknowledged IN (0, 1))
   ) STRICT;
   CREATE INDEX runtime_inbox_unread ON runtime_inbox(sequence) WHERE acknowledged = 0;
@@ -315,6 +320,67 @@ const runtimeSchemaSql = `
     canonical_state BLOB NOT NULL
   ) STRICT;
 `;
+
+const firewallSchemaSql = `
+  CREATE TABLE firewall_evidence (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    revision INTEGER NOT NULL CHECK (revision >= 0)
+  ) STRICT;
+  INSERT INTO firewall_evidence (singleton, revision) VALUES (1, 0);
+  CREATE TABLE firewall_incoming (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    delivery_token TEXT NOT NULL UNIQUE,
+    conversation TEXT NOT NULL,
+    canonical_item BLOB NOT NULL,
+    disposition TEXT NOT NULL DEFAULT 'pending'
+      CHECK (disposition IN ('pending', 'admitted', 'withheld'))
+  ) STRICT;
+  CREATE INDEX firewall_frontiers ON firewall_incoming(conversation, sequence)
+    WHERE disposition = 'pending';
+  CREATE INDEX firewall_pending_sequence ON firewall_incoming(sequence)
+    WHERE disposition = 'pending';
+  CREATE TABLE firewall_checks (
+    check_id TEXT PRIMARY KEY,
+    direction TEXT NOT NULL CHECK (direction IN ('incoming', 'outgoing')),
+    revision INTEGER NOT NULL,
+    canonical_candidate BLOB NOT NULL,
+    canonical_input BLOB NOT NULL,
+    canonical_result BLOB,
+    disposition TEXT NOT NULL DEFAULT 'checking'
+      CHECK (disposition IN ('checking', 'interrupted', 'stale', 'admitted', 'withheld', 'observed'))
+  ) STRICT;
+  CREATE TRIGGER firewall_history_changed AFTER INSERT ON certified_records BEGIN
+    UPDATE firewall_evidence SET revision = revision + 1 WHERE singleton = 1;
+  END;
+  CREATE TRIGGER firewall_intent_changed AFTER INSERT ON post_intents BEGIN
+    UPDATE firewall_evidence SET revision = revision + 1 WHERE singleton = 1;
+  END;
+  CREATE TRIGGER firewall_visibility_changed AFTER INSERT ON runtime_inbox BEGIN
+    UPDATE firewall_evidence SET revision = revision + 1 WHERE singleton = 1;
+  END;
+`;
+
+/** A runtime-only migration preserves identity, protocol, invocation and inbox bytes. */
+function migrateStore(database: DatabaseSync): void {
+  const row = database.prepare("PRAGMA user_version").get();
+  if (row === undefined) {
+    throw new StoreSignal("corrupt");
+  }
+  if (readInteger(row, "user_version") === SCHEMA_VERSION) {
+    return;
+  }
+  transaction(
+    database,
+    () => {
+      database.exec(
+        "ALTER TABLE runtime_inbox ADD COLUMN canonical_guidance BLOB",
+      );
+      database.exec(firewallSchemaSql);
+      database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    },
+    "EXCLUSIVE",
+  );
+}
 
 const schemaSql = `
   CREATE TABLE identity_binding (
@@ -478,7 +544,7 @@ const PRE_CUTOVER_TABLES = [
 ] as const;
 
 /**
- * Creates the empty version 5 schema in one transaction, first dropping every
+ * Creates the current empty schema in one transaction, first dropping every
  * table a version 2, 3 or 4 store holds. A pre-cutover store's protocol state
  * was signed over a prior MoltZap version or record format, so nothing carries
  * over and nothing is resealed: the daemon starts unregistered and the agent
@@ -493,6 +559,7 @@ function createStore(database: DatabaseSync): void {
       }
       database.exec(schemaSql);
       database.exec(runtimeSchemaSql);
+      database.exec(firewallSchemaSql);
       database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     },
     "EXCLUSIVE",

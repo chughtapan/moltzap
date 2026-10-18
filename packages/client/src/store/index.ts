@@ -19,6 +19,12 @@ export type {
   EmptyConversationRestart,
   EndpointRecovery,
   EndpointStore,
+  FirewallAttempt,
+  FirewallCommit,
+  FirewallCompletion,
+  FirewallEvidence,
+  FirewallHistoryEntry,
+  FirewallInboxEntry,
   HistoryPage,
   IdentityBinding,
   InboundDeliveryInput,
@@ -43,7 +49,7 @@ export type {
   StoreMutation,
 } from "./types.js";
 /** Stable opaque durable-delivery identity. */
-export { DeliveryToken } from "./types.js";
+export { DeliveryToken, MAXIMUM_RUNTIME_ITEM_BYTES } from "./types.js";
 /** Whether a store error refuses its input rather than reporting a failed store. */
 export { isSemanticStoreRejection } from "./types.js";
 

@@ -13,22 +13,33 @@ Production composition for one explicitly configured endpoint daemon.
 
 ## Public surface
 
-### [`layer`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L111)
+### [`FirewallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L58)
+
+_TypeAlias_
+
+```ts
+  export type FirewallOptions = InstalledFirewallOptions;
+```
+
+Trusted fixed process composition; agents receive no policy mutation capability.
+
+### [`layer`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L116)
 
 _Variable_
 
 ```ts
-  export const layer: Layer.Layer<never, StartupError> =
-    Layer.scopedDiscard(runDaemon)
+  export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
+    runDaemon(Effect.succeed(undefined)),
+  )
 ```
 
 Complete production process composition for `moltzapd`.
 
-### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L50)
+### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L56)
 
 _Namespace_
 
-### [`StartupError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L52)
+### [`StartupError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L61)
 
 _Class_
 
@@ -49,6 +60,20 @@ _Class_
 ```
 
 Closed daemon startup phase without configuration or platform detail.
+
+### [`withFirewall`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L125)
+
+_Function_
+
+```ts
+  export const withFirewall = (
+    options: FirewallOptions,
+  ): Layer.Layer<never, StartupError>
+```
+
+Fixed middleware and owner evidence are installed before the daemon accepts host calls.
+
+**Returns:** The complete daemon layer with both message boundaries checked.
 
 ## Files
 

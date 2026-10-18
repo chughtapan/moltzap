@@ -4,6 +4,7 @@ import { live as it } from "@effect/vitest";
 import { Clock, Context, Deferred, Duration, Effect, Fiber } from "effect";
 import { createHmac } from "node:crypto";
 import { describe, expect } from "vitest";
+import { localGuidance } from "../../__tests__/message-policy-fixtures.js";
 import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
 import {
   decodeOccurrence,
@@ -143,6 +144,31 @@ const retainsTerminalRejections = () =>
       }
     }),
   ).pipe(onSteppedClock);
+
+it("delivers local guidance and its subject map through a signed webhook", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const store = yield* openEndpointStore(stateDirectory());
+      const test = scriptedWebhook(store);
+      const events = yield* test.acquire;
+      const guidance = localGuidance(1);
+      yield* store.putInboxItem({
+        deliveryToken: token(1),
+        canonicalItem: yield* encodeRuntimeValue(item()),
+        canonicalGuidance: yield* encodeRuntimeValue(guidance),
+      });
+      yield* events.subscribe(input, "runtime");
+      yield* events.observe();
+      expect(decodeOccurrence(test.posts[1]?.body).data).toEqual({
+        kind: "item",
+        item: item(),
+        guidance,
+      });
+      expect(
+        (yield* readRuntimeEvent(store, eventIdOf(token(1)))).guidance,
+      ).toEqual(guidance);
+    }),
+  ).pipe(onSteppedClock));
 
 const verifiesRotatedSecret = () =>
   Effect.scoped(

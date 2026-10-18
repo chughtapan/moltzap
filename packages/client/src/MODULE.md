@@ -8,7 +8,7 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](./endpoint/harness-endpoint/index.ts#L58)
+### [`acquireHarnessEndpoint`](./endpoint/harness-endpoint/index.ts#L61)
 
 _Function_
 
@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](./transport/collectives/forms.ts#L315)
+### [`CollectiveError`](./transport/collectives/forms.ts#L321)
 
 _Class_
 
@@ -66,7 +66,7 @@ hands its model as the tool error: the failed action and its cause, naming
 each unreachable member or failing field. The operation id stays in the
 error's data, not its message.
 
-### [`ConnectError`](./endpoint/harness-endpoint/capability.ts#L23)
+### [`ConnectError`](./endpoint/harness-endpoint/capability.ts#L27)
 
 _Class_
 
@@ -156,6 +156,24 @@ export type DirectMessage = typeof directMessage.Type;
 
 One certified remote-authored direct message.
 
+### [`FirewallSendError`](./firewall/runtime.ts#L67)
+
+_Class_
+
+```ts
+export class FirewallSendError extends Data.TaggedError("FirewallSendError")<
+  typeof firewallRefusalSchema.Type
+> {
+  override get message(): string {
+    const feedback = this.feedback.map((item) => item.text).join(" ");
+    const description = `send withheld: ${refusalText[this.refusal]}.`;
+    return feedback.length === 0 ? description : `${description} ${feedback}`;
+  }
+}
+```
+
+A refusal is returned only before an application invocation creates any intent.
+
 ### [`GroupAddress (type)`](./transport/wire/values.ts#L251)
 
 _TypeAlias_
@@ -203,7 +221,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](./endpoint/harness-endpoint/capability.ts#L47)
+### [`HarnessEndpoint`](./endpoint/harness-endpoint/capability.ts#L54)
 
 _Interface_
 
@@ -215,7 +233,10 @@ export interface HarnessEndpoint {
       failureDelivery?: FailureDelivery;
       idempotencyKey?: string;
     }>,
-  ) => Effect.Effect<SendResult, SendError | CollectiveError>;
+  ) => Effect.Effect<
+    SendResult,
+    SendError | CollectiveError | FirewallSendError
+  >;
   readonly messages: Stream.Stream<InboundDelivery, ListenError>;
 }
 ```
@@ -228,6 +249,8 @@ A host whose tool returns before the send completes passes
 `failureDelivery: "inbound"`: a refused gather, all_gather or response
 then completes and its error arrives as an `operationFailed` item on the
 stream. A multicast has no operation id, so its failure is always returned.
+A firewall refusal always returns on the send call before creating an intent,
+including when inbound failure delivery was requested.
 
 ### [`HistoryExportRecord (type)`](./delivery/history-export.ts#L50)
 
@@ -269,13 +292,14 @@ published it, a completed `send` invocation with its input and outcome, or
 the one line that says the export stopped. Readers decode the file line by
 line with this schema rather than copying its shape.
 
-### [`InboundDelivery`](./endpoint/harness-endpoint/capability.ts#L32)
+### [`InboundDelivery`](./endpoint/harness-endpoint/capability.ts#L36)
 
 _Interface_
 
 ```ts
 export interface InboundDelivery {
   readonly item: InboundItem;
+  readonly guidance?: LocalGuidance;
   readonly acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>;
 }
 ```
@@ -386,6 +410,16 @@ export class ListenError extends Data.TaggedError("ListenError")<{
 ```
 
 The endpoint's sole inbound subscription failed.
+
+### [`LocalGuidance`](./firewall/runtime.ts#L38)
+
+_TypeAlias_
+
+```ts
+export type LocalGuidance = typeof localGuidanceSchema.Type;
+```
+
+Local advice accompanies the envelope and never changes a certified item.
 
 ### [`MessageAddressInput (type)`](./transport/wire/values.ts#L256)
 
@@ -531,7 +565,7 @@ An addressed send failed before local certification completed. `detail`
 names the specific cause when the failing step knows it, such as which
 agent is unknown; the message is what a host hands its model.
 
-### [`SendInput (type)`](./transport/collectives/forms.ts#L152)
+### [`SendInput (type)`](./transport/collectives/forms.ts#L153)
 
 _TypeAlias_
 
@@ -541,7 +575,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput (value)`](./transport/collectives/forms.ts#L140)
+### [`SendInput (value)`](./transport/collectives/forms.ts#L141)
 
 _Variable_
 
@@ -564,7 +598,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./transport/collectives/forms.ts#L171)
+### [`SendResult`](./transport/collectives/forms.ts#L172)
 
 _Interface_
 
@@ -580,11 +614,11 @@ What a completed send returns: a collecting operation names its id.
 
 ### `@moltzap/client/service`
 
-#### [`MoltZapService`](./service/index.ts#L50)
+#### [`MoltZapService`](./service/index.ts#L56)
 
 _Namespace_
 
-#### [`MoltZapService.StartupError`](./service/index.ts#L52)
+#### [`MoltZapService.StartupError`](./service/index.ts#L61)
 
 _Class_
 
@@ -606,18 +640,43 @@ _Class_
 
 Closed daemon startup phase without configuration or platform detail.
 
-#### [`MoltZapService.layer`](./service/index.ts#L111)
+#### [`MoltZapService.FirewallOptions`](./service/index.ts#L58)
+
+_TypeAlias_
+
+```ts
+  export type FirewallOptions = InstalledFirewallOptions;
+```
+
+Trusted fixed process composition; agents receive no policy mutation capability.
+
+#### [`MoltZapService.layer`](./service/index.ts#L116)
 
 _Variable_
 
 ```ts
-  export const layer: Layer.Layer<never, StartupError> =
-    Layer.scopedDiscard(runDaemon)
+  export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
+    runDaemon(Effect.succeed(undefined)),
+  )
 ```
 
 Complete production process composition for `moltzapd`.
 
-#### [`MoltZapService.CheckInputError`](./firewall/values.ts#L196)
+#### [`MoltZapService.withFirewall`](./service/index.ts#L125)
+
+_Function_
+
+```ts
+  export const withFirewall = (
+    options: FirewallOptions,
+  ): Layer.Layer<never, StartupError>
+```
+
+Fixed middleware and owner evidence are installed before the daemon accepts host calls.
+
+**Returns:** The complete daemon layer with both message boundaries checked.
+
+#### [`MoltZapService.CheckInputError`](./firewall/values.ts#L198)
 
 _Class_
 
@@ -629,7 +688,7 @@ export class CheckInputError extends Data.TaggedError("CheckInputError")<{
 
 Invalid construction or evidence is a typed failure, never permission.
 
-#### [`MoltZapService.DecisionProviderError`](./firewall/values.ts#L305)
+#### [`MoltZapService.DecisionProviderError`](./firewall/values.ts#L307)
 
 _Class_
 
@@ -669,12 +728,14 @@ export class MiddlewareError extends Data.TaggedError("MiddlewareError")<{
 
 Operational failures carry closed reasons, never arbitrary exception text.
 
-#### [`MoltZapService.DecisionProvider`](./firewall/values.ts#L321)
+#### [`MoltZapService.DecisionProvider`](./firewall/values.ts#L323)
 
 _Interface_
 
 ```ts
 export interface DecisionProvider {
+  /** Requested provider configuration, retained even when no response arrives. */
+  readonly provenance?: PrivateCheckTrace;
   readonly decide: (
     request: DecisionRequest,
   ) => Effect.Effect<DecisionResponse, DecisionProviderError>;
@@ -683,7 +744,7 @@ export interface DecisionProvider {
 
 Entirely code-based chains have no dependency on this optional capability.
 
-#### [`MoltZapService.DecisionRequest`](./firewall/values.ts#L269)
+#### [`MoltZapService.DecisionRequest`](./firewall/values.ts#L271)
 
 _Interface_
 
@@ -708,7 +769,7 @@ export interface DecisionRequest {
 
 Provider input contains explicit questions and state, never execution authority.
 
-#### [`MoltZapService.DecisionResponse`](./firewall/values.ts#L287)
+#### [`MoltZapService.DecisionResponse`](./firewall/values.ts#L289)
 
 _Interface_
 
@@ -733,7 +794,7 @@ export class DecisionResponse extends Schema.Class<DecisionResponse>(
 
 Raw distributions and provider confidence survive routing unchanged.
 
-#### [`MoltZapService.EnglishPolicySettings`](./firewall/values.ts#L252)
+#### [`MoltZapService.EnglishPolicySettings`](./firewall/values.ts#L254)
 
 _Interface_
 
@@ -762,7 +823,7 @@ export class EnglishRule extends Schema.Class<EnglishRule>("EnglishRule")({
 
 Text is interpreted by the provider; it is never compiled into executable code.
 
-#### [`MoltZapService.Firewall`](./firewall/values.ts#L240)
+#### [`MoltZapService.Firewall`](./firewall/values.ts#L242)
 
 _Interface_
 
@@ -781,7 +842,7 @@ export interface Firewall {
 
 Checking returns data; Client separately owns fresh, atomic send/delivery admission.
 
-#### [`MoltZapService.FirewallSettings`](./firewall/values.ts#L186)
+#### [`MoltZapService.FirewallSettings`](./firewall/values.ts#L188)
 
 _Interface_
 
@@ -865,6 +926,8 @@ export interface MessageMiddleware {
   readonly id: string;
   readonly revision: string;
   readonly rules: readonly RuleDescription[];
+  /** Descriptive audit data declared by trusted composition, never authority. */
+  readonly provenance?: PrivateCheckTrace;
   readonly check: (
     input: MiddlewareInput,
   ) => Effect.Effect<MiddlewareResult, MiddlewareError>;
@@ -964,16 +1027,7 @@ export const makeEnglishPolicy = Effect.fn("makeEnglishPolicy")(
     if (new Set(rules.map((rule) => rule.id)).size !== rules.length) {
       return yield* new CheckInputError({ reason: "registration" });
     }
-    const descriptions = yield* Schema.decodeUnknown(
-      Schema.Array(RuleDescription),
-    )(rules).pipe(
-      Effect.flatMap((value) =>
-        decodeFrozen(Schema.Array(RuleDescription), value),
-      ),
-      Effect.catchTag("ParseError", () =>
-        Effect.fail(new CheckInputError({ reason: "registration" })),
-      ),
-    );
+    const descriptions = yield* ruleDescriptions(rules);
     const revision = englishRevision(rules, settings);
     const provider = Object.freeze({
       decide: options.provider.decide.bind(options.provider),
@@ -982,6 +1036,7 @@ export const makeEnglishPolicy = Effect.fn("makeEnglishPolicy")(
       id,
       revision,
       rules: descriptions,
+      provenance: englishProvenance(rules, settings, options.provider),
       check: (input: MiddlewareInput) =>
         checkEnglish(input, { rules, revision }, provider, settings),
     });
@@ -1002,7 +1057,7 @@ flowchart TD
   C --> R[Return all findings and private stage trace]
 ```
 
-#### [`MoltZapService.makeFirewall`](./firewall/index.ts#L56)
+#### [`MoltZapService.makeFirewall`](./firewall/index.ts#L59)
 
 _Variable_
 
@@ -1064,6 +1119,7 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 
 ## Files
 
+- `delivery/firewall.ts`
 - `delivery/history-export.ts`
 - `delivery/host-delivery.ts`
 - `delivery/inbox.ts`
@@ -1095,6 +1151,7 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `firewall/jev.ts`
 - `firewall/questions.ts`
 - `firewall/README.md`
+- `firewall/runtime.ts`
 - `firewall/values.ts`
 - `identity/credentials.ts`
 - `identity/index.ts`
@@ -1117,6 +1174,7 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `store/database/index.ts`
 - `store/database/schema.ts`
 - `store/database/values.ts`
+- `store/firewall.ts`
 - `store/inbox.ts`
 - `store/index.ts`
 - `store/queues/deliveries.ts`

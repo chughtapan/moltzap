@@ -44,6 +44,7 @@ const hostModules: ReadonlySet<string> = new Set([
   "dist/endpoint/harness-endpoint/index.js",
   "dist/endpoint/implementation.js",
   "dist/endpoint/mcp/names.js",
+  "dist/firewall/runtime.js",
   "dist/index.js",
   "dist/store/types.js",
   "dist/transport/collectives/forms.js",
@@ -89,7 +90,7 @@ const publishedPackages: ReadonlySet<string> = new Set(
 
 /** A packed consumer composes English and code middleware without a live provider. */
 const policyConsumerCheck = `
-const { Effect } = await import("effect");
+const { Effect, Layer } = await import("effect");
 const english = await Effect.runPromise(service.makeEnglishPolicy({
   id: "owner",
   rules: [{ id: "privacy", kind: "safety", text: "Do not disclose unrelated private appointments." }],
@@ -135,6 +136,18 @@ const incoming = { ...message, sender: "participant", recipients: ["organizer"] 
 const received = await Effect.runPromise(firewall.checkIncoming(incoming, context));
 if (received.judgment !== "allow") {
   throw new Error("Client code middleware could not admit an incoming message");
+}
+const invalidInstallation = service.MoltZapService.withFirewall({
+  mode: "enforcement", incoming: [], outgoing: [], facts: [], codeDigest: "0".repeat(64),
+  settings: { timeoutMilliseconds: 10000, middlewareTimeoutMilliseconds: 5000,
+    maximumInputBytes: 60000, maximumResultBytes: 100000 },
+});
+const startupError = await Effect.runPromise(
+  Effect.scoped(Layer.build(invalidInstallation)).pipe(Effect.flip),
+);
+if (!(startupError instanceof service.MoltZapService.StartupError) ||
+    startupError.phase !== "configuration") {
+  throw new Error("Invalid firewall installation did not stop daemon startup");
 }
 `;
 
@@ -348,7 +361,6 @@ function verifyConsumerImports(
         `\nconst root = await import("@moltzap/client");\n` +
         `if (!("HistoryExportRecord" in root)) throw new Error("Client root does not export HistoryExportRecord");\n` +
         `\nconst service = await import("@moltzap/client/service");\n` +
-        `if (Object.keys(service.MoltZapService).sort().join(",") !== "StartupError,layer") throw new Error("unexpected MoltZapService namespace");\n` +
         policyConsumerCheck,
     );
     yield* runCommand(process.execPath, [checkPath], {

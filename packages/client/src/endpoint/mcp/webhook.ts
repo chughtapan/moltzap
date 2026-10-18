@@ -5,6 +5,7 @@ import { ProtocolError } from "@modelcontextprotocol/server";
 import { type Clock, Effect, Schema } from "effect";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { eventIdOf, type EventStore } from "../../delivery/operations.js";
+import { localGuidanceSchema } from "../../firewall/runtime.js";
 import {
   decodeRuntimeValue,
   DeliveryToken,
@@ -33,13 +34,27 @@ import { INBOX_ITEM_EVENT } from "./names.js";
 const encodeItemEvent = (entry: InboxEntry, timestamp: number) =>
   Effect.gen(function* () {
     const item = yield* decodeRuntimeValue(InboundItem, entry.canonicalItem);
+    const guidance =
+      entry.canonicalGuidance === undefined
+        ? undefined
+        : yield* decodeRuntimeValue(
+            localGuidanceSchema,
+            entry.canonicalGuidance,
+          );
     const envelope = {
       eventId: eventIdOf(entry.deliveryToken),
       name: INBOX_ITEM_EVENT,
       timestamp: new Date(timestamp).toISOString(),
       cursor: null,
     };
-    const body = JSON.stringify({ ...envelope, data: { kind: "item", item } });
+    const body = JSON.stringify({
+      ...envelope,
+      data: {
+        kind: "item",
+        item,
+        ...(guidance === undefined ? {} : { guidance }),
+      },
+    });
     return Buffer.byteLength(body, "utf8") <= maximumEventBytes
       ? body
       : JSON.stringify({
@@ -47,7 +62,9 @@ const encodeItemEvent = (entry: InboxEntry, timestamp: number) =>
           data: {
             kind: "reference",
             itemKind: item.kind,
-            bytes: entry.canonicalItem.byteLength,
+            bytes:
+              entry.canonicalItem.byteLength +
+              (entry.canonicalGuidance?.byteLength ?? 0),
           },
         });
   }).pipe(Effect.withSpan("encodeItemEvent"));

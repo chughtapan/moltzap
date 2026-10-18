@@ -177,6 +177,8 @@ export interface MessageMiddleware {
   readonly id: string;
   readonly revision: string;
   readonly rules: readonly RuleDescription[];
+  /** Descriptive audit data declared by trusted composition, never authority. */
+  readonly provenance?: PrivateCheckTrace;
   readonly check: (
     input: MiddlewareInput,
   ) => Effect.Effect<MiddlewareResult, MiddlewareError>;
@@ -319,6 +321,8 @@ export class DecisionProviderError extends Data.TaggedError(
 
 /** Entirely code-based chains have no dependency on this optional capability. */
 export interface DecisionProvider {
+  /** Requested provider configuration, retained even when no response arrives. */
+  readonly provenance?: PrivateCheckTrace;
   readonly decide: (
     request: DecisionRequest,
   ) => Effect.Effect<DecisionResponse, DecisionProviderError>;

@@ -4,6 +4,7 @@ import {
   type CollectiveError,
   type ConnectError,
   type DeliveryAcknowledgeError,
+  type FirewallSendError,
   groupMembers,
   type HarnessEndpoint,
   type InboundDelivery,
@@ -395,7 +396,10 @@ class MoltZapChannelAdapter {
   private deliverEffect(
     address: string,
     message: MoltZapOutboundMessage,
-  ): Effect.Effect<void, MoltZapChannelError | SendError | CollectiveError> {
+  ): Effect.Effect<
+    void,
+    MoltZapChannelError | SendError | CollectiveError | FirewallSendError
+  > {
     const activation = this.activation;
     const config = this.setupConfig;
     if (activation?.state !== "active" || config === null) {
@@ -412,7 +416,7 @@ class MoltZapChannelAdapter {
           text,
         }): Effect.Effect<
           void,
-          MoltZapChannelError | SendError | CollectiveError
+          MoltZapChannelError | SendError | CollectiveError | FirewallSendError
         > =>
           Either.match(parseMessageText(to, text), {
             onLeft: (error) =>
@@ -422,6 +426,9 @@ class MoltZapChannelAdapter {
                 .send(input, { failureDelivery: "inbound" })
                 .pipe(
                   Effect.asVoid,
+                  Effect.catchTag("FirewallSendError", (error) =>
+                    this.reportRefusedText(config, to, error.message),
+                  ),
                   Effect.catchIf(isFinalRefusal, (error) =>
                     this.reportFinalRefusal(config, to, error),
                   ),
@@ -490,6 +497,14 @@ class MoltZapChannelAdapter {
     const config = this.setupConfig;
     if (config === null) {
       return Effect.void;
+    }
+    if (delivery.guidance !== undefined) {
+      return Effect.fail(
+        new MoltZapChannelError({
+          reason:
+            "MoltZap local guidance requires a supported host projection; use the OpenClaw adapter for this experiment",
+        }),
+      );
     }
     return this.handleItem(config, delivery.item).pipe(
       Effect.zipRight(delivery.acknowledge),
