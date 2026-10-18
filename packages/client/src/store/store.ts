@@ -28,6 +28,7 @@ import {
   beginFirewallAttempt,
   finishFirewallAttempt,
   queueFirewallItem,
+  readFirewallAuditPage,
   readFirewallEvidence,
   readFirewallFrontiers,
   readPendingFirewallItems,
@@ -127,6 +128,8 @@ function makeFirewallOperations(state: StoreState, run: StoreRunner) {
       run(() => readFirewallFrontiers(state.database)),
     readPendingFirewallItems: (after) =>
       run(() => readPendingFirewallItems(state.database, after)),
+    readFirewallAuditPage: (after) =>
+      run(() => readFirewallAuditPage(state.database, after)),
     readFirewallEvidence: (input) =>
       run(() => readFirewallEvidence(state.database, input)),
     beginFirewallAttempt: (attempt) =>

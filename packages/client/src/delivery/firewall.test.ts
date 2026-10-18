@@ -1,5 +1,7 @@
 /** @file Message admission through real Client storage and send preparation. */
 
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import { scopedLive as it } from "@effect/vitest";
 import {
   AgentCard,
@@ -9,6 +11,7 @@ import {
 import { RouterInstanceId } from "@moltzap/router";
 import { Deferred, Effect, Fiber, Queue, Schema, Scope } from "effect";
 import { generateKeyPairSync } from "node:crypto";
+import { join } from "node:path";
 import { expect } from "vitest";
 import type {
   MessageMiddleware,
@@ -25,6 +28,7 @@ import {
   buildCertifiedGenesis,
   storeCertifiedGenesis,
 } from "../__tests__/certified-history-fixtures.js";
+import { decodeAudit } from "../__tests__/firewall-audit-fixtures.js";
 import { pollCursor } from "../__tests__/router-worker-fixtures.js";
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
 import { FirewallSendError } from "../firewall/runtime.js";
@@ -47,6 +51,7 @@ import {
   RecordHash,
   verifyMembershipDescriptor,
 } from "../transport/wire/index.js";
+import { beginFirewallAudit } from "./firewall-audit.js";
 import {
   type FirewallOptions,
   installFirewall,
@@ -176,6 +181,16 @@ const fixture = Effect.gen(function* () {
   };
 });
 type Fixture = Effect.Effect.Success<typeof fixture>;
+
+const auditChecks = (subject: Fixture) =>
+  Effect.gen(function* () {
+    const path = join(subject.directory, "audit.ndjson");
+    yield* (yield* beginFirewallAudit(path, subject.store)).finish;
+    const fileSystem = yield* FileSystem.FileSystem;
+    return decodeAudit(yield* fileSystem.readFileString(path)).records.filter(
+      (record) => record.kind === "check",
+    );
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 
 const installation = (
   middleware: MessageMiddleware,
@@ -567,6 +582,44 @@ function unsupportedSend() {
     ).toMatchObject({ refusal: "check-unavailable" });
     expect((yield* subject.store.recover()).postIntents).toEqual([]);
     expect((yield* delivery.operations.readInbox({})).items).toEqual([]);
+    expect((yield* auditChecks(subject))[0]?.post).toBeNull();
+  });
+}
+
+it(
+  "exports the real incoming and outgoing author-scoped post references",
+  auditCorrelatesPosts,
+);
+
+function auditCorrelatesPosts() {
+  return Effect.gen(function* () {
+    const subject = yield* fixture;
+    const allow = policy(() => Effect.succeed(pass));
+    const incoming = yield* incomingFixture(subject, allow);
+    yield* incoming.runPass;
+    yield* Queue.take(incoming.completed);
+    const outgoing = yield* outgoingFixture(subject, allow);
+    const sending = yield* outgoing.operations
+      .send({
+        input: { to: destination, text: "Reply to the certified post" },
+      })
+      .pipe(Effect.forkScoped);
+    yield* Deferred.await(subject.outbound);
+    const intent = (yield* subject.store.recover()).postIntents[0];
+    const checks = yield* auditChecks(subject);
+    expect(
+      checks.find((check) => check.direction === "incoming")?.post,
+    ).toEqual({
+      authorAgentId: subject.remote.card.agentId,
+      postId: incoming.candidate.message.postId,
+    });
+    expect(
+      checks.find((check) => check.direction === "outgoing")?.post,
+    ).toEqual({
+      authorAgentId: subject.local.card.agentId,
+      postId: intent?.postId,
+    });
+    yield* Fiber.interrupt(sending);
   });
 }
 

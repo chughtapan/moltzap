@@ -57,6 +57,11 @@ Neither file contains Registry or Router credentials.
 Trusted process code can install the experimental message firewall with
 `MoltZapService.withFirewall(options)`. The default `layer` does not enable it.
 The fixed process installation is described in [message policy](./message-policy.md).
+Its optional service-only `auditExport` writes a private retained-check snapshot
+after daemon workers stop and before the endpoint store closes. Operators use
+the [versioned audit decoder](./message-policy.md#operator-audit-snapshot), not
+private SQLite tables. Startup invalidates prior completion; file failures stop
+startup or fail shutdown without publishing a completed snapshot.
 
 There is no profile, selector, discovery fallback, bespoke CLI, Unix socket,
 stdio server, second MCP listener, address override, or product Ledger.

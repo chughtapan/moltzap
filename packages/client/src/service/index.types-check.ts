@@ -27,6 +27,12 @@ type LayerIsExact = Expect<
     Layer.Layer<never, MoltZapService.StartupError>
   >
 >;
+type AuditPathIsOptional = Expect<
+  Types.Equals<
+    MoltZapService.FirewallOptions["auditExport"],
+    string | undefined
+  >
+>;
 
 /** Compile-time witnesses for the closed Client process boundary. */
 export type MoltZapServiceCanaries = [
@@ -34,4 +40,5 @@ export type MoltZapServiceCanaries = [
   StartupTagIsExact,
   StartupPhaseIsExact,
   LayerIsExact,
+  AuditPathIsOptional,
 ];

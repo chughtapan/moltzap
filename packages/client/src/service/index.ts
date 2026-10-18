@@ -22,9 +22,14 @@ import {
   requireAdmissionToCreate,
 } from "./registration/index.js";
 
+// safer-arch-ignore no-large-public-surface: Trusted process composition and its operator audit decoder share this service-only boundary; moving the decoder to another entrypoint would split one fixed installation contract.
+
 const REGISTRY_REQUEST_TIMEOUT = Duration.seconds(30);
 const ROUTER_SEND_TIMEOUT = Duration.seconds(30);
 const ROUTER_POLL_TIMEOUT = Duration.seconds(35);
+
+/** Trusted operators decode retained checks without reading private storage schemas. */
+export { FirewallAuditRecord } from "../delivery/index.js";
 
 /** Checking factories have no daemon execution authority. */
 export {
@@ -55,7 +60,10 @@ export type {
 // eslint-disable-next-line @typescript-eslint/no-namespace -- The published service subpath intentionally merges its runtime values with the closed startup-error type.
 export namespace MoltZapService {
   /** Trusted fixed process composition; agents receive no policy mutation capability. */
-  export type FirewallOptions = InstalledFirewallOptions;
+  export type FirewallOptions = InstalledFirewallOptions & {
+    /** Dedicated file in a daemon-owned private directory, published on shutdown. */
+    readonly auditExport?: string;
+  };
 
   /** Closed daemon startup phase without configuration or platform detail. */
   export class StartupError extends Data.TaggedError(
@@ -74,6 +82,7 @@ export namespace MoltZapService {
 
   const runDaemon = (
     firewallSetup: Effect.Effect<InstalledFirewall | undefined, StartupError>,
+    auditExport?: string,
   ) =>
     Effect.gen(function* () {
       const firewall = yield* firewallSetup;
@@ -105,6 +114,7 @@ export namespace MoltZapService {
         bootstrap,
         registration,
         ...(firewall === undefined ? {} : { firewall }),
+        ...(auditExport === undefined ? {} : { auditExport }),
       }).pipe(
         Effect.provide(networkContext),
         // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- The public process layer deliberately projects private runtime failures onto its closed startup phase.
@@ -124,12 +134,17 @@ export namespace MoltZapService {
    */
   export const withFirewall = (
     options: FirewallOptions,
-  ): Layer.Layer<never, StartupError> =>
-    Layer.scopedDiscard(
+  ): Layer.Layer<never, StartupError> => {
+    const { auditExport, ...policyOptions } = options;
+    return Layer.scopedDiscard(
       runDaemon(
-        installFirewall(options).pipe(Effect.mapError(configurationFailure)),
+        installFirewall(policyOptions).pipe(
+          Effect.mapError(configurationFailure),
+        ),
+        auditExport,
       ),
     );
+  };
 
   function configurationFailure(): StartupError {
     return new StartupError({ phase: "configuration" });

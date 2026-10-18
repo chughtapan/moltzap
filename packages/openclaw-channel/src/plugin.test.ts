@@ -104,7 +104,7 @@ describe("OpenClaw HarnessEndpoint adapter", () => {
 
 describe("OpenClaw message tool send and reply actions", () => {
   it(
-    "returns norm feedback as a tool error without resending",
+    "returns the check reference and norm feedback as a tool error without resending",
     messageToolSurfacesNormRefusal,
   );
   vitestIt(
@@ -221,6 +221,7 @@ function messageToolSurfacesNormRefusal() {
       }).pipe(Effect.flip),
     (sends, failure) => {
       expect(failure.detail).toContain(refusal.message);
+      expect(failure.detail).toContain(refusal.checkId);
       expect(sends).toHaveLength(1);
     },
     Effect.fail(refusal),

@@ -16,3 +16,10 @@ serves. `registration/` owns the durable identity and Registry registration,
 `daemon/` owns the running daemon and its protocol, and `errors.ts` holds the
 closed failures they share. None of these modules crosses the public Client
 boundary.
+
+When trusted composition sets `auditExport`, lifecycle publishes an incomplete
+marker before starting daemon resources. Those resources run in a child scope;
+the retained-check snapshot follows worker and MCP request finalization while
+the outer store is still open. Request cancellation and handler closure join
+the same scoped work. The file path does not enter the firewall installation
+or its digest.

@@ -157,7 +157,7 @@ export interface Firewall {
 
 Checking returns data; Client separately owns fresh, atomic send/delivery admission.
 
-### [`FirewallSendError`](./runtime.ts#L67)
+### [`FirewallSendError`](./runtime.ts#L70)
 
 _Class_
 
@@ -167,13 +167,14 @@ export class FirewallSendError extends Data.TaggedError("FirewallSendError")<
 > {
   override get message(): string {
     const feedback = this.feedback.map((item) => item.text).join(" ");
-    const description = `send withheld: ${refusalText[this.refusal]}.`;
+    const description = `send withheld (check ${this.checkId}): ${refusalText[this.refusal]}.`;
     return feedback.length === 0 ? description : `${description} ${feedback}`;
   }
 }
 ```
 
 A refusal is returned only before an application invocation creates any intent.
+Its opaque check reference survives hosts that retain only the error message.
 
 ### [`FirewallSettings`](./values.ts#L188)
 
@@ -266,7 +267,7 @@ flowchart TD
   C --> R[Return all findings and private stage trace]
 ```
 
-### [`makeFirewall`](./index.ts#L59)
+### [`makeFirewall`](./index.ts#L61)
 
 _Variable_
 

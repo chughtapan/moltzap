@@ -20,6 +20,7 @@ export type {
   EndpointRecovery,
   EndpointStore,
   FirewallAttempt,
+  FirewallAuditEntry,
   FirewallCommit,
   FirewallCompletion,
   FirewallEvidence,

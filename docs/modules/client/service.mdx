@@ -13,17 +13,20 @@ Production composition for one explicitly configured endpoint daemon.
 
 ## Public surface
 
-### [`FirewallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L58)
+### [`FirewallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L63)
 
 _TypeAlias_
 
 ```ts
-  export type FirewallOptions = InstalledFirewallOptions;
+  export type FirewallOptions = InstalledFirewallOptions & {
+    /** Dedicated file in a daemon-owned private directory, published on shutdown. */
+    readonly auditExport?: string;
+  };
 ```
 
 Trusted fixed process composition; agents receive no policy mutation capability.
 
-### [`layer`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L116)
+### [`layer`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L126)
 
 _Variable_
 
@@ -35,11 +38,11 @@ _Variable_
 
 Complete production process composition for `moltzapd`.
 
-### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L56)
+### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L61)
 
 _Namespace_
 
-### [`StartupError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L61)
+### [`StartupError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L69)
 
 _Class_
 
@@ -61,7 +64,7 @@ _Class_
 
 Closed daemon startup phase without configuration or platform detail.
 
-### [`withFirewall`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L125)
+### [`withFirewall`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L135)
 
 _Function_
 

@@ -11,6 +11,7 @@ import {
   Deferred,
   Effect,
   Exit,
+  Fiber,
   JSONSchema,
   Option,
   Queue,
@@ -152,17 +153,38 @@ const notify = (
 
 /* eslint-disable agent-code-guard/async-keyword -- Official SDK callbacks consume a Promise at this boundary. */
 /**
+ * SDK transport closure can finish before request promises settle. The handler
+ * scope owns each operation until its finalizers finish, including after the
+ * request aborts. Explicit interruptibility survives uninterruptible acquisition.
+ */
+export const runRequest = <Value, Failure>(
+  operation: Effect.Effect<Value, Failure>,
+  signal: AbortSignal,
+  scope: Scope.CloseableScope,
+) =>
+  Effect.runPromiseExit(
+    Effect.acquireUseRelease(
+      Effect.forkIn(Effect.interruptible(operation), scope),
+      Fiber.join,
+      Fiber.interrupt,
+    ),
+    { signal },
+  );
+
+/**
  * Preserve the draft's protocol errors across the Effect and SDK boundary.
  * @param operation Validated Events operation.
  * @param signal Cancellation owned by the MCP request.
+ * @param requestScope The lifetime that joins request finalizers before closing.
  * @returns The SDK result or a sanitized protocol exception.
  */
 // #ignore-sloppy-code-next-line[async-keyword]: MCP consumes this Promise-native protocol adapter.
 export const runEventOperation = async <A, E>(
   operation: Effect.Effect<A, E>,
   signal: AbortSignal,
+  requestScope: Scope.CloseableScope,
 ) => {
-  const outcome = await Effect.runPromiseExit(operation, { signal });
+  const outcome = await runRequest(operation, signal, requestScope);
   if (Exit.isSuccess(outcome)) {
     return outcome.value;
   }
@@ -376,6 +398,7 @@ const installReadHandlers = (
       runEventOperation(
         streamForPrincipal(runtime, input, context, principal),
         context.mcpReq.signal,
+        runtime.lifetime,
       ),
   );
 };
@@ -454,6 +477,7 @@ const install = (
       runEventOperation(
         subscribe(runtime, input, principal),
         context.mcpReq.signal,
+        runtime.lifetime,
       ),
   );
   server.setRequestHandler(
@@ -463,6 +487,7 @@ const install = (
       runEventOperation(
         unsubscribe(runtime, input, principal),
         context.mcpReq.signal,
+        runtime.lifetime,
       ),
   );
 };

@@ -63,13 +63,16 @@ const refusalText = {
   "approval-required": "this message requires owner approval",
 } as const;
 
-/** A refusal is returned only before an application invocation creates any intent. */
+/**
+ * A refusal is returned only before an application invocation creates any intent.
+ * Its opaque check reference survives hosts that retain only the error message.
+ */
 export class FirewallSendError extends Data.TaggedError("FirewallSendError")<
   typeof firewallRefusalSchema.Type
 > {
   override get message(): string {
     const feedback = this.feedback.map((item) => item.text).join(" ");
-    const description = `send withheld: ${refusalText[this.refusal]}.`;
+    const description = `send withheld (check ${this.checkId}): ${refusalText[this.refusal]}.`;
     return feedback.length === 0 ? description : `${description} ${feedback}`;
   }
 }

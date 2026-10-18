@@ -10,6 +10,7 @@ import {
   makeHistoryExport,
   noHistoryExport,
 } from "../delivery/history-export.js";
+import { beginFirewallAudit } from "../delivery/index.js";
 import { packageVersion } from "../endpoint/implementation.js";
 import {
   acquireHarnessMcpHttpServer,
@@ -64,10 +65,30 @@ const productionDependencies: DaemonRuntimeDependencies = {
  * @returns A scoped process effect that ends only when a supervised resource fails.
  */
 export const runDaemonRuntime = (
-  input: DaemonStartup,
+  input: DaemonStartup & { readonly auditExport?: string },
   dependencies: DaemonRuntimeDependencies = productionDependencies,
 ): Effect.Effect<never, DaemonRuntimeError, Registry | Router | Scope.Scope> =>
   Effect.gen(function* () {
+    const { auditExport, ...startup } = input;
+    const audit =
+      auditExport === undefined
+        ? undefined
+        : yield* beginFirewallAudit(auditExport, input.store).pipe(
+            Effect.mapError(() => runtimeFailure("storage")),
+          );
+    return yield* Effect.scoped(runDaemonResources(startup, dependencies)).pipe(
+      Effect.onExit(() =>
+        audit === undefined ? Effect.void : audit.finish.pipe(Effect.orDie),
+      ),
+    );
+  }).pipe(Effect.withSpan("runDaemonRuntime"));
+
+/** Child resource finalizers finish before the outer audit reads the still-open store. */
+function runDaemonResources(
+  input: DaemonStartup,
+  dependencies: DaemonRuntimeDependencies,
+) {
+  return Effect.gen(function* () {
     const exportPath = input.bootstrap.configuration.historyExport;
     const historyExport =
       exportPath === undefined
@@ -109,4 +130,5 @@ export const runDaemonRuntime = (
         .pipe(Effect.mapError(() => runtimeFailure("listener")));
       return yield* daemon.awaitFailure;
     }).pipe(Effect.raceFirst(daemon.awaitFailure));
-  }).pipe(Effect.withSpan("runDaemonRuntime"));
+  });
+}

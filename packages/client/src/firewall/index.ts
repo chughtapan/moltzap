@@ -25,6 +25,8 @@ export {
   Message,
   MessageContext,
   MiddlewareError,
+  MiddlewareObservation,
+  NormExpectation,
   PrivateCheckTrace,
   RuleDescription,
 } from "./values.js";

@@ -914,6 +914,7 @@ function preservesFirewallRefusal() {
     const error = yield* Effect.flip(endpoint.send(sendInput));
     expect(error).toBeInstanceOf(FirewallSendError);
     expect(error.message).toBe(refusal.message);
+    expect(error.message).toContain(refusal.checkId);
     expect(error).toMatchObject({
       checkId: refusal.checkId,
       feedback: refusal.feedback,
