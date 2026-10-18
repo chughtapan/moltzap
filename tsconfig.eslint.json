@@ -4,7 +4,15 @@
     "composite": false,
     "declaration": false,
     "declarationMap": false,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@modelcontextprotocol/client": [
+        "./packages/client/node_modules/@modelcontextprotocol/client"
+      ],
+      "@moltzap/client": [
+        "./packages/client"
+      ]
+    }
   },
   "include": [
     "*.ts",

@@ -33,11 +33,27 @@ interface NxGraph {
   readonly dependencies: JsonObject;
 }
 
-const ADAPTER_DAEMON_DEPENDENCIES: readonly PackageDir[] = [
-  "identity",
-  "router",
-  "client",
-  "openclaw-channel",
+/** A tool project outside `packages/`: its root, required target, and edges. */
+interface ToolProject {
+  readonly name: string;
+  readonly root: string;
+  readonly target: string;
+  readonly dependencies: readonly PackageDir[];
+}
+
+const TOOL_PROJECTS: readonly ToolProject[] = [
+  {
+    name: "adapter-daemon",
+    root: "tools/adapter-daemon",
+    target: "test:integration",
+    dependencies: ["identity", "router", "client", "openclaw-channel"],
+  },
+  {
+    name: "two-agents-example",
+    root: "examples/two-agents",
+    target: "test:pack",
+    dependencies: ["identity", "router", "client"],
+  },
 ];
 
 /**
@@ -84,13 +100,19 @@ function checkNxGraph(run: BoundaryRun, graphFile: string): void {
     where: label,
     what: "Nx project nodes drifted",
     actual: Object.keys(nxGraph.nodes),
-    wanted: [...FINAL_PACKAGE_NAMES, "workspace", "adapter-daemon"],
+    wanted: [
+      ...FINAL_PACKAGE_NAMES,
+      "workspace",
+      ...TOOL_PROJECTS.map(({ name }) => name),
+    ],
   });
   for (const dir of FINAL_PACKAGE_DIRS) {
     checkProductNode(run, nxGraph, dir);
   }
   checkWorkspaceNode(run, nxGraph);
-  checkAdapterDaemonNode(run, nxGraph);
+  for (const tool of TOOL_PROJECTS) {
+    checkToolNode(run, nxGraph, tool);
+  }
 }
 
 function checkProductNode(
@@ -162,26 +184,28 @@ function checkWorkspaceNode(run: BoundaryRun, graph: NxGraph): void {
   });
 }
 
-function checkAdapterDaemonNode(run: BoundaryRun, graph: NxGraph): void {
-  const data = nodeData(graph, "adapter-daemon");
+function checkToolNode(
+  run: BoundaryRun,
+  graph: NxGraph,
+  tool: ToolProject,
+): void {
+  const data = nodeData(graph, tool.name);
   const root = stringAt(data, "root");
-  if (root !== "tools/adapter-daemon") {
+  if (root !== tool.root) {
     run.failures.push(
-      `${graph.label}: Nx project "adapter-daemon" root is "${root ?? "missing"}", expected "tools/adapter-daemon"`,
+      `${graph.label}: Nx project "${tool.name}" root is "${root ?? "missing"}", expected "${tool.root}"`,
     );
   }
-  if (!Object.hasOwn(objectAt(data, "targets"), "test:integration")) {
+  if (!Object.hasOwn(objectAt(data, "targets"), tool.target)) {
     run.failures.push(
-      `${graph.label}: Nx project "adapter-daemon" is missing required target "test:integration"`,
+      `${graph.label}: Nx project "${tool.name}" is missing required target "${tool.target}"`,
     );
   }
   failOnSetDrift(run, {
     where: graph.label,
-    what: 'Nx dependencies for "adapter-daemon" drifted',
-    actual: dependencyTargets(graph, "adapter-daemon"),
-    wanted: ADAPTER_DAEMON_DEPENDENCIES.map(
-      (dir) => FINAL_PACKAGES[dir].npmName,
-    ),
+    what: `Nx dependencies for "${tool.name}" drifted`,
+    actual: dependencyTargets(graph, tool.name),
+    wanted: tool.dependencies.map((dir) => FINAL_PACKAGES[dir].npmName),
   });
 }
 

@@ -66,7 +66,8 @@ jobs:
       - run: pnpm build
       # The gates pack the four published packages and the NanoClaw adapter,
       # whose gate proves it still compiles against the Client ABI in isolation
-      # (deployment's image build copies its source, not a tarball); identity and router
+      # (deployment's image build copies its source, not a tarball), and run
+      # examples/two-agents against the packed tarballs; identity and router
       # travel in every closure, and each gate is a boundary-check floor, so
       # run-many cannot silently skip one; the gates spawn pnpm and the
       # OpenClaw host, so they run one at a time.
