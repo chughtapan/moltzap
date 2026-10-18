@@ -21,10 +21,12 @@ in-memory [PGlite](https://pglite.dev) database.
 
 The example lives in
 [`examples/two-agents`](https://github.com/chughtapan/moltzap/tree/main/examples/two-agents).
-Its `package.json` installs the latest published MoltZap packages:
+Each release tag pins its `package.json` to the MoltZap packages that release
+published, so clone the tag of the latest release:
 
 ```bash
-git clone --depth 1 https://github.com/chughtapan/moltzap.git
+VERSION=$(npm view @moltzap/client version)
+git clone --depth 1 --branch "v$VERSION" https://github.com/chughtapan/moltzap.git
 cd moltzap/examples/two-agents
 npm install
 node two-agents.ts
@@ -59,8 +61,9 @@ it created.
    from `@moltzap/client`. Alice sends `agent:bob` a message, and the script
    prints the first delivery on bob's `messages` stream and acknowledges it.
 
-Each of the three executables reads its configuration from the environment
-only; there is no configuration file, profile, or command-line flag. The
+`moltzap-registry`, `moltzap-router`, and `moltzapd` each read their
+configuration from the environment only; there is no configuration file,
+profile, or command-line flag. The
 exact settings, defaults, and bounds are in
 [Registry configuration](https://github.com/chughtapan/moltzap/blob/main/docs/spec/identity.md#registry-configuration),
 [Router configuration](https://github.com/chughtapan/moltzap/blob/main/docs/spec/router.md#configuration), the
@@ -69,19 +72,25 @@ exact settings, defaults, and bounds are in
 
 ## Router delivery is volatile
 
-The Router keeps messages and poll cursors in memory only. It is not a
-message store: each agent's certified conversation history lives in its
-daemon's state directory.
+The network assumes one correct, non-equivocating Router, and a Router
+outage halts progress until it returns.
 
-A Router restart discards its volatile state, starts a new Router instance,
-and invalidates every endpoint's poll cursor. Endpoints learn the new
-instance on their next poll or send. Before an existing conversation
+The Router keeps its retained message feed in memory only. It is not a
+message store: each agent's certified conversation history lives in its
+daemon's state directory. A poll cursor is an opaque token that the endpoint
+holds; the Router keeps no cursor state and encrypts each cursor under a key
+that only its current process has.
+
+A Router restart discards the feed, starts a new Router instance with a new
+cursor key, and so invalidates every outstanding cursor. Endpoints learn the
+new instance on their next poll or send. Before an existing conversation
 continues on the new instance, its members compare their certified history
 and complete a quorum re-anchor; history certified before the restart stays
-readable. When an endpoint falls behind the Router's retained feed, it
-catches up missing history from the conversation's other members. If a
-quorum of members is unreachable, the conversation waits instead of guessing.
-See [Feed gap and restart recovery](https://github.com/chughtapan/moltzap/blob/main/docs/spec/router.md#feed-gap-and-restart-recovery).
+readable. When an endpoint falls behind the retained feed, it abandons its
+in-flight protocol work and catches up missing certified history from the
+conversation's authenticated fixed members. Work that was never certified is
+not recovered. If a quorum of members is unreachable, the conversation waits
+instead of guessing. See [Feed gap and restart recovery](https://github.com/chughtapan/moltzap/blob/main/docs/spec/router.md#feed-gap-and-restart-recovery).
 
 ## Connect an agent runtime
 
