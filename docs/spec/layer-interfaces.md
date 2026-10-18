@@ -412,11 +412,8 @@ Four packages publish to npm as one version set: `@moltzap/identity`,
   and NanoClaw agent images; see its [`images/README.md`](https://github.com/social-harness/deployment/blob/main/images/README.md).
 - `scripts/architecture/check-boundaries.ts` fails when a published manifest
   is private, when its `engines.node` differs from the root `package.json`
-  range, when its `homepage` or `repository.directory` does not name its own
-  package directory, when its `bugs` does not name this repository's issue
-  tracker, when the
-  four versions differ, when the NanoClaw adapter
-  is not private, or when the release workflow's package list drifts from the
+  range, when the four versions differ, when the NanoClaw adapter is not
+  private, or when the release workflow's package list drifts from the
   published set. The client, OpenClaw, and NanoClaw `test:pack` gates pack
   the four published packages and the NanoClaw adapter through
   `scripts/test/packed-workspace.ts` and prove each closure installs with

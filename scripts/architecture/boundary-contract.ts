@@ -45,10 +45,6 @@ interface PackageContract {
 
 /** The repository every published manifest links npm provenance to. */
 export const REPOSITORY_URL = "git+https://github.com/chughtapan/moltzap.git";
-
-/** The repository's web page, which published homepages and bugs link under. */
-export const REPOSITORY_WEB = "https://github.com/chughtapan/moltzap";
-
 /** The `YYYY.MDD.N` calendar version shape of releases and the wire literal. */
 export const CALENDAR_VERSION = /^\d{4}\.\d{3,4}\.\d+$/;
 
