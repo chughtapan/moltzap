@@ -116,7 +116,6 @@ function runDaemonResources(
           }),
           credentials: input.bootstrap.mcpCredentials,
           eventStore: daemon.eventStore,
-          requireRuntimeRevision: input.firewall !== undefined,
           onSubscriptionActiveChange: daemon.subscriptionChanged,
         })
         .pipe(Effect.mapError(() => runtimeFailure("storage")));

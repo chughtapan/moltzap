@@ -82,25 +82,20 @@ Every retained action signature and durability vote includes signer AgentId
 and signature bytes. Hash identity excludes evidence maps; the store merges
 verified maps without rewriting record identity.
 
-A version-0 database initializes at version 6 only when `sqlite_schema`
-contains no user-created table, index, view, or trigger. SQLite-internal
-objects do not make the database nonempty. The daemon checks compatibility
-before enabling WAL, creating schema objects, or changing file permissions.
-Versions 2 and 3 were written under the prior `V2_PROTOCOL_VERSION`, and
-version 4 under the prior record format; the daemon replaces any of them, in
-one transaction, with an empty version 6 store, so it starts unregistered and
-the agent registers again. A version 4 store's identity was registered with a
-Registry of the current version, which keeps that registration, so its agent
-registers again by replaying its original registration request, on a fresh
-Registry, or with a new key and AgentName. The daemon reads
-`MOLTZAPD_ADMISSION_CREDENTIAL_FILE` before it creates a store, so without a
-credential it fails closed with a configuration error and leaves the version
-2, 3 or 4 store untouched; the credential must be one the Registry admits. Before normal
-classification, startup retires raw pending collective requests whose
-response state was lost. Each becomes a failure with a fresh token. Exact
-version 6 reopens. Version 5 migrates transactionally, preserving identity,
-protocol, inbox and invocation data. Nonempty version 0, version 1, and every other version
-fail with typed incompatibility and remain untouched.
+An absent or empty database initializes at schema 6. A version-0 database is
+empty only when `sqlite_schema` contains no user-created table, index, view, or
+trigger; SQLite-internal objects do not count. An existing schema-6 store
+reopens with its identity, certified history, inbox and invocation outcomes.
+Every other schema version and any unrecognized nonempty database fails before
+WAL, schema or permission changes. There are no schema migrations or automatic
+resets. To use an earlier store, stop the daemon and replace its state directory,
+then register the agent again.
+
+The daemon reads `MOLTZAPD_ADMISSION_CREDENTIAL_FILE` before creating an empty
+store, so a missing credential fails during configuration before storage is
+created. Registered stores do not need that admission credential to restart.
+Before normal classification, startup retires raw pending collective requests
+whose response state was lost. Each becomes a failure with a fresh token.
 
 Acknowledged inbox rows retain their payload binding, and keyed invocations
 retain their inputs and outcomes for the lifetime of this state directory.
@@ -141,16 +136,13 @@ preserve the row for replay. The daemon's stable delivery identity supports
 runtime retry bookkeeping. Handoff completes at native callback success or
 webhook HTTP 2xx receipt; ambiguous retries may duplicate delivery.
 
-## Compatibility and failures
+## Current formats and failures
 
 The daemon speaks only `V2_PROTOCOL_VERSION` `2026.1006.1`, hash domain v2,
-database schema 6, and the pinned draft MCP Events profile. Schemas 2, 3 and
-4 open empty, as above. Incompatible wire peers and other store versions fail
-closed. Native adapters and the daemon must upgrade together. The updated native
-adapter requires experimental capability `xyz.moltzap/message-policy` revision 1
-and sends `x-moltzap-runtime-revision: 1`. A firewall-enabled daemon rejects
-incompatible runtime calls with HTTP 409 before dispatch. Owner calls remain
-available for audit.
+database schema 6, and the pinned draft MCP Events profile. Wire peers must use
+the current format. Native adapters and the daemon upgrade together. Runtime
+MCP calls use the current message, guidance and refusal schemas directly;
+there is no separate message-policy capability or revision-header handshake.
 
 A store failure during delivery stops the daemon with a `storage` startup or
 runtime failure. This covers reading pending deliveries, persisting a

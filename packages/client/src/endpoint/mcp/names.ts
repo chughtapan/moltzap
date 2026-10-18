@@ -3,11 +3,6 @@
 /** A content-free wakeup to read the classified runtime inbox. */
 export const INBOX_PENDING_EVENT = "moltzap.inbox.pending";
 
-/** Discovery and each runtime request declare support for guidance and structured refusals. */
-export const MESSAGE_POLICY_CAPABILITY = "xyz.moltzap/message-policy";
-/** Enabled daemons refuse older adapters before dispatching a runtime request. */
-export const RUNTIME_REVISION_HEADER = "x-moltzap-runtime-revision";
-
 /** Classified content delivered directly to a webhook consumer. */
 export const INBOX_ITEM_EVENT = "moltzap.inbox.item";
 

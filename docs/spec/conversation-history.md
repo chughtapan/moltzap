@@ -743,20 +743,11 @@ may cause another host turn; processing confirmation is outside this contract.
 
 ## Persistence and compatibility
 
-Before enabling WAL, creating schema objects, or changing file permissions,
-Client reads the SQLite preflight state. A database is empty version 0 exactly
-when `PRAGMA user_version` is `0` and `sqlite_schema` contains no user-created
-table, index, view, or trigger. SQLite-internal objects are ignored. Only that
-state, or a version 2, 3 or 4 store, initializes the endpoint store, enables
-WAL, and sets `user_version=5`. Version 5 reopens. Versions 2 and 3 were
-written under the prior `MOLTZAP_VERSION`, and version 4 holds POST record
-cores that embed the membership descriptor, so in one transaction Client drops
-every table they hold, the registered identity included, and creates the empty
-version 5 schema: the daemon starts unregistered, and nothing written under
-the prior version or record format carries over or is resealed. A nonempty version 0,
-version 1, and every other version fail with
-`EndpointStoreError("incompatible")` without mutation; incompatible stores
-are not erased.
+The endpoint store initializes an absent or empty database and reopens only
+its current schema. Other layouts fail with `EndpointStoreError("incompatible")`
+before mutation and require an explicit state-directory reset. There is no
+schema migration or automatic reset. The [daemon storage contract](./harness/daemon.md#persistence)
+defines preflight and startup behavior.
 
 The one source-owned `MOLTZAP_VERSION`/`V2_PROTOCOL_VERSION` value is
 `2026.1006.1`. Client wire peers must carry that exact literal. Mixed versions

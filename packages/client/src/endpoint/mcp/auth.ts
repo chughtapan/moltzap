@@ -9,7 +9,7 @@ export interface HarnessMcpCredentials {
   readonly owner: Redacted.Redacted;
 }
 
-/** Trusted-local compatibility or an explicitly authenticated authority. */
+/** Trusted-local access or an explicitly authenticated authority. */
 export type HarnessMcpRole = "local" | "runtime" | "owner";
 
 const digest = (value: string): Uint8Array =>
