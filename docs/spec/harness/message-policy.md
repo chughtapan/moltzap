@@ -1,18 +1,19 @@
 # Message policy execution
 
-Status: **experimental runtime implementation on this branch; architecture admission
-and real-agent qualification pending**
+Status: **experimental runtime implementation; broader real-agent qualification
+pending**
 
 Client assesses application messages before outgoing intent publication and
 incoming runtime admission. The evaluator separates safety and autonomy
 from contextual norms. Norm violations return actionable send errors; incoming
 items carry local guidance about whether to respond and what to address.
 
-The [architecture and experiment proposal](https://github.com/social-harness/docs-internal/pull/97)
-compares an in-process evaluator with an isolated evaluator worker. It recommends
-the in-process implementation first. Configuration interfaces, live policy
-activation and authenticated human approval channels are deferred. Current
-normative contracts remain the implementation baseline.
+The [approved architecture decision](https://github.com/social-harness/docs-internal/pull/97)
+places both middleware chains in Client, with one interface for code and English
+policies. It keeps local norm guidance distinct from peer content and returns
+actionable send-call feedback when a message is withheld. Configuration
+interfaces, live policy activation and authenticated human approval channels
+are deferred. Current normative contracts remain the implementation baseline.
 
 `@moltzap/client/service` exposes the standalone evaluator and
 `MoltZapService.withFirewall(options)`, which installs it in the daemon's incoming
@@ -21,10 +22,11 @@ and outgoing message paths. Code and English policies implement the same
 facts, settings and provider/model provenance before the listener opens.
 `MoltZapService.layer` remains the baseline composition without message checks.
 
-See `delivery/firewall.ts → sendWithFirewall` and
-`delivery/host-delivery.ts → makeHostDelivery` in the generated module guides for
-the outgoing and incoming flows. The standalone runner remains usable by offline
-experiments without acquiring a daemon or store.
+See [delivery/firewall.ts](../../../packages/client/src/delivery/firewall.ts) →
+`sendWithFirewall` and
+[delivery/host-delivery.ts](../../../packages/client/src/delivery/host-delivery.ts) →
+`makeHostDelivery` for the outgoing and incoming flows. The standalone runner
+remains usable by offline experiments without acquiring a daemon or store.
 
 ## Ownership and scope
 
@@ -76,7 +78,8 @@ formats remain unchanged.
 Human authentication is upstream of authorization evidence. A peer claim,
 runtime-generated token or assessment reference is not approval. Future evidence
 must bind owner, candidate, recipients and applicable validity/version
-constraints. This proposal does not select an approval transport or release API.
+constraints. The architecture decision does not select an approval transport or
+release API.
 
 ## Middleware execution
 
@@ -190,8 +193,9 @@ distinguish:
 - required approval absent.
 
 Feedback gives a useful next action: revise, wait, stop or seek approval.
-The error's message includes the opaque check reference so hosts retaining only
-text can correlate a refusal with the operator audit. References use `chk_`
+The error's message includes each next action and the opaque check reference so
+hosts retaining only text can act on the feedback and correlate a refusal with
+the operator audit. References use `chk_`
 followed by 64 lowercase hexadecimal characters. Only that current format is
 accepted; earlier retained guidance and refusal state requires a reset. The
 message does not include raw provider output, credentials or private evidence.
@@ -296,7 +300,8 @@ reopens only the current schema; earlier state requires a reset. Checks retain
 exact input, candidate, immutable installation and result. Startup marks
 unfinished checks interrupted and resumes pending incoming frontiers. A held
 item stays held. Previously admitted items remain readable with their original
-token and guidance, including after acknowledgment. A lost collective request's
+token and guidance, including after acknowledgment or restart without installed
+middleware. A lost collective request's
 replacement failure enters the same admission queue before exposure. Recovery
 visits queued requests as well as admitted ones, including successors behind a
 conversation frontier, and atomically retires the original raw delivery.

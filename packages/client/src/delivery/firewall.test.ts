@@ -13,11 +13,6 @@ import { Deferred, Effect, Fiber, Queue, Schema, Scope } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { join } from "node:path";
 import { expect } from "vitest";
-import type {
-  MessageMiddleware,
-  MiddlewareInput,
-  MiddlewareResult,
-} from "../firewall/values.js";
 import {
   digest,
   identifier,
@@ -32,6 +27,12 @@ import { decodeAudit } from "../__tests__/firewall-audit-fixtures.js";
 import { pollCursor } from "../__tests__/router-worker-fixtures.js";
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
 import { FirewallSendError } from "../firewall/runtime.js";
+import {
+  type MessageMiddleware,
+  MiddlewareError,
+  type MiddlewareInput,
+  type MiddlewareResult,
+} from "../firewall/values.js";
 import {
   decodeRuntimeValue,
   DeliveryToken,
@@ -59,7 +60,11 @@ import {
 } from "./firewall.js";
 import { noHistoryExport } from "./history-export.js";
 import { makeHostDelivery } from "./host-delivery.js";
-import { eventIdOf, type HarnessMessageReadyEvent } from "./operations.js";
+import {
+  eventIdOf,
+  type HarnessMessageReadyEvent,
+  type HarnessSendRequest,
+} from "./operations.js";
 
 // @agent-code-guard/regression-only: Exercises durable admission, replay, interruption and races through SQLite and the protocol engine.
 
@@ -84,6 +89,8 @@ const revise: MiddlewareResult = {
   findings: [{ ruleId: rule.id, outcome: "revise" }],
   expectations: [],
 };
+const waitAction = "wait";
+const renderedWaitAction = `Next action: ${waitAction}.`;
 const settings = {
   timeoutMilliseconds: 10_000,
   middlewareTimeoutMilliseconds: 8_000,
@@ -593,17 +600,59 @@ function unsupportedSend() {
       subject,
       policy(() => Effect.succeed(pass)),
     );
-    expect(
-      yield* Effect.flip(
-        delivery.operations.send({
-          input: { to: destination, collectiveResponse: { action: "decline" } },
-          failureDelivery: "inbound",
-        }),
-      ),
-    ).toMatchObject({ refusal: "check-unavailable" });
+    const request = {
+      input: { to: destination, collectiveResponse: { action: "decline" } },
+      failureDelivery: "inbound",
+      idempotencyKey: "unsupported-draft",
+    } satisfies HarnessSendRequest;
+    const refusal = yield* Effect.flip(delivery.operations.send(request));
+    expect(refusal.message).toContain(renderedWaitAction);
+    expect(refusal).toMatchObject({
+      refusal: "check-unavailable",
+      feedback: [{ nextAction: waitAction }],
+    });
+    expect(yield* Effect.flip(delivery.operations.send(request))).toEqual(
+      refusal,
+    );
     expect((yield* subject.store.recover()).postIntents).toEqual([]);
     expect((yield* delivery.operations.readInbox({})).items).toEqual([]);
     expect((yield* auditChecks(subject))[0]?.post).toBeNull();
+  });
+}
+
+it(
+  "holds an invalid assessment context with retained wait feedback",
+  invalidContextSend,
+);
+
+function invalidContextSend() {
+  return Effect.gen(function* () {
+    const subject = yield* fixture;
+    const fact = {
+      id: "same-fact",
+      source: "owner",
+      text: "Keep scheduling in this conversation.",
+      visibility: "assessor",
+    } as const;
+    const delivery = yield* outgoingFixture(
+      subject,
+      policy(() => Effect.succeed(pass)),
+      { facts: [fact, fact] },
+    );
+    const request = {
+      input: { to: destination, text: "Draft with ambiguous evidence" },
+      idempotencyKey: "invalid-context-draft",
+    };
+    const refusal = yield* Effect.flip(delivery.operations.send(request));
+    expect(refusal.message).toContain(renderedWaitAction);
+    expect(refusal).toMatchObject({
+      refusal: "check-unavailable",
+      feedback: [{ nextAction: waitAction }],
+    });
+    expect(yield* Effect.flip(delivery.operations.send(request))).toEqual(
+      refusal,
+    );
+    expect((yield* subject.store.recover()).postIntents).toEqual([]);
   });
 }
 
@@ -697,6 +746,47 @@ function concurrentSends() {
   });
 }
 
+it(
+  "preserves an unavailable assessment when earlier outgoing evidence is incomplete",
+  unavailableWithEvidenceGaps,
+);
+
+function unavailableWithEvidenceGaps() {
+  return Effect.gen(function* () {
+    const subject = yield* fixture;
+    const allowed = yield* outgoingFixture(
+      subject,
+      policy(() => Effect.succeed(pass)),
+    );
+    const pending = yield* allowed.operations
+      .send({ input: { to: destination, text: "Pending proposal" } })
+      .pipe(Effect.forkScoped);
+    yield* Deferred.await(subject.outbound);
+    const seen: MiddlewareInput[] = [];
+    const unavailable = yield* outgoingFixture(
+      subject,
+      policy((input) =>
+        Effect.sync(() => {
+          seen.push(input);
+        }).pipe(
+          Effect.zipRight(
+            Effect.fail(new MiddlewareError({ reason: "unavailable" })),
+          ),
+        ),
+      ),
+    );
+    const refusal = yield* Effect.flip(
+      unavailable.operations.send({
+        input: { to: destination, text: "Another proposal" },
+      }),
+    );
+    expect(seen[0]?.context.gaps).not.toEqual([]);
+    expect(refusal).toMatchObject({ refusal: "check-unavailable" });
+    expect((yield* subject.store.recover()).postIntents).toHaveLength(1);
+    yield* Fiber.interrupt(pending);
+  });
+}
+
 function churnPolicy(subject: Fixture) {
   let calls = 0;
   return {
@@ -725,15 +815,23 @@ function staleOutgoing(mode: FirewallOptions["mode"]) {
     const delivery = yield* outgoingFixture(subject, churn.middleware, {
       mode,
     });
+    const request = {
+      input: { to: destination, text: "Draft while evidence changes" },
+      idempotencyKey: "stale-draft",
+    };
     const sending = yield* delivery.operations
-      .send({
-        input: { to: destination, text: "Draft while evidence changes" },
-      })
+      .send(request)
       .pipe(Effect.forkScoped);
     if (mode === "enforcement") {
-      expect(yield* Effect.flip(Fiber.join(sending))).toMatchObject({
+      const refusal = yield* Effect.flip(Fiber.join(sending));
+      expect(refusal.message).toContain(renderedWaitAction);
+      expect(refusal).toMatchObject({
         refusal: "unresolved-evidence",
+        feedback: [{ nextAction: waitAction }],
       });
+      expect(yield* Effect.flip(delivery.operations.send(request))).toEqual(
+        refusal,
+      );
       expect((yield* subject.store.recover()).postIntents).toEqual([]);
     } else {
       yield* Deferred.await(subject.outbound);

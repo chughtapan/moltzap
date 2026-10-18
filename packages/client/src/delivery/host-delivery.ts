@@ -339,12 +339,7 @@ const pendingOffer = <E>(
   classify: pass.classify,
   ...(pass.handler === undefined ? {} : { handler: pass.handler }),
   persist: (event) => persistItem(input, event),
-  ...(input.firewall === undefined
-    ? {}
-    : {
-        readAdmitted: (event: HarnessMessageReadyEvent) =>
-          readAdmitted(input, event),
-      }),
+  readAdmitted: (event) => readAdmitted(input, event),
   historyExport: input.historyExport,
   state: input.state,
 });

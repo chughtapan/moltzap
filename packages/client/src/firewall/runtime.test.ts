@@ -25,3 +25,36 @@ it.each([{ feedback: [] }, { feedback: [feedback] }])(
     expect(String(refusal)).toContain(checkId);
   },
 );
+
+const advice = "The communication prerequisite is not satisfied.";
+
+it.each([
+  { nextAction: "revise", refusal: "norm-violation" },
+  { nextAction: "wait", refusal: "norm-violation" },
+  { nextAction: "stop", refusal: "norm-violation" },
+  { nextAction: "seek-approval", refusal: "approval-required" },
+] as const)(
+  "preserves the $nextAction next action in printable refusals",
+  ({ nextAction, refusal }) => {
+    const error = new FirewallSendError({
+      checkId,
+      refusal,
+      feedback: [{ nextAction, text: advice }],
+    });
+    expect(error.message).toContain(nextAction);
+    expect(error.message).toContain(advice);
+    expect(String(error)).toContain(nextAction);
+  },
+);
+
+it.each(["wait", "stop"] as const)(
+  "does not direct revision when a norm requires the next action %s",
+  (nextAction) => {
+    const refusal = new FirewallSendError({
+      checkId,
+      refusal: "norm-violation",
+      feedback: [{ nextAction, text: advice }],
+    });
+    expect(refusal.message).not.toMatch(/revis(?:e|ion)/u);
+  },
+);

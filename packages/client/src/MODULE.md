@@ -165,7 +165,9 @@ export class FirewallSendError extends Data.TaggedError("FirewallSendError")<
   typeof firewallRefusalSchema.Type
 > {
   override get message(): string {
-    const feedback = this.feedback.map((item) => item.text).join(" ");
+    const feedback = this.feedback
+      .map((item) => `Next action: ${item.nextAction}. ${item.text}`)
+      .join(" ");
     const description = `send withheld (check ${this.checkId}): ${refusalText[this.refusal]}.`;
     return feedback.length === 0 ? description : `${description} ${feedback}`;
   }
@@ -1121,7 +1123,7 @@ flowchart TD
   C --> R[Return all findings and private stage trace]
 ```
 
-#### [`MoltZapService.makeFirewall`](./firewall/index.ts#L61)
+#### [`MoltZapService.makeFirewall`](./firewall/index.ts#L63)
 
 _Variable_
 

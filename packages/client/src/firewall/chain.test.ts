@@ -379,6 +379,35 @@ it("captures metadata, preserves method receivers and freezes previous observati
     expect(result.guidance[0]?.instruction).toBe("Original registered advice");
   }));
 
+it("keeps unavailable observations immutable for later middleware", () =>
+  Effect.gen(function* () {
+    const failing: MessageMiddleware = {
+      ...policy("failing"),
+      check: () => Effect.fail(new MiddlewareError({ reason: "unavailable" })),
+    };
+    const later: MessageMiddleware = {
+      ...policy("later"),
+      check: (input) =>
+        Effect.sync(() => {
+          const earlier = input.previous[0];
+          expect(
+            earlier === undefined || Reflect.set(earlier.findings, "length", 1),
+          ).toBe(false);
+          expect(
+            earlier === undefined ||
+              Reflect.set(earlier.expectations, "length", 1),
+          ).toBe(false);
+          return { findings: [pass], expectations: [] };
+        }),
+    };
+    const firewall = yield* firewallFor([failing, later]);
+    const result = yield* firewall.checkOutgoing(draft, context);
+    expect(result.reason).toBe("check-unavailable");
+    expect(result.checks[0]?.findings).toEqual([]);
+    expect(result.checks[0]?.expectations).toEqual([]);
+    expect(result.checks[1]?.status).toBe("completed");
+  }));
+
 it.each(["private-history", "withheld-history", "private-fact", "draft"])(
   "rejects an unsafe code-policy subject: %s",
   (subject) =>
