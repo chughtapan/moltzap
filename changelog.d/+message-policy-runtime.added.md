@@ -1,1 +1,1 @@
-Add an experimental daemon message firewall with shared code and English middleware, atomic incoming and outgoing admission, retained revision feedback, and local OpenClaw guidance. Preserve existing state through a schema migration and reject incompatible runtime adapters when the firewall is enabled.
+Add an experimental daemon message firewall with shared code and English middleware, atomic incoming and outgoing admission, retained revision feedback, and local OpenClaw guidance.
