@@ -8,7 +8,7 @@ The collective operations the daemon service composes.
 
 ## Public surface
 
-### [`CollectiveError`](./forms.ts#L315)
+### [`CollectiveError`](./forms.ts#L321)
 
 _Class_
 
@@ -150,7 +150,7 @@ each data part as JSON, one part per line.
 
 **Returns:** The text a host puts in the model's turn.
 
-### [`SendInput`](./forms.ts#L152)
+### [`SendInput`](./forms.ts#L153)
 
 _TypeAlias_
 
@@ -160,7 +160,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput`](./forms.ts#L140)
+### [`SendInput`](./forms.ts#L141)
 
 _Variable_
 
@@ -183,7 +183,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./forms.ts#L171)
+### [`SendResult`](./forms.ts#L172)
 
 _Interface_
 

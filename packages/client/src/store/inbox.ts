@@ -18,12 +18,14 @@ import {
   type InboxEntry,
   type InboxPage,
   type InboxSummary,
+  MAXIMUM_RUNTIME_ITEM_BYTES,
   type StoredSendAttempt,
   type StoreMutation,
 } from "./types.js";
 
+// safer-arch-ignore file-implicit-boundary-module: Store composition and firewall admission share inbox writes within the caller's transaction; external consumers use the store capability instead of these SQLite primitives.
+
 const MAXIMUM_PAGE_ITEMS = 50;
-const MAXIMUM_PAGE_BYTES = 2 * 1024 * 1024;
 
 /** Retained bytes remain readable after handoff or request-context retirement. */
 export function readInboxItem(
@@ -32,7 +34,7 @@ export function readInboxItem(
 ) {
   const row = database
     .prepare(
-      "SELECT sequence, canonical_item, acknowledged FROM runtime_inbox WHERE delivery_token = ?",
+      "SELECT sequence, canonical_item, canonical_guidance, acknowledged FROM runtime_inbox WHERE delivery_token = ?",
     )
     .get(deliveryToken);
   return row === undefined
@@ -41,6 +43,7 @@ export function readInboxItem(
         deliveryToken,
         sequence: readInteger(row, "sequence"),
         canonicalItem: readBytes(row, "canonical_item"),
+        ...guidanceBytes(row),
         acknowledged: readInteger(row, "acknowledged") === 1,
       };
 }
@@ -68,23 +71,32 @@ export function putInboxItem(
   item: Omit<InboxEntry, "sequence">,
 ): StoreMutation {
   requireBytes(item.canonicalItem);
-  if (item.canonicalItem.byteLength > MAXIMUM_PAGE_BYTES) {
+  if (
+    item.canonicalItem.byteLength + (item.canonicalGuidance?.byteLength ?? 0) >
+    MAXIMUM_RUNTIME_ITEM_BYTES
+  ) {
     throw new StoreSignal("invalid-input");
   }
   const retained = database
     .prepare(
-      "SELECT canonical_item FROM runtime_inbox WHERE delivery_token = ?",
+      "SELECT canonical_item, canonical_guidance FROM runtime_inbox WHERE delivery_token = ?",
     )
     .get(item.deliveryToken);
   if (retained !== undefined) {
     requireSameBytes(readBytes(retained, "canonical_item"), item.canonicalItem);
+    const priorGuidance = readOptionalBytes(retained, "canonical_guidance");
+    requireSameGuidance(priorGuidance, item.canonicalGuidance);
     return "existing";
   }
   database
     .prepare(
-      "INSERT INTO runtime_inbox (delivery_token, canonical_item) VALUES (?, ?)",
+      "INSERT INTO runtime_inbox (delivery_token, canonical_item, canonical_guidance) VALUES (?, ?, ?)",
     )
-    .run(item.deliveryToken, item.canonicalItem);
+    .run(
+      item.deliveryToken,
+      item.canonicalItem,
+      item.canonicalGuidance ?? null,
+    );
   return "inserted";
 }
 
@@ -136,10 +148,12 @@ const collectPage = (
   let bytes = 0;
   for (const row of rows) {
     const canonicalItem = readBytes(row, "canonical_item");
+    const guidance = guidanceBytes(row);
+    const itemBytes =
+      canonicalItem.byteLength + (guidance.canonicalGuidance?.byteLength ?? 0);
     if (
       items.length === limit ||
-      (items.length > 0 &&
-        bytes + canonicalItem.byteLength > MAXIMUM_PAGE_BYTES)
+      (items.length > 0 && bytes + itemBytes > MAXIMUM_RUNTIME_ITEM_BYTES)
     ) {
       break;
     }
@@ -149,8 +163,9 @@ const collectPage = (
         readText(row, "delivery_token"),
       ),
       canonicalItem,
+      ...guidance,
     });
-    bytes += canonicalItem.byteLength;
+    bytes += itemBytes;
   }
   return items;
 };
@@ -170,7 +185,7 @@ export function readInbox(
   const limit = pageLimit(input, after, through);
   const rows = database
     .prepare(
-      "SELECT sequence, delivery_token, canonical_item FROM runtime_inbox WHERE acknowledged = 0 AND sequence > ? AND sequence <= ? ORDER BY sequence LIMIT ?",
+      "SELECT sequence, delivery_token, canonical_item, canonical_guidance FROM runtime_inbox WHERE acknowledged = 0 AND sequence > ? AND sequence <= ? ORDER BY sequence LIMIT ?",
     )
     .all(after, through, limit + 1);
   const items = collectPage(rows, limit);
@@ -223,11 +238,13 @@ export function acknowledgeInboxItem(
  * @param database Exclusively owned endpoint database.
  * @param deliveryToken Original request's delivery identity.
  * @param replacement Failure under a distinct delivery identity.
+ * @param retain Optional private admission queue write within the same transaction.
  */
 export function replaceInboxItem(
   database: DatabaseSync,
   deliveryToken: DeliveryToken,
   replacement: Omit<InboxEntry, "sequence">,
+  retain?: () => void,
 ): void {
   if (deliveryToken === replacement.deliveryToken) {
     throw new StoreSignal("conflict");
@@ -239,18 +256,27 @@ export function replaceInboxItem(
       )
       .get(deliveryToken);
     if (projected === undefined) {
+      const privateItem = database
+        .prepare(
+          "UPDATE firewall_incoming SET disposition = 'withheld' WHERE delivery_token = ? AND disposition = 'pending'",
+        )
+        .run(deliveryToken);
       const retired = database
         .prepare(
           "UPDATE pending_deliveries SET acknowledged = 1 WHERE delivery_token = ? AND acknowledged = 0",
         )
         .run(deliveryToken);
-      if (retired.changes !== 1) {
+      if (retired.changes !== 1 && privateItem.changes !== 1) {
         throw new StoreSignal("not-found");
       }
     } else {
       retireItem(database, deliveryToken);
     }
-    putInboxItem(database, replacement);
+    if (retain === undefined) {
+      putInboxItem(database, replacement);
+    } else {
+      retain();
+    }
   });
 }
 
@@ -385,4 +411,21 @@ function retireItem(
       "UPDATE pending_deliveries SET acknowledged = 1 WHERE delivery_token = ?",
     )
     .run(deliveryToken);
+}
+
+function guidanceBytes(
+  row: Readonly<Record<string, unknown>>,
+): Pick<InboxEntry, "canonicalGuidance"> {
+  const value = readOptionalBytes(row, "canonical_guidance");
+  return value === undefined ? {} : { canonicalGuidance: value };
+}
+
+function requireSameGuidance(prior?: Uint8Array, next?: Uint8Array): void {
+  if (prior === undefined || next === undefined) {
+    if (prior !== next) {
+      throw new StoreSignal("conflict");
+    }
+    return;
+  }
+  requireSameBytes(prior, next);
 }

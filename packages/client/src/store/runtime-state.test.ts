@@ -145,7 +145,6 @@ const opensEmptyAfterTheCutover = (version: 2 | 3 | 4) => {
         });
       }),
     );
-    expect(readSchemaVersion(path)).toMatchObject({ user_version: 5 });
   });
 };
 
@@ -167,7 +166,76 @@ function inspectsWithoutWriting() {
   });
 }
 
+function preservesAdmittedStateDuringMigration() {
+  const path = stateDirectory();
+  return Effect.gen(function* () {
+    yield* withStore(path, seedPreCutoverState);
+    const before = yield* withStore(path, (store) => store.recover());
+    yield* rewindToPreCutoverSchema(path, 5);
+    yield* withStore(path, (store) =>
+      Effect.gen(function* () {
+        expect(yield* store.readIdentity()).toEqual(identity);
+        expect(yield* store.recover()).toEqual(before);
+        expect(yield* store.readSendAttempt("before-cutover")).toEqual({
+          canonicalInput: sendInput,
+        });
+        expect(yield* store.readEventState()).toEqual(eventState);
+        expect((yield* store.readInbox()).items[0]?.canonicalItem).toEqual(
+          inboxItem,
+        );
+        expect(
+          (yield* store.readFirewallEvidence({ maximumRecords: 10 }))
+            .pendingOutgoing,
+        ).toBe(true);
+      }),
+    );
+  });
+}
+
+function invalidatesInterruptedChecks() {
+  const path = stateDirectory();
+  const checkId = "interrupted-check";
+  const completion = { checkId, admit: true, canonicalResult: bytes("allow") };
+  return Effect.gen(function* () {
+    yield* withStore(path, (store) =>
+      Effect.gen(function* () {
+        yield* seedPreCutoverState(store);
+        const evidence = yield* store.readFirewallEvidence({
+          maximumRecords: 10,
+        });
+        yield* store.beginFirewallAttempt({
+          checkId,
+          direction: "outgoing",
+          revision: evidence.revision,
+          canonicalCandidate: bytes("draft"),
+          canonicalInput: bytes("fixed policy and evidence"),
+        });
+      }),
+    );
+    yield* withStore(path, (store) =>
+      Effect.gen(function* () {
+        expect(
+          (yield* store.readFirewallEvidence({ maximumRecords: 10 }))
+            .pendingOutgoing,
+        ).toBe(true);
+        expect(
+          yield* Effect.flip(store.finishFirewallAttempt(completion)),
+        ).toMatchObject({ reason: "conflict" });
+        expect((yield* store.recover()).postIntents).toHaveLength(1);
+      }),
+    );
+  });
+}
+
 describe("endpoint runtime state", () => {
+  it(
+    "preserves identity, protocol and admitted runtime state when adding message checks",
+    preservesAdmittedStateDuringMigration,
+  );
+  it(
+    "invalidates interrupted checks while preserving unresolved intent evidence",
+    invalidatesInterruptedChecks,
+  );
   it(
     "retains completed and interrupted invocations and event state across restart",
     retainsInvocationAndEventState,

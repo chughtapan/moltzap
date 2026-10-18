@@ -4,6 +4,12 @@ import { NodeHttpClient } from "@effect/platform-node";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Data, Duration, Effect, Layer } from "effect";
+import type { DaemonProcessConfiguration } from "./bootstrap.js";
+import {
+  type InstalledFirewall,
+  type FirewallOptions as InstalledFirewallOptions,
+  installFirewall,
+} from "../delivery/index.js";
 import { inspectEndpointStore, openEndpointStore } from "../store/index.js";
 import {
   loadDaemonBootstrap,
@@ -48,6 +54,9 @@ export type {
 
 // eslint-disable-next-line @typescript-eslint/no-namespace -- The published service subpath intentionally merges its runtime values with the closed startup-error type.
 export namespace MoltZapService {
+  /** Trusted fixed process composition; agents receive no policy mutation capability. */
+  export type FirewallOptions = InstalledFirewallOptions;
+
   /** Closed daemon startup phase without configuration or platform detail. */
   export class StartupError extends Data.TaggedError(
     "MoltZapServiceStartupError",
@@ -63,53 +72,64 @@ export namespace MoltZapService {
     }
   }
 
-  const runDaemon = Effect.gen(function* () {
-    const configuration = yield* loadDaemonProcessConfiguration.pipe(
-      Effect.mapError(configurationFailure),
-    );
-    const bootstrap = yield* loadDaemonBootstrap(configuration).pipe(
-      Effect.mapError(configurationFailure),
-    );
-    const opening = yield* inspectEndpointStore(
-      configuration.stateDirectory,
-    ).pipe(Effect.mapError(storageFailure));
-    yield* requireAdmissionToCreate(opening, bootstrap).pipe(
-      Effect.mapError(configurationFailure),
-    );
-    const store = yield* openEndpointStore(configuration.stateDirectory).pipe(
-      Effect.mapError(storageFailure),
-    );
-    const registration = yield* readDaemonRegistrationState({
-      store,
-      bootstrap,
-    }).pipe(Effect.mapError(storageFailure));
-    yield* requireAdmission(registration, bootstrap).pipe(
-      Effect.mapError(configurationFailure),
-    );
-    const networkContext = yield* Layer.build(
-      Layer.merge(
-        Registry.layer({
-          origin: configuration.registryOrigin,
-          registrySignerPublicKey: configuration.registrySignerPublicKey,
-          requestTimeout: REGISTRY_REQUEST_TIMEOUT,
-        }),
-        Router.layer({
-          origin: configuration.routerOrigin,
-          sendTimeout: ROUTER_SEND_TIMEOUT,
-          pollTimeout: ROUTER_POLL_TIMEOUT,
-        }),
-      ).pipe(Layer.provide(NodeHttpClient.layer)),
-    );
-    return yield* runDaemonRuntime({ store, bootstrap, registration }).pipe(
-      Effect.provide(networkContext),
-      // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- The public process layer deliberately projects private runtime failures onto its closed startup phase.
-      Effect.mapError((error) => new StartupError({ phase: error.phase })),
-    );
-  }).pipe(Effect.withSpan("MoltZapService.layer"));
+  const runDaemon = (
+    firewallSetup: Effect.Effect<InstalledFirewall | undefined, StartupError>,
+  ) =>
+    Effect.gen(function* () {
+      const firewall = yield* firewallSetup;
+      const configuration = yield* loadDaemonProcessConfiguration.pipe(
+        Effect.mapError(configurationFailure),
+      );
+      const bootstrap = yield* loadDaemonBootstrap(configuration).pipe(
+        Effect.mapError(configurationFailure),
+      );
+      const opening = yield* inspectEndpointStore(
+        configuration.stateDirectory,
+      ).pipe(Effect.mapError(storageFailure));
+      yield* requireAdmissionToCreate(opening, bootstrap).pipe(
+        Effect.mapError(configurationFailure),
+      );
+      const store = yield* openEndpointStore(configuration.stateDirectory).pipe(
+        Effect.mapError(storageFailure),
+      );
+      const registration = yield* readDaemonRegistrationState({
+        store,
+        bootstrap,
+      }).pipe(Effect.mapError(storageFailure));
+      yield* requireAdmission(registration, bootstrap).pipe(
+        Effect.mapError(configurationFailure),
+      );
+      const networkContext = yield* Layer.build(networkLayer(configuration));
+      return yield* runDaemonRuntime({
+        store,
+        bootstrap,
+        registration,
+        ...(firewall === undefined ? {} : { firewall }),
+      }).pipe(
+        Effect.provide(networkContext),
+        // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- The public process layer deliberately projects private runtime failures onto its closed startup phase.
+        Effect.mapError((error) => new StartupError({ phase: error.phase })),
+      );
+    }).pipe(Effect.withSpan("MoltZapService.layer"));
 
   /** Complete production process composition for `moltzapd`. */
-  export const layer: Layer.Layer<never, StartupError> =
-    Layer.scopedDiscard(runDaemon);
+  export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
+    runDaemon(Effect.succeed(undefined)),
+  );
+
+  /**
+   * Fixed middleware and owner evidence are installed before the daemon accepts host calls.
+   * @param options Trusted process-owned chains and evidence, fixed for this daemon lifetime.
+   * @returns The complete daemon layer with both message boundaries checked.
+   */
+  export const withFirewall = (
+    options: FirewallOptions,
+  ): Layer.Layer<never, StartupError> =>
+    Layer.scopedDiscard(
+      runDaemon(
+        installFirewall(options).pipe(Effect.mapError(configurationFailure)),
+      ),
+    );
 
   function configurationFailure(): StartupError {
     return new StartupError({ phase: "configuration" });
@@ -118,4 +138,19 @@ export namespace MoltZapService {
   function storageFailure(): StartupError {
     return new StartupError({ phase: "storage" });
   }
+}
+
+function networkLayer(configuration: DaemonProcessConfiguration) {
+  return Layer.merge(
+    Registry.layer({
+      origin: configuration.registryOrigin,
+      registrySignerPublicKey: configuration.registrySignerPublicKey,
+      requestTimeout: REGISTRY_REQUEST_TIMEOUT,
+    }),
+    Router.layer({
+      origin: configuration.routerOrigin,
+      sendTimeout: ROUTER_SEND_TIMEOUT,
+      pollTimeout: ROUTER_POLL_TIMEOUT,
+    }),
+  ).pipe(Layer.provide(NodeHttpClient.layer));
 }

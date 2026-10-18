@@ -12,6 +12,7 @@ import {
   isCanonicalIdentifier,
   JsonValue,
   MessageAddressInput,
+  type PostId,
   wellFormedString,
 } from "../wire/values.js";
 
@@ -170,6 +171,11 @@ const unreachableMembers = Schema.NonEmptyArray(
 /** What a completed send returns: a collecting operation names its id. */
 export interface SendResult {
   readonly operationId?: CollectiveId;
+}
+
+/** Private send completion includes the posts certified before returning to delivery. */
+export interface CollectiveSendOutcome extends SendResult {
+  readonly postIds: readonly PostId[];
 }
 
 /**

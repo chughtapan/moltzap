@@ -43,6 +43,7 @@ export function isSemanticStoreRejection(error: EndpointStoreError): boolean {
 export interface InboxEntry {
   readonly deliveryToken: DeliveryToken;
   readonly canonicalItem: Uint8Array;
+  readonly canonicalGuidance?: Uint8Array;
   readonly sequence: number;
 }
 
@@ -64,6 +65,54 @@ export interface StoredSendAttempt {
   readonly canonicalInput: Uint8Array;
   readonly canonicalOutcome?: Uint8Array;
 }
+
+/** A certified evidence row retains its original bytes and local visibility. */
+export interface FirewallHistoryEntry {
+  readonly canonicalRecordCore: Uint8Array;
+  readonly canonicalMembership: Uint8Array;
+  readonly visible: boolean;
+}
+
+/** One retained runtime item, including its local guidance, fits in an inbox page. */
+export const MAXIMUM_RUNTIME_ITEM_BYTES = 2 * 1024 * 1024;
+
+/** A bounded complete range; an overflow is explicit and cannot justify admission. */
+export interface FirewallEvidence {
+  readonly revision: number;
+  readonly history: readonly FirewallHistoryEntry[];
+  readonly overflow: boolean;
+  readonly pendingOutgoing: boolean;
+  readonly candidate?: FirewallHistoryEntry;
+}
+
+/** A private classified item waiting for its conversation's admission frontier. */
+export interface FirewallInboxEntry {
+  readonly deliveryToken: DeliveryToken;
+  readonly conversation: string;
+  readonly canonicalItem: Uint8Array;
+  readonly sequence: number;
+}
+
+/** Candidate and evidence bytes are immutable before inference starts. */
+export interface FirewallAttempt {
+  readonly checkId: string;
+  readonly direction: "incoming" | "outgoing";
+  readonly revision: number;
+  readonly canonicalCandidate: Uint8Array;
+  readonly canonicalInput: Uint8Array;
+}
+
+/** The store records applied disposition separately from the policy judgment. */
+export interface FirewallCompletion {
+  readonly checkId: string;
+  readonly canonicalResult: Uint8Array;
+  readonly admit: boolean;
+  /** A terminal guidance-only observation admits without using any stale advice. */
+  readonly shadow?: true;
+}
+
+/** A stale check has no execution authority and remains in private audit. */
+export type FirewallCommit = "admitted" | "withheld" | "stale";
 
 /** Canonical bytes bound to the one local identity. */
 export interface IdentityBinding {
@@ -269,6 +318,34 @@ export interface HistoryPage {
 
 /** Private durable operations owned by one daemon process. */
 export interface EndpointStore {
+  readonly queueFirewallItem: (
+    item: Omit<FirewallInboxEntry, "sequence">,
+  ) => Effect.Effect<void, EndpointStoreError>;
+  readonly readFirewallFrontiers: () => Effect.Effect<
+    readonly FirewallInboxEntry[],
+    EndpointStoreError
+  >;
+  readonly readPendingFirewallItems: (
+    after: number,
+  ) => Effect.Effect<readonly FirewallInboxEntry[], EndpointStoreError>;
+  readonly readFirewallEvidence: (input: {
+    readonly beforeDelivery?: DeliveryToken;
+    readonly maximumRecords: number;
+  }) => Effect.Effect<FirewallEvidence, EndpointStoreError>;
+  readonly beginFirewallAttempt: (
+    attempt: FirewallAttempt,
+  ) => Effect.Effect<void, EndpointStoreError>;
+  readonly finishFirewallAttempt: (
+    completion: FirewallCompletion,
+  ) => Effect.Effect<void, EndpointStoreError>;
+  readonly admitFirewallItem: (
+    item: Omit<InboxEntry, "sequence">,
+    completion: FirewallCompletion,
+  ) => Effect.Effect<FirewallCommit, EndpointStoreError>;
+  readonly bindCheckedPostIntent: (
+    binding: PostIntentBinding,
+    completion: FirewallCompletion,
+  ) => Effect.Effect<FirewallCommit, EndpointStoreError>;
   readonly readInboxItem: (
     deliveryToken: DeliveryToken,
   ) => Effect.Effect<
@@ -297,6 +374,7 @@ export interface EndpointStore {
   readonly replaceInboxItem: (
     deliveryToken: DeliveryToken,
     replacement: Omit<InboxEntry, "sequence">,
+    pendingConversation?: string,
   ) => Effect.Effect<void, EndpointStoreError>;
   readonly beginSendAttempt: (
     key: string,

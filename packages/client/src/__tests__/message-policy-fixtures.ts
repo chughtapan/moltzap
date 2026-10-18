@@ -1,0 +1,30 @@
+/** @file Local advice with explicit subject attribution for host transport checks. */
+
+import type { LocalGuidance } from "../firewall/runtime.js";
+import { digest } from "./agent-card-fixtures.js";
+
+/** The peer text and registered instruction travel separately through every runtime view. */
+export function localGuidance(byte: number): LocalGuidance {
+  const subject = digest("pst_", byte);
+  return {
+    checkId: digest("chk_", byte),
+    subjects: [
+      {
+        id: subject,
+        sender: "agent:bob",
+        recipients: ["agent:alice"],
+        text: "Can we meet?",
+      },
+    ],
+    instructions: [
+      {
+        middlewareId: "owner",
+        ruleId: "respond",
+        expectation: "required",
+        subjects: [subject],
+        instruction:
+          "Answer the scheduling question without disclosing unrelated appointments.",
+      },
+    ],
+  };
+}

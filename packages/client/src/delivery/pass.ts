@@ -107,6 +107,13 @@ export interface PendingOffer {
   readonly persist: (
     event: HarnessMessageReadyEvent,
   ) => Effect.Effect<void, EndpointStoreError>;
+  /** Enabled policy reads the admitted projection before any export or notification. */
+  readonly readAdmitted?: (
+    event: HarnessMessageReadyEvent,
+  ) => Effect.Effect<
+    Option.Option<HarnessMessageReadyEvent>,
+    EndpointStoreError
+  >;
   /** The attached subscriber, absent while none is attached. */
   readonly handler?: Subscriber;
   readonly historyExport: HistoryExportPort;
@@ -155,15 +162,22 @@ const publishItem = (
   offer: PendingOffer,
   handler: Subscriber,
   event: HarnessMessageReadyEvent,
-): Effect.Effect<boolean> =>
+): Effect.Effect<boolean, EndpointStoreError> =>
   Effect.gen(function* () {
+    const admitted =
+      offer.readAdmitted === undefined
+        ? Option.some(event)
+        : yield* offer.readAdmitted(event);
+    if (Option.isNone(admitted)) {
+      return true;
+    }
     yield* exportOnce(
       offer.state,
       offer.historyExport,
       event.deliveryToken,
-      Effect.succeed(event.item),
+      Effect.succeed(admitted.value.item),
     );
-    if (!handler.publish(event)) {
+    if (!handler.publish(admitted.value)) {
       return false;
     }
     offer.state.publishedDeliveries.add(event.deliveryToken);
@@ -225,7 +239,7 @@ const publishInOrder = (
   offer: PendingOffer,
   handler: Subscriber,
   events: readonly HarnessMessageReadyEvent[],
-): Effect.Effect<void> =>
+): Effect.Effect<void, EndpointStoreError> =>
   Effect.gen(function* () {
     for (const event of events) {
       if (offer.state.publishedDeliveries.has(event.deliveryToken)) {

@@ -16,6 +16,7 @@ import { describe, expect } from "vitest";
 import type { HarnessMessageReadyEvent } from "../../delivery/operations.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { loopbackMcpEndpoint } from "../../__tests__/mcp-http-fixtures.js";
+import { localGuidance } from "../../__tests__/message-policy-fixtures.js";
 import { DeliveryToken } from "../../store/index.js";
 import { InboundItem } from "../../transport/collectives/inbound.js";
 import { acquireHarnessEndpoint } from "../harness-endpoint/index.js";
@@ -200,7 +201,11 @@ const acquireRacingEventsServer = Effect.gen(function* () {
   });
   const handler = createMcpHandler(
     () => {
-      const capabilities = { tools: {}, events: {} };
+      const capabilities = {
+        tools: {},
+        events: {},
+        experimental: { "xyz.moltzap/message-policy": { revision: 1 } },
+      };
       const server = new McpServer(implementation, { capabilities });
       events.install(server.server);
       registerInboxTools(server, unread, acknowledged);
@@ -306,7 +311,8 @@ const acceptsOmittedSubscribeCursor = () =>
 const catchesUpAndDrainsNewArrivals = () =>
   Effect.gen(function* () {
     const harness = yield* acquireRacingEventsServer;
-    harness.add(delivery(1));
+    const guidance = localGuidance(1);
+    harness.add({ ...delivery(1), guidance });
     const endpoint = yield* acquireHarnessEndpoint(harness.endpoint);
     const firstAccepted = yield* Deferred.make<undefined>();
     const received = yield* endpoint.messages.pipe(
@@ -324,6 +330,10 @@ const catchesUpAndDrainsNewArrivals = () =>
     harness.events.notifyPending();
     harness.events.notifyPending();
     const items = yield* Fiber.join(received);
+    expect(Chunk.toReadonlyArray(items).map((item) => item.guidance)).toEqual([
+      guidance,
+      undefined,
+    ]);
     expect(Chunk.toReadonlyArray(items).map((item) => item.item)).toEqual([
       delivery(1).item,
       delivery(2).item,

@@ -26,6 +26,7 @@ import type {
   ContentPart,
   DeliveryAcknowledgeError,
   DirectMessage,
+  FirewallSendError,
   GroupAddress,
   GroupMessage,
   HarnessEndpoint,
@@ -35,6 +36,7 @@ import type {
   InboundMessage,
   JsonValue,
   ListenError,
+  LocalGuidance,
   MessageAddressInput,
   MessageTextError,
   parseMessageText,
@@ -135,6 +137,7 @@ type ExpectedInboundItem =
     }>;
 type ExpectedDelivery = Readonly<{
   item: InboundItem;
+  guidance?: LocalGuidance;
   acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>;
 }>;
 type ExpectedEndpoint = Readonly<{
@@ -144,7 +147,10 @@ type ExpectedEndpoint = Readonly<{
       failureDelivery?: "result" | "inbound";
       idempotencyKey?: string;
     }>,
-  ) => Effect.Effect<SendResult, SendError | CollectiveError>;
+  ) => Effect.Effect<
+    SendResult,
+    SendError | CollectiveError | FirewallSendError
+  >;
   messages: Stream.Stream<InboundDelivery, ListenError>;
 }>;
 

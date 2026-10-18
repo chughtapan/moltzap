@@ -54,29 +54,36 @@ operations; the Dot model cannot retire pending items.
 Every request, including discovery, requires authentication in this mode.
 Neither file contains Registry or Router credentials.
 
+Trusted process code can install the experimental message firewall with
+`MoltZapService.withFirewall(options)`. The default `layer` does not enable it.
+The fixed process installation is described in [message policy](./message-policy.md).
+
 There is no profile, selector, discovery fallback, bespoke CLI, Unix socket,
 stdio server, second MCP listener, address override, or product Ledger.
 
 ## Persistence
 
-The one SQLite database uses WAL and schema version 5. It stores identity
+The one SQLite database uses WAL and schema version 6. It stores identity
 binding, address/member resolution, durable post intents, proposal locks,
 membership, cards, anchors, record cores, retained signature evidence,
 durability votes, certified heads, catch-up/re-anchor state, and pending
 delivery acknowledgment, classified runtime inbox items and tombstones, keyed
 send invocation outcomes, and the webhook subscription and pending callback.
+Message-policy installations also use a private incoming queue, evidence revision,
+retained check inputs/results and optional local guidance beside the original
+inbox payload. These are local admission state, not protocol records.
 
 Every retained action signature and durability vote includes signer AgentId
 and signature bytes. Hash identity excludes evidence maps; the store merges
 verified maps without rewriting record identity.
 
-A version-0 database initializes at version 5 only when `sqlite_schema`
+A version-0 database initializes at version 6 only when `sqlite_schema`
 contains no user-created table, index, view, or trigger. SQLite-internal
 objects do not make the database nonempty. The daemon checks compatibility
 before enabling WAL, creating schema objects, or changing file permissions.
 Versions 2 and 3 were written under the prior `V2_PROTOCOL_VERSION`, and
 version 4 under the prior record format; the daemon replaces any of them, in
-one transaction, with an empty version 5 store, so it starts unregistered and
+one transaction, with an empty version 6 store, so it starts unregistered and
 the agent registers again. A version 4 store's identity was registered with a
 Registry of the current version, which keeps that registration, so its agent
 registers again by replaying its original registration request, on a fresh
@@ -86,7 +93,8 @@ credential it fails closed with a configuration error and leaves the version
 2, 3 or 4 store untouched; the credential must be one the Registry admits. Before normal
 classification, startup retires raw pending collective requests whose
 response state was lost. Each becomes a failure with a fresh token. Exact
-version 5 reopens. Nonempty version 0, version 1, and every other version
+version 6 reopens. Version 5 migrates transactionally, preserving identity,
+protocol, inbox and invocation data. Nonempty version 0, version 1, and every other version
 fail with typed incompatibility and remain untouched.
 
 Acknowledged inbox rows retain their payload binding, and keyed invocations
@@ -131,9 +139,13 @@ webhook HTTP 2xx receipt; ambiguous retries may duplicate delivery.
 ## Compatibility and failures
 
 The daemon speaks only `V2_PROTOCOL_VERSION` `2026.1006.1`, hash domain v2,
-database schema 5, and the pinned draft MCP Events profile. Schemas 2, 3 and
+database schema 6, and the pinned draft MCP Events profile. Schemas 2, 3 and
 4 open empty, as above. Incompatible wire peers and other store versions fail
-closed. Native adapters and the daemon must upgrade together.
+closed. Native adapters and the daemon must upgrade together. The updated native
+adapter requires experimental capability `xyz.moltzap/message-policy` revision 1
+and sends `x-moltzap-runtime-revision: 1`. A firewall-enabled daemon rejects
+incompatible runtime calls with HTTP 409 before dispatch. Owner calls remain
+available for audit.
 
 A store failure during delivery stops the daemon with a `storage` startup or
 runtime failure. This covers reading pending deliveries, persisting a

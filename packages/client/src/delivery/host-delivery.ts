@@ -1,11 +1,21 @@
 /** @file One service's delivery: the inbox writes, the gated delivery pass and detach, and the operations hosts call. */
 
-import { DateTime, Effect, type Scope } from "effect";
+import {
+  Cause,
+  DateTime,
+  Deferred,
+  Effect,
+  Option,
+  Queue,
+  type Scope,
+} from "effect";
 import type {
   CollectiveEmitError,
+  CollectiveError,
+  FailureDelivery,
   SendInput,
 } from "../transport/collectives/forms.js";
-import type { CollectiveOperations } from "../transport/collectives/index.js";
+import type { CollectiveSendOutcome } from "../transport/collectives/index.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";
 import type {
   HistoryExportPort,
@@ -14,19 +24,31 @@ import type {
 import type {
   DeliveryOperations,
   EventStore,
+  HarnessMessageReadyEvent,
   HarnessReadInboxRequest,
 } from "./operations.js";
 import {
+  type FirewallSendError,
+  localGuidanceSchema,
+} from "../firewall/runtime.js";
+import {
   decodeRuntimeValue,
   type DeliveryToken,
+  encodeRuntimeValue,
   type EndpointStore,
   type EndpointStoreError,
+  type FirewallInboxEntry,
 } from "../store/index.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
 import {
   DeliveryAcknowledgeError,
   SendError,
 } from "../transport/messaging/errors.js";
+import {
+  checkIncoming,
+  type FirewallEnvironment,
+  type InstalledFirewall,
+} from "./firewall.js";
 import {
   mintLocalDeliveryToken,
   persistInboxItem,
@@ -44,12 +66,25 @@ import {
 } from "./pass.js";
 import { makeSendInvocations } from "./send-invocations.js";
 
+/** The application send includes local refusal; collective protocol sends remain separate. */
+export interface ApplicationSender {
+  readonly send: (
+    input: SendInput,
+    failureDelivery: FailureDelivery,
+  ) => Effect.Effect<
+    CollectiveSendOutcome,
+    SendError | CollectiveError | FirewallSendError
+  >;
+}
+
 /** What one service's delivery reads and writes. */
 export interface HostDeliveryInput {
   readonly store: EndpointStore;
   readonly historyExport: HistoryExportPort;
   /** The active collective layer, absent while the service is unregistered. */
-  readonly collectives: () => Pick<CollectiveOperations, "send"> | undefined;
+  readonly collectives: () => ApplicationSender | undefined;
+  readonly firewall?: InstalledFirewall;
+  readonly firewallEnvironment?: () => FirewallEnvironment | undefined;
   /** Service lifetime, independent of any host request. */
   readonly scope: Scope.Scope;
 }
@@ -82,9 +117,18 @@ export interface HostDelivery {
   readonly queueLocalItem: (
     item: InboundItem,
   ) => Effect.Effect<void, EndpointStoreError>;
+  /** Daemon-owned checks run outside the delivery pass and publish only committed admissions. */
+  readonly runAdmission: (
+    publish: Effect.Effect<void>,
+  ) => Effect.Effect<never, EndpointStoreError>;
 }
 
-type DeliveryContext = HostDeliveryInput & { readonly state: DeliveryState };
+type DeliveryContext = HostDeliveryInput & {
+  readonly state: DeliveryState;
+  readonly admissionWake: Queue.Queue<undefined>;
+  readonly admissionFailure: Deferred.Deferred<never, EndpointStoreError>;
+  readonly activeConversations: Set<string>;
+};
 
 const notRegistered = Effect.fail({ reason: "not-registered" });
 
@@ -229,12 +273,54 @@ const completeWebhookDelivery = (
     ),
   );
 
+const persistItem = (
+  input: DeliveryContext,
+  event: HarnessMessageReadyEvent,
+) =>
+  input.firewall === undefined
+    ? persistInboxItem(input.store, event)
+    : encodeRuntimeValue(event.item).pipe(
+        Effect.flatMap((canonicalItem) =>
+          input.store.queueFirewallItem({
+            deliveryToken: event.deliveryToken,
+            canonicalItem,
+            conversation:
+              event.item.kind === "multicast"
+                ? event.item.message.address
+                : event.item.to,
+          }),
+        ),
+      );
+
+const readAdmitted = (
+  input: DeliveryContext,
+  event: HarnessMessageReadyEvent,
+) =>
+  Effect.gen(function* () {
+    const retained = yield* input.store.readInboxItem(event.deliveryToken);
+    if (retained === undefined || retained.acknowledged) {
+      return Option.none<HarnessMessageReadyEvent>();
+    }
+    return Option.some({
+      deliveryToken: event.deliveryToken,
+      item: yield* decodeRuntimeValue(InboundItem, retained.canonicalItem),
+      ...(retained.canonicalGuidance === undefined
+        ? {}
+        : {
+            guidance: yield* decodeRuntimeValue(
+              localGuidanceSchema,
+              retained.canonicalGuidance,
+            ),
+          }),
+    });
+  });
+
 const queueLocalItem =
   (input: DeliveryContext): HostDelivery["queueLocalItem"] =>
   (item) =>
     mintLocalDeliveryToken.pipe(
       Effect.tap((deliveryToken) =>
-        persistInboxItem(input.store, { deliveryToken, item }),
+        persistItem(input, { deliveryToken, item }),
       ),
       Effect.tap((deliveryToken) =>
         Effect.sync(() => {
@@ -252,7 +338,13 @@ const pendingOffer = <E>(
   engine: pass.engine,
   classify: pass.classify,
   ...(pass.handler === undefined ? {} : { handler: pass.handler }),
-  persist: (event) => persistInboxItem(input.store, event),
+  persist: (event) => persistItem(input, event),
+  ...(input.firewall === undefined
+    ? {}
+    : {
+        readAdmitted: (event: HarnessMessageReadyEvent) =>
+          readAdmitted(input, event),
+      }),
   historyExport: input.historyExport,
   state: input.state,
 });
@@ -261,23 +353,112 @@ const runPass = <E>(
   input: DeliveryContext,
   prepare: () => PassInput<E> | undefined,
 ): Effect.Effect<void, E | EndpointStoreError | CollectiveEmitError> =>
-  input.state.gate.withPermits(1)(
-    Effect.suspend(() => {
-      const pass = prepare();
-      if (pass === undefined) {
-        return Effect.void;
-      }
-      return pass.readPending.pipe(
-        Effect.flatMap((messages) =>
-          offerPendingMessages(pendingOffer(input, pass), messages),
-        ),
+  input.state.gate
+    .withPermits(1)(
+      Effect.suspend(() => {
+        const pass = prepare();
+        if (pass === undefined) {
+          return Effect.void;
+        }
+        return pass.readPending.pipe(
+          Effect.flatMap((messages) =>
+            offerPendingMessages(pendingOffer(input, pass), messages),
+          ),
+        );
+      }),
+    )
+    .pipe(Effect.tap(() => Queue.offer(input.admissionWake, undefined)));
+
+const admitItem = (
+  input: DeliveryContext,
+  environment: FirewallEnvironment,
+  entry: FirewallInboxEntry,
+) =>
+  Effect.gen(function* () {
+    const item = yield* decodeRuntimeValue(InboundItem, entry.canonicalItem);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const checked = yield* checkIncoming(environment, entry, attempt === 2);
+      const disposition = yield* input.store.admitFirewallItem(
+        {
+          deliveryToken: entry.deliveryToken,
+          canonicalItem: entry.canonicalItem,
+          ...(checked.guidance === undefined
+            ? {}
+            : {
+                canonicalGuidance: yield* encodeRuntimeValue(checked.guidance),
+              }),
+        },
+        checked.completion,
       );
-    }),
+      if (disposition === "stale") {
+        continue;
+      }
+      yield* input.state.gate.withPermits(1)(
+        disposition === "withheld"
+          ? forgetDelivery(input.state, entry.deliveryToken)
+          : Effect.sync(() =>
+              input.state.localItems.set(entry.deliveryToken, item),
+            ),
+      );
+      return;
+    }
+  });
+
+const drainAdmission = (input: DeliveryContext, publish: Effect.Effect<void>) =>
+  Effect.gen(function* () {
+    const environment = input.firewallEnvironment?.();
+    if (environment === undefined) {
+      return;
+    }
+    const entries = yield* input.store.readFirewallFrontiers();
+    for (const entry of entries) {
+      if (
+        input.activeConversations.size >=
+        environment.installed.configuration.maximumConcurrentChecks
+      ) {
+        return;
+      }
+      if (input.activeConversations.has(entry.conversation)) {
+        continue;
+      }
+      input.activeConversations.add(entry.conversation);
+      yield* admitItem(input, environment, entry).pipe(
+        Effect.zipRight(publish),
+        Effect.catchAllCause((cause) =>
+          Cause.isInterruptedOnly(cause)
+            ? Effect.failCause(cause)
+            : Deferred.failCause(input.admissionFailure, cause),
+        ),
+        Effect.ensuring(
+          Effect.sync(() =>
+            input.activeConversations.delete(entry.conversation),
+          ).pipe(Effect.zipRight(Queue.offer(input.admissionWake, undefined))),
+        ),
+        Effect.forkIn(input.scope),
+      );
+    }
+  });
+
+const runAdmission = (input: DeliveryContext, publish: Effect.Effect<void>) =>
+  Queue.take(input.admissionWake).pipe(
+    Effect.zipRight(drainAdmission(input, publish)),
+    Effect.forever,
+    Effect.raceFirst(Deferred.await(input.admissionFailure)),
   );
 
 /**
  * Recover the inbox left by the previous process, then build the service's
- * delivery over it.
+ * delivery over it. With a firewall, every runtime path reads the admitted view.
+ *
+ * ```mermaid
+ * flowchart LR
+ *   C[Certified message] --> Q[Private conversation queue]
+ *   Q --> F[Run full incoming middleware chain]
+ *   F --> A[Compare evidence and commit disposition]
+ *   A -->|admit| V[Inbox with original item and local guidance]
+ *   A -->|hold| H[Retain privately for owner review]
+ *   V --> R[Native subscription, read-event, inbox and webhook]
+ * ```
  * @param service The store, history export, active collective layer and service scope.
  * @returns The delivery state, the host operations and the webhook's inbox view.
  */
@@ -288,8 +469,11 @@ export const makeHostDelivery = (
     const input: DeliveryContext = {
       ...service,
       state: yield* makeDeliveryState,
+      admissionWake: yield* Queue.sliding<undefined>(1),
+      admissionFailure: yield* Deferred.make<never, EndpointStoreError>(),
+      activeConversations: new Set(),
     };
-    yield* recoverRuntimeInbox(input.store);
+    yield* recoverRuntimeInbox(input.store, input.firewall !== undefined);
     const invocations = yield* makeSendInvocations(
       input.store,
       sendOperation(input),
@@ -308,6 +492,8 @@ export const makeHostDelivery = (
       runPass: <E>(prepare: () => PassInput<E> | undefined) =>
         runPass(input, prepare),
       queueLocalItem: queueLocalItem(input),
+      runAdmission: (publish: Effect.Effect<void>) =>
+        runAdmission(input, publish),
       operations: Object.freeze({
         ...invocations,
         readInboxSummary: input.store.readInboxSummary,

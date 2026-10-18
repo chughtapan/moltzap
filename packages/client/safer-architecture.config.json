@@ -6,6 +6,10 @@
   ],
   "facadeFiles": [
     {
+      "file": "firewall/runtime.ts",
+      "reason": "Closed refusal and guidance schemas hosts decode without loading policy evaluation or provider clients"
+    },
+    {
       "file": "transport/wire/values.ts",
       "reason": "Addresses, post ids, content, and member limits hosts decode without loading signing, verification, or the Router client"
     },
@@ -36,6 +40,10 @@
     {
       "file": "transport/collectives/message-text.ts",
       "reason": "The message-text parser native hosts call, without loading the operation layer"
+    },
+    {
+      "file": "transport/collectives/render.ts",
+      "reason": "Complete message rendering shared by hosts and policy evidence without loading collective operations"
     },
     {
       "file": "delivery/operations.ts",
@@ -71,7 +79,8 @@
         "src/firewall"
       ],
       "entrypoints": [
-        "src/firewall/index.ts"
+        "src/firewall/index.ts",
+        "src/firewall/runtime.ts"
       ],
       "reason": "Message middleware and optional decision providers, without storage, host or protocol capabilities"
     },
@@ -139,7 +148,8 @@
         "src/transport/collectives/index.ts",
         "src/transport/collectives/forms.ts",
         "src/transport/collectives/inbound.ts",
-        "src/transport/collectives/message-text.ts"
+        "src/transport/collectives/message-text.ts",
+        "src/transport/collectives/render.ts"
       ],
       "reason": "Gather and all_gather carried in posts"
     },

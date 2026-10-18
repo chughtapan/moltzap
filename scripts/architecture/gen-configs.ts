@@ -134,7 +134,14 @@ const clientDomains: readonly ClientDomain[] = [
   {
     name: "firewall",
     root: "firewall",
-    entrypoints: ["index.ts"],
+    entrypoints: [
+      "index.ts",
+      {
+        file: "runtime.ts",
+        reason:
+          "Closed refusal and guidance schemas hosts decode without loading policy evaluation or provider clients",
+      },
+    ],
     reason:
       "Message middleware and optional decision providers, without storage, host or protocol capabilities",
   },
@@ -221,6 +228,11 @@ const clientDomains: readonly ClientDomain[] = [
         file: "message-text.ts",
         reason:
           "The message-text parser native hosts call, without loading the operation layer",
+      },
+      {
+        file: "render.ts",
+        reason:
+          "Complete message rendering shared by hosts and policy evidence without loading collective operations",
       },
     ],
     reason: "Gather and all_gather carried in posts",

@@ -2,12 +2,14 @@
 
 import { Effect, Encoding, Schema } from "effect";
 import { randomBytes } from "node:crypto";
+import { localGuidanceSchema } from "../firewall/runtime.js";
 import {
   decodeRuntimeValue,
   DeliveryToken,
   encodeRuntimeValue,
   type EndpointStore,
   EndpointStoreError,
+  type InboxEntry,
 } from "../store/index.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
 import {
@@ -38,6 +40,14 @@ export const readRuntimeEvent = (
     }
     return {
       item: yield* decodeRuntimeValue(InboundItem, retained.canonicalItem),
+      ...(retained.canonicalGuidance === undefined
+        ? {}
+        : {
+            guidance: yield* decodeRuntimeValue(
+              localGuidanceSchema,
+              retained.canonicalGuidance,
+            ),
+          }),
     };
   }).pipe(
     Effect.catchTag("ParseError", () =>
@@ -107,9 +117,20 @@ export const readRuntimeInbox = (
     const items = yield* Effect.forEach(
       page.items,
       (entry) =>
-        decodeRuntimeValue(InboundItem, entry.canonicalItem).pipe(
-          Effect.map((item) => ({ deliveryToken: entry.deliveryToken, item })),
-        ),
+        Effect.gen(function* () {
+          return {
+            deliveryToken: entry.deliveryToken,
+            item: yield* decodeRuntimeValue(InboundItem, entry.canonicalItem),
+            ...(entry.canonicalGuidance === undefined
+              ? {}
+              : {
+                  guidance: yield* decodeRuntimeValue(
+                    localGuidanceSchema,
+                    entry.canonicalGuidance,
+                  ),
+                }),
+          };
+        }),
       { concurrency: 1 },
     );
     if (page.nextAfter === undefined) {
@@ -141,36 +162,47 @@ const lostRequest = (
   error: `reply failed: MoltZap restarted, so the question from ${request.from} can no longer be answered; an answer already sent may or may not have arrived`,
 });
 
+const recoverRequest = Effect.fn("recoverRequest")(function* (
+  store: EndpointStore,
+  entry: InboxEntry,
+  withFirewall: boolean,
+) {
+  const item = yield* decodeRuntimeValue(InboundItem, entry.canonicalItem);
+  if (item.kind !== "collectiveRequest") {
+    return;
+  }
+  yield* store.replaceInboxItem(
+    entry.deliveryToken,
+    {
+      deliveryToken: yield* mintLocalDeliveryToken,
+      canonicalItem: yield* encodeRuntimeValue(lostRequest(item)),
+    },
+    withFirewall ? item.to : undefined,
+  );
+  yield* Effect.logWarning(
+    `collective request context lost at restart: ${item.id}`,
+  );
+});
+
 /**
  * Retire requests whose schema, address and answered state were process-local.
  * Results and failures retain their original delivery identity across restart.
  * @param store Daemon-owned endpoint persistence.
+ * @param withFirewall Whether replacements require private admission before visibility.
  * @returns Completion after each lost request has a separately identified failure.
  */
 export const recoverRuntimeInbox = (
   store: EndpointStore,
+  withFirewall = false,
 ): Effect.Effect<void, EndpointStoreError> =>
   Effect.gen(function* () {
+    if (withFirewall) {
+      yield* recoverPrivateRequests(store);
+    }
     let page = yield* store.readInbox();
     while (true) {
       for (const entry of page.items) {
-        const item = yield* decodeRuntimeValue(
-          InboundItem,
-          entry.canonicalItem,
-        );
-        if (item.kind !== "collectiveRequest") {
-          continue;
-        }
-        const failure = lostRequest(item);
-        const canonicalItem = yield* encodeRuntimeValue(failure);
-        const deliveryToken = yield* mintLocalDeliveryToken;
-        yield* store.replaceInboxItem(entry.deliveryToken, {
-          deliveryToken,
-          canonicalItem,
-        });
-        yield* Effect.logWarning(
-          `collective request context lost at restart: ${item.id}`,
-        );
+        yield* recoverRequest(store, entry, withFirewall);
       }
       if (page.nextAfter === undefined) {
         return;
@@ -181,3 +213,20 @@ export const recoverRuntimeInbox = (
       });
     }
   }).pipe(Effect.withSpan("recoverRuntimeInbox"));
+
+function recoverPrivateRequests(store: EndpointStore) {
+  return Effect.gen(function* () {
+    let after = 0;
+    while (true) {
+      const entries = yield* store.readPendingFirewallItems(after);
+      for (const entry of entries) {
+        yield* recoverRequest(store, entry, true);
+      }
+      const last = entries.at(-1);
+      if (last === undefined) {
+        return;
+      }
+      after = last.sequence;
+    }
+  });
+}

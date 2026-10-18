@@ -15,6 +15,7 @@ import {
   decodeHarnessSendErrorData,
   decodeHarnessSendResult,
 } from "../../delivery/operations.js";
+import { FirewallSendError } from "../../firewall/runtime.js";
 import {
   CollectiveError,
   type SendResult,
@@ -33,6 +34,8 @@ import {
   HARNESS_SEND_META_KEY,
   HARNESS_SEND_TOOL,
   INBOX_PENDING_EVENT,
+  MESSAGE_POLICY_CAPABILITY,
+  RUNTIME_REVISION_HEADER,
 } from "../mcp/names.js";
 import {
   ConnectError,
@@ -86,7 +89,9 @@ interface ReasonPayload {
  * @param cause Upstream rejection at the MCP tool boundary.
  * @returns A closed send failure without transport details.
  */
-function sendFailure(cause: unknown): SendError | CollectiveError {
+function sendFailure(
+  cause: unknown,
+): SendError | CollectiveError | FirewallSendError {
   if (!ProtocolError.isInstance(cause)) {
     return new SendError({
       reason: neverReachedDaemon(cause)
@@ -95,18 +100,23 @@ function sendFailure(cause: unknown): SendError | CollectiveError {
     });
   }
   return decodeHarnessSendErrorData(cause.data).pipe(
-    Effect.map((decoded) =>
-      "failure" in decoded
-        ? new CollectiveError({ id: decoded.id, failure: decoded.failure })
-        : new SendError({
-            reason: isReason(decoded.reason, sendFailureReasons)
-              ? decoded.reason
-              : "network-unavailable",
-            ...("detail" in decoded && decoded.detail !== undefined
-              ? { detail: decoded.detail }
-              : {}),
-          }),
-    ),
+    Effect.map((decoded) => {
+      if ("refusal" in decoded) {
+        return new FirewallSendError(decoded);
+      }
+      if ("failure" in decoded) {
+        return new CollectiveError({
+          id: decoded.id,
+          failure: decoded.failure,
+        });
+      }
+      return new SendError({
+        reason: isReason(decoded.reason, sendFailureReasons)
+          ? decoded.reason
+          : "network-unavailable",
+        ...(decoded.detail === undefined ? {} : { detail: decoded.detail }),
+      });
+    }),
     Effect.orElseSucceed(
       () => new SendError({ reason: "network-unavailable" }),
     ),
@@ -172,7 +182,7 @@ function isReason<Reason>(
 function callSend(
   client: Client,
   ...[input, options]: Parameters<HarnessEndpoint["send"]>
-): Effect.Effect<SendResult, SendError | CollectiveError> {
+): Effect.Effect<SendResult, SendError | CollectiveError | FirewallSendError> {
   return Effect.tryPromise({
     try: (signal) =>
       client.callTool(
@@ -300,13 +310,27 @@ function connect(
 ): Effect.Effect<Client, ConnectError> {
   return Effect.tryPromise({
     try: (signal) =>
-      client.connect(new StreamableHTTPClientTransport(endpoint), { signal }),
-    catch: () => new ConnectError({ reason: "transport-failed" }),
+      client.connect(
+        new StreamableHTTPClientTransport(endpoint, {
+          requestInit: { headers: { [RUNTIME_REVISION_HEADER]: "1" } },
+        }),
+        { signal },
+      ),
+    catch: (cause) =>
+      new ConnectError({
+        reason:
+          SdkHttpError.isInstance(cause) && cause.status === 409
+            ? "incompatible-daemon"
+            : "transport-failed",
+      }),
   }).pipe(
     Effect.flatMap(() =>
       supportsInboxEvents(client).pipe(
         Effect.flatMap((supported) =>
-          supported
+          supported &&
+          client.getServerCapabilities()?.experimental?.[
+            MESSAGE_POLICY_CAPABILITY
+          ]?.revision === 1
             ? Effect.succeed(client)
             : Effect.fail(new ConnectError({ reason: "incompatible-daemon" })),
         ),
@@ -339,7 +363,11 @@ const unseenDeliveries = (
     }
     seen.add(entry.deliveryToken);
     const acknowledge = callAcknowledgeDelivery(client, entry.deliveryToken);
-    deliveries.push({ item: entry.item, acknowledge });
+    deliveries.push({
+      item: entry.item,
+      acknowledge,
+      ...(entry.guidance === undefined ? {} : { guidance: entry.guidance }),
+    });
   }
   return deliveries;
 };

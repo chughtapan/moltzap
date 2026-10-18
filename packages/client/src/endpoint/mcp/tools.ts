@@ -42,6 +42,7 @@ import {
   readEventResultSchema,
   sendErrorData,
 } from "../../delivery/operations.js";
+import { FirewallSendError } from "../../firewall/runtime.js";
 import {
   authenticateHarnessRequest,
   type HarnessMcpCredentials,
@@ -61,6 +62,8 @@ import {
   HARNESS_READ_INBOX_TOOL,
   HARNESS_READ_SEND_TOOL,
   HARNESS_SEND_TOOL,
+  MESSAGE_POLICY_CAPABILITY,
+  RUNTIME_REVISION_HEADER,
 } from "./names.js";
 import {
   type ManagementReadConversationRequest,
@@ -139,6 +142,7 @@ export interface HarnessMcpEventHandler extends McpHttpHandler {
 }
 
 interface HarnessMcpHandlerOptions {
+  readonly requireRuntimeRevision?: boolean;
   readonly eventStore?: EventStore;
   readonly credentials?: HarnessMcpCredentials;
   readonly implementation: Implementation;
@@ -323,7 +327,10 @@ const runOperation = async <Value extends Readonly<Record<string, unknown>>>(
  */
 // #ignore-sloppy-code-next-line[async-keyword]: MCP tool handlers are Promise callbacks, so this edge awaits Effect before returning the SDK result.
 const runSendOperation = async (
-  operation: Effect.Effect<HarnessSendResult, SendError | CollectiveError>,
+  operation: Effect.Effect<
+    HarnessSendResult,
+    SendError | CollectiveError | FirewallSendError
+  >,
   signal: AbortSignal,
 ) => {
   const outcome = await Effect.runPromiseExit(operation, { signal });
@@ -334,7 +341,9 @@ const runSendOperation = async (
     });
     throw new ProtocolError(
       ProtocolErrorCode.InternalError,
-      "Operation send failed",
+      "refusal" in data
+        ? new FirewallSendError(data).message
+        : "Operation send failed",
       data,
     );
   }
@@ -819,7 +828,11 @@ const makeServer = (
   events: HarnessEvents,
   role: HarnessMcpRole,
 ): McpServer => {
-  const capabilities = { tools: {}, events: {} };
+  const capabilities = {
+    tools: {},
+    events: {},
+    experimental: { [MESSAGE_POLICY_CAPABILITY]: { revision: 1 } },
+  };
   const server = new McpServer(options.implementation, { capabilities });
   for (const name of currentTools(role, options.operations)) {
     const listing: ToolListing = toolListings[name];
@@ -860,15 +873,27 @@ const guardedHandler = (
   ...delegate,
   hasActiveSubscription: events.hasActiveSubscription,
   notifyPending: events.notifyPending,
-  fetch: (request, requestOptions) =>
-    authenticateHarnessRequest(request, options.credentials) === undefined
-      ? Promise.resolve(
-          new Response("Unauthorized", {
-            status: 401,
-            headers: { "www-authenticate": "Bearer" },
-          }),
-        )
-      : delegate.fetch(request, requestOptions),
+  fetch: (request, requestOptions) => {
+    const role = authenticateHarnessRequest(request, options.credentials);
+    if (role === undefined) {
+      return Promise.resolve(
+        new Response("Unauthorized", {
+          status: 401,
+          headers: { "www-authenticate": "Bearer" },
+        }),
+      );
+    }
+    if (
+      options.requireRuntimeRevision === true &&
+      role !== "owner" &&
+      request.headers.get(RUNTIME_REVISION_HEADER) !== "1"
+    ) {
+      return Promise.resolve(
+        new Response("Incompatible MoltZap runtime revision", { status: 409 }),
+      );
+    }
+    return delegate.fetch(request, requestOptions);
+  },
   close: () =>
     Effect.runPromise(
       events.close.pipe(

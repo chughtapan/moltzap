@@ -5,6 +5,8 @@ import type {
   CompletedReanchor,
   ConversationFoundation,
   EmptyConversationRestart,
+  FirewallCommit,
+  FirewallCompletion,
   IdentityBinding,
   PostIntent,
   PostIntentBinding,
@@ -25,6 +27,7 @@ import {
   StoreSignal,
   transaction,
 } from "./database/index.js";
+import { compareFirewallCheck } from "./firewall.js";
 import {
   findProposalLock,
   findStagedReanchor,
@@ -52,29 +55,30 @@ export function bindPostIntent(
   database: DatabaseSync,
   binding: PostIntentBinding,
 ): StoreMutation {
-  const intent = binding.intent;
-  requireText(intent.conversationId);
-  requireText(intent.membershipHash);
-  requireText(intent.authorAgentId);
-  requireText(intent.postId);
-  requireBytes(intent.canonicalIntent);
-  if (intent.completedRecordHash !== undefined) {
-    throw new StoreSignal("invalid-input");
-  }
-  if (binding.kind === "new-conversation") {
-    validateFoundation(binding.foundation);
-    requireEqual(binding.foundation.conversationId, intent.conversationId);
-    requireEqual(binding.foundation.membershipHash, intent.membershipHash);
-  }
+  validatePostIntentBinding(binding);
+  return transaction(database, () =>
+    bindIntentWithFoundation(database, binding),
+  );
+}
+
+/** An assessment cannot authorize different bytes or survive a changed evidence range. */
+export function bindCheckedPostIntent(
+  database: DatabaseSync,
+  binding: PostIntentBinding,
+  completion: FirewallCompletion,
+): FirewallCommit {
+  validatePostIntentBinding(binding);
   return transaction(database, () => {
-    const foundation =
-      binding.kind === "new-conversation"
-        ? putConversationFoundationInTransaction(database, binding.foundation)
-        : requireConversationFoundation(database, intent);
-    const postIntent = bindPostIntentInTransaction(database, intent);
-    return foundation === "inserted" || postIntent === "inserted"
-      ? "inserted"
-      : "existing";
+    const disposition = compareFirewallCheck(
+      database,
+      completion,
+      "outgoing",
+      binding.intent.canonicalIntent,
+    );
+    if (disposition === "admitted") {
+      bindIntentWithFoundation(database, binding);
+    }
+    return disposition;
   });
 }
 
@@ -238,6 +242,38 @@ export function applyCatchUpReanchor(
       ? "inserted"
       : "existing";
   });
+}
+
+function validatePostIntentBinding(binding: PostIntentBinding): void {
+  const intent = binding.intent;
+  requireText(intent.conversationId);
+  requireText(intent.membershipHash);
+  requireText(intent.authorAgentId);
+  requireText(intent.postId);
+  requireBytes(intent.canonicalIntent);
+  if (intent.completedRecordHash !== undefined) {
+    throw new StoreSignal("invalid-input");
+  }
+  if (binding.kind === "new-conversation") {
+    validateFoundation(binding.foundation);
+    requireEqual(binding.foundation.conversationId, intent.conversationId);
+    requireEqual(binding.foundation.membershipHash, intent.membershipHash);
+  }
+}
+
+function bindIntentWithFoundation(
+  database: DatabaseSync,
+  binding: PostIntentBinding,
+): StoreMutation {
+  const intent = binding.intent;
+  const foundation =
+    binding.kind === "new-conversation"
+      ? putConversationFoundationInTransaction(database, binding.foundation)
+      : requireConversationFoundation(database, intent);
+  const postIntent = bindPostIntentInTransaction(database, intent);
+  return foundation === "inserted" || postIntent === "inserted"
+    ? "inserted"
+    : "existing";
 }
 
 function validateProposalLock(proposal: ProposalLock): void {

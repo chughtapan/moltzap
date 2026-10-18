@@ -1,7 +1,6 @@
 /**
- * @file The process subpath exposes one constant discard Layer and one closed
- * startup error. These canaries keep private daemon configuration and runtime
- * services out of the package boundary.
+ * @file Process factories expose discard Layers and a closed startup error,
+ * keeping private daemon services outside the trusted composition boundary.
  */
 
 import type { Layer, Types } from "effect";
@@ -10,7 +9,10 @@ import type { MoltZapService } from "./index.js";
 type Expect<Value extends true> = Value;
 
 type NamespaceIsExact = Expect<
-  Types.Equals<keyof typeof MoltZapService, "StartupError" | "layer">
+  Types.Equals<
+    keyof typeof MoltZapService,
+    "StartupError" | "layer" | "withFirewall"
+  >
 >;
 type StartupValue = InstanceType<typeof MoltZapService.StartupError>;
 type StartupTagIsExact = Expect<

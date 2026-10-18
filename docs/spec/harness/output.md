@@ -55,6 +55,18 @@ receipt, proof, record hash, signer map, or protocol state.
 
 ## Stock host projection
 
+With the experimental [message firewall](./message-policy.md), a multicast is
+checked after exact membership resolution and before intent creation. The
+evidence revision comparison, retained assessment and intent binding commit
+atomically. One stale capture is checked again; another is held in enforcement mode.
+Guidance mode records that hold and allows the original send without stale advice. Inference
+holds neither the SQLite transaction nor the engine/delivery lock.
+`FirewallSendError` returns a retained check reference and permitted feedback
+on the original send call, including when `failureDelivery` is `inbound`.
+Same-key retries replay this refusal; a revision requires a new invocation.
+Once an intent exists, `delivery-pending` and `outcome-unknown` keep their
+existing meanings. A policy result never retroactively calls that send unsent.
+
 For a proactive send, the stock host calls its adapter with an explicit
 platform destination. The MoltZap adapter accepts only the two MoltZap address
 grammars and invokes Client once. OpenClaw's reply-delivery callback withholds
@@ -144,6 +156,8 @@ error whose data is `{reason, detail?}` with the `SendError` reason and
 detail, or
 `{reason: "collective-failed", id, failure}` with the `CollectiveError`
 failure, from which the loopback Client rebuilds the same typed error. A send
+may also return `{reason: "firewall-refused", checkId, refusal, feedback}`,
+which reconstructs `FirewallSendError` without exposing private evidence. A send
 that ends without a typed failure, or whose completed result fails the tool's
 output schema, answers `outcome-unknown`. It is
 not exposed as a second model messaging tool when the host already supplies
@@ -152,7 +166,7 @@ native messaging.
 ## Failures and tests
 
 Failures map one-for-one to `HarnessEndpoint`'s closed `SendError` reasons and
-`CollectiveError` failures.
+`CollectiveError` failures and `FirewallSendError` refusals.
 Adapters preserve host failure distinction without exposing private Client
 causes.
 

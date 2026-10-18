@@ -37,7 +37,7 @@ import {
   hashRecord,
   MembershipDescriptor,
   mintPostId,
-  type PostIntent,
+  PostIntent,
   type RecordCore,
   type RecordHash,
   signEvidenceMessage,
@@ -106,7 +106,7 @@ export const buildCertifiedGenesis = (
  * Keep a certified GENESIS record in `local`'s store as its endpoint does:
  * bind the local identity, lock the GENESIS proposal with the conversation's
  * membership and genesis anchor, then keep the record row, with one evidence
- * row per signer, and the remote author's post as the local delivery.
+ * row per signer. A remote author's post also becomes a local delivery.
  * @param store The endpoint store to write.
  * @param local The card of the agent whose store this is.
  * @param membership The record's verified membership.
@@ -125,6 +125,7 @@ export const storeCertifiedGenesis = (
       canonicalAgentCard: yield* encodeCanonical(AgentCard, local),
     });
     yield* lockGenesis(store, membership, record);
+    yield* bindLocalIntent(store, local, membership, record);
     yield* store.applyCertifiedRecord(
       yield* storedRecordRow(record),
       yield* remotePost(local, membership, record),
@@ -389,7 +390,7 @@ function remotePost(
 ) {
   const certified = record.actionCertifiedRecord;
   if (certified.recordCore.action.postIntent.authorAgentId === local.agentId) {
-    return Effect.dieMessage("expected a remote-authored record");
+    return Effect.succeed(undefined);
   }
   return inboundDelivery(
     {
@@ -423,4 +424,29 @@ function misattributeRecordEvidence(
       misattributeEvidence(evidence, signer, claimed),
     ),
   };
+}
+
+/** Locally certified posts must first have an immutable intent, as the engine requires. */
+function bindLocalIntent(
+  store: EndpointStore,
+  local: VerifiedAgentCard,
+  membership: VerifiedMembership,
+  record: CertifiedRecord,
+) {
+  return Effect.gen(function* () {
+    const intent = record.actionCertifiedRecord.recordCore.action.postIntent;
+    if (intent.authorAgentId !== local.agentId) {
+      return;
+    }
+    yield* store.bindPostIntent({
+      kind: "existing-conversation",
+      intent: {
+        conversationId: membership.descriptor.conversationId,
+        membershipHash: membership.hash,
+        authorAgentId: intent.authorAgentId,
+        postId: intent.postId,
+        canonicalIntent: yield* encodeCanonical(PostIntent, intent),
+      },
+    });
+  });
 }

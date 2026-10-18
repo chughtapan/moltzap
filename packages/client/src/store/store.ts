@@ -4,6 +4,7 @@ import { Effect, type Scope } from "effect";
 import type { EndpointStore } from "./types.js";
 import {
   applyCatchUpReanchor,
+  bindCheckedPostIntent,
   bindIdentity,
   bindPostIntent,
   completeReanchor,
@@ -22,6 +23,15 @@ import {
   type StoreOpening,
   type StoreState,
 } from "./database/index.js";
+import {
+  admitFirewallItem,
+  beginFirewallAttempt,
+  finishFirewallAttempt,
+  queueFirewallItem,
+  readFirewallEvidence,
+  readFirewallFrontiers,
+  readPendingFirewallItems,
+} from "./firewall.js";
 import {
   acknowledgeInboxItem,
   beginSendAttempt,
@@ -102,8 +112,36 @@ function makeEndpointStore(state: StoreState): EndpointStore {
     ...makeTransportOperations(state, run),
     ...makeManagementOperations(state, run),
     ...makeInboxOperations(state, run),
+    ...makeFirewallOperations(state, run),
   };
   return Object.freeze(store);
+}
+
+function makeFirewallOperations(state: StoreState, run: StoreRunner) {
+  return {
+    queueFirewallItem: (item) =>
+      run(() => {
+        queueFirewallItem(state.database, item);
+      }),
+    readFirewallFrontiers: () =>
+      run(() => readFirewallFrontiers(state.database)),
+    readPendingFirewallItems: (after) =>
+      run(() => readPendingFirewallItems(state.database, after)),
+    readFirewallEvidence: (input) =>
+      run(() => readFirewallEvidence(state.database, input)),
+    beginFirewallAttempt: (attempt) =>
+      run(() => {
+        beginFirewallAttempt(state.database, attempt);
+      }),
+    finishFirewallAttempt: (completion) =>
+      run(() => {
+        finishFirewallAttempt(state.database, completion);
+      }),
+    admitFirewallItem: (item, completion) =>
+      run(() => admitFirewallItem(state.database, item, completion)),
+    bindCheckedPostIntent: (binding, completion) =>
+      run(() => bindCheckedPostIntent(state.database, binding, completion)),
+  } satisfies Partial<EndpointStore>;
 }
 
 function makeInboxOperations(state: StoreState, run: StoreRunner) {
@@ -120,9 +158,21 @@ function makeInboxOperations(state: StoreState, run: StoreRunner) {
       run(() => {
         acknowledgeInboxItem(state.database, token);
       }),
-    replaceInboxItem: (token, replacement) =>
+    replaceInboxItem: (token, replacement, pendingConversation) =>
       run(() => {
-        replaceInboxItem(state.database, token, replacement);
+        replaceInboxItem(
+          state.database,
+          token,
+          replacement,
+          pendingConversation === undefined
+            ? undefined
+            : () => {
+                queueFirewallItem(state.database, {
+                  ...replacement,
+                  conversation: pendingConversation,
+                });
+              },
+        );
       }),
     beginSendAttempt: (key, input) =>
       run(() => beginSendAttempt(state.database, key, input)),

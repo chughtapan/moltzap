@@ -5,6 +5,7 @@
 
 import { AgentCard, AgentSigningAuthority } from "@moltzap/identity";
 import { Data, Deferred, Duration, Effect, Schema, type Scope } from "effect";
+import type { FirewallSendError } from "../../firewall/runtime.js";
 import type { DeliveryToken, EndpointStoreError } from "../../store/index.js";
 import type {
   RouterDiscontinuityReason,
@@ -48,6 +49,8 @@ import {
 import {
   type EngineSendInput,
   type EngineSentPost,
+  prepareCheckedSend,
+  type PreparedSendCheck,
   prepareSend,
   proposeIntent,
   resolveAddress,
@@ -93,6 +96,11 @@ export interface EnginePendingMessage {
 
 /** Stable private engine capability consumed by daemon composition. */
 export interface EndpointEngine {
+  /** Application inference completes outside protocol locks, before atomic intent binding. */
+  readonly sendChecked: (
+    input: EngineSendInput,
+    check: PreparedSendCheck,
+  ) => Effect.Effect<EngineSentPost, SendError | FirewallSendError>;
   /** Completes once the minted post's certified record is stored locally. */
   readonly send: (
     input: EngineSendInput,
@@ -320,15 +328,14 @@ const LOCAL_DRAIN_TIMEOUT = Duration.seconds(10);
  * the post, and any other stops the daemon, whose recovery resumes the post
  * when it restarts.
  * @param runtime The engine that sends.
- * @param input The post's address and content.
+ * @param prepared The durable post identity and its certified completion.
  * @returns The post's id and certified record hash.
  */
-const send = (
+const finishPreparedSend = (
   runtime: EngineRuntime,
-  input: EngineSendInput,
-): Effect.Effect<EngineSentPost, SendError> =>
+  prepared: Effect.Effect.Success<ReturnType<typeof prepareSend>>,
+) =>
   Effect.gen(function* () {
-    const prepared = yield* prepareSend(runtime, input);
     yield* runtime.outbox.drain.pipe(
       Effect.timeout(LOCAL_DRAIN_TIMEOUT),
       // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Every drain failure, the timeout included, leaves the post queued and still delivered, as this function's JSDoc explains.
@@ -336,6 +343,15 @@ const send = (
     );
     const recordHash = yield* Deferred.await(prepared.completion);
     return { postId: prepared.postId, recordHash };
+  });
+
+const send = (
+  runtime: EngineRuntime,
+  input: EngineSendInput,
+): Effect.Effect<EngineSentPost, SendError> =>
+  Effect.gen(function* () {
+    const prepared = yield* prepareSend(runtime, input);
+    return yield* finishPreparedSend(runtime, prepared);
   }).pipe(Effect.withSpan("EndpointEngine.send"));
 
 const readPendingMessages = (
@@ -516,6 +532,10 @@ const abandonVolatileFolds = (
 
 const endpointEngine = (runtime: EngineRuntime): EndpointEngine =>
   Object.freeze({
+    sendChecked: (input: EngineSendInput, check: PreparedSendCheck) =>
+      prepareCheckedSend(runtime, input, check).pipe(
+        Effect.flatMap((prepared) => finishPreparedSend(runtime, prepared)),
+      ),
     send: (sendInput: Parameters<EndpointEngine["send"]>[0]) =>
       send(runtime, sendInput),
     resolveAddress: (to: Parameters<EndpointEngine["resolveAddress"]>[0]) =>

@@ -47,6 +47,14 @@ reply route do not define OpenClaw's guarantees.
 
 ## Adapter messaging
 
+The experimental [message firewall](./message-policy.md) attaches local guidance
+to an admitted delivery. OpenClaw projects it through the stock `bodyForAgent`
+surface, clearly separates it from quoted peer content, and preserves `rawBody`.
+The existing send callback propagates `FirewallSendError` as a tool error, so
+the model can author a revision through a new explicit send. It does not rewrite
+or retry the refused draft. Model-prompt and repair claims require a real-host
+qualification run; callback tests establish only the adapter projection.
+
 A proactive outbound callback supplies one syntactically valid Client
 `MessageAddressInput` and one message text, and becomes one Client operation:
 the text read by Client's `parseMessageText`, multicast unless the whole text

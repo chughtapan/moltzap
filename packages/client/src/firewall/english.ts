@@ -263,16 +263,7 @@ export const makeEnglishPolicy = Effect.fn("makeEnglishPolicy")(
     if (new Set(rules.map((rule) => rule.id)).size !== rules.length) {
       return yield* new CheckInputError({ reason: "registration" });
     }
-    const descriptions = yield* Schema.decodeUnknown(
-      Schema.Array(RuleDescription),
-    )(rules).pipe(
-      Effect.flatMap((value) =>
-        decodeFrozen(Schema.Array(RuleDescription), value),
-      ),
-      Effect.catchTag("ParseError", () =>
-        Effect.fail(new CheckInputError({ reason: "registration" })),
-      ),
-    );
+    const descriptions = yield* ruleDescriptions(rules);
     const revision = englishRevision(rules, settings);
     const provider = Object.freeze({
       decide: options.provider.decide.bind(options.provider),
@@ -281,11 +272,39 @@ export const makeEnglishPolicy = Effect.fn("makeEnglishPolicy")(
       id,
       revision,
       rules: descriptions,
+      provenance: englishProvenance(rules, settings, options.provider),
       check: (input: MiddlewareInput) =>
         checkEnglish(input, { rules, revision }, provider, settings),
     });
   },
 );
+
+function ruleDescriptions(rules: readonly EnglishRule[]) {
+  return Schema.decodeUnknown(Schema.Array(RuleDescription))(rules).pipe(
+    Effect.flatMap((value) =>
+      decodeFrozen(Schema.Array(RuleDescription), value),
+    ),
+    Effect.catchTag("ParseError", () =>
+      Effect.fail(new CheckInputError({ reason: "registration" })),
+    ),
+  );
+}
+
+function englishProvenance(
+  rules: readonly EnglishRule[],
+  settings: EnglishPolicySettings,
+  provider: DecisionProvider,
+) {
+  return Object.freeze({
+    format: "moltzap.english-policy.v1",
+    data: JSON.stringify({
+      questionEdition,
+      rules,
+      settings,
+      provider: provider.provenance ?? null,
+    }),
+  });
+}
 
 function englishRevision(
   rules: readonly EnglishRule[],
