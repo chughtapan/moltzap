@@ -156,7 +156,7 @@ export type DirectMessage = typeof directMessage.Type;
 
 One certified remote-authored direct message.
 
-### [`FirewallSendError`](./firewall/runtime.ts#L67)
+### [`FirewallSendError`](./firewall/runtime.ts#L68)
 
 _Class_
 
@@ -166,13 +166,14 @@ export class FirewallSendError extends Data.TaggedError("FirewallSendError")<
 > {
   override get message(): string {
     const feedback = this.feedback.map((item) => item.text).join(" ");
-    const description = `send withheld: ${refusalText[this.refusal]}.`;
+    const description = `send withheld (check ${this.checkId}): ${refusalText[this.refusal]}.`;
     return feedback.length === 0 ? description : `${description} ${feedback}`;
   }
 }
 ```
 
 A refusal is returned only before an application invocation creates any intent.
+Its opaque check reference survives hosts that retain only the error message.
 
 ### [`GroupAddress (type)`](./transport/wire/values.ts#L251)
 
@@ -411,7 +412,7 @@ export class ListenError extends Data.TaggedError("ListenError")<{
 
 The endpoint's sole inbound subscription failed.
 
-### [`LocalGuidance`](./firewall/runtime.ts#L38)
+### [`LocalGuidance`](./firewall/runtime.ts#L36)
 
 _TypeAlias_
 
@@ -614,11 +615,11 @@ What a completed send returns: a collecting operation names its id.
 
 ### `@moltzap/client/service`
 
-#### [`MoltZapService`](./service/index.ts#L56)
+#### [`MoltZapService`](./service/index.ts#L61)
 
 _Namespace_
 
-#### [`MoltZapService.StartupError`](./service/index.ts#L61)
+#### [`MoltZapService.StartupError`](./service/index.ts#L72)
 
 _Class_
 
@@ -640,17 +641,23 @@ _Class_
 
 Closed daemon startup phase without configuration or platform detail.
 
-#### [`MoltZapService.FirewallOptions`](./service/index.ts#L58)
+#### [`MoltZapService.FirewallOptions`](./service/index.ts#L63)
 
 _TypeAlias_
 
 ```ts
-  export type FirewallOptions = InstalledFirewallOptions;
+  export type FirewallOptions = InstalledFirewallOptions & {
+    /**
+     * Dedicated file and adjacent `.partial` staging name for this endpoint's
+     * state directory, privately owned by the daemon and published on shutdown.
+     */
+    readonly auditExport?: string;
+  };
 ```
 
 Trusted fixed process composition; agents receive no policy mutation capability.
 
-#### [`MoltZapService.layer`](./service/index.ts#L116)
+#### [`MoltZapService.layer`](./service/index.ts#L129)
 
 _Variable_
 
@@ -662,7 +669,7 @@ _Variable_
 
 Complete production process composition for `moltzapd`.
 
-#### [`MoltZapService.withFirewall`](./service/index.ts#L125)
+#### [`MoltZapService.withFirewall`](./service/index.ts#L138)
 
 _Function_
 
@@ -993,6 +1000,63 @@ export class RuleDescription extends Schema.Class<RuleDescription>(
 
 Runtime advice can only select templates registered by trusted composition.
 
+#### [`MoltZapService.FirewallAuditRecord (type)`](./delivery/firewall-values.ts#L161)
+
+_TypeAlias_
+
+```ts
+export type FirewallAuditRecord = typeof FirewallAuditRecord.Type;
+```
+
+Completion verifies the snapshot, not completion or delivery of each attempt.
+
+#### [`MoltZapService.FirewallAuditRecord (value)`](./delivery/firewall-values.ts#L126)
+
+_Variable_
+
+```ts
+export const FirewallAuditRecord = Schema.Union(
+  exactStruct({
+    kind: Schema.Literal("start"),
+    format,
+    snapshotId,
+    startedAt: Schema.DateTimeUtc,
+  }),
+  exactStruct({
+    kind: Schema.Literal("check"),
+    checkId: Schema.NonEmptyString,
+    direction: Schema.Literal("incoming", "outgoing"),
+    revision: Schema.NonNegativeInt,
+    disposition: Schema.Literal(
+      "checking",
+      "interrupted",
+      "stale",
+      "admitted",
+      "withheld",
+      "observed",
+    ),
+    post: Schema.NullOr(firewallAuditPost),
+    candidate: Schema.Uint8ArrayFromBase64,
+    input: firewallAuditInput,
+    result: Schema.NullOr(firewallAuditResult),
+  }),
+  exactStruct({
+    kind: Schema.Literal("complete"),
+    format,
+    snapshotId,
+    checkCount: Schema.NonNegativeInt,
+    sha256: digest,
+  }),
+).annotations({ identifier: "FirewallAuditRecord" })
+```
+
+One NDJSON record in an operator-only shutdown snapshot. A complete file has
+one start, every retained check, and one matching complete record. Its digest
+covers exactly the UTF-8 check lines including their trailing newlines.
+Candidate bytes are opaque canonical Client data, encoded as base64. A null
+result or checking/interrupted disposition never represents permission.
+The nullable post reference identifies supported messages without decoding candidate bytes.
+
 #### [`MoltZapService.makeEnglishPolicy`](./firewall/english.ts#L237)
 
 _Variable_
@@ -1057,7 +1121,7 @@ flowchart TD
   C --> R[Return all findings and private stage trace]
 ```
 
-#### [`MoltZapService.makeFirewall`](./firewall/index.ts#L59)
+#### [`MoltZapService.makeFirewall`](./firewall/index.ts#L61)
 
 _Variable_
 
@@ -1119,6 +1183,9 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 
 ## Files
 
+- `delivery/firewall-audit-file.ts`
+- `delivery/firewall-audit.ts`
+- `delivery/firewall-values.ts`
 - `delivery/firewall.ts`
 - `delivery/history-export.ts`
 - `delivery/host-delivery.ts`

@@ -8,9 +8,7 @@ const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
   });
 
 /** An opaque local assessment reference conveys no approval or lookup authority. */
-const checkIdSchema = Schema.String.pipe(
-  Schema.pattern(/^chk_[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u),
-);
+const checkIdSchema = Schema.String.pipe(Schema.pattern(/^chk_[a-f0-9]{64}$/u));
 
 /** Only registered instructions and runtime-visible subjects cross into a host. */
 export const localGuidanceSchema = exactStruct({
@@ -63,13 +61,16 @@ const refusalText = {
   "approval-required": "this message requires owner approval",
 } as const;
 
-/** A refusal is returned only before an application invocation creates any intent. */
+/**
+ * A refusal is returned only before an application invocation creates any intent.
+ * Its opaque check reference survives hosts that retain only the error message.
+ */
 export class FirewallSendError extends Data.TaggedError("FirewallSendError")<
   typeof firewallRefusalSchema.Type
 > {
   override get message(): string {
     const feedback = this.feedback.map((item) => item.text).join(" ");
-    const description = `send withheld: ${refusalText[this.refusal]}.`;
+    const description = `send withheld (check ${this.checkId}): ${refusalText[this.refusal]}.`;
     return feedback.length === 0 ? description : `${description} ${feedback}`;
   }
 }

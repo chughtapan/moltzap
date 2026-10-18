@@ -857,7 +857,7 @@ describe("Harness MCP HTTP boundary", () => {
     MCP_TRACE_TIMEOUT_MS,
   );
   it(
-    "reads an acknowledged event through the SDK without redelivery",
+    "reads an acknowledged event with its guidance without redelivery",
     readsRetainedEventThroughSdk,
   );
   it(
@@ -902,7 +902,7 @@ describe("Harness MCP HTTP boundary", () => {
 function preservesFirewallRefusal() {
   return Effect.gen(function* () {
     const refusal = new FirewallSendError({
-      checkId: digest("chk_", 31),
+      checkId: `chk_${"1f".repeat(32)}`,
       refusal: "norm-violation",
       feedback: [{ nextAction: "revise", text: "Include Carol in the reply." }],
     });
@@ -914,6 +914,7 @@ function preservesFirewallRefusal() {
     const error = yield* Effect.flip(endpoint.send(sendInput));
     expect(error).toBeInstanceOf(FirewallSendError);
     expect(error.message).toBe(refusal.message);
+    expect(error.message).toContain(refusal.checkId);
     expect(error).toMatchObject({
       checkId: refusal.checkId,
       feedback: refusal.feedback,
@@ -923,7 +924,7 @@ function preservesFirewallRefusal() {
 
 describe("a refused send across the daemon boundary", () => {
   it(
-    "preserves the typed firewall refusal and feedback through MCP",
+    "preserves the typed firewall refusal and check reference through MCP",
     preservesFirewallRefusal,
   );
   it(

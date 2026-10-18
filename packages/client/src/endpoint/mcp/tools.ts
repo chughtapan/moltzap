@@ -53,6 +53,7 @@ import {
   makeHarnessEvents,
   makeWebhookEvents,
   runEventOperation,
+  runRequest,
   webhookHttpClientLayer,
   webhookStatusJsonSchema,
 } from "./events.js";
@@ -156,6 +157,7 @@ interface RunOperationOptions<Value extends Readonly<Record<string, unknown>>> {
   readonly allowedReasons: ReadonlySet<string>;
   readonly fallbackReason: string;
   readonly signal: AbortSignal;
+  readonly requestScope: Scope.CloseableScope;
 }
 
 const makeStandardSchema = <Value>(jsonSchema: unknown) =>
@@ -286,9 +288,11 @@ const decodeToolInput = async <Value>(
 const runOperation = async <Value extends Readonly<Record<string, unknown>>>(
   options: RunOperationOptions<Value>,
 ) => {
-  const outcome = await Effect.runPromiseExit(options.operation, {
-    signal: options.signal,
-  });
+  const outcome = await runRequest(
+    options.operation,
+    options.signal,
+    options.requestScope,
+  );
   if (Exit.isFailure(outcome)) {
     const expectedFailure = Option.match(Cause.dieOption(outcome.cause), {
       onNone: () => Cause.failureOption(outcome.cause),
@@ -320,6 +324,7 @@ const runOperation = async <Value extends Readonly<Record<string, unknown>>>(
  * its post, so it answers `outcome-unknown`.
  * @param operation A multicast, collective send or collective response.
  * @param signal The request's abort signal, which interrupts the send.
+ * @param requestScope The handler lifetime that joins request finalizers before closing.
  * @returns The send's tool result.
  */
 // #ignore-sloppy-code-next-line[async-keyword]: MCP tool handlers are Promise callbacks, so this edge awaits Effect before returning the SDK result.
@@ -329,8 +334,9 @@ const runSendOperation = async (
     SendError | CollectiveError | FirewallSendError
   >,
   signal: AbortSignal,
+  requestScope: Scope.CloseableScope,
 ) => {
-  const outcome = await Effect.runPromiseExit(operation, { signal });
+  const outcome = await runRequest(operation, signal, requestScope);
   if (Exit.isFailure(outcome)) {
     const data = Option.match(Cause.failureOption(outcome.cause), {
       onNone: (): HarnessSendErrorData => ({ reason: "outcome-unknown" }),
@@ -488,6 +494,7 @@ interface ToolCallInput {
   readonly toolArguments: unknown;
   readonly metadata: unknown;
   readonly signal: AbortSignal;
+  readonly requestScope: Scope.CloseableScope;
 }
 
 const toolNotFound = (name: string): never => {
@@ -519,6 +526,7 @@ const handleStatusToolCall = async (
     allowedReasons: STATUS_REASONS,
     fallbackReason: "incompatible-daemon",
     signal: input.signal,
+    requestScope: input.requestScope,
   });
 };
 
@@ -538,6 +546,7 @@ const handleRegistrationToolCall = async (
     allowedReasons: REGISTER_REASONS,
     fallbackReason: "dependency-unavailable",
     signal: input.signal,
+    requestScope: input.requestScope,
   });
 };
 
@@ -557,6 +566,7 @@ const handleSearchAgentsToolCall = async (
     allowedReasons: SEARCH_AGENTS_REASONS,
     fallbackReason: "dependency-unavailable",
     signal: input.signal,
+    requestScope: input.requestScope,
   });
 };
 
@@ -576,6 +586,7 @@ const handleSearchConversationsToolCall = async (
     allowedReasons: SEARCH_CONVERSATIONS_REASONS,
     fallbackReason: "persistence-failed",
     signal: input.signal,
+    requestScope: input.requestScope,
   });
 };
 
@@ -595,12 +606,14 @@ const handleReadConversationToolCall = async (
     allowedReasons: READ_CONVERSATION_REASONS,
     fallbackReason: "persistence-failed",
     signal: input.signal,
+    requestScope: input.requestScope,
   });
 };
 
 const decodeInvocationInput = <A>(
   input: Effect.Effect<A, ParseResult.ParseError>,
   signal: AbortSignal,
+  requestScope: Scope.CloseableScope,
 ) =>
   runEventOperation(
     input.pipe(
@@ -613,6 +626,7 @@ const decodeInvocationInput = <A>(
       ),
     ),
     signal,
+    requestScope,
   );
 
 /**
@@ -631,6 +645,7 @@ const handleSendToolCall = async (
   const decoded = await decodeInvocationInput(
     decodeHarnessSendCall(input.toolArguments, input.metadata),
     input.signal,
+    input.requestScope,
   );
   const send = operations
     .send(decoded)
@@ -641,7 +656,7 @@ const handleSendToolCall = async (
     );
   return await validateToolOutput(
     sendOutput,
-    await runSendOperation(send, input.signal),
+    await runSendOperation(send, input.signal, input.requestScope),
     input.name,
   );
 };
@@ -664,6 +679,7 @@ const handleAcknowledgeDeliveryToolCall = async (
     allowedReasons: ACKNOWLEDGE_DELIVERY_REASONS,
     fallbackReason: "transport-failed",
     signal: input.signal,
+    requestScope: input.requestScope,
   });
 };
 
@@ -680,6 +696,7 @@ const handleReadEventToolCall = async (
     allowedReasons: RUNTIME_READ_REASONS,
     fallbackReason: "persistence-failed",
     signal: input.signal,
+    requestScope: input.requestScope,
   });
 
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
@@ -695,6 +712,7 @@ const handleReadInboxToolCall = async (
     allowedReasons: RUNTIME_READ_REASONS,
     fallbackReason: "persistence-failed",
     signal: input.signal,
+    requestScope: input.requestScope,
   });
 
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits argument decoding and the Promise-native operation bridge.
@@ -707,17 +725,20 @@ const handleReadSendToolCall = async (
       await decodeInvocationInput(
         decodeHarnessReadSendRequest(input.toolArguments),
         input.signal,
+        input.requestScope,
       ),
     ),
     label: "Send lookup",
     allowedReasons: RUNTIME_READ_REASONS,
     fallbackReason: "persistence-failed",
     signal: input.signal,
+    requestScope: input.requestScope,
   });
 
 /** The operations a tool call runs: the daemon's and the event subscription's. */
 interface ToolOperations extends HarnessMcpOperations {
   readonly events: HarnessEvents;
+  readonly requestScope: Scope.CloseableScope;
 }
 
 // #ignore-sloppy-code-next-line[async-keyword]: The MCP edge validates its Promise-native tool schema before running the owner operation.
@@ -726,7 +747,9 @@ const handleOwnerOperation = async (
   input: ToolCallInput,
 ) => {
   await decodeToolInput(emptyInput, input.toolArguments, input.name);
-  return toolResult(await runEventOperation(operation, input.signal));
+  return toolResult(
+    await runEventOperation(operation, input.signal, input.requestScope),
+  );
 };
 
 /** Serves one admitted call of the tool it is keyed by in `toolHandlers`. */
@@ -801,6 +824,7 @@ const installToolCallHandler = (
       toolArguments: request.params.arguments ?? {},
       metadata: context.mcpReq._meta,
       signal: context.mcpReq.signal,
+      requestScope: operations.requestScope,
     };
     return handleToolCall(input, operations, role);
   });
@@ -808,9 +832,11 @@ const installToolCallHandler = (
 const runtimeOperations = (
   operations: HarnessMcpOperations,
   events: HarnessEvents,
+  requestScope: Scope.CloseableScope,
 ): ToolOperations => ({
   ...operations,
   events,
+  requestScope,
   acknowledgeDelivery: (token) =>
     operations
       .acknowledgeDelivery(token)
@@ -824,6 +850,7 @@ const makeServer = (
   options: HarnessMcpHandlerOptions,
   events: HarnessEvents,
   role: HarnessMcpRole,
+  requestScope: Scope.CloseableScope,
 ): McpServer => {
   const capabilities = {
     tools: {},
@@ -836,7 +863,7 @@ const makeServer = (
   }
   installToolCallHandler(
     server,
-    runtimeOperations(options.operations, events),
+    runtimeOperations(options.operations, events, requestScope),
     role,
   );
   events.install(server.server, role === "local" ? undefined : role);
@@ -845,6 +872,7 @@ const makeServer = (
 const officialHandler = (
   options: HarnessMcpHandlerOptions,
   events: HarnessEvents,
+  requestScope: Scope.CloseableScope,
 ) =>
   createMcpHandler(
     (context) => {
@@ -856,7 +884,7 @@ const officialHandler = (
       if (role === undefined) {
         throw new ProtocolError(-32012, "Authentication required");
       }
-      return makeServer(options, events, role);
+      return makeServer(options, events, role, requestScope);
     },
     { legacy: "reject", responseMode: "auto", onerror: options.onerror },
   );
@@ -923,7 +951,7 @@ const acquireHandler = (
     });
     return guardedHandler(
       options,
-      officialHandler(options, events),
+      officialHandler(options, events, scope),
       events,
       scope,
     );

@@ -11,16 +11,13 @@ import type {
 import type { EndpointEngine } from "../transport/messaging/index.js";
 import {
   CheckInputError,
-  decodeFrozen,
   type Firewall,
   type FirewallCheck,
-  FirewallSettings,
+  type FirewallSettings,
   makeFirewall,
   Message,
   MessageContext,
   type MessageMiddleware,
-  PrivateCheckTrace,
-  RuleDescription,
 } from "../firewall/index.js";
 import { FirewallSendError, type LocalGuidance } from "../firewall/runtime.js";
 import {
@@ -50,6 +47,13 @@ import {
   RecordCore,
   type VerifiedMembership,
 } from "../transport/wire/index.js";
+import {
+  decodeFirewallConfiguration,
+  decodeFirewallInstallation,
+  decodeFirewallRegistration,
+  type FirewallConfiguration,
+  type FirewallInstallation,
+} from "./firewall-values.js";
 
 // safer-arch-ignore file-implicit-boundary-module: Delivery composition and its admission worker share one immutable installation and evidence pipeline; this private implementation is exposed only through delivery/index.ts.
 
@@ -65,35 +69,14 @@ export interface FirewallOptions {
   readonly maximumConcurrentChecks?: number;
 }
 
-const configurationSchema = Schema.Struct({
-  mode: Schema.Literal("guidance", "enforcement"),
-  facts: MessageContext.fields.facts,
-  codeDigest: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u)),
-  maximumHistoryRecords: Schema.Int.pipe(Schema.between(1, 1024)),
-  maximumConcurrentChecks: Schema.Int.pipe(Schema.between(1, 32)),
-});
-
 /** Private immutable installation with one inference limit shared by both directions. */
 export interface InstalledFirewall {
-  readonly configuration: typeof configurationSchema.Type;
+  readonly configuration: FirewallConfiguration;
   readonly configurationDigest: string;
-  readonly metadata: typeof installationSchema.Type;
+  readonly metadata: FirewallInstallation;
   readonly firewall: Firewall;
   readonly permits: Effect.Semaphore;
 }
-
-const registrationSchema = Schema.Struct({
-  id: Schema.NonEmptyTrimmedString,
-  revision: Schema.NonEmptyTrimmedString,
-  rules: Schema.Array(RuleDescription),
-  provenance: PrivateCheckTrace,
-});
-const installationSchema = Schema.Struct({
-  configuration: configurationSchema,
-  settings: FirewallSettings,
-  incoming: Schema.Array(registrationSchema),
-  outgoing: Schema.Array(registrationSchema),
-});
 
 const registrationMetadata = ({
   id,
@@ -114,8 +97,7 @@ const captureRegistration = Effect.fn("captureRegistration")(function* (
   entry: MessageMiddleware,
 ) {
   const check = entry.check.bind(entry);
-  const metadata = yield* decodeFrozen(
-    registrationSchema,
+  const metadata = yield* decodeFirewallRegistration(
     registrationMetadata(entry),
   ).pipe(
     Effect.catchTag("ParseError", () =>
@@ -140,7 +122,7 @@ export const installFirewall = Effect.fn("installFirewall")(function* (
     captureRegistration,
     { concurrency: 1 },
   );
-  const metadata = yield* decodeFrozen(installationSchema, {
+  const metadata = yield* decodeFirewallInstallation({
     configuration,
     settings: options.settings,
     incoming: incoming.map(registrationMetadata),
@@ -216,7 +198,7 @@ function projectMessage(
 
 function messageId(intent: PostIntent): string {
   const identity = `${intent.authorAgentId}:${intent.postId}`;
-  return `msg_${createHash("sha256").update(identity).digest("base64url")}`;
+  return `msg_${createHash("sha256").update(identity).digest("hex")}`;
 }
 
 function isMulticast(intent: PostIntent): Effect.Effect<boolean> {
@@ -262,10 +244,12 @@ const decodeHistory = Effect.fn("decodeFirewallHistory")(function* (
     intent,
     cards,
     supported,
+    admitted: entry.visible,
     visible: entry.visible && supported,
   };
 });
 
+/** Certified local sends are admitted evidence without granting host visibility to owner history. */
 const contextFrom = Effect.fn("firewallContext")(function* (
   environment: FirewallEnvironment,
   evidence: FirewallEvidence,
@@ -295,7 +279,11 @@ const contextFrom = Effect.fn("firewallContext")(function* (
       recipients: entry.message.recipients,
       text: entry.message.text,
       visibility: entry.visible ? "runtime" : "assessor",
-      admission: entry.visible ? "admitted" : "withheld",
+      admission:
+        entry.admitted ||
+        entry.message.sender === environment.localAgentCard.agentId
+          ? "admitted"
+          : "withheld",
     })),
     facts: environment.installed.configuration.facts,
     gaps: [
@@ -349,12 +337,13 @@ const guidanceProjection = Effect.fn("guidanceProjection")(function* (
   return { result, guidance };
 });
 
+/** Hex references survive host credential redaction and preserve native audit correlation. */
 const assess = Effect.fn("assessMessage")(function* (
   environment: FirewallEnvironment,
   input: AssessmentInput,
 ) {
   const context = yield* contextFrom(environment, input.evidence, input.cards);
-  const checkId = `chk_${randomBytes(32).toString("base64url")}`;
+  const checkId = `chk_${randomBytes(32).toString("hex")}`;
   yield* environment.store.beginFirewallAttempt({
     checkId,
     direction: input.direction,
@@ -605,7 +594,7 @@ function guidanceSubjects(
 }
 
 function captureConfiguration(options: FirewallOptions) {
-  return decodeFrozen(configurationSchema, {
+  return decodeFirewallConfiguration({
     mode: options.mode,
     facts: options.facts,
     codeDigest: options.codeDigest,

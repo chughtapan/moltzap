@@ -8,17 +8,23 @@ Production composition for one explicitly configured endpoint daemon.
 
 ## Public surface
 
-### [`FirewallOptions`](./index.ts#L58)
+### [`FirewallOptions`](./index.ts#L63)
 
 _TypeAlias_
 
 ```ts
-  export type FirewallOptions = InstalledFirewallOptions;
+  export type FirewallOptions = InstalledFirewallOptions & {
+    /**
+     * Dedicated file and adjacent `.partial` staging name for this endpoint's
+     * state directory, privately owned by the daemon and published on shutdown.
+     */
+    readonly auditExport?: string;
+  };
 ```
 
 Trusted fixed process composition; agents receive no policy mutation capability.
 
-### [`layer`](./index.ts#L116)
+### [`layer`](./index.ts#L129)
 
 _Variable_
 
@@ -30,11 +36,11 @@ _Variable_
 
 Complete production process composition for `moltzapd`.
 
-### [`MoltZapService`](./index.ts#L56)
+### [`MoltZapService`](./index.ts#L61)
 
 _Namespace_
 
-### [`StartupError`](./index.ts#L61)
+### [`StartupError`](./index.ts#L72)
 
 _Class_
 
@@ -56,7 +62,7 @@ _Class_
 
 Closed daemon startup phase without configuration or platform detail.
 
-### [`withFirewall`](./index.ts#L125)
+### [`withFirewall`](./index.ts#L138)
 
 _Function_
 

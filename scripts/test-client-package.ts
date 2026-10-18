@@ -90,7 +90,19 @@ const publishedPackages: ReadonlySet<string> = new Set(
 
 /** A packed consumer composes English and code middleware without a live provider. */
 const policyConsumerCheck = `
-const { Effect, Layer } = await import("effect");
+const { Effect, Layer, Schema } = await import("effect");
+const decodeAuditLine = Schema.decodeUnknownSync(Schema.parseJson(service.FirewallAuditRecord));
+const auditStart = decodeAuditLine(JSON.stringify({
+  kind: "start", format: "moltzap.firewall-audit/v1", snapshotId: "a".repeat(64),
+  startedAt: "2026-10-17T00:00:00.000Z",
+}));
+const auditComplete = decodeAuditLine(JSON.stringify({
+  kind: "complete", format: "moltzap.firewall-audit/v1", snapshotId: auditStart.snapshotId,
+  checkCount: 0, sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+}));
+if (auditComplete.kind !== "complete" || auditComplete.snapshotId !== auditStart.snapshotId) {
+  throw new Error("Client operator audit decoder lost snapshot identity");
+}
 const english = await Effect.runPromise(service.makeEnglishPolicy({
   id: "owner",
   rules: [{ id: "privacy", kind: "safety", text: "Do not disclose unrelated private appointments." }],
@@ -139,6 +151,7 @@ if (received.judgment !== "allow") {
 }
 const invalidInstallation = service.MoltZapService.withFirewall({
   mode: "enforcement", incoming: [], outgoing: [], facts: [], codeDigest: "0".repeat(64),
+  auditExport: "/operator/private/firewall-audit.ndjson",
   settings: { timeoutMilliseconds: 10000, middlewareTimeoutMilliseconds: 5000,
     maximumInputBytes: 60000, maximumResultBytes: 100000 },
 });

@@ -104,7 +104,7 @@ describe("OpenClaw HarnessEndpoint adapter", () => {
 
 describe("OpenClaw message tool send and reply actions", () => {
   it(
-    "returns norm feedback as a tool error without resending",
+    "returns the check reference and norm feedback as a tool error without resending",
     messageToolSurfacesNormRefusal,
   );
   vitestIt(
@@ -207,7 +207,7 @@ function guidanceRemainsLocal() {
 
 function messageToolSurfacesNormRefusal() {
   const refusal = new FirewallSendError({
-    checkId: `chk_${Encoding.encodeBase64Url(new Uint8Array(32).fill(2))}`,
+    checkId: `chk_${Encoding.encodeHex(new Uint8Array(32).fill(2))}`,
     refusal: "norm-violation",
     feedback: [
       { nextAction: "revise", text: "Include Carol in the scheduling reply." },
@@ -221,6 +221,7 @@ function messageToolSurfacesNormRefusal() {
       }).pipe(Effect.flip),
     (sends, failure) => {
       expect(failure.detail).toContain(refusal.message);
+      expect(failure.detail).toContain(refusal.checkId);
       expect(sends).toHaveLength(1);
     },
     Effect.fail(refusal),
@@ -1231,7 +1232,7 @@ function sessionKeyFor(address: string): string {
 
 function testGuidance(text: string): LocalGuidance {
   return {
-    checkId: `chk_${Encoding.encodeBase64Url(new Uint8Array(32).fill(1))}`,
+    checkId: `chk_${Encoding.encodeHex(new Uint8Array(32).fill(1))}`,
     subjects: [{ id: "candidate", sender: "alice", recipients: ["bob"], text }],
     instructions: [
       {

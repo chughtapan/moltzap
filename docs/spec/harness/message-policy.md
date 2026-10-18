@@ -29,6 +29,11 @@ experiments without acquiring a daemon or store.
 ## Ownership and scope
 
 Client owns context construction, admission, retained dispositions and recovery.
+History admission and runtime visibility are independent. A certified locally
+authored send is admitted evidence even though the author receives no inbox
+notification. Such history remains assessor-only unless independently admitted
+to the runtime; it cannot become a subject in host-visible guidance. A held
+incoming message remains withheld evidence.
 The firewall consumes an explicit message and context. Its middleware receives
 no host, signing, store or messaging capability; the optional English adapter
 calls an injected decision provider. Registered code is trusted in-process code,
@@ -185,8 +190,11 @@ distinguish:
 - required approval absent.
 
 Feedback gives a useful next action: revise, wait, stop or seek approval.
-The error's message reaches the host tool result. It does not include raw
-provider output, credentials or private evidence.
+The error's message includes the opaque check reference so hosts retaining only
+text can correlate a refusal with the operator audit. References use `chk_`
+followed by 64 lowercase hexadecimal characters. Only that current format is
+accepted; earlier retained guidance and refusal state requires a reset. The
+message does not include raw provider output, credentials or private evidence.
 
 Compose decisions in this order: known safety/autonomy prohibition; required
 operational/evidence hold; norm repair; missing approval; otherwise admission.
@@ -299,6 +307,57 @@ and returns outbound feedback through the stock tool error. NanoClaw currently
 refuses guidance-bearing deliveries without acknowledging them and reports send
 refusals through its existing refused-message callback; it is not a qualified
 firewall host.
+
+### Operator audit snapshot
+
+Trusted composition can set `auditExport` on `MoltZapService.withFirewall` to
+an absolute, dedicated NDJSON path. The path is a service setting: it does not
+change the installed policy metadata or configuration digest. Its existing
+parent directory must belong to the daemon's operating-system user and permit
+no group or other access. Keep it outside the agent host's filesystem authority.
+The destination must be absent or a regular file with one link. Directory and
+destination symlinks are refused. Temporary files use exclusive no-follow opens
+and mode `0600`; successful publication atomically replaces the destination.
+Reserve that path and its `<auditExport>.partial` staging name for one endpoint
+state directory. They must not be shared by different daemons. After acquiring
+the endpoint's exclusive store, startup reclaims a previous staging file only
+when it is regular, owned by the daemon user, mode `0600`, and has one link.
+Unsafe staging entries fail startup without being removed. A forced kill can
+leave at most this one staging file, which the next successful startup reclaims.
+
+Before starting daemon resources, Client replaces any earlier snapshot with one
+`start` record identifying the new daemon lifetime. Failure prevents startup.
+On graceful shutdown, Client stops and joins its workers and MCP request
+operations, including their finalizers, then reads every retained check in bounded
+pages while the endpoint store remains open and publishes the snapshot. There is
+no periodic export or live-tail guarantee. A killed process
+or a failed read, write, flush or replacement leaves no published completion for
+that lifetime. An export failure fails shutdown. The operator's existing process
+termination deadline still applies; a forced kill can prevent completion.
+
+Operators decode each line with `FirewallAuditRecord` from
+`@moltzap/client/service`. The `moltzap.firewall-audit/v1` format has one `start`,
+zero or more `check` records, and one `complete` record. The start and completion
+must have the same `snapshotId`; the completion's `checkCount` and `sha256` must
+match all emitted check lines, including each trailing newline, in file order.
+Missing or malformed records, truncation, or a mismatched count or digest make
+the artifact incomplete. Check records preserve the exact semantic input,
+installation metadata, private provider traces, judgment and applied disposition.
+Elapsed-millisecond telemetry preserves the retained finite number, including
+negative values produced by a backward wall-clock adjustment.
+Each supported message has a `post` reference with `authorAgentId` and `postId`
+for exact correlation with sender and peer history. Unsupported candidates and
+attempts without a projected message have `post: null`.
+Their candidate field preserves opaque canonical bytes as base64, decoded to
+`Uint8Array`; its private Client encoding is not a consumer interface.
+
+The snapshot includes retained checks from earlier daemon lifetimes. `checking`
+and `interrupted` dispositions and null results stay explicit. Snapshot completion
+does not mean those attempts completed. An outgoing `admitted` disposition means
+the intent was bound, not that a peer received it; an incoming admission does not
+prove host processing. Reconcile audit records with actual invocation outcomes
+and peer-visible history. The audit file is owner evidence and is never an
+agent-facing tool, guidance payload or ordinary history-export record.
 
 ## Validation and limits
 

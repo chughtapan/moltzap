@@ -14,3 +14,7 @@ export {
   installFirewall,
   sendWithFirewall,
 } from "./firewall.js";
+/** Operator snapshots contain retained judgments and applied dispositions. */
+export { beginFirewallAudit } from "./firewall-audit.js";
+/** Versioned operator evidence stays outside the agent-facing root. */
+export { FirewallAuditRecord } from "./firewall-values.js";

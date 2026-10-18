@@ -10,3 +10,8 @@ host operations, the inbox writes, and the delivery pass, which all share one
 delivery state behind one gate. The service never reads that state directly.
 Hosts load only `operations.ts` and `history-export.ts`, which hold values and
 decoders, never the inbox or the store.
+
+The operator-only firewall audit is separate from host history. Its versioned
+record schema is exported through the service subpath. Delivery interprets the
+retained check bytes and publishes a shutdown snapshot; store owns pagination,
+and service owns the resource ordering and fixed destination.

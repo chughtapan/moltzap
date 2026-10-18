@@ -102,6 +102,19 @@ export interface FirewallAttempt {
   readonly canonicalInput: Uint8Array;
 }
 
+/** One retained attempt, including a missing result when inference did not finish. */
+export interface FirewallAuditEntry extends FirewallAttempt {
+  readonly sequence: number;
+  readonly disposition:
+    | "checking"
+    | "interrupted"
+    | "stale"
+    | "admitted"
+    | "withheld"
+    | "observed";
+  readonly canonicalResult?: Uint8Array;
+}
+
 /** The store records applied disposition separately from the policy judgment. */
 export interface FirewallCompletion {
   readonly checkId: string;
@@ -335,6 +348,9 @@ export interface EndpointStore {
   readonly beginFirewallAttempt: (
     attempt: FirewallAttempt,
   ) => Effect.Effect<void, EndpointStoreError>;
+  readonly readFirewallAuditPage: (
+    after: number,
+  ) => Effect.Effect<readonly FirewallAuditEntry[], EndpointStoreError>;
   readonly finishFirewallAttempt: (
     completion: FirewallCompletion,
   ) => Effect.Effect<void, EndpointStoreError>;

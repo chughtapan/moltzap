@@ -5,6 +5,7 @@ import { Schema } from "effect";
 import {
   readBytes,
   readInteger,
+  readOptionalBytes,
   readText,
   requireBytes,
   requireSameBytes,
@@ -16,6 +17,7 @@ import { putInboxItem } from "./inbox.js";
 import {
   DeliveryToken,
   type FirewallAttempt,
+  type FirewallAuditEntry,
   type FirewallCommit,
   type FirewallCompletion,
   type FirewallEvidence,
@@ -37,6 +39,33 @@ const historySelect = `
   LEFT JOIN pending_deliveries d ON d.conversation_id = c.conversation_id AND d.record_hash = c.record_hash
   LEFT JOIN runtime_inbox i ON i.delivery_token = d.delivery_token
 `;
+
+const auditDisposition = Schema.Literal(
+  "checking",
+  "interrupted",
+  "stale",
+  "admitted",
+  "withheld",
+  "observed",
+);
+
+/** Shutdown readers page over every attempt while daemon writers are stopped. */
+export function readFirewallAuditPage(
+  database: DatabaseSync,
+  after: number,
+): readonly FirewallAuditEntry[] {
+  if (!Number.isSafeInteger(after) || after < 0) {
+    throw new StoreSignal("invalid-input");
+  }
+  return database
+    .prepare(`
+    SELECT rowid AS sequence, check_id, direction, revision,
+      canonical_candidate, canonical_input, canonical_result, disposition
+    FROM firewall_checks WHERE rowid > ? ORDER BY rowid LIMIT 32
+  `)
+    .all(after)
+    .map(auditEntry);
+}
 
 /** Previously visible items retain their admission; a held item is never requeued. */
 export function queueFirewallItem(
@@ -261,6 +290,26 @@ export function compareFirewallCheck(
     : "withheld";
   completeFirewallCheck(database, completion, disposition);
   return disposition;
+}
+
+function auditEntry(
+  row: Readonly<Record<string, unknown>>,
+): FirewallAuditEntry {
+  const canonicalResult = readOptionalBytes(row, "canonical_result");
+  return {
+    sequence: readInteger(row, "sequence"),
+    checkId: readText(row, "check_id"),
+    direction: Schema.decodeUnknownSync(Schema.Literal("incoming", "outgoing"))(
+      readText(row, "direction"),
+    ),
+    revision: readInteger(row, "revision"),
+    canonicalCandidate: readBytes(row, "canonical_candidate"),
+    canonicalInput: readBytes(row, "canonical_input"),
+    disposition: Schema.decodeUnknownSync(auditDisposition)(
+      readText(row, "disposition"),
+    ),
+    ...(canonicalResult === undefined ? {} : { canonicalResult }),
+  };
 }
 
 function admittedDisposition(fresh: boolean): "admitted" | "stale" {
