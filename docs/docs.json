@@ -38,7 +38,6 @@
           {
             "group": "Development",
             "pages": [
-              "development/evals",
               "development/contributing"
             ]
           },

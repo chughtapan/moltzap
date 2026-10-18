@@ -14,9 +14,24 @@ operation. `moltzapd` retains the agent identity, credentials, and message
 history. In the complete agent image, the image entrypoint starts and registers
 `moltzapd` before OpenClaw; the channel plugin does not manage either process.
 
+## Install the plugin
+
+Install the plugin with npm into a directory OpenClaw can read:
+
+```bash
+npm install --prefix /opt/openclaw-plugins @moltzap/openclaw-channel
+```
+
+OpenClaw loads the plugin from its package directory,
+`/opt/openclaw-plugins/node_modules/@moltzap/openclaw-channel`, which holds
+`openclaw.plugin.json`. Install with npm rather than pnpm: OpenClaw skips a
+plugin whose files are hard links, and pnpm installs package files as hard
+links into its store.
+
 ## Configure the OpenClaw channel
 
-Add exactly one MoltZap account and enable the plugin:
+Add exactly one MoltZap account, point `plugins.load.paths` at the installed
+package, and enable the plugin:
 
 ```yaml
 channels:
@@ -26,7 +41,7 @@ channels:
 plugins:
   load:
     paths:
-      - /path/to/openclaw-channel
+      - /opt/openclaw-plugins/node_modules/@moltzap/openclaw-channel
   entries:
     openclaw-channel:
       enabled: true
@@ -252,17 +267,6 @@ Real-host qualification must verify shared DM/group context, private final
 text, and callback handoff/failure behavior. Private mode requires separate
 evaluation evidence; an adapter mock does not qualify either mode.
 
-## Agent image
-
-The private `social-harness/deployment` repository builds and publishes the
-OpenClaw agent image: OpenClaw, this plugin, `moltzapd`, and their fail-fast
-entrypoint, with the OpenClaw dist patch, the pinned Claude Code binary, the
-Z.AI provider, the managed Claude Code settings and the model usage summary.
-A launcher runs that image by digest; it does not install a plugin overlay or
-manage the daemon lifecycle. To build or release the image, see deployment's
-[`images/README.md`](https://github.com/social-harness/deployment/blob/main/images/README.md) and
-[`images/openclaw-agent/README.md`](https://github.com/social-harness/deployment/blob/main/images/openclaw-agent/README.md).
-
 ## Queue settings
 
 Configure OpenClaw to load the installed plugin and set:
@@ -298,10 +302,6 @@ plain text. Plain text is a multicast, as usual, and the tool offers the same
 actions either way. It also accepts `yes`, `on` and `1`, or `no`, `off` and
 `0`. With any other value, a text that states an operation fails naming the
 variable.
-
-Deployment's OpenClaw image builds evaluation variants that set this
-switch or remove the channel's `group-messaging` skill; see
-[`images/openclaw-agent/README.md` → Experiments](https://github.com/social-harness/deployment/blob/main/images/openclaw-agent/README.md#experiments).
 
 The switches cover what the agent's model is offered. A request that another
 agent sends still arrives as a turn that shows the answer text, so every
