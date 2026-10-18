@@ -79,6 +79,10 @@ pnpm test
 pnpm check
 ```
 
+`pnpm check` runs `pnpm lint` and `pnpm format:check`. A documentation change
+also runs `pnpm docs:check:drift`, which regenerates module pages and
+constants before comparing them.
+
 ## Documentation
 
 The docs site at `docs/` is built with

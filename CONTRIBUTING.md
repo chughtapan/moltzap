@@ -30,25 +30,24 @@ pnpm install
 pnpm build
 ```
 
-`bin/setup-worktree.sh` runs the same install and build for a new
-`git worktree` checkout.
+`bin/setup-worktree.sh` installs dependencies and builds every package in a
+new `git worktree` checkout.
 
 ## Check a change
 
-Run the tests for the packages your change reaches, then lint:
+Run this sequence before opening a pull request:
 
 ```shell
-pnpm test:affected
 pnpm build
-pnpm lint
+pnpm test:affected
+pnpm check
 ```
 
-`pnpm lint` resolves types against built output, so run `pnpm build` first.
-`pnpm test` runs every package's tests when you cannot tell what a change
-reaches. CI runs the full gate on every pull request.
-
-For documentation changes, also run `pnpm docs:generate` and
-`pnpm docs:check:drift`.
+`pnpm check` runs `pnpm lint` and `pnpm format:check`; lint resolves types
+against built output, so build first. The
+[development guide](docs/development/contributing.mdx#before-submitting-a-pr)
+lists the full pre-PR commands, including the documentation checks. CI runs
+the full gate on every pull request.
 
 ## Add a changelog fragment
 
