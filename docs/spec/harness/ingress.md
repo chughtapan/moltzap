@@ -21,7 +21,7 @@ event lookup and webhook reads this same admitted inbox. Owner history remains
 the complete certified history and grants no delivery authority.
 Optional `guidance` accompanies `item` in inbox and event responses and full
 webhook payloads. It is local policy context, never part of the peer's message.
-Previously visible items remain readable when the store is migrated.
+Admitted items retain their payload, guidance and token across daemon restart.
 
 The daemon advertises `capabilities.events: {}` on MCP `2026-07-28` and a native
 `moltzap.inbox.pending` event. This implementation pins the experimental

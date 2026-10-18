@@ -1,14 +1,11 @@
-/** @file Pins the runtime state the endpoint store keeps across restart, and the empty store a pre-cutover schema version opens as. */
+/** @file Runtime state and interrupted admission checks survive store restart. */
 
 import { live as it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { DatabaseSync } from "node:sqlite";
 import { describe, expect } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
 import {
   bytes,
-  databasePath,
-  rewindToPreCutoverSchema,
   stateDirectory,
   storedConversation,
   withStore,
@@ -19,7 +16,7 @@ import {
   inspectEndpointStore,
 } from "./index.js";
 
-/* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Store mutation outcomes and the schema version are the contract under test. */
+/* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Store mutation outcomes and recovery state are the contract under test. */
 
 const token = Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", 1));
 
@@ -65,7 +62,7 @@ const identity = {
   agentId: "agent:alice",
   canonicalAgentCard: new Uint8Array([1, 2, 3]),
 };
-const { foundation, record } = storedConversation("pre-cutover");
+const { foundation, record } = storedConversation("restart");
 const sendInput = bytes('{"input":{"text":"hello","to":"agent:bob"}}');
 const eventState = bytes('{"subscription":"private"}');
 const inboxItem = bytes('{"kind":"operationFailed"}');
@@ -76,7 +73,7 @@ const inboxItem = bytes('{"kind":"operationFailed"}');
  * host's inbox, invocation and event state, and return the queued envelope's
  * outbox identity.
  */
-const seedPreCutoverState = (store: EndpointStore) =>
+const seedState = (store: EndpointStore) =>
   Effect.gen(function* () {
     yield* store.bindIdentity(identity);
     yield* store.putConversationFoundation(foundation);
@@ -101,10 +98,10 @@ const seedPreCutoverState = (store: EndpointStore) =>
     });
     const outbound = yield* store.enqueueOutbound({
       conversationId: foundation.conversationId,
-      messageId: "msg_pre_cutover",
+      messageId: "msg_restart",
       canonicalSignedMessage: bytes("plaintext outer envelope"),
     });
-    yield* store.beginSendAttempt("before-cutover", sendInput);
+    yield* store.beginSendAttempt("before-restart", sendInput);
     yield* store.writeEventState(eventState);
     yield* store.putInboxItem({
       deliveryToken: token,
@@ -113,70 +110,30 @@ const seedPreCutoverState = (store: EndpointStore) =>
     return outbound.outboundId;
   });
 
-/** What a newly created, unregistered store recovers. */
-const freshRecovery = Effect.suspend(() =>
-  withStore(stateDirectory(), (fresh) => fresh.recover()),
-);
-
-function readSchemaVersion(path: string) {
-  const database = new DatabaseSync(databasePath(path), { readOnly: true });
-  const row = database.prepare("PRAGMA user_version").get();
-  database.close();
-  return row;
-}
-
-const opensEmptyAfterTheCutover = (version: 2 | 3 | 4) => {
-  const path = stateDirectory();
-  return Effect.gen(function* () {
-    const outboundId = yield* withStore(path, seedPreCutoverState);
-    yield* rewindToPreCutoverSchema(path, version);
-
-    yield* withStore(path, (store) =>
-      Effect.gen(function* () {
-        expect(yield* store.readIdentity()).toBeUndefined();
-        expect(yield* store.recover()).toEqual(yield* freshRecovery);
-        const unsent = yield* store.beginOutbound(outboundId).pipe(Effect.flip);
-        expect(unsent.reason).toBe("not-found");
-        expect(yield* store.readSendAttempt("before-cutover")).toBeUndefined();
-        expect(yield* store.readEventState()).toBeUndefined();
-        expect(yield* store.readInboxSummary()).toEqual({
-          pendingCount: 0,
-          newestSequence: 0,
-        });
-      }),
-    );
-  });
-};
-
-function inspectsWithoutWriting() {
+function reportsHowCurrentStoreOpens() {
   const path = stateDirectory();
   return Effect.gen(function* () {
     const absent = yield* inspectEndpointStore(path);
-    yield* withStore(path, seedPreCutoverState);
+    yield* withStore(path, seedState);
     const current = yield* inspectEndpointStore(path);
-    yield* rewindToPreCutoverSchema(path, 3);
-    const preCutover = yield* inspectEndpointStore(path);
 
-    expect([absent, current, preCutover]).toEqual([
-      "create",
-      "reopen",
-      "create",
-    ]);
-    expect(readSchemaVersion(path)).toMatchObject({ user_version: 3 });
+    expect([absent, current]).toEqual(["create", "reopen"]);
+    expect(yield* withStore(path, (store) => store.readIdentity())).toEqual(
+      identity,
+    );
   });
 }
 
-function preservesAdmittedStateDuringMigration() {
+function preservesStateAcrossRestart() {
   const path = stateDirectory();
   return Effect.gen(function* () {
-    yield* withStore(path, seedPreCutoverState);
+    yield* withStore(path, seedState);
     const before = yield* withStore(path, (store) => store.recover());
-    yield* rewindToPreCutoverSchema(path, 5);
     yield* withStore(path, (store) =>
       Effect.gen(function* () {
         expect(yield* store.readIdentity()).toEqual(identity);
         expect(yield* store.recover()).toEqual(before);
-        expect(yield* store.readSendAttempt("before-cutover")).toEqual({
+        expect(yield* store.readSendAttempt("before-restart")).toEqual({
           canonicalInput: sendInput,
         });
         expect(yield* store.readEventState()).toEqual(eventState);
@@ -199,7 +156,7 @@ function invalidatesInterruptedChecks() {
   return Effect.gen(function* () {
     yield* withStore(path, (store) =>
       Effect.gen(function* () {
-        yield* seedPreCutoverState(store);
+        yield* seedState(store);
         const evidence = yield* store.readFirewallEvidence({
           maximumRecords: 10,
         });
@@ -229,8 +186,8 @@ function invalidatesInterruptedChecks() {
 
 describe("endpoint runtime state", () => {
   it(
-    "preserves identity, protocol and admitted runtime state when adding message checks",
-    preservesAdmittedStateDuringMigration,
+    "preserves identity, protocol and admitted runtime state across restart",
+    preservesStateAcrossRestart,
   );
   it(
     "invalidates interrupted checks while preserving unresolved intent evidence",
@@ -241,12 +198,8 @@ describe("endpoint runtime state", () => {
     retainsInvocationAndEventState,
   );
   it(
-    "inspects how a store opens without creating or cutting it over",
-    inspectsWithoutWriting,
-  );
-  it.each([4, 3, 2] as const)(
-    "opens a schema version %i store empty, unregistered and without its queued envelope",
-    opensEmptyAfterTheCutover,
+    "reports creation and reopening without changing stored identity",
+    reportsHowCurrentStoreOpens,
   );
 });
 

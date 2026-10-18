@@ -19,7 +19,7 @@ import {
   scriptedWebhook,
 } from "../../__tests__/webhook-fixtures.js";
 import { openEndpointStore } from "../../store/index.js";
-import { HARNESS_SEND_META_KEY, RUNTIME_REVISION_HEADER } from "./names.js";
+import { HARNESS_SEND_META_KEY } from "./names.js";
 import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
@@ -441,48 +441,6 @@ const unlistedCalls = [
 ];
 
 // @agent-code-guard/regression-only: admission must refuse exactly what the caller's catalog does not list.
-it(
-  "rejects incompatible runtimes before dispatch and preserves owner access",
-  compatibleRuntimeOnly,
-);
-
-function compatibleRuntimeOnly() {
-  return Effect.gen(function* () {
-    const handler = yield* makeHarnessMcpHttpHandler({
-      implementation: info,
-      operations,
-      credentials,
-      requireRuntimeRevision: true,
-    });
-    const legacy = makeRequest(
-      "tools/list",
-      {},
-      Redacted.value(credentials.runtime),
-    );
-    expect((yield* Effect.tryPromise(() => handler.fetch(legacy))).status).toBe(
-      409,
-    );
-    const modern = makeRequest(
-      "tools/list",
-      {},
-      Redacted.value(credentials.runtime),
-    );
-    modern.headers.set(RUNTIME_REVISION_HEADER, "1");
-    expect((yield* Effect.tryPromise(() => handler.fetch(modern))).status).toBe(
-      200,
-    );
-    const owner = makeRequest(
-      "tools/list",
-      {},
-      Redacted.value(credentials.owner),
-    );
-    expect((yield* Effect.tryPromise(() => handler.fetch(owner))).status).toBe(
-      200,
-    );
-    yield* Effect.tryPromise(() => handler.close());
-  });
-}
-
 describe("calls a caller's catalog does not list", () => {
   it.each(unlistedCalls)(
     "refuses $caller a call to $name while $state",

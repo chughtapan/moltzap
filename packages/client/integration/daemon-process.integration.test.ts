@@ -3,12 +3,7 @@
 import { ProtocolErrorCode } from "@modelcontextprotocol/client";
 import { AgentCard, type AgentName } from "@moltzap/identity";
 import { Effect, Fiber, Option, Schema, Stream } from "effect";
-import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
-import {
-  databasePath,
-  rewindToPreCutoverSchema,
-} from "../src/__tests__/store-schema-fixtures.js";
 import {
   acquireHarnessEndpoint,
   AgentAddress,
@@ -464,26 +459,12 @@ const readActiveStatus = (fixture: DaemonProcessFixture) =>
     }),
   );
 
-/** The store's schema version and whether it still binds an identity. */
-const readStoredIdentity = (fixture: DaemonProcessFixture) =>
-  Effect.sync(() => {
-    const database = new DatabaseSync(databasePath(fixture.stateDirectory), {
-      readOnly: true,
-    });
-    const version = database.prepare("PRAGMA user_version").get();
-    const identity = database
-      .prepare("SELECT agent_id FROM identity_binding WHERE singleton = 1")
-      .get();
-    database.close();
-    return { version, bound: identity !== undefined };
-  });
-
 /**
  * A registered daemon restarts without its admission credential, whether the
  * credential is unset, missing, empty or invalid. Started with another
  * agent's key, it refuses its identity row and stops in phase storage before
- * it listens. A pre-cutover store and an unregistered daemon without the
- * credential stop in phase configuration.
+ * it listens. An unregistered daemon without the credential stops in phase
+ * configuration.
  */
 const admissionLifetimeBehavior = Effect.gen(function* () {
   const infrastructure = yield* acquireProcessInfrastructure;
@@ -530,16 +511,6 @@ const admissionLifetimeBehavior = Effect.gen(function* () {
     withAgentKeyOf(registeredFixture, unregisteredFixture),
     "storage",
   );
-
-  yield* rewindToPreCutoverSchema(registeredFixture.stateDirectory, 3);
-  yield* expectStartupFailure(
-    withMissingAdmissionCredential(registeredFixture),
-    "configuration",
-  );
-  expect(yield* readStoredIdentity(registeredFixture)).toEqual({
-    version: { user_version: 3 },
-    bound: true,
-  });
 
   yield* expectStartupFailure(
     withoutAdmissionCredential(unregisteredFixture),

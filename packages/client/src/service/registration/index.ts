@@ -69,10 +69,8 @@ export const requireAdmission = (
   ).pipe(Effect.withSpan("requireAdmission"));
 
 /**
- * Loads the admission credential before a store that opens empty is created.
- * Creating replaces a pre-cutover store and leaves the daemon unregistered,
- * so a daemon that could not then register fails closed before it touches
- * the state directory.
+ * Loads the admission credential before creating an unregistered store, so a
+ * daemon that cannot register fails before it touches the state directory.
  *
  * @param opening How the state directory's store will open.
  * @param bootstrap Configured deferred admission credential.

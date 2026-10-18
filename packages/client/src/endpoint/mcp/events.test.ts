@@ -204,7 +204,6 @@ const acquireRacingEventsServer = Effect.gen(function* () {
       const capabilities = {
         tools: {},
         events: {},
-        experimental: { "xyz.moltzap/message-policy": { revision: 1 } },
       };
       const server = new McpServer(implementation, { capabilities });
       events.install(server.server);

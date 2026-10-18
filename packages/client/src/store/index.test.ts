@@ -3,7 +3,7 @@
 import { live as it } from "@effect/vitest";
 import { Effect } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests create and inspect exact real-SQLite permission fixtures around the scoped Effect resource.
-import { chmodSync, statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect } from "vitest";
 import {
@@ -37,16 +37,9 @@ const DATABASE_FILE_MODE = 0o600;
 const DIRECTORY_MODE = 0o700;
 const EXISTING_MUTATION: StoreMutation = "existing";
 const INSERTED_MUTATION: StoreMutation = "inserted";
-const LEGACY_DATABASE_FILE_MODE = 0o644;
-const LEGACY_DIRECTORY_MODE = 0o755;
 const LOCAL_AGENT_ID = "agent:local";
-const EMPTY_SCHEMA_ROW = Object.freeze({ user_version: 0 });
-const LEGACY_SCHEMA_ROW = Object.freeze({ user_version: 1 });
-const DELETE_JOURNAL_ROW = Object.freeze({ journal_mode: "delete" });
-const LEGACY_TABLE_ROW = Object.freeze({ name: "legacy_state" });
-const UNEXPECTED_TABLE_ROW = Object.freeze({ name: "unexpected_state" });
 
-function initializesEmptyV0Database() {
+function initializesEmptyDatabase() {
   const directory = stateDirectory();
   const initialize = withStore(directory, (store) =>
     store.recover().pipe(
@@ -66,34 +59,13 @@ function initializesEmptyV0Database() {
   );
 }
 
-function rejectsV1WithoutMutation() {
-  const directory = stateDirectory();
-  const path = databasePath(directory);
-  const database = new DatabaseSync(path);
-  database.exec("CREATE TABLE legacy_state (value TEXT) STRICT");
-  database.exec("PRAGMA user_version = 1");
-  database.close();
-  chmodSync(directory, 0o755);
-  chmodSync(path, 0o644);
-
-  return expectReason(
-    Effect.scoped(openEndpointStore(directory)),
-    "incompatible",
-  ).pipe(
-    Effect.tap(() =>
-      Effect.sync(() => {
-        assertLegacyDatabaseUnchanged(directory, path);
-      }),
-    ),
-  );
-}
-
-function rejectsNonemptyV0WithoutInitialization() {
+function rejectsNonemptyDatabaseWithoutInitialization() {
   const directory = stateDirectory();
   const path = databasePath(directory);
   const database = new DatabaseSync(path);
   database.exec("CREATE TABLE unexpected_state (value TEXT) STRICT");
   database.close();
+  const original = readFileSync(path);
 
   return expectReason(
     Effect.scoped(openEndpointStore(directory)),
@@ -101,7 +73,7 @@ function rejectsNonemptyV0WithoutInitialization() {
   ).pipe(
     Effect.tap(() =>
       Effect.sync(() => {
-        assertNonemptyDatabaseUnchanged(path);
+        expect(readFileSync(path)).toEqual(original);
       }),
     ),
   );
@@ -773,42 +745,6 @@ function assertInitializedDatabase(directory: string): void {
   expect(statSync(path).mode & 0o777).toBe(DATABASE_FILE_MODE);
 }
 
-function assertLegacyDatabaseUnchanged(directory: string, path: string): void {
-  expect(statSync(directory).mode & 0o777).toBe(LEGACY_DIRECTORY_MODE);
-  expect(statSync(path).mode & 0o777).toBe(LEGACY_DATABASE_FILE_MODE);
-  const retained = new DatabaseSync(path);
-  expect(retained.prepare("PRAGMA user_version").get()).toEqual(
-    LEGACY_SCHEMA_ROW,
-  );
-  expect(retained.prepare("PRAGMA journal_mode").get()).toEqual(
-    DELETE_JOURNAL_ROW,
-  );
-  expect(
-    retained
-      .prepare("SELECT name FROM sqlite_schema WHERE name = 'legacy_state'")
-      .get(),
-  ).toEqual(LEGACY_TABLE_ROW);
-  retained.close();
-}
-
-function assertNonemptyDatabaseUnchanged(path: string): void {
-  const retained = new DatabaseSync(path);
-  expect(retained.prepare("PRAGMA user_version").get()).toEqual(
-    EMPTY_SCHEMA_ROW,
-  );
-  expect(
-    retained
-      .prepare("SELECT name FROM sqlite_schema WHERE name = 'post_intents'")
-      .get(),
-  ).toBeUndefined();
-  expect(
-    retained
-      .prepare("SELECT name FROM sqlite_schema WHERE name = 'unexpected_state'")
-      .get(),
-  ).toEqual(UNEXPECTED_TABLE_ROW);
-  retained.close();
-}
-
 function writeRemoteDelivery(
   store: EndpointStore,
   record: CertifiedRecord,
@@ -1068,19 +1004,11 @@ function expectReason<Value>(
 }
 
 describe("endpoint SQLite preflight", () => {
-  it(
-    "initializes an empty v0 database directly at the current schema and reopens it",
-    initializesEmptyV0Database,
-  );
+  it("initializes an empty database and reopens it", initializesEmptyDatabase);
 
   it(
-    "rejects v1 without changing the database or its permissions",
-    rejectsV1WithoutMutation,
-  );
-
-  it(
-    "rejects a nonempty v0 database without creating current-schema objects",
-    rejectsNonemptyV0WithoutInitialization,
+    "rejects an unrecognized database without changing its bytes",
+    rejectsNonemptyDatabaseWithoutInitialization,
   );
 });
 

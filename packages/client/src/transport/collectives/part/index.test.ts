@@ -238,15 +238,17 @@ describe("admitted form fields", () => {
       type: "object",
       properties: {
         slot: { type: "string", enum: ["a"], minLength: 2, pattern: "x" },
-        named: { type: "string", enum: ["a"], enumNames: ["A"] },
-        misnamed: { type: "string", enum: ["a"], enumNames: [1] },
+        named: {
+          type: "string",
+          oneOf: [{ const: "a", title: "A" }],
+          pattern: "x",
+        },
       },
     });
 
     expect(decoded.properties).toEqual({
       slot: { type: "string", enum: ["a"] },
-      named: { type: "string", enum: ["a"], enumNames: ["A"] },
-      misnamed: { type: "string", enum: ["a"] },
+      named: { type: "string", oneOf: [{ const: "a", title: "A" }] },
     });
   });
 

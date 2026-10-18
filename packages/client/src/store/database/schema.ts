@@ -29,32 +29,11 @@ export interface StoreState {
 }
 
 const DATABASE_NAME = "moltzapd.sqlite3";
-/**
- * Message admission and private assessments coexist with unchanged certified
- * history. A compatible store is extended without resealing protocol records.
- */
+/** Persisted layout accepted by this runtime; other layouts require a reset. */
 const SCHEMA_VERSION = 6;
 
-/**
- * How a state directory's store opens: `create` replaces an absent, empty, or
- * pre-cutover database with an empty current one, and `reopen` keeps the
- * current one.
- */
+/** An absent or empty database is created; the current schema reopens. */
 export type StoreOpening = "create" | "reopen";
-
-/**
- * How each openable `user_version` opens. An empty store and a pre-cutover
- * store get a new empty schema through `createStore`; the current version
- * reopens. Every other version is refused.
- */
-const DISPOSITION_BY_VERSION: ReadonlyMap<number, StoreOpening> = new Map([
-  [0, "create"],
-  [2, "create"],
-  [3, "create"],
-  [4, "create"],
-  [5, "reopen"],
-  [SCHEMA_VERSION, "reopen"],
-]);
 
 /**
  * Acquires and exclusively locks one exact-version endpoint database.
@@ -103,10 +82,8 @@ export const closeStoreState = (state: StoreState): Effect.Effect<void> =>
     state.snapshots.clear();
     try {
       state.database.close();
-      // eslint-disable-next-line agent-code-guard/bare-catch -- Finalization must remain infallible and disclose no SQLite diagnostic. #ignore-sloppy-code-next-line[bare-catch]: Store finalization preserves its infallible persistence boundary.
-    } catch {
-      // Scope finalization cannot disclose or override the operation result.
-    }
+      // eslint-disable-next-line agent-code-guard/bare-catch, no-empty -- Finalization must remain infallible and disclose no SQLite diagnostic. #ignore-sloppy-code-next-line[bare-catch]: Store finalization preserves its infallible persistence boundary.
+    } catch {}
   });
 
 /**
@@ -150,10 +127,8 @@ export function transaction<Value>(
   } catch (failure) {
     try {
       database.exec("ROLLBACK");
-      // eslint-disable-next-line agent-code-guard/bare-catch -- Rollback failure cannot replace or expose the original failure. #ignore-sloppy-code-next-line[bare-catch]: The original persistence failure remains authoritative.
-    } catch {
-      // The original closed failure remains authoritative.
-    }
+      // eslint-disable-next-line agent-code-guard/bare-catch, no-empty -- Rollback failure cannot replace or expose the original failure. #ignore-sloppy-code-next-line[bare-catch]: The original persistence failure remains authoritative.
+    } catch {}
     throw failure;
   }
 }
@@ -177,8 +152,6 @@ function initializeStoreState(stateDirectory: string): StoreState {
     configureDatabase(database);
     if (disposition === "create") {
       createStore(database);
-    } else {
-      migrateStore(database);
     }
     database.exec(
       "UPDATE firewall_checks SET disposition = 'interrupted' WHERE disposition = 'checking'",
@@ -187,10 +160,8 @@ function initializeStoreState(stateDirectory: string): StoreState {
   } catch (failure) {
     try {
       database?.close();
-      // eslint-disable-next-line agent-code-guard/bare-catch -- Failed acquisition closes best-effort without replacing the startup failure. #ignore-sloppy-code-next-line[bare-catch]: The original persistence startup failure remains authoritative.
-    } catch {
-      // Initialization reports only the original closed failure category.
-    }
+      // eslint-disable-next-line agent-code-guard/bare-catch, no-empty -- Failed acquisition closes best-effort without replacing the startup failure. #ignore-sloppy-code-next-line[bare-catch]: The original persistence startup failure remains authoritative.
+    } catch {}
     throw failure;
   }
 }
@@ -225,15 +196,14 @@ function preflightDatabase(database: DatabaseSync): StoreOpening {
     throw new StoreSignal("corrupt");
   }
   const version = readInteger(versionRow, "user_version");
-  const disposition = DISPOSITION_BY_VERSION.get(version);
   if (
-    disposition === undefined ||
-    (version === 0 && hasUserSchemaObjects(database))
+    version !== SCHEMA_VERSION &&
+    (version !== 0 || hasUserSchemaObjects(database))
   ) {
     throw new StoreSignal("incompatible");
   }
   requireHealthyDatabase(database);
-  return disposition;
+  return version === 0 ? "create" : "reopen";
 }
 
 function hasUserSchemaObjects(database: DatabaseSync): boolean {
@@ -359,28 +329,6 @@ const firewallSchemaSql = `
     UPDATE firewall_evidence SET revision = revision + 1 WHERE singleton = 1;
   END;
 `;
-
-/** A runtime-only migration preserves identity, protocol, invocation and inbox bytes. */
-function migrateStore(database: DatabaseSync): void {
-  const row = database.prepare("PRAGMA user_version").get();
-  if (row === undefined) {
-    throw new StoreSignal("corrupt");
-  }
-  if (readInteger(row, "user_version") === SCHEMA_VERSION) {
-    return;
-  }
-  transaction(
-    database,
-    () => {
-      database.exec(
-        "ALTER TABLE runtime_inbox ADD COLUMN canonical_guidance BLOB",
-      );
-      database.exec(firewallSchemaSql);
-      database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-    },
-    "EXCLUSIVE",
-  );
-}
 
 const schemaSql = `
   CREATE TABLE identity_binding (
@@ -518,45 +466,11 @@ const schemaSql = `
   ) STRICT;
 `;
 
-/**
- * Every table a version 2, 3 or 4 store can hold, each listed before the
- * tables its foreign keys reference, so dropping them in order never orphans
- * a row.
- */
-const PRE_CUTOVER_TABLES = [
-  "runtime_legacy_deliveries",
-  "runtime_inbox",
-  "runtime_sends",
-  "runtime_events",
-  "dissemination_obligations",
-  "outbound_messages",
-  "pending_deliveries",
-  "reanchors",
-  "certified_records",
-  "staged_records",
-  "protocol_evidence",
-  "proposal_locks",
-  "conversation_state",
-  "post_intents",
-  "anchors",
-  "memberships",
-  "identity_binding",
-] as const;
-
-/**
- * Creates the current empty schema in one transaction, first dropping every
- * table a version 2, 3 or 4 store holds. A pre-cutover store's protocol state
- * was signed over a prior MoltZap version or record format, so nothing carries
- * over and nothing is resealed: the daemon starts unregistered and the agent
- * registers again.
- */
+/** Creates the current schema atomically in an empty database. */
 function createStore(database: DatabaseSync): void {
   transaction(
     database,
     () => {
-      for (const table of PRE_CUTOVER_TABLES) {
-        database.exec(`DROP TABLE IF EXISTS ${table}`);
-      }
       database.exec(schemaSql);
       database.exec(runtimeSchemaSql);
       database.exec(firewallSchemaSql);

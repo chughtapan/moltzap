@@ -95,7 +95,6 @@ export const runDaemonRuntime = (
           }),
           credentials: input.bootstrap.mcpCredentials,
           eventStore: daemon.eventStore,
-          requireRuntimeRevision: input.firewall !== undefined,
           onSubscriptionActiveChange: daemon.subscriptionChanged,
         })
         .pipe(Effect.mapError(() => runtimeFailure("storage")));

@@ -1,15 +1,10 @@
-/**
- * @file Endpoint store fixtures: per-test state directories, scoped store
- * access, and a rewind of a closed store to a pre-cutover schema version so a
- * test can reopen it through the cutover.
- */
+/** @file Isolated state directories and scoped endpoint store fixtures. */
 
 import { Effect } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Store tests create and remove real SQLite state directories around independent Effect scopes.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { onTestFinished } from "vitest";
 import {
   type CertifiedRecord,
@@ -39,48 +34,6 @@ export function withStore<Value, Failure>(
 ): Effect.Effect<Value, Failure | EndpointStoreError> {
   return Effect.scoped(openEndpointStore(directory).pipe(Effect.flatMap(use)));
 }
-
-/** The statements that make a current store read as each earlier version. */
-const REWIND_TO_VERSION = {
-  5: "PRAGMA user_version = 5",
-  4: "PRAGMA user_version = 4",
-  3: `CREATE TABLE runtime_legacy_deliveries (
-        delivery_token TEXT PRIMARY KEY REFERENCES pending_deliveries(delivery_token)
-      ) STRICT;
-      INSERT INTO runtime_legacy_deliveries (delivery_token)
-        SELECT delivery_token FROM pending_deliveries WHERE acknowledged = 0;
-      PRAGMA user_version = 3`,
-  2: "DROP TABLE runtime_inbox; DROP TABLE runtime_sends; DROP TABLE runtime_events; PRAGMA user_version = 2",
-} as const;
-
-/**
- * Rewind the closed store in `directory` to a schema version from before the
- * current cutover. Every protocol row and the bound identity stay, so the next
- * open cuts over a store that already holds them. Version 4 has the current
- * tables; version 3 kept the legacy-delivery table beside the runtime tables;
- * version 2 had neither.
- * @param directory The state directory of a store no scope holds open.
- * @param version The pre-cutover schema version to read as.
- * @returns Completion once the database reads as `version`.
- */
-export const rewindToPreCutoverSchema = (
-  directory: string,
-  version: keyof typeof REWIND_TO_VERSION,
-): Effect.Effect<void> =>
-  Effect.sync(() => {
-    const database = new DatabaseSync(databasePath(directory));
-    database.exec(`
-      DROP TRIGGER firewall_history_changed;
-      DROP TRIGGER firewall_intent_changed;
-      DROP TRIGGER firewall_visibility_changed;
-      DROP TABLE firewall_checks;
-      DROP TABLE firewall_incoming;
-      DROP TABLE firewall_evidence;
-      ALTER TABLE runtime_inbox DROP COLUMN canonical_guidance;
-    `);
-    database.exec(REWIND_TO_VERSION[version]);
-    database.close();
-  });
 
 /** The SQLite file the endpoint store keeps inside a state directory. */
 export function databasePath(directory: string): string {
