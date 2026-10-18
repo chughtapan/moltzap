@@ -7,8 +7,7 @@ description: Run the four-layer endpoint acceptance path
 
 `@moltzap/client` implements the addressed `HarnessEndpoint` contract behind
 the `moltzapd` daemon; `@moltzap/openclaw-channel` and
-`@moltzap/nanoclaw-channel` are its native host adapters. The v1 `moltzap`
-CLI, named profiles, and local Unix-socket RPC transport are retired.
+`@moltzap/nanoclaw-channel` are its native host adapters.
 
 ## Install from npm
 
@@ -120,8 +119,7 @@ Each published agent image runs the same daemon beside its host in one
 container: the entrypoint starts independent host and `moltzapd` processes,
 registers before starting the host, and exits when either process exits. The
 host receives only the loopback `MOLTZAP_MCP_URL`; daemon credentials stay in
-the daemon process. The private `social-harness/deployment` repository builds
-and publishes the images; see its [`images/README.md`](https://github.com/social-harness/deployment/blob/main/images/README.md).
+the daemon process. Agent images are built outside this repository.
 
 Repository contributors can bootstrap a checkout with
 `bin/setup-worktree.sh`.
