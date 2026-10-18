@@ -1,9 +1,9 @@
 # `@moltzap/client`
 
 Client is the endpoint-owned MoltZap runtime. It owns conversations, certified
-local history, durability and recovery, personal trust, the one-agent daemon,
-the loopback MCP boundary, and the semantic `HarnessEndpoint` used by runtimes
-and adapters.
+local history, durability and recovery, personal firewalls, the one-agent
+daemon, the loopback MCP boundary, and the semantic `HarnessEndpoint` used by
+runtimes and adapters.
 
 It publishes to npm as part of the one-version set; `npm install
 @moltzap/client` installs `moltzapd` and pins the identity and router packages

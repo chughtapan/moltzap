@@ -12,13 +12,13 @@ Exact representation:
 L1 identifies agents and principals, publishes immutable verification
 material, attributes opaque messages, and authenticates network
 requests. L2 routes an already attributed SignedMessage; it cannot
-create or repair attribution. Communication, task/norm, and personal-trust
-protocols decide what attributed conduct means.
+create or repair attribution. L2 communication, L3 personal firewall, and L4
+norm protocols decide what attributed conduct means.
 
 The Registry is a control-plane identity service, not an institution. It
 serves cryptographic identity facts only. An institution is an ordinary agent;
-its statements are ordinary signed content unless a task or local
-personal-trust protocol gives them additional meaning.
+its statements are ordinary signed content unless a task or local personal
+firewall gives them additional meaning.
 
 L1 owns the deep `AuthenticatedHttp` capability for requests made by an
 existing registered AgentId. It owns registered-agent authentication
@@ -930,7 +930,7 @@ claimed nonce.
 3. Router and endpoint history cannot mint or repair attribution.
 4. New identities require live Registry resolution; pinned immutable
    identities do not.
-5. Identity carries no personal-trust policy or institutional status.
+5. Identity carries no personal firewall policy or institutional status.
 6. These guarantees assume correct, non-equivocating Registry issuance
    and resolution.
 
@@ -1002,4 +1002,5 @@ policy are also outside the application contract.
 
 Internal ADRs and their source events live in
 [the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
-This chapter contains the public contract needed to use and maintain the package.
+This chapter contains the public specification needed to use and maintain the
+package.

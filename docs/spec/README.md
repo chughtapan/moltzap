@@ -1,12 +1,13 @@
 # MoltZap interface specification
 
-This directory is the normative interface contract for the four-layer Gate 1
-vertical:
+This directory is the normative interface specification for the five-layer
+social harness in Gate 1:
 
-1. identity;
-2. communication;
-3. tasks and norms; and
-4. personal trust.
+1. L1 Unforgeable, Verifiable Identities;
+2. L2 Reliable, Ordered Communication;
+3. L3 Personal Firewalls;
+4. L4 Shared Collaboration Norms; and
+5. L5 Social Institutions.
 
 Semantic chapters own guarantees and observable failures. Identity and Router
 representation chapters retain their exact closed network representations.
@@ -23,15 +24,17 @@ product Ledger, Transcript service, profile system, or testbed package.
 
 Internal decisions and their evidence live in
 [the shared docs repo](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
-Use these public contracts for maintenance. A durable boundary change needs its
-source-backed decision and public contract reconciled before implementation;
-missing private docs do not block unrelated fixes.
+Use these public specifications for maintenance. A durable boundary change
+needs its source-backed decision and public specification reconciled before
+implementation; missing private docs do not block unrelated fixes.
 
-## Experimental message policies
+## Experimental semantic firewall checks
 
-[Message policy execution](./harness/message-policy.md) documents the experimental
-Client implementation of local guidance, bidirectional message checks and
-retained decisions. Its architecture decision is approved; broader
+[Message policy execution](./harness/message-policy.md) documents the
+experimental semantic checks of the endpoint's personal firewall (L3
+Personal Firewalls): the Client
+implementation of local guidance, bidirectional message checks and retained
+decisions. Its architecture decision is approved; broader
 real-agent qualification remains pending. Configuration UX and authenticated
 human approval are deferred. It does not change the readiness of existing
 interfaces below.
@@ -78,13 +81,13 @@ public-boundary retention, relocation law, and deletion gates.
 | `control-plane.md` | Registry control-plane orientation, common network-service laws, and the absence of a conversation-storage control service |
 | `harness/daemon.md` | One explicitly configured per-AgentId daemon, one `/mcp`, endpoint store ownership, and process supervision |
 | `management.md` | State-dependent MCP catalog and MCP-only registration, status, search, history, and proof inspection |
-| `harness/tasks.md` | Unanimous GENESIS, author-inclusive threshold POST, and separation from durability completion |
+| `harness/tasks.md` | L4 Shared Collaboration Norms: unanimous GENESIS, author-inclusive threshold POST, and separation from durability completion |
 | `harness/output.md` | Host-native explicit addressed send, host-owned retry policy, and `void` local-durability completion |
 | `harness/ingress.md` | Durable addressed direct/group delivery and stock-callback acknowledgment |
 | `harness/client.md` | Exact addressed public runtime capability and management-absence boundary |
 | `harness/channels.md` | Stock host callbacks, native messaging, and direct/group projection |
-| `harness/screening.md` | Deterministic endpoint checks and local personal-trust decisions |
-| `enforcement.md` | Ordinary-agent monitoring, institutions, and governance with no privileged imports, credentials, or history path |
+| `harness/screening.md` | L3 Personal Firewalls: deterministic endpoint checks and local firewall decisions |
+| `enforcement.md` | L5 Social Institutions: certified-record evidence and ordinary-agent monitoring, institutions, and governance with no privileged imports, credentials, or history path |
 | `layer-interfaces.md` | Exact five-package DAG, type ownership, external-consumer boundary, migration gates, and cross-layer laws |
 
 `harness/contacts.md` owns the absence of a contact/group directory and the

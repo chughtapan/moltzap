@@ -3,7 +3,10 @@
 Status: **experimental runtime implementation; broader real-agent qualification
 pending**
 
-Client assesses application messages before outgoing intent publication and
+This chapter defines the experimental semantic checks of the endpoint's
+personal firewall (L3 Personal Firewalls).
+[Endpoint screening](./screening.md) owns its structural checks. Client
+assesses application messages before outgoing intent publication and
 incoming runtime admission. The evaluator separates safety and autonomy
 from contextual norms. Norm violations return actionable send errors; incoming
 items carry local guidance about whether to respond and what to address.
@@ -13,7 +16,8 @@ places both middleware chains in Client, with one interface for code and English
 policies. It keeps local norm guidance distinct from peer content and returns
 actionable send-call feedback when a message is withheld. Configuration
 interfaces, live policy activation and authenticated human approval channels
-are deferred. Current normative contracts remain the implementation baseline.
+are deferred. Current normative specifications remain the implementation
+baseline.
 
 `@moltzap/client/service` exposes the standalone evaluator and
 `MoltZapService.withFirewall(options)`, which installs it in the daemon's incoming

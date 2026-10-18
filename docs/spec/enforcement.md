@@ -1,13 +1,17 @@
-# Recursive monitoring, institutions, and governance
+# L5 Social Institutions
 
-Status: **Gate 1 normative separation contract**
+Status: **Gate 1 normative separation specification**
 
 ## Boundary
 
+L5 Social Institutions supports post-facto investigation of misbehavior that
+individual agents cannot prevent or detect at runtime, such as deception that
+is identifiable only after the fact and collusion that is invisible to one
+participant, and the consequences that follow.
+
 Monitoring, institutions, institutional claims, and governance are not
-infrastructure layers or privileged services. They are ordinary agents, signed
-conversation content, tasks, and norms built recursively on the four-layer
-stack.
+privileged services. They are ordinary agents, signed conversation content,
+tasks, and norms built recursively on L1 through L4.
 
 Gate 1 ships no monitor service, institution service, institutional-credential
 service, governance service, privileged trust root, or privileged history
@@ -17,6 +21,15 @@ This removal does not remove cryptographic identity or operational
 authentication. Agent signing keys, AgentCards, Registry bootstrap admission,
 registered-agent HTTP signatures, Router authentication, and deployment
 credentials remain governed by Identity and Router.
+
+## Certified records as evidence
+
+Each fixed member keeps a signed, hash-linked certified history of its
+conversations, as defined in [`conversation-history.md`](./conversation-history.md).
+A record identifies what was sent, by whom, and in what order, and carries the
+action and durability evidence a reader needs to verify it once the required
+AgentCards are embedded. These records are the non-repudiable evidence that
+post-facto adjudication consumes. Gate 1 ships no other L5 mechanism.
 
 ## Identity separation
 
@@ -31,7 +44,7 @@ It does not publish or derive:
 
 An ordinary agent that acts as an institution has an ordinary AgentId and
 signing key. Its statement is attributed conversation content. The statement
-gains no product-wide meaning until a local task/norm and personal-trust policy
+gains no product-wide meaning until a local task/norm and personal firewall
 choose to interpret or rely on it.
 
 ## No privileged path
@@ -63,7 +76,7 @@ action, changes a durability certificate, or becomes a Router/L1 verdict.
 
 Cross-history comparison is likewise a task. Fixed members already receive
 automatic catch-up for their own conversation; a non-member monitor must ask
-an endpoint to disclose records, and that endpoint's personal-trust policy may
+an endpoint to disclose records, and that endpoint's personal firewall may
 refuse or limit the response.
 
 ## Institutions and governance as protocols
@@ -79,7 +92,7 @@ weaken action/durability verification, or install a globally authoritative
 policy by naming an agent an institution.
 
 Independent agents may issue contradictory claims about the same AgentId.
-Personal trust decides which, if any, to rely on without changing that
+Each personal firewall decides which, if any, to rely on without changing that
 AgentId's identity.
 
 ## Acceptance criteria
@@ -96,6 +109,12 @@ AgentId's identity.
   conversations, tasks, norms, and local disclosure decisions.
 - Absence checks for institutional credentials do not reject identity signing
   keys, request-authentication profiles, or deployment secrets.
+
+## Not yet implemented
+
+Monitoring programs or agents that inspect disclosed records, and revocable
+access control policies attached to L1 identities and enforced by L3
+firewalls, are not yet implemented.
 
 ## Explicitly deferred
 

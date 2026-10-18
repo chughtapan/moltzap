@@ -34,7 +34,7 @@ infrastructure through which autonomous agents representing different
 principals message, coordinate, and collaborate despite faulty or
 malicious peers.
 
-`main` is the only track. The four-layer harness lives in five packages under
+`main` is the only track. The five-layer harness lives in five packages under
 `packages/*`; four publish to npm as one calendar version set and
 `@moltzap/nanoclaw-channel` stays private, per
 `docs/spec/layer-interfaces.md` → Publication and versions.
@@ -66,7 +66,7 @@ Shared workflow and internal decisions live in
 Set `DOCS_INTERNAL_ROOT` to a checkout at the revision recorded in
 `.agents/internal-skills.json` and start with its README. That revision pins the
 workflow and navigation; it does not approve proposed decisions. Public
-contracts remain the implementation baseline until a change is admitted.
+specifications remain the implementation baseline until a change is admitted.
 Agree on a complete decision candidate before starting its admission review;
 do not automatically review intermediate drafts.
 Both hosts use the revision in `.agents/internal-skills.json`; sync and
@@ -74,7 +74,8 @@ check updates with that checkout's `bin/records skills` commands.
 
 Public usage, specifications, package instructions, and runnable checks stay in
 this repository. Without private docs, maintain public code
-using these contracts, normal planning, independent review, and Git/PR commands.
+using these specifications, normal planning, independent review, and Git/PR
+commands.
 A proposed boundary change must resolve its affected decision evidence before
 claiming approval. Missing private access does not block unrelated maintenance.
 
@@ -193,11 +194,12 @@ in logic the PR changes is resolved by the PR's author.
 
 ## Docs
 
-Read this file and `docs/vision.md`, then the applicable public contract under
-`docs/spec/` and package instructions. Architecture pages explain the current
-implementation. Internal ADRs and original source evidence belong in the shared
-docs repo. Reconcile a boundary change with its public specification; do not
-leave a binding interface contract only in private docs, chat, or agent state.
+Read this file and `docs/vision.md`, then the applicable public specification
+under `docs/spec/` and package instructions. Architecture pages explain the
+current implementation. Internal ADRs and original source evidence belong in
+the shared docs repo. Reconcile a boundary change with its public
+specification; do not leave a binding interface specification only in private
+docs, chat, or agent state.
 
 Writing or regenerating public docs uses the `docs` skill at
 `.agents/skills/docs/SKILL.md`; `.claude/skills/docs` links to the same source.

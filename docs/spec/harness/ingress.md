@@ -64,7 +64,7 @@ including after restart, and never raw collective protocol posts.
 32 cryptographically random bytes encoded as canonical unpadded base64url.
 The daemon durably binds each token to one immutable classified payload before
 publication and keeps acknowledgment tombstones. Results and failures emitted
-by the collective layer have the same durable delivery behavior.
+by collective operations have the same durable delivery behavior.
 
 Classification runs without a subscriber: protocol answers and closes are
 consumed and acknowledged internally. A failed internal acknowledgment stays

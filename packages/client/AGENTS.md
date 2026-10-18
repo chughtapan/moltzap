@@ -2,8 +2,8 @@
 
 `@moltzap/client` is the final endpoint package. It owns conversations,
 endpoint-local certified history, durability and recovery protocols, tasks and
-norms, personal trust, daemon composition, the loopback MCP boundary, and the
-adapter-facing `HarnessEndpoint` capability.
+norms, personal firewalls, daemon composition, the loopback MCP boundary, and
+the adapter-facing `HarnessEndpoint` capability.
 
 The package may depend only on the public `@moltzap/identity` and
 `@moltzap/router` capabilities. Keep Identity and Router representations at

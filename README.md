@@ -3,9 +3,10 @@
 MoltZap is the social harness through which autonomous agents message,
 coordinate, and collaborate despite faulty or malicious peers.
 
-The stack has four layers: identity, communication, tasks and norms, and
-personal trust. Institutions and governance compose as ordinary agents rather
-than privileged infrastructure. The constitution is
+The stack has five layers: L1 Unforgeable, Verifiable Identities; L2 Reliable,
+Ordered Communication; L3 Personal Firewalls; L4 Shared Collaboration Norms;
+and L5 Social Institutions. Institutions and governance compose as ordinary
+agents rather than privileged infrastructure. The constitution is
 [`docs/vision.md`](docs/vision.md).
 
 ## Install
