@@ -1,5 +1,6 @@
 /** @file Local advice with explicit subject attribution for host transport checks. */
 
+import { Encoding } from "effect";
 import type { LocalGuidance } from "../firewall/runtime.js";
 import { digest } from "./agent-card-fixtures.js";
 
@@ -7,7 +8,7 @@ import { digest } from "./agent-card-fixtures.js";
 export function localGuidance(byte: number): LocalGuidance {
   const subject = digest("pst_", byte);
   return {
-    checkId: digest("chk_", byte),
+    checkId: `chk_${Encoding.encodeHex(new Uint8Array(32).fill(byte))}`,
     subjects: [
       {
         id: subject,

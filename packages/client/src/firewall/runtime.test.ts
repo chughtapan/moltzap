@@ -4,7 +4,7 @@ import { Encoding } from "effect";
 import { expect, it } from "vitest";
 import { FirewallSendError } from "../index.js";
 
-const checkId = `chk_${Encoding.encodeBase64Url(new Uint8Array(32).fill(2))}`;
+const checkId = `chk_${Encoding.encodeHex(new Uint8Array(32).fill(2))}`;
 const feedback = {
   nextAction: "revise",
   text: "Include Carol in the scheduling reply.",

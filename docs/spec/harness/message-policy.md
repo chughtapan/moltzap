@@ -191,8 +191,10 @@ distinguish:
 
 Feedback gives a useful next action: revise, wait, stop or seek approval.
 The error's message includes the opaque check reference so hosts retaining only
-text can correlate a refusal with the operator audit. It does not include raw
-provider output, credentials or private evidence.
+text can correlate a refusal with the operator audit. References use `chk_`
+followed by 64 lowercase hexadecimal characters. Only that current format is
+accepted; earlier retained guidance and refusal state requires a reset. The
+message does not include raw provider output, credentials or private evidence.
 
 Compose decisions in this order: known safety/autonomy prohibition; required
 operational/evidence hold; norm repair; missing approval; otherwise admission.

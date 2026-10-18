@@ -207,7 +207,7 @@ function guidanceRemainsLocal() {
 
 function messageToolSurfacesNormRefusal() {
   const refusal = new FirewallSendError({
-    checkId: `chk_${Encoding.encodeBase64Url(new Uint8Array(32).fill(2))}`,
+    checkId: `chk_${Encoding.encodeHex(new Uint8Array(32).fill(2))}`,
     refusal: "norm-violation",
     feedback: [
       { nextAction: "revise", text: "Include Carol in the scheduling reply." },
@@ -1232,7 +1232,7 @@ function sessionKeyFor(address: string): string {
 
 function testGuidance(text: string): LocalGuidance {
   return {
-    checkId: `chk_${Encoding.encodeBase64Url(new Uint8Array(32).fill(1))}`,
+    checkId: `chk_${Encoding.encodeHex(new Uint8Array(32).fill(1))}`,
     subjects: [{ id: "candidate", sender: "alice", recipients: ["bob"], text }],
     instructions: [
       {
