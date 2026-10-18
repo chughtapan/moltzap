@@ -313,6 +313,26 @@ function withheldIncoming() {
       ),
     ).toEqual({ reason: "unknown-event" });
     expect(yield* subject.store.readPendingDeliveries()).toEqual([]);
+    const seen: MiddlewareInput[] = [];
+    const outgoing = yield* outgoingFixture(
+      subject,
+      policy((input) =>
+        Effect.sync(() => {
+          seen.push(input);
+          return revise;
+        }),
+      ),
+    );
+    yield* Effect.flip(
+      outgoing.operations.send({ input: { to: destination, text: "A reply" } }),
+    );
+    expect(seen[0]?.context.history).toMatchObject([
+      {
+        sender: subject.remote.card.agentId,
+        visibility: "assessor",
+        admission: "withheld",
+      },
+    ]);
   });
 }
 
@@ -389,12 +409,12 @@ function shadowIncoming() {
   });
 }
 
-const outgoingFixture = (
+function outgoingFixture(
   subject: Fixture,
   middleware: MessageMiddleware,
   overrides: Partial<FirewallOptions> = {},
-) =>
-  Effect.gen(function* () {
+) {
+  return Effect.gen(function* () {
     const installed = yield* installation(middleware, overrides);
     const scope = yield* Scope.Scope;
     const collectives = makeCollectiveOperations({
@@ -422,6 +442,7 @@ const outgoingFixture = (
       }),
     });
   });
+}
 
 it(
   "retains revision feedback under the invocation key without creating an intent",
@@ -941,7 +962,11 @@ function ownerHistoryStaysPrivate() {
       {
         context: {
           history: [
-            { sender: subject.local.card.agentId, visibility: "assessor" },
+            {
+              sender: subject.local.card.agentId,
+              visibility: "assessor",
+              admission: "admitted",
+            },
           ],
         },
       },

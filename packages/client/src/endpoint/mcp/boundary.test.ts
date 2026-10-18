@@ -811,7 +811,7 @@ function rejectsSendBookkeepingArguments() {
   });
 }
 
-function readsRetainedEventThroughSdk() {
+function readsRetainedEventThroughSdk(checkId: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const store = yield* openEndpointStore(yield* fs.makeTempDirectoryScoped());
@@ -825,7 +825,7 @@ function readsRetainedEventThroughSdk() {
       error: "retained result",
     });
     const canonicalItem = yield* encodeRuntimeValue(item);
-    const guidance = localGuidance(7);
+    const guidance = { ...localGuidance(7), checkId };
     yield* store.putInboxItem({
       deliveryToken,
       canonicalItem,
@@ -856,8 +856,8 @@ describe("Harness MCP HTTP boundary", () => {
     distinguishesSendValidationFailures,
     MCP_TRACE_TIMEOUT_MS,
   );
-  it(
-    "reads an acknowledged event through the SDK without redelivery",
+  it.each([digest("chk_", 7), `chk_${"07".repeat(32)}`])(
+    "reads an acknowledged event with check reference %s without redelivery",
     readsRetainedEventThroughSdk,
   );
   it(
@@ -899,10 +899,10 @@ describe("Harness MCP HTTP boundary", () => {
   );
 });
 
-function preservesFirewallRefusal() {
+function preservesFirewallRefusal(checkId: string) {
   return Effect.gen(function* () {
     const refusal = new FirewallSendError({
-      checkId: digest("chk_", 31),
+      checkId,
       refusal: "norm-violation",
       feedback: [{ nextAction: "revise", text: "Include Carol in the reply." }],
     });
@@ -923,8 +923,8 @@ function preservesFirewallRefusal() {
 }
 
 describe("a refused send across the daemon boundary", () => {
-  it(
-    "preserves the typed firewall refusal and feedback through MCP",
+  it.each([digest("chk_", 31), `chk_${"1f".repeat(32)}`])(
+    "preserves the typed firewall refusal and check reference %s through MCP",
     preservesFirewallRefusal,
   );
   it(

@@ -198,7 +198,7 @@ function projectMessage(
 
 function messageId(intent: PostIntent): string {
   const identity = `${intent.authorAgentId}:${intent.postId}`;
-  return `msg_${createHash("sha256").update(identity).digest("base64url")}`;
+  return `msg_${createHash("sha256").update(identity).digest("hex")}`;
 }
 
 function isMulticast(intent: PostIntent): Effect.Effect<boolean> {
@@ -244,10 +244,12 @@ const decodeHistory = Effect.fn("decodeFirewallHistory")(function* (
     intent,
     cards,
     supported,
+    admitted: entry.visible,
     visible: entry.visible && supported,
   };
 });
 
+/** Certified local sends are admitted evidence without granting host visibility to owner history. */
 const contextFrom = Effect.fn("firewallContext")(function* (
   environment: FirewallEnvironment,
   evidence: FirewallEvidence,
@@ -277,7 +279,11 @@ const contextFrom = Effect.fn("firewallContext")(function* (
       recipients: entry.message.recipients,
       text: entry.message.text,
       visibility: entry.visible ? "runtime" : "assessor",
-      admission: entry.visible ? "admitted" : "withheld",
+      admission:
+        entry.admitted ||
+        entry.message.sender === environment.localAgentCard.agentId
+          ? "admitted"
+          : "withheld",
     })),
     facts: environment.installed.configuration.facts,
     gaps: [
@@ -331,12 +337,13 @@ const guidanceProjection = Effect.fn("guidanceProjection")(function* (
   return { result, guidance };
 });
 
+/** Hex references survive host credential redaction and preserve native audit correlation. */
 const assess = Effect.fn("assessMessage")(function* (
   environment: FirewallEnvironment,
   input: AssessmentInput,
 ) {
   const context = yield* contextFrom(environment, input.evidence, input.cards);
-  const checkId = `chk_${randomBytes(32).toString("base64url")}`;
+  const checkId = `chk_${randomBytes(32).toString("hex")}`;
   yield* environment.store.beginFirewallAttempt({
     checkId,
     direction: input.direction,

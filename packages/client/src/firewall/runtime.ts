@@ -9,7 +9,7 @@ const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
 
 /** An opaque local assessment reference conveys no approval or lookup authority. */
 const checkIdSchema = Schema.String.pipe(
-  Schema.pattern(/^chk_[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u),
+  Schema.pattern(/^chk_(?:[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]|[a-f0-9]{64})$/u),
 );
 
 /** Only registered instructions and runtime-visible subjects cross into a host. */

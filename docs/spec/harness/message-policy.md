@@ -29,6 +29,11 @@ experiments without acquiring a daemon or store.
 ## Ownership and scope
 
 Client owns context construction, admission, retained dispositions and recovery.
+History admission and runtime visibility are independent. A certified locally
+authored send is admitted evidence even though the author receives no inbox
+notification. Such history remains assessor-only unless independently admitted
+to the runtime; it cannot become a subject in host-visible guidance. A held
+incoming message remains withheld evidence.
 The firewall consumes an explicit message and context. Its middleware receives
 no host, signing, store or messaging capability; the optional English adapter
 calls an injected decision provider. Registered code is trusted in-process code,
