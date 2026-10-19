@@ -292,6 +292,45 @@ export function compareFirewallCheck(
   return disposition;
 }
 
+/** Missing policy means initial rules have never been seeded, distinct from an empty list. */
+export function readFirewallPolicy(
+  database: DatabaseSync,
+): Uint8Array | undefined {
+  const row = database
+    .prepare("SELECT canonical_rules FROM firewall_policy WHERE singleton = 1")
+    .get();
+  return row === undefined ? undefined : readBytes(row, "canonical_rules");
+}
+
+/** One atomic write preserves the last successfully built editable document. */
+export function writeFirewallPolicy(
+  database: DatabaseSync,
+  rules: Uint8Array,
+): void {
+  requireBytes(rules);
+  database
+    .prepare(`INSERT INTO firewall_policy (singleton, canonical_rules) VALUES (1, ?)
+    ON CONFLICT(singleton) DO UPDATE SET canonical_rules = excluded.canonical_rules`)
+    .run(rules);
+}
+
+/** Completion time includes checks that started before a caller's previous poll. */
+export function readFirewallDecisions(database: DatabaseSync, since = 0) {
+  if (!Number.isSafeInteger(since) || since < 0) {
+    throw new StoreSignal("invalid-input");
+  }
+  return database
+    .prepare(`SELECT rowid AS sequence, check_id, direction, revision,
+    canonical_candidate, canonical_input, canonical_result, disposition, decided_at
+    FROM firewall_checks WHERE decided_at >= ?
+    ORDER BY decided_at DESC, rowid DESC LIMIT 100`)
+    .all(since)
+    .map((row) => ({
+      ...auditEntry(row),
+      time: readInteger(row, "decided_at"),
+    }));
+}
+
 function auditEntry(
   row: Readonly<Record<string, unknown>>,
 ): FirewallAuditEntry {
@@ -324,7 +363,8 @@ function completeFirewallCheck(
   requireBytes(completion.canonicalResult);
   const changed = database
     .prepare(`
-    UPDATE firewall_checks SET canonical_result = ?, disposition = ?
+    UPDATE firewall_checks SET canonical_result = ?, disposition = ?,
+      decided_at = CAST(unixepoch('subsec') * 1000 AS INTEGER)
     WHERE check_id = ? AND disposition = 'checking'
   `)
     .run(completion.canonicalResult, disposition, completion.checkId);

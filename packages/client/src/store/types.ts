@@ -348,6 +348,21 @@ export interface EndpointStore {
   readonly beginFirewallAttempt: (
     attempt: FirewallAttempt,
   ) => Effect.Effect<void, EndpointStoreError>;
+  /** Editable documents are opaque to storage and interpreted by delivery. */
+  readonly readFirewallPolicy: () => Effect.Effect<
+    Uint8Array | undefined,
+    EndpointStoreError
+  >;
+  readonly writeFirewallPolicy: (
+    rules: Uint8Array,
+  ) => Effect.Effect<void, EndpointStoreError>;
+  /** Bounded recent completed checks, ordered by completion time. */
+  readonly readFirewallDecisions: (
+    since?: number,
+  ) => Effect.Effect<
+    ReadonlyArray<FirewallAuditEntry & { readonly time: number }>,
+    EndpointStoreError
+  >;
   readonly readFirewallAuditPage: (
     after: number,
   ) => Effect.Effect<readonly FirewallAuditEntry[], EndpointStoreError>;

@@ -655,21 +655,21 @@ _TypeAlias_
   };
 ```
 
-Trusted fixed process composition; agents receive no policy mutation capability.
+Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-#### [`Daemon.layer`](./service/index.ts#L127)
+#### [`Daemon.layer`](./service/index.ts#L132)
 
 _Variable_
 
 ```ts
   export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
-    runDaemon(Effect.succeed(undefined)),
+    runDaemon(),
   )
 ```
 
 Complete production process composition for `moltzapd`.
 
-#### [`Daemon.withFirewall`](./service/index.ts#L136)
+#### [`Daemon.withFirewall`](./service/index.ts#L141)
 
 _Function_
 
@@ -679,11 +679,11 @@ _Function_
   ): Layer.Layer<never, StartupError>
 ```
 
-Fixed middleware and owner evidence are installed before the daemon accepts host calls.
+Fixed middleware and persisted English rules are installed before the daemon accepts host calls.
 
 **Returns:** The complete daemon layer with both message boundaries checked.
 
-#### [`CheckInputError`](./firewall/values.ts#L198)
+#### [`CheckInputError`](./firewall/values.ts#L199)
 
 _Class_
 
@@ -695,7 +695,7 @@ export class CheckInputError extends Data.TaggedError("CheckInputError")<{
 
 Invalid construction or evidence is a typed failure, never permission.
 
-#### [`DecisionProviderError`](./firewall/values.ts#L307)
+#### [`DecisionProviderError`](./firewall/values.ts#L308)
 
 _Class_
 
@@ -718,7 +718,26 @@ export class DecisionProviderError extends Data.TaggedError(
 
 The adapter scrubs credentials before retaining optional private diagnostics.
 
-#### [`MiddlewareError`](./firewall/values.ts#L142)
+#### [`FirewallPolicyError`](./firewall/values.ts#L480)
+
+_Class_
+
+```ts
+export class FirewallPolicyError extends Data.TaggedError(
+  "FirewallPolicyError",
+)<{
+  readonly reason:
+    | "not-configured"
+    | "invalid-rule"
+    | "fixed-rule"
+    | "build-failed"
+    | "persistence-failed";
+}> {}
+```
+
+A failed edit never replaces the active installation or retained editable document.
+
+#### [`MiddlewareError`](./firewall/values.ts#L143)
 
 _Class_
 
@@ -735,7 +754,7 @@ export class MiddlewareError extends Data.TaggedError("MiddlewareError")<{
 
 Operational failures carry closed reasons, never arbitrary exception text.
 
-#### [`DecisionProvider`](./firewall/values.ts#L323)
+#### [`DecisionProvider`](./firewall/values.ts#L324)
 
 _Interface_
 
@@ -751,7 +770,7 @@ export interface DecisionProvider {
 
 Entirely code-based chains have no dependency on this optional capability.
 
-#### [`DecisionRequest`](./firewall/values.ts#L271)
+#### [`DecisionRequest`](./firewall/values.ts#L272)
 
 _Interface_
 
@@ -776,7 +795,7 @@ export interface DecisionRequest {
 
 Provider input contains explicit questions and state, never execution authority.
 
-#### [`DecisionResponse`](./firewall/values.ts#L289)
+#### [`DecisionResponse`](./firewall/values.ts#L290)
 
 _Interface_
 
@@ -801,7 +820,7 @@ export class DecisionResponse extends Schema.Class<DecisionResponse>(
 
 Raw distributions and provider confidence survive routing unchanged.
 
-#### [`EnglishPolicySettings`](./firewall/values.ts#L254)
+#### [`EnglishPolicySettings`](./firewall/values.ts#L255)
 
 _Interface_
 
@@ -817,7 +836,7 @@ export class EnglishPolicySettings extends Schema.Class<EnglishPolicySettings>(
 
 Bytes bound allocation, not tokenizer capacity; probability is a routing setting.
 
-#### [`EnglishRule`](./firewall/values.ts#L88)
+#### [`EnglishRule`](./firewall/values.ts#L89)
 
 _Interface_
 
@@ -830,7 +849,7 @@ export class EnglishRule extends Schema.Class<EnglishRule>("EnglishRule")({
 
 Text is interpreted by the provider; it is never compiled into executable code.
 
-#### [`Firewall`](./firewall/values.ts#L242)
+#### [`Firewall`](./firewall/values.ts#L243)
 
 _Interface_
 
@@ -849,7 +868,7 @@ export interface Firewall {
 
 Checking returns data; Client separately owns fresh, atomic send/delivery admission.
 
-#### [`FirewallSettings`](./firewall/values.ts#L188)
+#### [`FirewallSettings`](./firewall/values.ts#L189)
 
 _Interface_
 
@@ -866,7 +885,7 @@ export class FirewallSettings extends Schema.Class<FirewallSettings>(
 
 Sequential execution is bounded per entry and across the whole attempt.
 
-#### [`Message`](./firewall/values.ts#L11)
+#### [`Message`](./firewall/values.ts#L12)
 
 _Interface_
 
@@ -881,7 +900,7 @@ export class Message extends Schema.Class<Message>("Message")({
 
 Attribution is supplied by Client, never inferred from names in the body.
 
-#### [`MessageContext`](./firewall/values.ts#L29)
+#### [`MessageContext`](./firewall/values.ts#L30)
 
 _Interface_
 
@@ -924,7 +943,7 @@ Trusted composition supplies authorized earlier evidence and candidate-specific
 approval. Agent identity and principal identity have different meanings.
 The first live composition supplies absent approval.
 
-#### [`MessageMiddleware`](./firewall/values.ts#L176)
+#### [`MessageMiddleware`](./firewall/values.ts#L177)
 
 _Interface_
 
@@ -945,7 +964,7 @@ Code and English policies have the same contract. Registered code is trusted;
 it receives no messaging/store capability and must not retain conversation
 state or perform messaging side effects.
 
-#### [`MiddlewareInput`](./firewall/values.ts#L163)
+#### [`MiddlewareInput`](./firewall/values.ts#L164)
 
 _Interface_
 
@@ -961,7 +980,7 @@ export class MiddlewareInput extends Schema.Class<MiddlewareInput>(
 
 Each invocation gets immutable evidence and previously validated observations.
 
-#### [`MiddlewareResult`](./firewall/values.ts#L133)
+#### [`MiddlewareResult`](./firewall/values.ts#L134)
 
 _Interface_
 
@@ -977,7 +996,7 @@ export class MiddlewareResult extends Schema.Class<MiddlewareResult>(
 
 A result is atomic: interrupted middleware has no returned partial findings.
 
-#### [`RuleDescription`](./firewall/values.ts#L72)
+#### [`RuleDescription`](./firewall/values.ts#L73)
 
 _Interface_
 
@@ -1193,6 +1212,7 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `delivery/index.ts`
 - `delivery/operations.ts`
 - `delivery/pass.ts`
+- `delivery/policy.ts`
 - `delivery/README.md`
 - `delivery/send-invocations.ts`
 - `endpoint/harness-endpoint/capability.ts`

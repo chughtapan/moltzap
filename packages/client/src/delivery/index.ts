@@ -18,3 +18,6 @@ export {
 export { beginFirewallAudit } from "./firewall-audit.js";
 /** Versioned operator evidence stays outside the agent-facing root. */
 export { FirewallAuditRecord } from "./firewall-values.js";
+
+/** Owner edits preserve the daemon resource lifetime. */
+export { installEditableFirewall } from "./policy.js";

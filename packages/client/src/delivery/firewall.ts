@@ -11,8 +11,12 @@ import type {
 import type { EndpointEngine } from "../transport/messaging/index.js";
 import {
   CheckInputError,
+  type DecisionProvider,
+  type EnglishPolicySettings,
+  type EnglishRule,
   type Firewall,
   type FirewallCheck,
+  type FirewallPolicyOperations,
   type FirewallSettings,
   makeFirewall,
   Message,
@@ -58,7 +62,7 @@ import {
 
 // safer-arch-ignore file-implicit-boundary-module: Delivery composition and its admission worker share one immutable installation and evidence pipeline; this private implementation is exposed only through delivery/index.ts.
 
-/** Trusted process composition installs fixed chains; agent-facing tools cannot change them. */
+/** Code, facts and provider settings stay fixed; owner tools edit only English rules. */
 export interface FirewallOptions {
   readonly mode: "guidance" | "enforcement";
   readonly incoming: readonly MessageMiddleware[];
@@ -68,10 +72,19 @@ export interface FirewallOptions {
   readonly codeDigest: string;
   readonly maximumHistoryRecords?: number;
   readonly maximumConcurrentChecks?: number;
+  readonly english?: {
+    readonly fixedRules?: readonly EnglishRule[];
+    readonly initialRules?: readonly EnglishRule[];
+    readonly provider: DecisionProvider;
+    readonly settings: EnglishPolicySettings;
+  };
 }
 
 /** Private immutable installation with one inference limit shared by both directions. */
 export interface InstalledFirewall {
+  /** Read once at the check boundary so an in-flight attempt retains its installation. */
+  readonly current?: () => InstalledFirewall;
+  readonly policy?: FirewallPolicyOperations;
   readonly configuration: FirewallConfiguration;
   readonly configurationDigest: string;
   readonly metadata: FirewallInstallation;
@@ -94,7 +107,8 @@ const registrationMetadata = ({
   },
 });
 
-const captureRegistration = Effect.fn("captureRegistration")(function* (
+/** Capture executable registration once so caller mutation cannot affect later rebuilds. */
+export const captureRegistration = Effect.fn("captureRegistration")(function* (
   entry: MessageMiddleware,
 ) {
   const check = entry.check.bind(entry);
@@ -340,9 +354,10 @@ const guidanceProjection = Effect.fn("guidanceProjection")(function* (
 
 /** Hex references survive host credential redaction and preserve native audit correlation. */
 const assess = Effect.fn("assessMessage")(function* (
-  environment: FirewallEnvironment,
+  liveEnvironment: FirewallEnvironment,
   input: AssessmentInput,
 ) {
+  const environment = captureEnvironment(liveEnvironment);
   const context = yield* contextFrom(environment, input.evidence, input.cards);
   const checkId = `chk_${randomBytes(32).toString("hex")}`;
   yield* environment.store.beginFirewallAttempt({
@@ -384,6 +399,15 @@ const assess = Effect.fn("assessMessage")(function* (
       : {}),
   } satisfies CheckedMessage;
 });
+
+function captureEnvironment(
+  environment: FirewallEnvironment,
+): FirewallEnvironment {
+  return {
+    ...environment,
+    installed: environment.installed.current?.() ?? environment.installed,
+  };
+}
 
 function runAssessment(
   environment: FirewallEnvironment,

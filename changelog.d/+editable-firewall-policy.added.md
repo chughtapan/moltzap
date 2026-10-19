@@ -1,0 +1,1 @@
+Daemon firewall composition supports fixed English rules and persistent editable rules, with serialized live chain replacement and owner-only `policy_read`, `policy_update`, and metadata-only `firewall_decisions` MCP tools. In-flight checks retain their original policy revision, and schema 6 stores migrate atomically to schema 7.

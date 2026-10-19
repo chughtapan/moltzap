@@ -111,6 +111,9 @@ function runDaemonResources(
           implementation: DAEMON_IMPLEMENTATION,
           operations: Object.freeze({
             ...management,
+            ...(input.firewall?.policy === undefined
+              ? {}
+              : { policy: input.firewall.policy }),
             ...daemon.deliveryOperations,
             protocolActive: daemon.protocolActive,
           }),

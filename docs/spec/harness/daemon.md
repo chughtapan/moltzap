@@ -49,14 +49,14 @@ without a trailing newline. Runtime authority exposes only `send_message`,
 `read_event` and `search_agents` after registration. Before registration it
 exposes no tools. Owner authority also permits registration, status, raw history,
 inbox pagination, delivery acknowledgment, send recovery and event consumer
-administration. Trusted-local native clients retain these runtime delivery
+administration, editable policy and firewall decision metadata. Trusted-local native clients retain these runtime delivery
 operations; the Dot model cannot retire pending items.
 Every request, including discovery, requires authentication in this mode.
 Neither file contains Registry or Router credentials.
 
 Trusted process code can install the experimental message firewall with
 `Daemon.withFirewall(options)`. The default `layer` does not enable it.
-The fixed process installation is described in [message policy](./message-policy.md).
+The fixed and editable installation is described in [message policy](./message-policy.md).
 Its optional service-only `auditExport` writes a private retained-check snapshot
 after daemon workers stop and before the endpoint store closes. Operators use
 the [versioned audit decoder](./message-policy.md#operator-audit-snapshot), not
@@ -68,27 +68,30 @@ stdio server, second MCP listener, address override, or product Ledger.
 
 ## Persistence
 
-The one SQLite database uses WAL and schema version 6. It stores identity
+The one SQLite database uses WAL and schema version 7. It stores identity
 binding, address/member resolution, durable post intents, proposal locks,
 membership, cards, anchors, record cores, retained signature evidence,
 durability votes, certified heads, catch-up/re-anchor state, and pending
 delivery acknowledgment, classified runtime inbox items and tombstones, keyed
 send invocation outcomes, and the webhook subscription and pending callback.
 Message-policy installations also use a private incoming queue, evidence revision,
-retained check inputs/results and optional local guidance beside the original
+retained check inputs/results, editable English rules and optional local guidance beside the original
 inbox payload. These are local admission state, not protocol records.
 
 Every retained action signature and durability vote includes signer AgentId
 and signature bytes. Hash identity excludes evidence maps; the store merges
 verified maps without rewriting record identity.
 
-An absent or empty database initializes at schema 6. A version-0 database is
+An absent or empty database initializes at schema 7. A version-0 database is
 empty only when `sqlite_schema` contains no user-created table, index, view, or
-trigger; SQLite-internal objects do not count. An existing schema-6 store
-reopens with its identity, certified history, inbox and invocation outcomes.
-Every other schema version and any unrecognized nonempty database fails before
-WAL, schema or permission changes. There are no schema migrations or automatic
-resets. A reset release, including one that changes only the wire compatibility
+trigger; SQLite-internal objects do not count. An existing schema-7 store reopens. Schema 6 upgrades to 7 in one transaction,
+adding an editable policy document and nullable check completion times without
+rewriting identity, certified history, inbox, invocation outcomes or prior checks.
+A failed migration rolls back its schema and version changes. Pre-migration
+checks retain their installation digests in the audit but have no invented time
+in the live decisions feed. Every other schema version and any unrecognized
+nonempty database fails before WAL, schema or permission changes. There are no
+automatic resets. A reset release, including one that changes only the wire compatibility
 value, follows the
 [v1 reset policy](../layer-interfaces.md#publication-and-versions). The daemon
 does not detect a state directory kept across a reset: an operator must replace
@@ -132,6 +135,35 @@ After registration, the trusted-local and owner catalogs include:
 - owner `event_subscription_status`, `revoke_event_subscription` and
   `resume_event_subscription`.
 
+When installed with `Daemon.withFirewall`, the post-registration owner and
+trusted-local catalogs also include these tools. Tunnel runtime authority cannot
+discover or call them; the baseline daemon does not list them.
+
+| Tool | Input | Result |
+| --- | --- | --- |
+| `policy_read` | `{}` | `{rules, fixedRuleIds, activeRevision}`; editable English documents and fixed code/English ids |
+| `policy_update` | `{add?: Rule[], remove?: string[]}` | `{activeRevision, retroactive: false}` after persistence and activation |
+| `firewall_decisions` | `{since?: number}` | `{decisions: [{checkId, time, direction, peerAgentId, outcome, disposition, ruleIds, activeRevision}]}` |
+
+`Rule` and the atomic edit/failure contract are defined by
+[editable English policy](./message-policy.md#editable-english-policy).
+Invalid MCP shapes are invalid-argument errors; semantic update errors carry
+one closed policy failure reason. Fixed ids are refused in both `add` and
+`remove`. These management tools check owner authority, not peer/contact
+permissions; deployments express contact permissions through policy norms.
+
+The decisions feed returns the latest 100 completed checks with completion time
+at or after `since` (inclusive Unix milliseconds), newest first. Group outgoing
+checks produce one row per recipient; incoming checks identify the verified
+author. An unsupported candidate without projected attribution has
+`peerAgentId: null`. `outcome` is the policy judgment (`allow`, `block`, `hold`,
+`revise`), and `disposition` separately reports admission, withholding,
+observation or staleness. Rule ids identify findings in the completed chain.
+The feed contains no message text, guidance, feedback, owner facts or provider
+traces. Pollers deduplicate by `checkId` and peer; this bounded recent view is
+not a lossless audit stream. The shutdown audit remains the complete retained
+snapshot.
+
 Receive uses one [draft MCP Events consumer](./ingress.md#mcp-events-and-inbox).
 Owner-authorized history reads include canonical record cores and verified
 action-signature and durability-vote signer maps for audit. They cannot
@@ -154,7 +186,7 @@ webhook HTTP 2xx receipt; ambiguous retries may duplicate delivery.
 ## Current formats and failures
 
 The daemon speaks only `V2_PROTOCOL_VERSION` `2026.1006.1`, hash domain v2,
-database schema 6, and the pinned draft MCP Events profile. Wire peers must use
+database schema 7, and the pinned draft MCP Events profile. Wire peers must use
 the current format. Native adapters and the daemon upgrade together. Runtime
 MCP calls use the current message, guidance and refusal schemas directly;
 there is no separate message-policy capability or revision-header handshake.

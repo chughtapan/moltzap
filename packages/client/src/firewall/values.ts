@@ -1,5 +1,6 @@
 /** @file Validated evidence and shared code/English middleware contracts. */
 
+import { AgentId } from "@moltzap/identity";
 import { Cause, Data, Effect, Either, Schema } from "effect";
 
 const identifier = Schema.NonEmptyTrimmedString;
@@ -404,4 +405,99 @@ function freezeData(value: unknown): void {
     freezeData(child);
   }
   Object.freeze(value);
+}
+
+const exact = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
+  Schema.Struct(fields).annotations({
+    parseOptions: { exact: true, onExcessProperty: "error" },
+  });
+
+const ruleFields = {
+  id: EnglishRule.fields.id,
+  text: EnglishRule.fields.text,
+  feedback: EnglishRule.fields.feedback,
+};
+
+/** Norm instructions must have a registered template before owners can activate them. */
+const editableRuleSchema = Schema.Union(
+  exact({
+    ...ruleFields,
+    kind: Schema.Literal("norm"),
+    guidance: Schema.NonEmptyString,
+  }),
+  exact({
+    ...ruleFields,
+    kind: Schema.Literal("safety", "autonomy"),
+    guidance: EnglishRule.fields.guidance,
+  }),
+);
+
+/** Removing and adding the same editable id replaces it in one activation. */
+export const policyUpdateSchema = exact({
+  add: Schema.optional(
+    Schema.Array(editableRuleSchema).pipe(Schema.maxItems(256)),
+  ),
+  remove: Schema.optional(
+    Schema.Array(EnglishRule.fields.id).pipe(Schema.maxItems(256)),
+  ),
+});
+
+/** The digest identifies the entire active installation, including fixed policy. */
+export const policyReadSchema = exact({
+  rules: Schema.Array(editableRuleSchema),
+  fixedRuleIds: Schema.Array(EnglishRule.fields.id),
+  activeRevision: Schema.NonEmptyString,
+});
+
+/** Activation acknowledges future checks only; retained dispositions are unchanged. */
+export const policyUpdateResultSchema = exact({
+  activeRevision: Schema.NonEmptyString,
+  retroactive: Schema.Literal(false),
+});
+
+/** Inclusive Unix milliseconds permit polling across checks completed out of start order. */
+export const firewallDecisionsRequestSchema = exact({
+  since: Schema.optional(Schema.NonNegativeInt),
+});
+
+/** One row per peer contains no content, templates, feedback or provider traces. */
+export const firewallDecisionsSchema = exact({
+  decisions: Schema.Array(
+    exact({
+      checkId: Schema.NonEmptyString,
+      time: Schema.NonNegativeInt,
+      direction: Schema.Literal("incoming", "outgoing"),
+      peerAgentId: Schema.NullOr(AgentId),
+      outcome: Schema.Literal("allow", "block", "hold", "revise"),
+      disposition: Schema.Literal("stale", "admitted", "withheld", "observed"),
+      ruleIds: Schema.Array(Schema.NonEmptyString),
+      activeRevision: Schema.NonEmptyString,
+    }),
+  ),
+});
+
+/** A failed edit never replaces the active installation or retained editable document. */
+export class FirewallPolicyError extends Data.TaggedError(
+  "FirewallPolicyError",
+)<{
+  readonly reason:
+    | "not-configured"
+    | "invalid-rule"
+    | "fixed-rule"
+    | "build-failed"
+    | "persistence-failed";
+}> {}
+
+/** Owner capabilities are separate from runtime send and inbox authority. */
+export interface FirewallPolicyOperations {
+  readonly read: () => Effect.Effect<
+    typeof policyReadSchema.Type,
+    FirewallPolicyError
+  >;
+  readonly update: (
+    request: typeof policyUpdateSchema.Type,
+  ) => Effect.Effect<typeof policyUpdateResultSchema.Type, FirewallPolicyError>;
+  readonly decisions: (
+    request: typeof firewallDecisionsRequestSchema.Type,
+  ) => Effect.Effect<typeof firewallDecisionsSchema.Type, FirewallPolicyError>;
 }

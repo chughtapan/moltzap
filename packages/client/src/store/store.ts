@@ -29,9 +29,12 @@ import {
   finishFirewallAttempt,
   queueFirewallItem,
   readFirewallAuditPage,
+  readFirewallDecisions,
   readFirewallEvidence,
   readFirewallFrontiers,
+  readFirewallPolicy,
   readPendingFirewallItems,
+  writeFirewallPolicy,
 } from "./firewall.js";
 import {
   acknowledgeInboxItem,
@@ -128,6 +131,13 @@ function makeFirewallOperations(state: StoreState, run: StoreRunner) {
       run(() => readFirewallFrontiers(state.database)),
     readPendingFirewallItems: (after) =>
       run(() => readPendingFirewallItems(state.database, after)),
+    readFirewallPolicy: () => run(() => readFirewallPolicy(state.database)),
+    writeFirewallPolicy: (rules) =>
+      run(() => {
+        writeFirewallPolicy(state.database, rules);
+      }),
+    readFirewallDecisions: (since) =>
+      run(() => readFirewallDecisions(state.database, since)),
     readFirewallAuditPage: (after) =>
       run(() => readFirewallAuditPage(state.database, after)),
     readFirewallEvidence: (input) =>
