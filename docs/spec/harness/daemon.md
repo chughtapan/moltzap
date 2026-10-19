@@ -104,11 +104,15 @@ keeps the wakeup count independent of acknowledged history size.
 
 ## MCP compatibility
 
-The daemon speaks MCP revision `2026-07-28` over Streamable HTTP and works
-with `@modelcontextprotocol/client` `2.0.0-beta.5`, as used by the
-two-agent example (`examples/two-agents/package.json`). Older clients using the
-`initialize` handshake receive HTTP 400 with an unsupported-protocol-version
-error.
+The daemon speaks MCP revision `2026-07-28` over Streamable HTTP. Clients such
+as `@modelcontextprotocol/client` `2.0.0-beta.5` must pin this revision:
+
+```typescript
+versionNegotiation: { mode: { pin: "2026-07-28" } }
+```
+
+The [two-agent example](../../../examples/two-agents/two-agents.ts) uses this
+option. Clients on other revisions are rejected.
 
 ## MCP catalog
 

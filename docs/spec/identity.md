@@ -41,6 +41,7 @@ the membership, remain verifiable without a live Registry.
 
 ## Public package boundary
 
+Social Harness packages publish to npm under the `@moltzap` scope.
 The `@moltzap/identity` root exports exactly these same-named Effect
 Schema values and TypeScript types:
 
@@ -236,7 +237,7 @@ The Registry exposes:
 - `POST /v1/identities:list`
 
 Both are public unauthenticated reads. They still require the exact
-MoltZap version, canonical JSON, bounded bodies, and closed schemas.
+wire compatibility value, canonical JSON, bounded bodies, and closed schemas.
 
 Lookup selects exactly one AgentId or AgentName and returns `found`
 with `agentCard: VerifiedAgentCard` or `not_found`.
@@ -276,7 +277,7 @@ Registry state.
 A SignedMessage attributes one opaque body and its addressing to
 exactly one AgentId. It contains:
 
-- exact MoltZap version;
+- exact wire compatibility value;
 - sender AgentId and AgentCardDigest;
 - a nonempty explicit recipient AgentId set of at most 128 values;
 - MessageId; and
@@ -301,11 +302,10 @@ A decoded `SignedMessage` domain view exposes exactly:
 - `messageId: MessageId`; and
 - `body: Uint8Array`.
 
-The recipient array is an immutable snapshot. `body` is a getter
-returning a defensive `Uint8Array` copy, so application mutation cannot
-change the retained signed representation. Fixed `kind` and MoltZap
-version are representation invariants rather than duplicate domain
-fields.
+The recipient array is an immutable snapshot. `body` is a getter returning a
+defensive `Uint8Array` copy, so application mutation cannot change the retained
+signed representation. Fixed `kind` and the wire compatibility value are
+representation invariants rather than duplicate domain fields.
 
 The exact General JWS remains private in the domain view for Schema
 encoding, verification, hashing, and forwarding. A
@@ -366,7 +366,7 @@ SignedMessage.maximumEncodedByteLength: number
 `fromPkcs8` accepts redacted unencrypted Ed25519 PKCS#8 material.
 Signing snapshots the body, rejects an empty or over-limit recipient
 set, and sorts the set by decoded AgentId bytes. It derives the sender,
-AgentCard digest, fixed kind, and MoltZap version. The authority public
+AgentCard digest, fixed kind, and wire compatibility value. The authority public
 key must equal the verified AgentCard key.
 
 `encodedByteLength` is total for a parsed exact SignedMessage and
@@ -582,13 +582,13 @@ signature profile.
 The verifier:
 
 - binds method, authority, path, query, body digest, content type, and
-  MoltZap version;
+  wire compatibility value;
 - enforces a bounded validity interval, future skew, and nonce;
 - claims replay state atomically before checking the signed version;
 - collapses authentication distinctions to one public failure; and
 - returns the inner request as unknown beside its verified caller proof.
 
-A validly authenticated request with the wrong MoltZap version consumes
+A validly authenticated request with the wrong wire compatibility value consumes
 its nonce and fails before domain processing.
 
 AuthenticatedHttp is not a general HTTP framework. It does not define
@@ -801,7 +801,7 @@ registry, or reconstruction helper.
 
 ## Deployment channel
 
-MoltZap application code imposes no TLS, URL-scheme, certificate, or
+Social Harness application code imposes no TLS, URL-scheme, certificate, or
 trusted-proxy policy. Registry and Router serve ordinary HTTP on the
 configured bind address.
 
@@ -839,7 +839,7 @@ Registry PostgreSQL storage atomically owns:
 - registration operations, exact canonical request bytes, and stable
   exact result bytes;
 - accepted replay nonces through expiry; and
-- metadata binding the Registry signer thumbprint and MoltZap version
+- metadata binding the Registry signer thumbprint and wire compatibility value
   to the database.
 
 Startup fails closed when configured signer or version differs from the
@@ -891,7 +891,7 @@ request or concurrency class, `SIZE` names a page or pool size, and
 `TIMEOUT_MS` names milliseconds. `POSTGRESQL_URL` is the database key;
 there is no generic `DATABASE_URL`.
 
-The MoltZap version, JSON depth, opaque-body and recipient limits,
+The wire compatibility value, JSON depth, opaque-body and recipient limits,
 complete SignedMessage maximum, per-route request-body caps, signature
 interval and skew, TLS behavior, and version negotiation have no
 environment keys. In particular, there is no request-queue capacity or
@@ -1001,6 +1001,6 @@ policy are also outside the application contract.
 ## Decision evidence
 
 Internal ADRs and their source events live in
-[the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
+[the shared docs repo](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
 This chapter contains the public specification needed to use and maintain the
 package.

@@ -1,7 +1,7 @@
-# Contributing to MoltZap
+# Contributing to Social Harness
 
-This page covers what an outside contributor needs to build MoltZap, check a
-change, and open a pull request. The
+This page covers what an outside contributor needs to build Social Harness,
+check a change, and open a pull request. The
 [development guide](docs/development/contributing.mdx) has the full
 conventions.
 

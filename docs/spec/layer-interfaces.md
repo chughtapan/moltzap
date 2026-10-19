@@ -12,6 +12,7 @@ from becoming production network services.
 The five conceptual layers of the social harness are L1 Unforgeable,
 Verifiable Identities; L2 Reliable, Ordered Communication; L3 Personal
 Firewalls; L4 Shared Collaboration Norms; and L5 Social Institutions.
+Social Harness packages publish to npm under the `@moltzap` scope.
 `@moltzap/identity` owns L1, `@moltzap/router` owns L2 delivery, and
 `@moltzap/client` owns endpoint communication, L3 firewalls, L4 norms, and the
 certified records that L5 relies on. Numbered
@@ -324,7 +325,7 @@ closed typed unions.
    [inbox recovery contract](./harness/ingress.md).
 7. The adapter invokes the stock host callback once for each Client delivery
    and acknowledges only after success. Host persistence, deduplication, and
-   replay effects remain outside MoltZap's guarantees.
+   replay effects remain outside Social Harness guarantees.
 
 ### Personal firewalls and social institutions
 

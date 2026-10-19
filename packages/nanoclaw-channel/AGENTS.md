@@ -33,7 +33,7 @@ through re-exports. Publication does not change this package boundary.
   address; its group input retains the canonical group address, sender, exact
   members, and native group flag.
 - NanoClaw owns friendly-name discovery and its own destination permissions.
-  An explicit `agent:` or `group:` MoltZap address input needs no prior
+  An explicit `agent:` or `group:` Social Harness address input needs no prior
   NanoClaw conversation or ACL row; Client validates and canonicalizes it.
 - Leave outbound queue and retry policy to NanoClaw. Every adapter call is one
   Client operation, decoded from the `messages_out` content's text; do not pass `messages_out.id` or

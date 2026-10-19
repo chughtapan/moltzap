@@ -20,4 +20,13 @@ failures, persistence, and process behavior unless their governing authority
 changes. Publication follows `docs/spec/layer-interfaces.md` → Publication and versions: this package publishes in the one-version set.
 
 Run build, typecheck, test, integration, lint, and architecture checks through
-`pnpm nx run @moltzap/identity:<target>`.
+Nx:
+
+```sh
+pnpm nx run @moltzap/identity:build
+pnpm nx run @moltzap/identity:typecheck:tests
+pnpm nx run @moltzap/identity:test
+pnpm nx run @moltzap/identity:test:integration
+pnpm nx run @moltzap/identity:lint
+pnpm nx run @moltzap/identity:arch:check
+```
