@@ -5,6 +5,28 @@ description: Contribution guidelines and conventions
 
 # Contributing
 
+## Local setup
+
+Use the Node version in `.node-version` and the pnpm version in
+`package.json`. From the repository root:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+```
+
+## Before submitting a PR
+
+```bash
+pnpm build
+pnpm test
+pnpm check
+```
+
+`pnpm check` runs `pnpm lint` and `pnpm format:check`. A documentation change
+also runs `pnpm docs:check:drift`, which regenerates module pages and
+constants before comparing them.
+
 ## Monorepo conventions
 
 - **Package manager**: pnpm 10+ with workspaces
@@ -13,30 +35,6 @@ description: Contribution guidelines and conventions
 - **Formatting**: oxfmt
 - **Testing**: vitest
 - **Task graph**: Nx derives package order from declared dependencies
-
-## Branches and releases
-
-- `main` is the only long-lived branch; every change lands there by pull
-  request.
-- Releases are manual runs of `.github/workflows/publish.yml`. One run
-  publishes the four public packages at one calendar version and commits the
-  version bump and any changelog section it writes from the fragments in
-  `changelog.d/`. The job runs in the `release` GitHub
-  environment, whose required reviewers gate every release. The release
-  commit and tag are pushed with a GitHub App token: `RELEASE_APP_ID` is an
-  Actions variable and `RELEASE_APP_PRIVATE_KEY` an Actions secret for an App
-  installed on this repository with contents write access and allowed to push
-  `main`. npm publishes without a token, so each published package lists
-  `publish.yml` on this repository as a trusted publisher.
-- A release commit on `main` whose version some package still lacks on npm is
-  resumed by every later run. When that release can never complete, dispatch
-  with **Start a new version** checked: the run leaves the release commit
-  alone, takes the next free version from the tip, and the maintainer
-  deprecates whatever the abandoned version did publish.
-- The OpenClaw and NanoClaw agent images are built and published outside
-  this repository, not by a release here.
-- Public design contracts live in `docs/vision.md` and `docs/spec/`; see
-  `AGENTS.md` for package-specific instructions.
 
 ## Workflow
 
@@ -50,38 +48,6 @@ Public specifications in `docs/vision.md` and `docs/spec/`, together with the
 checks in this repository, are the authority for every contribution. A new
 boundary choice updates its public specification before implementation. You do
 not need access to any private repository to contribute.
-
-### Maintainer records
-
-Maintainers keep internal plans, ADRs, and source evidence in
-[a private shared docs repository](https://github.com/social-harness/docs-internal/blob/main/README.md).
-Maintainers with access set `DOCS_INTERNAL_ROOT` to a checkout at the revision
-in `.agents/internal-skills.json` and start with its README. The workflow pin
-does not establish approval of proposed ADRs.
-
-The internal `shared-sdlc` and `records` skills are pinned in
-`.agents/internal-skills.json` and readable under `.agents/skills/` and
-`.claude/skills/`. Maintainers update them from this repository's root,
-using the `bin/records` binary in the `DOCS_INTERNAL_ROOT` checkout:
-
-```bash
-"$DOCS_INTERNAL_ROOT/bin/records" skills sync --target . --revision DOCS_COMMIT
-"$DOCS_INTERNAL_ROOT/bin/records" skills check --target . --revision DOCS_COMMIT
-```
-
-These commands protect local edits and do not modify upstream skills.
-
-## Before submitting a PR
-
-```bash
-pnpm build
-pnpm test
-pnpm check
-```
-
-`pnpm check` runs `pnpm lint` and `pnpm format:check`. A documentation change
-also runs `pnpm docs:check:drift`, which regenerates module pages and
-constants before comparing them.
 
 ## Architecture checks
 
@@ -112,8 +78,8 @@ pages, and source-owned constants generate shared snippets. Run
 
 | Command | What it does |
 |---------|--------------|
-| `pnpm run docs:dev` | Start a local Mintlify preview without opening a browser |
-| `pnpm run docs:open` | Start local Mintlify preview and open it in a browser |
+| `pnpm run docs:dev` | Preview locally without opening a browser |
+| `pnpm run docs:open` | Preview locally and open a browser |
 | `pnpm docs:generate` | Regenerate module pages and shared constants |
 | `pnpm docs:check` | Check for broken internal links |
 | `pnpm docs:check:drift` | Verify generated docs match their sources |
@@ -130,3 +96,52 @@ pages, and source-owned constants generate shared snippets. Run
 - Declare branded domain values in their owning package.
 - Keep typed errors in the Effect error channel.
 - Prefer integration tests at real process and storage boundaries.
+
+## Maintainer releases and records
+
+### Branches and releases
+
+- `main` is the only long-lived branch; every change lands there by pull
+  request.
+- Releases are manual runs of `.github/workflows/publish.yml`. One run
+  publishes the four public packages at one calendar version and commits the
+  version bump and any changelog section it writes from the fragments in
+  `changelog.d/`. The job runs in the `release` GitHub
+  environment, whose required reviewers gate every release. The release
+  commit and tag are pushed with a GitHub App token: `RELEASE_APP_ID` is an
+  Actions variable and `RELEASE_APP_PRIVATE_KEY` an Actions secret for an App
+  installed on this repository with contents write access and allowed to push
+  `main`. npm publishes without a token, so each published package lists
+  `publish.yml` on this repository as a trusted publisher.
+- A release commit on `main` whose version some package still lacks on npm is
+  resumed by every later run. When that release can never complete, dispatch
+  with **Start a new version** checked: the run leaves the release commit
+  alone, takes the next free version from the tip, and the maintainer
+  deprecates whatever the abandoned version did publish.
+- The OpenClaw and NanoClaw agent images are built and published outside
+  this repository, not by a release here.
+- Public design contracts live in `docs/vision.md` and `docs/spec/`; see
+  `AGENTS.md` for package-specific instructions.
+
+### Maintainer records
+
+Maintainers keep internal plans, ADRs, and source evidence in
+[a private shared docs repository][internal-docs].
+
+Maintainers with access set `DOCS_INTERNAL_ROOT` to a checkout at the revision
+in `.agents/internal-skills.json` and start with its README. The workflow pin
+does not establish approval of proposed ADRs.
+
+The internal `shared-sdlc` and `records` skills are pinned in
+`.agents/internal-skills.json` and readable under `.agents/skills/` and
+`.claude/skills/`. Maintainers update them from this repository's root,
+using the `bin/records` binary in the `DOCS_INTERNAL_ROOT` checkout:
+
+```bash
+"$DOCS_INTERNAL_ROOT/bin/records" skills sync --target . --revision DOCS_COMMIT
+"$DOCS_INTERNAL_ROOT/bin/records" skills check --target . --revision DOCS_COMMIT
+```
+
+These commands protect local edits and do not modify upstream skills.
+
+[internal-docs]: https://github.com/social-harness/docs-internal
