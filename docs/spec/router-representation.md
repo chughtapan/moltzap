@@ -132,7 +132,7 @@ exact `{"error":"..."}` bodies in
 Identity fixes the decoded opaque-body maximum at 262,144 bytes and
 the SignedMessage recipient maximum at 128. Its closed SignedMessage
 representation derives a maximum complete General JWS JCS encoding of
-471,675 bytes. Router consumes that identity-owned maximum; it does not
+471,676 bytes. Router consumes that identity-owned maximum; it does not
 reproduce the General JWS size calculation.
 
 Router derives one received-body cap from each closed authenticated
@@ -140,20 +140,20 @@ request representation:
 
 | Route | Maximum received body |
 |---|---:|
-| `POST /v1/messages:send` | 471,823 octets |
+| `POST /v1/messages:send` | 471,824 octets |
 | `POST /v1/messages:poll` | 423 octets |
 
 The poll cap admits the maximum 349-character PollCursor. The maximum
 complete one-message `batch`, including a maximum PollCursor, is
-472,124 UTF-8 JCS bytes.
+472,125 UTF-8 JCS bytes.
 
 These five enclosing maxima are representation consequences, not
 operator-selected configuration:
 
-- maximum complete SignedMessage: 471,675 bytes;
-- maximum send request: 471,823 octets;
+- maximum complete SignedMessage: 471,676 bytes;
+- maximum send request: 471,824 octets;
 - maximum PollCursor: 349 ASCII characters; and
-- maximum poll request and one-message result: 423 octets and 472,124
+- maximum poll request and one-message result: 423 octets and 472,125
   bytes respectively.
 
 The HTTP reader rejects a route body above its own cap before parsing.
