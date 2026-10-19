@@ -17,10 +17,9 @@ import {
 import {
   loadDaemonBootstrap,
   loadDaemonProcessConfiguration,
+  processHelp,
 } from "./configuration.js";
 import { runDaemonRuntime } from "./lifecycle.js";
-/** Usage text listing the daemon process's environment variables. */
-export { processHelp } from "./configuration.js";
 import {
   readDaemonRegistrationState,
   requireAdmission,
@@ -64,6 +63,9 @@ export type {
 
 // eslint-disable-next-line @typescript-eslint/no-namespace -- The published service subpath intentionally merges its runtime values with the closed startup-error type.
 export namespace Daemon {
+  /** Usage text listing the daemon process's environment variables. */
+  export const help = processHelp;
+
   /** Trusted fixed process composition; agents receive no policy mutation capability. */
   export type FirewallOptions = InstalledFirewallOptions & {
     /**

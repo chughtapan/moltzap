@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import { NodeRuntime } from "@effect/platform-node";
 import { ConfigProvider, Console, Effect, Layer } from "effect";
-import { processHelp, RouterServer } from "../dist/server.js";
+import { RouterServer } from "../dist/server.js";
 
 const program = process.argv.includes("--help")
-  ? Console.log(processHelp)
+  ? Console.log(RouterServer.help)
   : Layer.launch(RouterServer.layer);
 
 program.pipe(

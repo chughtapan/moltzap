@@ -14,6 +14,7 @@ import packageJson from "../package.json" with { type: "json" };
 import {
   configurationMessage,
   loadRouterConfiguration,
+  processHelp,
   type RouterConfiguration,
 } from "./router.js";
 import { makeRouterFeed } from "./router/feed.js";
@@ -27,11 +28,12 @@ import { makePollWaiters } from "./router/poll-waiters.js";
 import { makeRouterPoll } from "./router/poll.js";
 import { makeRouterRpcClient } from "./router/rpc.js";
 import { makeRouterSend } from "./router/send.js";
-/** Usage text listing the Router process's environment variables. */
-export { processHelp } from "./router.js";
 
 // eslint-disable-next-line @typescript-eslint/no-namespace -- The namespace keeps the process layer and its closed startup error under one RouterServer capability.
 export namespace RouterServer {
+  /** Usage text listing the Router process's environment variables. */
+  export const help = processHelp;
+
   /** Closed Router startup phase. */
   export class StartupError extends Data.TaggedError(
     "RouterServerStartupError",
