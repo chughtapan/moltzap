@@ -1,0 +1,17 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "two-agents-example",
+  "targets": {
+    "test:pack": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "^build"
+      ],
+      "cache": false,
+      "options": {
+        "cwd": ".",
+        "command": "node scripts/test-two-agents-example.ts"
+      }
+    }
+  }
+}

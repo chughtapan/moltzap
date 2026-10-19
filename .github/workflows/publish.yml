@@ -131,7 +131,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Write the version into every published manifest
+      # The example pins the MoltZap packages it installs from npm to the
+      # release, so a checkout of the release tag runs what that tag published.
+      - name: Write the version into every published manifest and the example
         if: steps.plan.outputs.mode == 'bump'
         env:
           VERSION: ${{ steps.plan.outputs.version }}
@@ -140,6 +142,10 @@ jobs:
             jq --arg v "$VERSION" '.version = $v' "packages/$pkg/package.json" > tmp.json
             mv tmp.json "packages/$pkg/package.json"
           done
+          jq --arg v "$VERSION" \
+            '.dependencies |= with_entries(if (.key | startswith("@moltzap/")) then .value = $v else . end)' \
+            examples/two-agents/package.json > tmp.json
+          mv tmp.json examples/two-agents/package.json
           pnpm install --no-frozen-lockfile --ignore-scripts
 
       - name: Build all packages
@@ -193,7 +199,8 @@ jobs:
 
           git config user.name "moltzap-release[bot]"
           git config user.email "moltzap-release[bot]@users.noreply.github.com"
-          git add packages/*/package.json pnpm-lock.yaml CHANGELOG.md changelog.d/ \
+          git add packages/*/package.json examples/two-agents/package.json \
+            pnpm-lock.yaml CHANGELOG.md changelog.d/ \
             docs/ 'packages/**/MODULE.md' README.md
           git commit -m "chore(release): moltzap@$VERSION"
           git tag "v$VERSION"
