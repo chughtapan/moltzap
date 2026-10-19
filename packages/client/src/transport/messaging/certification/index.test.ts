@@ -2844,9 +2844,15 @@ function concurrentDrainsSendEachOutboxOnce(): Effect.Effect<
     yield* untilLive(
       Ref.get(transmits).pipe(Effect.map((count) => count >= 2)),
     );
+    const [held] = (yield* store.recover().pipe(Effect.orDie)).outboundMessages;
+    if (held === undefined) {
+      return yield* Effect.dieMessage("the raced envelope was not stored");
+    }
     yield* advanceClock(Duration.seconds(1));
-    expect(yield* Ref.get(transmits)).toBe(2);
-    expect(yield* Queue.size(harness.outbound)).toBe(1);
+    const delivered = yield* Queue.takeAll(harness.outbound);
+    expect(
+      [...delivered].filter((message) => message.messageId === held.messageId),
+    ).toHaveLength(1);
     expect(
       (yield* store.recover().pipe(Effect.orDie)).outboundMessages,
     ).toEqual([]);

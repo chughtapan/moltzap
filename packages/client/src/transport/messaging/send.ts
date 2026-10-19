@@ -279,7 +279,7 @@ const proposalResendSchedule = catchUpRetrySchedule.pipe(
 
 /**
  * Queue a proposal behind the certified record it extends, then resend both
- * while members' action signatures are missing. A store failure while
+ * while its action certificate is incomplete. A store failure while
  * queueing is reported as a storage fault: the intent stays bound but not
  * proposed until recovery after a restart proposes it. Activation proposes
  * inside an uninterruptible region and a forked fiber inherits it, so the
@@ -356,7 +356,9 @@ function queueProposal(
  * incomplete. Members that dropped it, such as one still catching up while
  * fenced, sign the new copy; members that signed already deduplicate it by
  * `ActionHash`. A fenced conversation sends nothing, and its resends wait for
- * it to recover. A store failure ends the resends.
+ * it to recover without consuming attempts. The wait releases the engine
+ * gate so recovery can complete. A store failure ends the resends and
+ * reports a storage fault.
  * @param runtime Engine that sends the proposal.
  * @param proposal The proposal, the conversation it extends, and its intent.
  * @returns Whether a later resend is still due.
@@ -366,30 +368,40 @@ function resendProposal(
   proposal: AuthorizedProposal,
 ): Effect.Effect<boolean> {
   const { action } = proposal;
-  return runtime.gate.withPermits(1)(
-    Effect.suspend(() => {
-      const conversation = runtime.conversations.get(action.conversationId);
-      if (
-        conversation === undefined ||
-        !proposalIsOpen(runtime, proposal, conversation)
-      ) {
-        return Effect.succeed(false);
-      }
-      if (runtime.phases.isRecovering(runtime, action.conversationId)) {
-        return Effect.succeed(true);
-      }
-      return Effect.uninterruptible(
-        queueProposal(runtime, { ...proposal, conversation }),
-      ).pipe(
-        Effect.as(true),
-        Effect.catchAll(() =>
-          Effect.logWarning(
-            "Proposal resends stopped: its envelopes could not be queued",
-          ).pipe(Effect.as(false)),
-        ),
-      );
-    }),
-  );
+  return runtime.gate
+    .withPermits(1)(
+      Effect.suspend(() => {
+        const conversation = runtime.conversations.get(action.conversationId);
+        if (
+          conversation === undefined ||
+          !proposalIsOpen(runtime, proposal, conversation)
+        ) {
+          return Effect.succeed(false);
+        }
+        if (runtime.phases.isRecovering(runtime, action.conversationId)) {
+          return Effect.succeed(undefined);
+        }
+        return Effect.uninterruptible(
+          queueProposal(runtime, { ...proposal, conversation }),
+        ).pipe(
+          Effect.as(true),
+          Effect.catchTags({
+            EndpointStoreError: () =>
+              runtime.input.reportStorageFault.pipe(Effect.as(false)),
+            ClientRepresentationError: () => Effect.succeed(false),
+          }),
+        );
+      }),
+    )
+    .pipe(
+      Effect.flatMap((due) =>
+        due === undefined
+          ? Effect.sleep("1 second").pipe(
+              Effect.zipRight(resendProposal(runtime, proposal)),
+            )
+          : Effect.succeed(due),
+      ),
+    );
 }
 
 /**

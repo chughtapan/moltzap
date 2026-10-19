@@ -392,22 +392,21 @@ can open for some members and not others, so a Byzantine author can make one
 proposal a candidate only for some honest members, split their locks for a
 predecessor, and stall that head this way.
 
-While an author's proposal lacks some members' action signatures, the author
-sends the identical proposal again, with the same `ActionHash`, preceded by
-the `CertifiedRecord` of the head it extends as on the first send. The
-resends follow the catch-up retry schedule below: jittered exponential
-backoff, a bounded number of times. They stop when the action certificate
-completes, when a different candidate commits at the proposal's predecessor,
-or when a completed re-anchor replaces the proposal. While the conversation
-recovers, the author sends no resend. A resend is meant for the members whose
-signatures the author lacks, such as a member that ignored the first copy
-while it recovered. Like every outer message, it is a new outer message
-addressed and sealed to every member. A member that already signed the
-proposal deduplicates the resend by its `ActionHash` and sends nothing for
-it. A resend carries the same action bytes, so it creates no new candidate
-and changes no lock. A proposal whose resends ran out stalls its head as
-above until the head moves, a re-anchor replaces it, or the daemon restarts
-and proposes the post again.
+An author resends its proposal while its action certificate is incomplete,
+with the same `ActionHash`, preceded by the `CertifiedRecord` of the head it
+extends as on the first send. The resends follow the catch-up retry schedule
+below: jittered exponential backoff, a bounded number of times. They stop
+when the action certificate completes, when a different candidate commits at
+the proposal's predecessor, or when a completed re-anchor replaces the
+proposal. While the conversation recovers, the author sends no resend and
+consumes no resend attempts; an open proposal resumes resending after
+recovery even without a re-anchor. Each resend carries the identical signed
+proposal in a new outer message sealed to the whole fixed membership. A
+member that already signed the proposal deduplicates the resend by its
+`ActionHash` and sends nothing for it. A resend carries the same action bytes,
+so it creates no new candidate and changes no lock. A proposal whose resends
+ran out stalls its head as above until the head moves, a re-anchor replaces it,
+or the daemon restarts and proposes the post again.
 
 Daemon recovery resumes a persisted unfinished intent under its existing
 `PostId`. A later `HarnessEndpoint.send` invocation always mints a new

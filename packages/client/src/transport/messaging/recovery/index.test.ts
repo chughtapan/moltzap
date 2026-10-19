@@ -6765,7 +6765,6 @@ const rearmsEveryPausedConversationOnReattach = () =>
     );
   });
 
-// @agent-code-guard/regression-only: these traces pin the catch-up and re-anchor work a recovery run routes between its phases and its store.
 /**
  * Latest the first proposal resend can fire: the catch-up retry base of one
  * second with its jitter, and earlier than the second resend can.
@@ -6879,7 +6878,64 @@ const resendsAProposalAMemberDroppedWhileRecovering = () =>
     expect(sent.recordHash).toBe(recordHash);
   });
 
+/**
+ * A proposal stays open through catch-up on the same Router instance. Time
+ * spent fenced exceeds every resend delay without consuming its attempts,
+ * so recovery without a re-anchor still releases an identical proposal.
+ */
+const preservesResendAttemptsWhileFenced = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    yield* retainCertifiedRecord(fixture);
+    const sending = yield* forkSend(
+      fixture.engine,
+      `agent:${fixture.remote.card.agentName}`,
+      "waiting through a long recovery",
+    );
+    const first = yield* takeActionProposalAfterEvidence(
+      fixture.normalOutbound,
+    );
+    const { outbound } = yield* forkRecovery(
+      fixture,
+      "feed_gap",
+      oldRouterInstanceId,
+    );
+    const request = yield* takeCatchUpRequest(outbound);
+    yield* Effect.replicateEffect(
+      TestClock.adjust("5 minutes").pipe(Effect.zipRight(settle)),
+      catchUpRetryAttempts + 1,
+      { discard: true },
+    );
+    expect(yield* Queue.size(fixture.normalOutbound)).toBe(0);
+
+    yield* deliverRecovery(
+      fixture.engine,
+      catchUpIncompleteIngressFrom({
+        membership: fixture.membership,
+        responder: fixture.remote,
+        request,
+        routerInstanceId: oldRouterInstanceId,
+      }),
+    );
+    yield* TestClock.adjust(FIRST_RESEND_DUE);
+    const resent = yield* TestServices.provideLive(
+      takeActionProposalAfterEvidence(fixture.normalOutbound).pipe(
+        Effect.timeoutOption(RESEND_WAIT),
+      ),
+    );
+
+    expect(Option.map(resent, ({ proposal }) => proposal)).toEqual(
+      Option.some(first.proposal),
+    );
+    yield* Fiber.interrupt(sending);
+  });
+
+// @agent-code-guard/regression-only: these traces pin the catch-up and re-anchor work a recovery run routes between its phases and its store.
 describe("catch-up and re-anchor inside a recovery run", () => {
+  itOnTestClock(
+    "preserves proposal resend attempts through a long fence without a re-anchor",
+    preservesResendAttemptsWhileFenced,
+  );
   itOnTestClock(
     "sends its proposal again to a member that dropped it while recovering, and the post certifies",
     resendsAProposalAMemberDroppedWhileRecovering,
