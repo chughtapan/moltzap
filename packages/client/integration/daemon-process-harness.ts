@@ -20,8 +20,9 @@ import {
   Exit,
   Fiber,
   Redacted,
+  Ref,
   Schema,
-  type Scope,
+  Scope,
 } from "effect";
 import { type ChildProcess, spawn } from "node:child_process";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
@@ -91,6 +92,12 @@ export interface ProcessInfrastructure {
   readonly routerOrigin: URL;
   readonly registrySignerPublicKeyJson: string;
   readonly temporaryDirectory: string;
+  /**
+   * Stops the Router and starts a fresh one on the same origin. The Router
+   * keeps its state in memory, so the new process has a new
+   * `RouterInstanceId` and no envelopes, as a redeployed Router does.
+   */
+  readonly restartRouter: Effect.Effect<void, ProcessTestError>;
 }
 
 /** Exact reusable process inputs for one daemon identity and state directory. */
@@ -396,6 +403,7 @@ export const acquireProcessInfrastructure: Effect.Effect<
     });
     yield* awaitReady(registry, isHealthy(registryOrigin), "health response");
   });
+  const scope = yield* Effect.scope;
   const startRouter = managedProcess(ROUTER_BINARY, [], {
     MOLTZAP_ROUTER_HOST: LOOPBACK_HOST,
     MOLTZAP_ROUTER_PORT: String(routerPort),
@@ -404,20 +412,27 @@ export const acquireProcessInfrastructure: Effect.Effect<
     MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT: "16",
     MOLTZAP_ROUTER_HELD_POLL_CAPACITY: "8",
   }).pipe(
-    Effect.flatMap((router) =>
+    Effect.tap((router) =>
       awaitReady(router, isHealthy(routerOrigin), "health response"),
     ),
+    Scope.extend(scope),
   );
-  yield* Effect.all([startRegistry, startRouter], {
+  const [, firstRouter] = yield* Effect.all([startRegistry, startRouter], {
     concurrency: 2,
-    discard: true,
   });
+  const router = yield* Ref.make(firstRouter);
+  const restartRouter = Ref.get(router).pipe(
+    Effect.flatMap(stopProcess),
+    Effect.zipRight(startRouter),
+    Effect.flatMap((restarted) => Ref.set(router, restarted)),
+  );
 
   return {
     registryOrigin,
     routerOrigin,
     registrySignerPublicKeyJson,
     temporaryDirectory,
+    restartRouter,
   };
 });
 
