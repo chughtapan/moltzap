@@ -33,6 +33,7 @@ import {
   failFromBackgroundCause,
   type ProtocolEdges,
   type ProtocolEnvironment,
+  reportStorageFault,
 } from "./protocol.js";
 
 /** The Router worker and engine constructors the lifecycle supplies. */
@@ -168,9 +169,9 @@ const publishPendingMessages = (
       };
     })
     .pipe(
-      Effect.catchAll(() => {
+      Effect.catchAll((error) => {
         const failure = runtimeFailure("storage");
-        return Deferred.fail(environment.fatal, failure).pipe(
+        return reportStorageFault(environment, error).pipe(
           Effect.zipRight(Effect.fail(failure)),
         );
       }),
@@ -193,8 +194,8 @@ const emitLocalItem = (
   item: InboundItem,
 ): Effect.Effect<void, CollectiveEmitError> =>
   environment.delivery.queueLocalItem(item).pipe(
-    Effect.catchAll(() =>
-      Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
+    Effect.catchAll((error) =>
+      reportStorageFault(environment, error).pipe(
         Effect.zipRight(Effect.fail(new CollectiveEmitError())),
       ),
     ),

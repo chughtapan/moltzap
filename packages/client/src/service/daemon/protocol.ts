@@ -108,6 +108,19 @@ const encodeCard = (
     Effect.mapError(() => activationFailure("representation")),
   );
 
+/** Log only the closed storage reason before waking daemon shutdown. */
+export const reportStorageFault = (
+  environment: ProtocolEnvironment,
+  error: { readonly _tag: string; readonly reason?: string },
+): Effect.Effect<void> =>
+  Effect.logError("Storage failed, daemon exits").pipe(
+    Effect.annotateLogs({ _tag: error._tag, reason: error.reason }),
+    Effect.zipRight(
+      Deferred.fail(environment.fatal, runtimeFailure("storage")),
+    ),
+    Effect.asVoid,
+  );
+
 const retainPinnedCard = (
   pinned: PinnedCards,
   card: VerifiedAgentCard,
@@ -302,10 +315,7 @@ const acquireProtocolEngine = (
       store: environment.store,
       routerWorker: worker,
       actionPolicy: signStructurallyValidAction,
-      reportStorageFault: Deferred.fail(
-        environment.fatal,
-        runtimeFailure("storage"),
-      ).pipe(Effect.asVoid),
+      reportStorageFault: (error) => reportStorageFault(environment, error),
     })
     .pipe(
       Scope.extend(environment.daemonScope),
