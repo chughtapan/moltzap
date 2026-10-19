@@ -169,7 +169,7 @@ jobs:
 
       # The release App token is minted only now, scoped to contents, and
       # used for exactly one push.
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         if: steps.plan.outputs.mode == 'bump'
         id: app-token
         with:
