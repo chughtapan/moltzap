@@ -18,7 +18,7 @@ import {
   loadDaemonProcessConfiguration,
   processHelp,
 } from "./configuration.js";
-import { runDaemonRuntime } from "./lifecycle.js";
+import { type DaemonRuntimeError, runDaemonRuntime } from "./lifecycle.js";
 import {
   readDaemonRegistrationState,
   requireAdmission,
@@ -78,15 +78,17 @@ export namespace Daemon {
   /** Closed startup phase with sanitized configuration details. */
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
+    readonly reason?: "outbox-too-old";
     readonly detail?: string;
   }> {
     /**
-     * Only sanitized configuration details enter the process log.
+     * Only closed refusal reasons and sanitized configuration details enter the process log.
      * @returns The startup phase and any safe operator diagnostic.
      */
     override get message(): string {
+      const reason = this.reason === undefined ? "" : ` (${this.reason})`;
       const detail = this.detail === undefined ? "" : `: ${this.detail}`;
-      return `moltzapd startup failed in phase ${this.phase}${detail}`;
+      return `moltzapd startup failed in phase ${this.phase}${reason}${detail}`;
     }
   }
 
@@ -132,8 +134,7 @@ export namespace Daemon {
         ...(auditExport === undefined ? {} : { auditExport }),
       }).pipe(
         Effect.provide(networkContext),
-        // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- The public process layer deliberately projects private runtime failures onto its closed startup phase.
-        Effect.mapError((error) => new StartupError({ phase: error.phase })),
+        Effect.mapError(runtimeStartupFailure),
       );
     }).pipe(Effect.withSpan("Daemon.layer"));
 
@@ -153,6 +154,18 @@ export namespace Daemon {
     const { auditExport, ...policyOptions } = options;
     return Layer.scopedDiscard(runDaemon(policyOptions, auditExport));
   };
+
+  /**
+   * Public startup failures retain the phase and actionable compatibility refusal.
+   * @param error Private runtime failure to project onto the process boundary.
+   * @returns The closed startup error without private runtime detail.
+   */
+  function runtimeStartupFailure(error: DaemonRuntimeError): StartupError {
+    return new StartupError({
+      phase: error.phase,
+      ...(error.reason === undefined ? {} : { reason: error.reason }),
+    });
+  }
 
   function configurationFailure(cause: unknown): StartupError {
     return new StartupError({

@@ -3,8 +3,8 @@
 import {
   AgentCard,
   type AgentId,
+  type LiveSignedMessage,
   SignedMessage,
-  type SignedMessage as SignedMessageValue,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
@@ -145,7 +145,7 @@ const pollRouterTail = (
 
 interface TransmitInput {
   readonly outbound: StoredOutboundMessage;
-  readonly message: SignedMessageValue;
+  readonly message: LiveSignedMessage;
   readonly instance: RouterInstanceId;
   readonly mode: "initial" | "retry";
   readonly attemptsRemaining: number;
@@ -296,8 +296,11 @@ function transmitOuter<Payload>(
 
 function decodeStoredOutbound(
   outbound: StoredOutboundMessage,
-): Effect.Effect<SignedMessageValue, RouterWorkerProtocolError> {
-  return decodeCanonical(SignedMessage, outbound.canonicalSignedMessage).pipe(
+): Effect.Effect<LiveSignedMessage, RouterWorkerProtocolError> {
+  return decodeCanonical(
+    SignedMessage.live,
+    outbound.canonicalSignedMessage,
+  ).pipe(
     Effect.mapError(mapProtocolError),
     Effect.flatMap((message) =>
       message.messageId === outbound.messageId
@@ -355,7 +358,7 @@ type AnchoredRecoveringState = RouterWorkerRecoveringState & {
 
 interface RecoveryOperations {
   readonly verifyBatch: (
-    messages: readonly SignedMessageValue[],
+    messages: readonly LiveSignedMessage[],
   ) => Effect.Effect<
     readonly RouterWorkerVerifiedIngress[],
     RouterWorkerAuthenticationError | RouterWorkerPersistenceError
@@ -582,7 +585,7 @@ const resolveSenderCard = <Payload>(
 
 const verifyOuter = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
-  signedMessage: SignedMessageValue,
+  signedMessage: LiveSignedMessage,
 ): Effect.Effect<
   RouterWorkerVerifiedIngress,
   RouterWorkerAuthenticationError | RouterWorkerPersistenceError
@@ -601,7 +604,7 @@ const verifyOuter = <Payload>(
 
 const verifyBatch = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
-  messages: readonly SignedMessageValue[],
+  messages: readonly LiveSignedMessage[],
 ): Effect.Effect<
   readonly RouterWorkerVerifiedIngress[],
   RouterWorkerAuthenticationError | RouterWorkerPersistenceError

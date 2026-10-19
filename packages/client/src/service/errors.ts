@@ -5,13 +5,18 @@ import { Data } from "effect";
 /** Closed private daemon failure projected onto the public startup phases. */
 export class DaemonRuntimeError extends Data.TaggedError("DaemonRuntimeError")<{
   readonly phase: "storage" | "listener";
+  readonly reason?: "outbox-too-old";
 }> {}
 
 /** Closed activation failure retained behind the daemon runtime boundary. */
 export class DaemonActivationError extends Data.TaggedError(
   "DaemonActivationError",
 )<{
-  readonly reason: "upstream" | "persistence" | "representation";
+  readonly reason:
+    | "upstream"
+    | "persistence"
+    | "representation"
+    | "outbox-too-old";
 }> {}
 
 /** The daemon failure for the phase the daemon stopped in. */

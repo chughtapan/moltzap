@@ -3,14 +3,15 @@
 import {
   type AgentId,
   type AgentSigningAuthority,
+  type LiveSignedMessage,
   MessageId,
   type MessageId as MessageIdValue,
-  MOLTZAP_VERSION,
   SealedBody,
   SignedMessage,
   type SignedMessage as SignedMessageValue,
   type VerifiedAgentCard,
   type VerifiedSignedMessage,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import { Effect, Encoding, Schema } from "effect";
 import { createHash, randomBytes } from "node:crypto";
@@ -114,7 +115,7 @@ export const deriveConversationId = (
     return Effect.fail(representationFailure());
   }
   const input: ConversationIdentityInput = {
-    moltzapVersion: MOLTZAP_VERSION,
+    moltzapVersion: WIRE_VERSION,
     kind: "conversation_identity",
     memberAgentIds,
   };
@@ -265,7 +266,9 @@ const decodePlaintext = (
  * local state.
  */
 export const decodeOuterBody = (
-  input: OuterBodyReader & { readonly message: VerifiedSignedMessage },
+  input: OuterBodyReader & {
+    readonly message: LiveSignedMessage & VerifiedSignedMessage;
+  },
 ): Effect.Effect<DecodedOuterBody, ClientRepresentationError> =>
   SealedBody.open({
     agentCard: input.agentCard,
@@ -280,7 +283,10 @@ export const signEvidenceMessage = (input: {
   readonly statement: EvidenceStatementValue;
   readonly agentCard: VerifiedAgentCard;
   readonly signingAuthority: AgentSigningAuthority;
-}): Effect.Effect<VerifiedSignedMessage, ClientRepresentationError> =>
+}): Effect.Effect<
+  LiveSignedMessage & VerifiedSignedMessage,
+  ClientRepresentationError
+> =>
   Effect.gen(function* () {
     if (input.statement.signerAgentId !== input.agentCard.agentId) {
       return yield* representationFailure();
@@ -315,7 +321,10 @@ const signOuterBody = (input: {
   readonly membership: OuterMembership;
   readonly agentCard: VerifiedAgentCard;
   readonly signingAuthority: AgentSigningAuthority;
-}): Effect.Effect<VerifiedSignedMessage, ClientRepresentationError> =>
+}): Effect.Effect<
+  LiveSignedMessage & VerifiedSignedMessage,
+  ClientRepresentationError
+> =>
   Effect.gen(function* () {
     const memberAgentIds = input.membership.members.map(
       (member) => member.agentId,
@@ -353,7 +362,10 @@ export const signOuterPacket = (input: {
   readonly membership: OuterMembership;
   readonly agentCard: VerifiedAgentCard;
   readonly signingAuthority: AgentSigningAuthority;
-}): Effect.Effect<VerifiedSignedMessage, ClientRepresentationError> =>
+}): Effect.Effect<
+  LiveSignedMessage & VerifiedSignedMessage,
+  ClientRepresentationError
+> =>
   encodeCanonical(DirectPacket, input.packet).pipe(
     Effect.flatMap((body) => signOuterBody({ ...input, body })),
   );
@@ -363,7 +375,10 @@ export const signOuterEvidence = (input: {
   readonly membership: OuterMembership;
   readonly agentCard: VerifiedAgentCard;
   readonly signingAuthority: AgentSigningAuthority;
-}): Effect.Effect<VerifiedSignedMessage, ClientRepresentationError> =>
+}): Effect.Effect<
+  LiveSignedMessage & VerifiedSignedMessage,
+  ClientRepresentationError
+> =>
   encodeCanonical(SignedMessage, input.evidence).pipe(
     Effect.flatMap((body) => signOuterBody({ ...input, body })),
   );

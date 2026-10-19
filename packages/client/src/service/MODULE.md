@@ -38,7 +38,7 @@ _Variable_
 
 Usage text listing the daemon process's environment variables.
 
-### [`layer`](./index.ts#L141)
+### [`layer`](./index.ts#L142)
 
 _Variable_
 
@@ -57,22 +57,24 @@ _Class_
 ```ts
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
+    readonly reason?: "outbox-too-old";
     readonly detail?: string;
   }> {
     /**
-     * Only sanitized configuration details enter the process log.
+     * Only closed refusal reasons and sanitized configuration details enter the process log.
      * @returns The startup phase and any safe operator diagnostic.
      */
     override get message(): string {
+      const reason = this.reason === undefined ? "" : ` (${this.reason})`;
       const detail = this.detail === undefined ? "" : `: ${this.detail}`;
-      return `moltzapd startup failed in phase ${this.phase}${detail}`;
+      return `moltzapd startup failed in phase ${this.phase}${reason}${detail}`;
     }
   }
 ```
 
 Closed startup phase with sanitized configuration details.
 
-### [`withFirewall`](./index.ts#L150)
+### [`withFirewall`](./index.ts#L151)
 
 _Function_
 

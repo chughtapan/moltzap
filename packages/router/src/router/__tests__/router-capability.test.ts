@@ -17,13 +17,13 @@ import {
   InternalServerError,
   MessageId,
   type MessageId as MessageIdValue,
-  MOLTZAP_VERSION,
   OverloadedError,
   PrincipalId,
   SignedMessage,
   type SignedMessage as SignedMessageValue,
   type VerifiedAgentCard,
   type VerifiedAgentRequest,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import canonicalize from "canonicalize";
 import {
@@ -35,6 +35,7 @@ import {
   Either,
   Encoding,
   Layer,
+  Option,
   Redacted,
   Ref,
   Schema,
@@ -114,7 +115,7 @@ const makeSignedMessage = (input: {
   Schema.decodeUnknownSync(SignedMessage)({
     payload: encodedCanonicalJson({
       kind: "signedMessage",
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       senderAgentId: input.senderAgentId,
       agentCardDigest: `acd_${Encoding.encodeBase64Url(new Uint8Array(32).fill(9))}`,
       recipientAgentIds: input.recipientAgentIds,
@@ -208,7 +209,7 @@ const makeRegisteredSenderFixture = () =>
     const payload = utf8Encoder.encode(
       canonicalText({
         kind: "agentCard",
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         agentId: sender,
         principalId: Schema.decodeUnknownSync(PrincipalId)(
           `prn_${identifierPayload(6)}`,
@@ -867,9 +868,15 @@ describe("public client behavior", () => {
             expectedTag: "MethodNotAllowedError",
           },
           {
-            name: "version mismatch",
+            name: "legacy version mismatch without supported versions",
             status: 412,
             body: '{"error":"version_mismatch"}',
+            expectedTag: "VersionMismatchError",
+          },
+          {
+            name: "version mismatch",
+            status: 412,
+            body: `{"error":"version_mismatch","supported":["${WIRE_VERSION}"]}`,
             expectedTag: "VersionMismatchError",
           },
           {
@@ -1029,28 +1036,18 @@ describe("public client behavior", () => {
           signingAuthority,
           Duration.seconds(5),
         );
-        Either.match(connectionOutcome, {
-          onLeft: (error) => {
-            expect(error).toBeInstanceOf(RouterConnectionError);
-          },
-          onRight: () => {
-            expect.fail("connection failure produced a result");
-          },
-        });
+        expect(
+          Option.getOrThrow(Either.getLeft(connectionOutcome)),
+        ).toBeInstanceOf(RouterConnectionError);
 
         const timeoutOutcome = yield* runPollWithClient(
           HttpClient.make(() => Effect.never),
           signingAuthority,
           Duration.millis(5),
         );
-        Either.match(timeoutOutcome, {
-          onLeft: (error) => {
-            expect(error).toBeInstanceOf(RouterRequestTimeoutError);
-          },
-          onRight: () => {
-            expect.fail("expired call produced a result");
-          },
-        });
+        expect(
+          Option.getOrThrow(Either.getLeft(timeoutOutcome)),
+        ).toBeInstanceOf(RouterRequestTimeoutError);
 
         let requestCount = 0;
         const signingOutcome = yield* Router.poll({

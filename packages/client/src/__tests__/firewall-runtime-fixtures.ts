@@ -2,11 +2,7 @@
 
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import {
-  AgentCard,
-  Ed25519PublicKey,
-  MOLTZAP_VERSION,
-} from "@moltzap/identity";
+import { AgentCard, Ed25519PublicKey, WIRE_VERSION } from "@moltzap/identity";
 import { RouterInstanceId } from "@moltzap/router";
 import { Deferred, Effect, Queue, Schema, Scope } from "effect";
 import { generateKeyPairSync } from "node:crypto";
@@ -418,7 +414,7 @@ function directMembership(
 ) {
   return Effect.gen(function* () {
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "membership_descriptor",
       conversationId: yield* deriveConversationId([
         cards[0].agentId,

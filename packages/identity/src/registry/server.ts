@@ -23,7 +23,7 @@ import { createServer } from "node:http";
 import { isAbsolute } from "node:path";
 import packageJson from "../../package.json" with { type: "json" };
 import { AgentSigningAuthority } from "../agent-key.js";
-import { MOLTZAP_VERSION } from "../version.js";
+import { WIRE_VERSION } from "../version.js";
 import { makeRegistryHttpApp } from "./http.js";
 import {
   makeRegistryRpcClient,
@@ -307,7 +307,7 @@ function serveRegistry(
       Effect.provideService(HttpServer.HttpServer, httpServer),
     );
     yield* Console.log(
-      `moltzap-registry listening on ${listeningUrl(httpServer.address)} (package ${packageJson.version}; MOLTZAP_VERSION ${MOLTZAP_VERSION})`,
+      `moltzap-registry listening on ${listeningUrl(httpServer.address)} (package ${packageJson.version}; WIRE_VERSION ${WIRE_VERSION})`,
     );
   });
 }

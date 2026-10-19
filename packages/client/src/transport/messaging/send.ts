@@ -2,8 +2,8 @@
 
 import {
   AgentCard,
-  MOLTZAP_VERSION,
   type VerifiedAgentCard,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import {
   Deferred,
@@ -173,7 +173,7 @@ const buildMembership = (runtime: EngineRuntime, resolved: ResolvedAddress) =>
       );
     }
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptorSchema)({
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "membership_descriptor",
       conversationId,
       members: [firstCard, secondCard, ...encodedCards.slice(2)],
@@ -249,7 +249,7 @@ const proposalAction = (
       Effect.mapError(representationFailure),
       Effect.map((postIntentHash) => {
         const action: ActionCore = {
-          moltzapVersion: MOLTZAP_VERSION,
+          moltzapVersion: WIRE_VERSION,
           kind: "GENESIS",
           conversationId: conversation.conversationId,
           membership: conversation.membership.descriptor,
@@ -266,7 +266,7 @@ const proposalAction = (
     Effect.mapError(representationFailure),
     Effect.map((postIntentHash) => {
       const action: ActionCore = {
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         kind: "POST",
         conversationId: conversation.conversationId,
         membershipHash: conversation.membership.hash,
@@ -393,7 +393,7 @@ function queueProposal(
   return queueHead.pipe(
     Effect.zipRight(
       runtime.outbox.queuePacket(proposal.conversation, {
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         kind: "action_proposal",
         action: proposal.action,
       }),
@@ -524,7 +524,7 @@ const createConversation = (
       Effect.mapError(currentAnchorFailure),
     );
     const anchor = yield* Schema.decodeUnknown(GenesisAnchorBody)({
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "genesis_anchor_body",
       conversationId: membership.descriptor.conversationId,
       membershipHash: membership.hash,
@@ -825,7 +825,7 @@ function prepareIntent(
       Effect.mapError(representationFailure),
     );
     const intent = yield* Schema.decodeUnknown(PostIntentSchema)({
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "post_intent",
       conversationId: membership.descriptor.conversationId,
       membershipHash: membership.hash,

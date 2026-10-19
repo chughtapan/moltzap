@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
  * @file Source-of-truth generator for the doc-embedded MoltZap compatibility
- * value. Reads `MOLTZAP_VERSION` from its owning Identity source file and
+ * value. Reads `WIRE_VERSION` from its owning Identity source file and
  * emits two sibling files under `docs/snippets/constants/`:
  *
  *   - `values.json` — JSON record consumed by
@@ -36,7 +36,7 @@ import {
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  MOLTZAP_VERSION_SOURCE,
+  WIRE_VERSION_SOURCE,
   readCompatibilityVersion,
 } from "./moltzap-version.js";
 
@@ -72,7 +72,7 @@ const collect = (): readonly Constant[] => {
   const constants: ReadonlyArray<Constant | null> = [
     requireString(
       "V2_PROTOCOL_VERSION",
-      MOLTZAP_VERSION_SOURCE,
+      WIRE_VERSION_SOURCE,
       readCompatibilityVersion(workspaceRoot),
       "Current wire compatibility value for Identity and Router representations; package release versions are independent of it.",
     ),

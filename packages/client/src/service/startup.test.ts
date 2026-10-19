@@ -38,3 +38,16 @@ it("removes decoder failures from daemon configuration errors", () =>
     expect(String(error)).not.toContain(rejectedValue);
     expect(error.cause).toBeUndefined();
   }));
+
+it("names both the closed compatibility reason and safe operator detail", () =>
+  Effect.sync(() => {
+    const error = new Daemon.StartupError({
+      phase: "storage",
+      reason: "outbox-too-old",
+      detail: "Drain the outbox with an earlier release before upgrading",
+    });
+    expect(error.message).toContain(error.phase);
+    expect(error.message).toContain(error.reason);
+    expect(error.message).toContain(error.detail);
+    expect(error.cause).toBeUndefined();
+  }));

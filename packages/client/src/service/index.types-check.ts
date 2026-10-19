@@ -21,6 +21,13 @@ type StartupTagIsExact = Expect<
 type StartupPhaseIsExact = Expect<
   Types.Equals<StartupValue["phase"], "configuration" | "storage" | "listener">
 >;
+type StartupReasonIsExact = Expect<
+  Types.Equals<StartupValue["reason"], "outbox-too-old" | undefined>
+>;
+type StartupDetailIsExact = Expect<
+  Types.Equals<StartupValue["detail"], string | undefined>
+>;
+type HelpIsExact = Expect<Types.Equals<typeof Daemon.help, string>>;
 type LayerIsExact = Expect<
   Types.Equals<typeof Daemon.layer, Layer.Layer<never, Daemon.StartupError>>
 >;
@@ -33,6 +40,9 @@ export type DaemonCanaries = [
   NamespaceIsExact,
   StartupTagIsExact,
   StartupPhaseIsExact,
+  StartupReasonIsExact,
+  StartupDetailIsExact,
+  HelpIsExact,
   LayerIsExact,
   AuditPathIsOptional,
 ];

@@ -5,7 +5,7 @@
  */
 import { HttpServer } from "@effect/platform";
 import { NodeHttpClient, NodeHttpServer } from "@effect/platform-node";
-import { AuthenticatedHttp, MOLTZAP_VERSION } from "@moltzap/identity";
+import { AuthenticatedHttp, WIRE_VERSION } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { ConfigError, Console, Data, Duration, Effect, Layer } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- NodeHttpServer.make requires Node's server factory at this adapter boundary.
@@ -63,7 +63,7 @@ export namespace RouterServer {
       Effect.provide(NodeHttpServer.layerContext),
     );
     yield* Console.log(
-      `moltzap-router listening on ${listeningUrl(httpServer.address)} (package ${packageJson.version}; MOLTZAP_VERSION ${MOLTZAP_VERSION})`,
+      `moltzap-router listening on ${listeningUrl(httpServer.address)} (package ${packageJson.version}; WIRE_VERSION ${WIRE_VERSION})`,
     );
   }).pipe(Effect.withSpan("RouterServer.layer"));
 

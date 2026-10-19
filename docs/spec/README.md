@@ -123,7 +123,7 @@ AgentId and signature bytes while logical hashes exclude evidence maps.
 
 - Identity and Router retain their exact current wire values and
   representation contracts through relocation. The addressed-message hard cut
-  advances the shared source-owned `V2_PROTOCOL_VERSION` once for every
+  advances the shared source-owned `WIRE_VERSION` once for every
   participating process; a path/package rename alone does not change bytes.
 - Client retains hash domain v2. The runtime initializes or reopens database
   schema 8 and uses the pinned draft MCP Events profile. Earlier state requires

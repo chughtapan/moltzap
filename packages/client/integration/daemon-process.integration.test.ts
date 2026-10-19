@@ -1,5 +1,9 @@
 /** @file Two real daemons certify, deliver, and recover multicast operations. */
 
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { DatabaseSync } from "node:sqlite";
 import { ProtocolErrorCode } from "@modelcontextprotocol/client";
 import { AgentCard, type AgentName } from "@moltzap/identity";
 import { Effect, Fiber, Option, Schema, Stream } from "effect";
@@ -554,7 +558,7 @@ const admissionLifetimeBehavior = Effect.gen(function* () {
   expect(firstRun.logs()).toContain(
     `moltzapd listening on ${registeredFixture.endpoint}`,
   );
-  expect(firstRun.logs()).toMatch(/\(package \S+; MOLTZAP_VERSION \S+\)/u);
+  expect(firstRun.logs()).toMatch(/\(package \S+; WIRE_VERSION \S+\)/u);
   expect(firstRun.logs().match(/moltzapd listening on/gu)).toHaveLength(1);
 
   const unsetRun = yield* acquireDaemonProcess(
@@ -614,5 +618,112 @@ it(
 it(
   "delivers both ways after the Router restarts while both daemons stay up",
   processTrace(routerRestartBehavior),
+  PROCESS_TEST_TIMEOUT_MS,
+);
+
+/** A retired version in a retained envelope must stop startup before any schema change. */
+const refusesStaleOutbox = Effect.scoped(
+  Effect.gen(function* () {
+    const infrastructure = yield* acquireProcessInfrastructure;
+    const local = yield* makeDaemonProcessFixture(
+      infrastructure,
+      "stale-outbox",
+    );
+    const peer = yield* makeDaemonProcessFixture(infrastructure, "stale-peer");
+    const daemonProcess = yield* acquireDaemonProcess(local);
+    yield* acquireDaemonProcess(peer);
+    yield* registerFixture(local);
+    yield* registerFixture(peer);
+    yield* deliverDirect({
+      from: local,
+      to: peer,
+      text: "outbox baseline",
+      send: sendOrQueue,
+    });
+    yield* stopProcess(daemonProcess);
+    const before = yield* Effect.try({
+      try: () => markStoredOutboundPending(local.stateDirectory),
+      catch: (cause) =>
+        new ProcessTestError({
+          message: "could not prepare retired outbox",
+          cause,
+        }),
+    });
+    const failed = yield* awaitDaemonStartupFailure(local, {
+      executable: process.execPath,
+      args: ["--input-type=module", "-e", retiredWindowDaemon],
+      cwd: fileURLToPath(new URL("../", import.meta.url)),
+    });
+    expect(failed.exitCode).not.toBe(0);
+    expect(failed.logs).toContain("outbox-too-old");
+    const after = yield* Effect.try({
+      try: () => storedSchema(local.stateDirectory),
+      catch: (cause) =>
+        new ProcessTestError({
+          message: "could not read refused store",
+          cause,
+        }),
+    });
+    expect(after).toEqual(before);
+  }),
+);
+
+/** Capture schema and backup state without depending on a particular schema number. */
+function storedSchema(directory: string) {
+  const database = new DatabaseSync(join(directory, "moltzapd.sqlite3"), {
+    readOnly: true,
+  });
+  try {
+    return {
+      schema: database.prepare("PRAGMA user_version").get(),
+      objects: database
+        .prepare("SELECT sql FROM sqlite_schema ORDER BY name")
+        .all(),
+      backups: readdirSync(directory).filter((name) =>
+        name.includes(".backup"),
+      ),
+    };
+  } finally {
+    database.close();
+  }
+}
+
+/**
+ * A release with an empty live window refuses this binary's retained outbound
+ * bytes. The child composes only published service and Identity APIs.
+ */
+const retiredWindowDaemon = `
+  import { NodeRuntime } from "@effect/platform-node";
+  import { WIRE_VERSION, WireVersions } from "@moltzap/identity";
+  import { Daemon } from "@moltzap/client/service";
+  import { ConfigProvider, Effect, Layer } from "effect";
+  Layer.launch(Daemon.layer).pipe(
+    Effect.provideService(WireVersions, { live: [], history: [WIRE_VERSION] }),
+    Effect.withConfigProvider(ConfigProvider.fromEnv()),
+    NodeRuntime.runMain,
+  );
+`;
+
+/** Retry an existing signed envelope unchanged under the narrower release window. */
+function markStoredOutboundPending(directory: string) {
+  const database = new DatabaseSync(join(directory, "moltzapd.sqlite3"));
+  try {
+    const result = database
+      .prepare(
+        "UPDATE outbound_messages SET disposition = 'pending' WHERE outbound_id = (SELECT outbound_id FROM outbound_messages LIMIT 1)",
+      )
+      .run();
+    if (result.changes !== 1) {
+      throw new Error("expected an existing signed outbound envelope");
+    }
+  } finally {
+    database.close();
+  }
+  return storedSchema(directory);
+}
+
+it(
+  "reports outbox-too-old at the process boundary without changing schema or backups",
+  processTrace(refusesStaleOutbox),
   PROCESS_TEST_TIMEOUT_MS,
 );

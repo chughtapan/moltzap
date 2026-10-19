@@ -5,8 +5,8 @@
  */
 
 import {
-  MOLTZAP_VERSION,
   type SignedMessage as SignedMessageValue,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import type { EngineRuntime } from "../runtime/index.js";
@@ -726,7 +726,7 @@ function makeReanchorBody(
   selectedRecordHash: string,
 ): Effect.Effect<ReanchorBodyValue, RouterWorkerPersistenceError> {
   return Schema.decodeUnknown(ReanchorBody)({
-    moltzapVersion: MOLTZAP_VERSION,
+    moltzapVersion: WIRE_VERSION,
     kind: "reanchor_body",
     conversationId: membership.descriptor.conversationId,
     membershipHash: membership.hash,
@@ -950,7 +950,7 @@ function localReanchorVoteStatement(
   anchorHash: AnchorHashValue,
 ): PendingReanchorVote["statement"] {
   return {
-    moltzapVersion: MOLTZAP_VERSION,
+    moltzapVersion: WIRE_VERSION,
     kind: "reanchor_vote",
     signerAgentId: runtime.input.localAgentCard.agentId,
     anchorHash,

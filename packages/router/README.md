@@ -35,7 +35,7 @@ signer public key as a compact Ed25519 JWK.
 
 Run `moltzap-router --help` to list environment variables, requirements, and
 defaults without starting the process. Successful startup prints the listening
-URL, package version, and `MOLTZAP_VERSION` wire compatibility value. Startup
+URL, package version, and `WIRE_VERSION` wire compatibility value. Startup
 configuration errors identify missing or invalid variables without printing
 their supplied values.
 
