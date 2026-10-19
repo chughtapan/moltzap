@@ -16,15 +16,15 @@ import type {
 import type { ListenError } from "../../transport/messaging/errors.js";
 import type { DaemonBootstrap } from "../bootstrap.js";
 import {
-  type ApplicationSender,
+  collectiveAdmission,
   type InstalledFirewall,
-  sendWithFirewall,
 } from "../../delivery/index.js";
 import {
   type CollectiveEmitError,
   type CollectiveOperations,
   type InboundItem,
   makeCollectiveOperations,
+  type ResultProvenance,
 } from "../../transport/collectives/index.js";
 import {
   type EndpointEngine,
@@ -74,7 +74,6 @@ export interface ActiveProtocol {
   readonly worker: RouterWorker;
   readonly engine: EndpointEngine;
   readonly collectives: CollectiveOperations;
-  readonly application: ApplicationSender;
 }
 
 /** The daemon resources a protocol is acquired from and supervised in. */
@@ -95,9 +94,10 @@ export interface ProtocolHooks {
   readonly retain: (protocol: ActiveProtocol) => void;
   /** A delivery pass after ingress; its failure has already reached `fatal`. */
   readonly publishPending: Effect.Effect<void>;
-  /** Keeps an item the collective layer emitted and publishes it. */
+  /** Keeps an item the collective layer emitted, with its provenance, and publishes it. */
   readonly emit: (
     item: InboundItem,
+    provenance?: ResultProvenance,
   ) => Effect.Effect<void, CollectiveEmitError>;
 }
 
@@ -332,15 +332,18 @@ const acquireProtocolEngine = (
 
 /**
  * The collective layer for the active identity: it certifies posts through
- * the engine and hands the items it emits to the daemon.
+ * the engine and hands the items it emits to the daemon. With a firewall
+ * installed, every post the agent authors, and every gather, passes its
+ * checks before anything binds; protocol posts never do.
  */
 const makeProtocolCollectives = (
   environment: ProtocolEnvironment,
   emit: ProtocolHooks["emit"],
   agentCard: VerifiedAgentCard,
   engine: EndpointEngine,
-): CollectiveOperations =>
-  makeCollectiveOperations({
+): CollectiveOperations => {
+  const installed = environment.firewall;
+  return makeCollectiveOperations({
     self: Schema.decodeUnknownSync(AgentAddress)(
       `agent:${agentCard.agentName}`,
     ),
@@ -348,7 +351,20 @@ const makeProtocolCollectives = (
     sendPost: (input) => engine.send(input),
     emit,
     scope: environment.daemonScope,
+    ...(installed === undefined
+      ? {}
+      : {
+          admission: collectiveAdmission(
+            {
+              store: environment.store,
+              installed,
+              localAgentCard: agentCard,
+            },
+            engine,
+          ),
+        }),
   });
+};
 
 /**
  * Acquire and supervise the protocol resources for one immutable daemon
@@ -389,35 +405,8 @@ export const acquireProtocol = (
       worker,
       engine,
       collectives,
-      application: applicationSender(
-        environment,
-        agentCard,
-        engine,
-        collectives,
-      ),
     });
     yield* Deferred.succeed(engineReady, engine);
     yield* superviseBackground(environment, worker.run);
     yield* superviseBackground(environment, engine.runOutbound);
   }).pipe(Effect.withSpan("acquireProtocol"));
-
-function applicationSender(
-  environment: ProtocolEnvironment,
-  localAgentCard: VerifiedAgentCard,
-  engine: EndpointEngine,
-  collectives: CollectiveOperations,
-): ApplicationSender {
-  const installed = environment.firewall;
-  if (installed === undefined) {
-    return collectives;
-  }
-  return {
-    send: (input, failureDelivery) =>
-      sendWithFirewall(
-        { store: environment.store, installed, localAgentCard },
-        engine,
-        collectives,
-        { input, failureDelivery },
-      ),
-  };
-}

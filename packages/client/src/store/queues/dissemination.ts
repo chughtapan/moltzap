@@ -95,19 +95,21 @@ export function enqueueDisseminationOutbound(
 /**
  * Reads unattached obligations in their durable insertion order.
  * @param database Exclusively owned endpoint database.
+ * @param conversationId Restrict the read to this conversation when provided.
  * @returns Exact obligations that do not yet own an outbox envelope.
  */
 export function readPendingDissemination(
   database: DatabaseSync,
+  conversationId?: string,
 ): readonly DisseminationObligation[] {
   return Object.freeze(
     database
       .prepare(
         `SELECT conversation_id, record_hash
-         FROM dissemination_obligations WHERE outbound_id IS NULL
+         FROM dissemination_obligations WHERE outbound_id IS NULL ${conversationId === undefined ? "" : "AND conversation_id = ?"}
          ORDER BY obligation_sequence`,
       )
-      .all()
+      .all(...(conversationId === undefined ? [] : [conversationId]))
       .map((row) =>
         Object.freeze({
           conversationId: readText(row, "conversation_id"),

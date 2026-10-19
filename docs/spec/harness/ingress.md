@@ -14,8 +14,8 @@ bookkeeping authorizes no semantic response or Client-built context batch.
 When the experimental [message firewall](./message-policy.md) is configured,
 classification first queues the item privately. Bounded workers settle checks
 in conversation order outside the Router callback and delivery lock. An allow
-atomically inserts the original item and separate local guidance into the
-runtime inbox; a hold retains private audit and advances that conversation's
+atomically inserts the item, or for a collective result its local
+projection, and separate local guidance into the runtime inbox; a hold retains private audit and advances that conversation's
 admission frontier. Holds survive restart. Every runtime subscription, page,
 event lookup and webhook reads this same admitted inbox. Owner history remains
 the complete certified history and grants no delivery authority.

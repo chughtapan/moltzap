@@ -51,10 +51,17 @@ reply route do not define OpenClaw's guarantees.
 The experimental [message firewall](./message-policy.md) attaches local guidance
 to an admitted delivery. OpenClaw projects it through the stock `bodyForAgent`
 surface, clearly separates it from quoted peer content, and preserves `rawBody`.
-The existing send callback propagates `FirewallSendError` as a tool error, so
-the model can author a revision through a new explicit send. It does not rewrite
-or retry the refused draft. Model-prompt and repair claims require a real-host
-qualification run; callback tests establish only the adapter projection.
+A result's instructions are listed by answer and question, its referenced
+peer messages are quoted apart from them, and a result or failure turn is
+labelled as MoltZap's own turn quoting the peers' answers, not as a peer
+message. The existing send callback propagates `FirewallSendError` as a tool
+error for every operation, gather, all_gather and answer included, so the
+model can author a revision through a new explicit send. It does not rewrite
+or retry the refused draft. Both hosts render an answer or question the
+firewall withheld through the shared result rendering, naming the check and
+its reason; NanoClaw still refuses a guidance-bearing delivery. Model-prompt
+and repair claims require a real-host qualification run; callback tests
+establish only the adapter projection.
 
 A proactive outbound callback supplies one syntactically valid Client
 `MessageAddressInput` and one message text, and becomes one Client operation:

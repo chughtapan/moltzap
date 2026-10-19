@@ -59,6 +59,7 @@ const IDEMPOTENCY_CONFLICT_KIND = "idempotency_conflict";
 const KEY_ALREADY_REGISTERED_KIND = "key_already_registered";
 const NAME_TAKEN_KIND = "name_taken";
 const FOUND_KIND = "found";
+const NEWER_SCHEMA_REASON = "newer-schema";
 const OK_STATUS = 200;
 const NO_CONTENT_STATUS = 204;
 const BAD_REQUEST_STATUS = 400;
@@ -826,7 +827,7 @@ const setupRegistryInfrastructure = Effect.gen(function* () {
 const assertStartupContracts = (input: {
   readonly environment: Readonly<Record<string, string>>;
   readonly wrongKeyPath: string;
-  readonly corruptVersion: Effect.Effect<unknown, unknown>;
+  readonly addUnknownMigration: Effect.Effect<unknown, unknown>;
 }) =>
   Effect.gen(function* () {
     yield* assertStartupRejection({
@@ -837,8 +838,14 @@ const assertStartupContracts = (input: {
       ...input.environment,
       MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH: input.wrongKeyPath,
     });
-    yield* input.corruptVersion;
-    yield* assertStartupRejection(input.environment);
+    yield* input.addUnknownMigration;
+    const process = yield* managedProcess(
+      REGISTRY_BINARY,
+      [],
+      input.environment,
+    );
+    yield* expectStartupFailure(process);
+    expect(process.logs()).toContain(NEWER_SCHEMA_REASON);
   });
 
 const registryBinaryBehavior = Effect.gen(function* () {
@@ -877,11 +884,10 @@ const registryBinaryBehavior = Effect.gen(function* () {
   yield* assertStartupContracts({
     environment: infrastructure.environment,
     wrongKeyPath: infrastructure.wrongKeyPath,
-    corruptVersion: sql.unsafe(`
-        UPDATE moltzap_registry_metadata
-        SET moltzap_version = 'incompatible'
-        WHERE singleton = true
-      `),
+    addUnknownMigration: sql`
+      INSERT INTO moltzap_registry_migrations (migration_id, name)
+      VALUES (9999, 'future')
+    `,
   });
 }).pipe(
   Effect.scoped,

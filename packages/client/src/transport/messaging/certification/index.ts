@@ -27,9 +27,12 @@ import {
   type CertifiedRecord,
   ClientRepresentationError,
   type ConversationId,
+  decodeCanonical,
   type DecodedOuterBody,
   encodeCanonical,
   equalCanonical,
+  EvidenceStatement,
+  type EvidenceStatement as EvidenceStatementValue,
   GenesisAnchorBody,
   hashAnchor,
   MembershipDescriptor,
@@ -39,6 +42,7 @@ import {
   verifyActionCertifiedRecord,
   verifyActionProposal,
   verifyCertifiedRecord,
+  verifyDeliveredEvidence,
   verifyMembershipDescriptor,
   verifyOuterMessage,
   verifyStableEvidence,
@@ -57,17 +61,12 @@ import {
   type EngineConversation,
   type EnginePostIntent,
   type EngineRuntime,
+  evidenceMatchesFold,
+  type EvidenceRoute,
+  evidenceTarget,
   makeActionFold,
 } from "../runtime/index.js";
-import {
-  evidenceMatchesFold,
-  evidenceRoute,
-  type EvidenceRoute,
-  verifiedEvidenceForRoute,
-} from "./evidence.js";
 
-/** Whether verified evidence names a fold, shared with engine startup. */
-export { evidenceMatchesFold, type EvidenceRoute } from "./evidence.js";
 /** Dissemination resume, bound as the `resumeDissemination` engine phase. */
 export { resumeDisseminationObligations } from "./dissemination.js";
 
@@ -582,6 +581,10 @@ const promote = (
         .pipe(Effect.zipRight(completePromotion(runtime, fold, record))),
     );
     yield* rebasePendingIntents(runtime, fold.conversation.conversationId);
+    yield* runtime.phases.headAdvanced(
+      runtime,
+      fold.conversation.conversationId,
+    );
   });
 
 const maybePromote = (
@@ -718,13 +721,19 @@ const acceptEvidence = (
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   message: SignedMessage,
+  statement: EvidenceStatementValue,
 ): Effect.Effect<RouterIngressDisposition, ProtocolAcceptanceError> =>
   Effect.gen(function* () {
-    const route = yield* evidenceRoute(runtime, message);
+    const { route } = evidenceTarget(runtime, statement);
     if (route === undefined) {
       return "ignored";
     }
-    const evidence = yield* verifiedEvidenceForRoute(ingress, message, route);
+    const evidence = yield* verifyDeliveredEvidence({
+      outer: ingress.message,
+      evidence: message,
+      statement,
+      membership: route.fold.conversation.membership,
+    });
     if (!evidenceMatchesFold(route, evidence.statement)) {
       return "ignored";
     }
@@ -1019,18 +1028,12 @@ const acceptCertifiedRecord = (
       ),
     );
     yield* rebasePendingIntents(runtime, fold.conversation.conversationId);
+    yield* runtime.phases.headAdvanced(
+      runtime,
+      fold.conversation.conversationId,
+    );
     return "accepted";
   });
-
-const acceptDirectPacket = (
-  runtime: EngineRuntime,
-  ingress: RouterWorkerIngress<DecodedOuterBody>,
-): Effect.Effect<RouterIngressDisposition, ProtocolAcceptanceError> => {
-  if (ingress.payload.kind !== "direct") {
-    return acceptEvidence(runtime, ingress, ingress.payload.message);
-  }
-  return acceptPacket(runtime, ingress, ingress.payload.packet);
-};
 
 function acceptPacket(
   runtime: EngineRuntime,
@@ -1062,14 +1065,34 @@ const ignoredDisposition: RouterIngressDisposition = "ignored";
  * Apply one semantically verified Router-ordered protocol value.
  * @param runtime Current engine state and durable protocol dependencies.
  * @param ingress Authenticated Router-ordered protocol input.
+ * @param statement Evidence decoded from this ingress's inner message, when available.
  * @returns Whether the input changed durable state or was irrelevant.
  */
 export const acceptEngineIngress = (
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
+  statement?: EvidenceStatementValue,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> =>
   runtime.gate
-    .withPermits(1)(acceptDirectPacket(runtime, ingress))
+    .withPermits(1)(
+      Effect.gen(function* () {
+        if (ingress.payload.kind === "direct") {
+          return yield* acceptPacket(runtime, ingress, ingress.payload.packet);
+        }
+        const decoded =
+          statement ??
+          (yield* decodeCanonical(
+            EvidenceStatement,
+            ingress.payload.message.body,
+          ));
+        return yield* acceptEvidence(
+          runtime,
+          ingress,
+          ingress.payload.message,
+          decoded,
+        );
+      }),
+    )
     .pipe(
       Effect.catchTag("ClientRepresentationError", () =>
         Effect.succeed(ignoredDisposition),

@@ -9,7 +9,7 @@ import { Router } from "@moltzap/router";
 import { Cause, Deferred, Effect, Option, Queue, Scope } from "effect";
 import type { HistoryExportPort } from "../../delivery/history-export.js";
 import type { HarnessMcpEventHandler } from "../../endpoint/mcp/index.js";
-import type { EndpointStore } from "../../store/index.js";
+import type { EndpointStore, EndpointStoreError } from "../../store/index.js";
 import type { DaemonBootstrap } from "../bootstrap.js";
 import type { DaemonRegistrationState } from "../registration/index.js";
 import {
@@ -17,10 +17,7 @@ import {
   type InstalledFirewall,
   makeHostDelivery,
 } from "../../delivery/index.js";
-import {
-  CollectiveEmitError,
-  type InboundItem,
-} from "../../transport/collectives/index.js";
+import { CollectiveEmitError } from "../../transport/collectives/index.js";
 import {
   activationFailure,
   type DaemonActivationError,
@@ -185,15 +182,15 @@ const publishPendingMessages = (
  * releases the gate.
  * @param environment The daemon's delivery, fatal signal and scope.
  * @param reconciler The publication pass to fork.
- * @param item The emitted result or failure.
+ * @param queued Queues the emitted result, with its provenance, or failure.
  * @returns Completion once the item is durable and the pass is forked.
  */
 const emitLocalItem = (
   environment: DaemonEnvironment,
   reconciler: Effect.Effect<void, DaemonRuntimeError>,
-  item: InboundItem,
+  queued: Effect.Effect<void, EndpointStoreError>,
 ): Effect.Effect<void, CollectiveEmitError> =>
-  environment.delivery.queueLocalItem(item).pipe(
+  queued.pipe(
     Effect.catchAll((error) =>
       reportStorageFault(environment, error).pipe(
         Effect.zipRight(Effect.fail(new CollectiveEmitError())),
@@ -255,7 +252,12 @@ const initializeProtocol = (
               environment.state.handler?.notify.toolsChanged();
             },
             publishPending: Effect.ignore(reconciler),
-            emit: (item) => emitLocalItem(environment, reconciler, item),
+            emit: (item, provenance) =>
+              emitLocalItem(
+                environment,
+                reconciler,
+                environment.delivery.queueLocalItem(item, provenance),
+              ),
           },
           agentCard,
         );
@@ -412,7 +414,7 @@ function daemonDelivery(
   return makeHostDelivery({
     store: input.store,
     historyExport: input.historyExport,
-    collectives: () => state.activeProtocol?.application,
+    collectives: () => state.activeProtocol?.collectives,
     ...(input.firewall === undefined
       ? {}
       : {

@@ -10,6 +10,113 @@ section below from the fragments in `changelog.d/`.
 
 <!-- towncrier release notes start -->
 
+## [2026.1019.1] - 2026-10-19
+
+### Added
+
+- Reset release: the endpoint store uses schema 8 and rejects earlier schemas.
+  Follow the upgrade guide to start a fresh Registry database and fresh endpoint
+  state directories, and register every agent again. The client message firewall
+  checks every step of a collective operation: a gather once before any request
+  post, an all_gather's group post, an answer before its request is claimed,
+  each received request, and each answer in a received result. A refusal is
+  always returned on the send, and a refused operation posts nothing. An answer
+  or question the firewall withholds reaches the runtime as a `withheld` value
+  naming its check, and a result's guidance is listed by answer. A request still
+  waiting for admission at restart retires without a failure. A gather or
+  all_gather whose deadline passes while it is checked fails as
+  `deadline-passed`. A peer deadline outside the range a date can represent
+  makes its collective part invalid. The operator audit format is now
+  `moltzap.firewall-audit/v3`: each checked message names its collective
+  operation, each context carries its capture time, and the `observed`
+  disposition is gone, as it is from the decisions feed, which names no peer for
+  the endpoint's own results and failures.
+
+## [2026.1019.0] - 2026-10-19
+
+### Added
+
+- Reset release: the endpoint store uses schema 7 and rejects earlier schemas.
+  Follow the upgrade guide to start a fresh Registry database and fresh endpoint
+  state directories, and register every agent again. Daemon firewall composition
+  supports fixed English rules and persistent editable rules, with serialized
+  live chain replacement and owner-only `policy_read`, `policy_update`, and
+  metadata-only `firewall_decisions` MCP tools. In-flight checks retain their
+  original policy revision. Every successful policy update atomically retains
+  activation metadata, including updates with no intervening messages, in the
+  operator audit snapshot and the decisions feed's `activations` array. The
+  operator audit format is now `moltzap.firewall-audit/v2`: it adds `activation`
+  records and a required `activationCount` on the `complete` record.
+- The `@moltzap/identity` and `@moltzap/router` READMEs explain how to install
+  each package and run `moltzap-registry` and `moltzap-router`, with every
+  environment variable and its default. A new guide covers sending and receiving
+  from TypeScript with `acquireHarnessEndpoint`, and the docs site navigation
+  now includes the interface specification and architecture pages.
+- The `examples/two-agents` example starts a Registry, a Router and two
+  `moltzapd` daemons from the published packages, registers two agents, and
+  prints one message passing between them. CI runs it against the packed
+  tarballs.
+- The published packages declare their supported Node.js range in `engines` and
+  link their npm pages to the package's source directory and the issue tracker
+  through `homepage`, `bugs` and `repository.directory`.
+
+### Changed
+
+- **Breaking:** `@moltzap/client/service` exports the daemon process composition
+  as `Daemon` instead of `MoltZapService`, and its startup failure is tagged
+  `DaemonStartupError` instead of `MoltZapServiceStartupError`; replace
+  `MoltZapService.layer`, `MoltZapService.withFirewall`,
+  `MoltZapService.FirewallOptions` and `MoltZapService.StartupError` with the
+  same members of `Daemon`. Package names, executables, environment variables,
+  persisted names, channel ids and wire constants are unchanged.
+- The OpenClaw `group-messaging` skill's description now tells the model to open
+  it before any file or calendar step whenever a request needs several people to
+  hear one thing or each answer one question, including outcome-only requests.
+  Under OpenClaw's Claude Code launch at thinking medium, Opus 4.8 opens it on
+  84/112 held-out trigger queries, up from 54, with no false opens.
+- The README, package READMEs, and documentation name the project Social
+  Harness. Package names, executables, environment variables, persisted names,
+  channel ids and wire constants keep their `moltzap` names.
+- The constitution and specifications describe MoltZap as the five-layer social
+  harness from "Agentic Societies Need a Social Harness": L1 Unforgeable,
+  Verifiable Identities; L2 Reliable, Ordered Communication; L3 Personal
+  Firewalls; L4 Shared Collaboration Norms; and L5 Social Institutions. Every
+  existing guarantee is kept under its layer, and the documentation states which
+  paper mechanisms are experimental or not yet implemented.
+- The public v1 upgrade policy defines wire compatibility, endpoint store
+  schema, and Registry database schema changes as reset releases. Operators
+  start a fresh Registry database and fresh endpoint state directories, and
+  every agent registers again; certified history is not carried forward. The
+  upgrade guide explains release-note markers and reset steps. Restoring an
+  endpoint backup is unsafe and requires a new identity.
+
+### Fixed
+
+- A post sent right after a Router restart now certifies when another member was
+  still recovering and ignored its proposal: the author resends the identical
+  proposal, preceded by its head, on the catch-up retry backoff, a bounded
+  number of times, until the action certificate completes (#1198).
+- Firewall checks use the most recent certified records of the candidate's own
+  conversation and report older omitted history without holding the message. The
+  byte bound and unresolved outgoing intents still cause evidence gaps (#1307).
+- Documentation names the OpenClaw JSON5 configuration file and plugin trust
+  allowlist, aligns its daemon URL with the quickstart, states MCP client
+  compatibility, and places contributor setup and checks before maintainer
+  release instructions.
+- Message-policy send errors include the required next action, so agents using
+  text-only error handling can distinguish revision, waiting, stopping and owner
+  approval. Checks with missing evidence preserve an unavailable assessment's
+  failure reason and registered feedback. Previously admitted messages retain
+  their original guidance and delivery identity when a daemon restarts without
+  message middleware installed.
+- Published tarballs no longer ship source maps that point at unshipped sources.
+- The `@moltzap/openclaw-channel` tarball no longer ships the 948 kB TypeScript
+  build-info file, and every published package rebuilds its `dist/` from
+  scratch, so a removed module can no longer ship in a release tarball.
+- The generated API reference lists the `@moltzap/client/service` firewall and
+  audit exports under their importable names, such as `makeFirewall`, rather
+  than as members of the `Daemon` namespace.
+
 ## [2026.1018.0] - 2026-10-18
 
 ### Added

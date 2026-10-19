@@ -9,7 +9,9 @@
  * delivery carries one item plus transport-only acknowledgment: a multicast
  * with the certified direct or complete-group message, a collective request
  * naming the conversation it arrived in, a collective result, each naming
- * its operation, or an operation failure. A send returns a
+ * its operation, or an operation failure. A result's question or a member's
+ * answer can be `withheld` by the local firewall, and local guidance is
+ * either one check's or one per checked text of a result. A send returns a
  * collecting operation's id and fails with a closed send reason or a
  * collective failure. Optional invocation identity preserves a retried send without
  * executing a new collective operation. Adapters compile against this surface,
@@ -99,11 +101,17 @@ type ExpectedGroupMessage = Readonly<{
   ];
   content: Content;
 }>;
+type ExpectedWithheld = Readonly<{
+  kind: "withheld";
+  checkId: string;
+  reason: FirewallSendError["refusal"];
+}>;
 type ExpectedMemberOutcome =
   | Readonly<{ kind: "answered"; content: ExpectedAnswerContent }>
   | Readonly<{ kind: "declined" }>
   | Readonly<{ kind: "invalid"; reason: string }>
-  | Readonly<{ kind: "no-answer" }>;
+  | Readonly<{ kind: "no-answer" }>
+  | ExpectedWithheld;
 type ExpectedOutcomeEntry = Readonly<{
   member: AgentAddress;
   outcome: ExpectedMemberOutcome;
@@ -126,7 +134,7 @@ type ExpectedInboundItem =
       op: "gather" | "all_gather";
       id: CollectiveId;
       to: MessageAddressInput;
-      question: string;
+      question: string | ExpectedWithheld;
       outcomes: readonly [ExpectedOutcomeEntry, ...ExpectedOutcomeEntry[]];
     }>
   | Readonly<{
@@ -135,6 +143,40 @@ type ExpectedInboundItem =
       to: MessageAddressInput;
       error: string;
     }>;
+type ExpectedGuidanceSubject = Readonly<{
+  id: string;
+  sender: string;
+  recipients: readonly string[];
+  text: string;
+}>;
+type ExpectedGuidanceInstruction = Readonly<{
+  middlewareId: string;
+  ruleId: string;
+  expectation: "required" | "permitted" | "wait" | "none";
+  subjects: readonly string[];
+  instruction: string;
+}>;
+type ExpectedCheckedGuidance = Readonly<{
+  checkId: string;
+  subjects: readonly ExpectedGuidanceSubject[];
+  instructions: readonly ExpectedGuidanceInstruction[];
+}>;
+type ExpectedLocalGuidance =
+  | ExpectedCheckedGuidance
+  | Readonly<{
+      question?: ExpectedCheckedGuidance;
+      answers: ReadonlyArray<
+        Readonly<{
+          member: string;
+          checkId: string;
+          subjects: readonly ExpectedGuidanceSubject[];
+          instructions: readonly ExpectedGuidanceInstruction[];
+        }>
+      >;
+    }>;
+type LocalGuidanceIsExact = Expect<
+  Types.Equals<LocalGuidance, ExpectedLocalGuidance>
+>;
 type ExpectedDelivery = Readonly<{
   item: InboundItem;
   guidance?: LocalGuidance;
@@ -233,6 +275,7 @@ type CollectiveFailureKindsAreExact = Expect<
     | "request-ambiguous"
     | "request-answered"
     | "request-expired"
+    | "deadline-passed"
   >
 >;
 type ListenReasonsAreExact = Expect<
@@ -275,6 +318,7 @@ export type HarnessEndpointCanaries = [
   MessageTextParserIsExact,
   SendResultIsExact,
   InboundItemIsExact,
+  LocalGuidanceIsExact,
   DirectMessageIsExact,
   GroupMessageIsExact,
   InboundMessageIsExact,

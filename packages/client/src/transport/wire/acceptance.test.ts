@@ -31,8 +31,10 @@ import {
   ClientRepresentationError,
   type CompletedReanchor,
   deriveConversationId,
+  deriveEvidenceMessageId,
   DirectPacket,
   encodeCanonical,
+  EvidenceStatement,
   type GenesisAnchorBody,
   hashAction,
   hashAnchor,
@@ -55,7 +57,9 @@ import {
   verifyCatchUpPage,
   verifyCertifiedRecord,
   verifyCompletedReanchor,
+  verifyDeliveredEvidence,
   verifyMembershipDescriptor,
+  verifyStableEvidence,
 } from "./index.js";
 import { Content, type Content as ContentValue } from "./values.js";
 
@@ -977,7 +981,81 @@ const relaysMaximumAttestationInsideIdentityLimits = () =>
   });
 
 // @agent-code-guard/regression-only: these cases pin the accepted quorum, evidence, recovery, and size boundaries.
+/** A valid signature and statement id cannot authenticate a different body. */
+const rejectsSubstitutedEvidenceStatements = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeProtocolFixture(2);
+    const signer = at(fixture.identities, 0);
+    const statement: EvidenceStatement = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "catch_up_attestation",
+      signerAgentId: signer.card.agentId,
+      request: {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "catch_up_request",
+        conversationId: fixture.membership.descriptor.conversationId,
+        membershipHash: fixture.membership.hash,
+        requesterAgentId: signer.card.agentId,
+        knownRecordHash: null,
+        knownAnchorHash: null,
+      },
+      itemKind: "incomplete",
+      itemHash: null,
+      hasMore: false,
+    };
+    const evidence = yield* SignedMessage.sign({
+      agentCard: signer.card,
+      signingAuthority: signer.authority,
+      recipientAgentIds: new Set([signer.card.agentId]),
+      messageId: yield* deriveEvidenceMessageId(statement),
+      body: yield* encodeCanonical(EvidenceStatement, {
+        ...statement,
+        request: {
+          ...statement.request,
+          requesterAgentId: at(fixture.identities, 1).card.agentId,
+        },
+      }),
+    });
+    const representation = yield* Schema.encode(SignedMessage)(evidence);
+    yield* expectRepresentationFailure(
+      verifyStableEvidence({
+        representation,
+        membership: fixture.membership,
+        statement,
+      }),
+    );
+    const outer = yield* signOuterEvidence({
+      evidence,
+      membership: fixture.membership,
+      agentCard: signer.card,
+      signingAuthority: signer.authority,
+    });
+    yield* expectRepresentationFailure(
+      verifyDeliveredEvidence({
+        outer,
+        evidence,
+        membership: fixture.membership,
+        statement,
+      }),
+    );
+    const matching = yield* signEvidenceMessage({
+      statement,
+      agentCard: signer.card,
+      signingAuthority: signer.authority,
+    });
+    const verified = yield* verifyStableEvidence({
+      representation: yield* Schema.encode(SignedMessage)(matching),
+      membership: fixture.membership,
+      statement,
+    });
+    expect(verified.statement).toEqual(statement);
+  });
+
 describe("Client protocol acceptance", () => {
+  it(
+    "rejects caller statements that differ from the signed evidence body",
+    rejectsSubstitutedEvidenceStatements,
+  );
   it.each([
     [2, 2],
     [3, 3],

@@ -4,6 +4,7 @@ import { Effect, type Scope } from "effect";
 import type { EndpointStore } from "./types.js";
 import {
   applyCatchUpReanchor,
+  bindAdmittedPostIntent,
   bindCheckedPostIntent,
   bindIdentity,
   bindPostIntent,
@@ -25,13 +26,21 @@ import {
 } from "./database/index.js";
 import {
   admitFirewallItem,
+  admitFirewallLocalItem,
+  admitFirewallOperation,
   beginFirewallAttempt,
-  finishFirewallAttempt,
   queueFirewallItem,
+  readFirewallActivations,
   readFirewallAuditPage,
+  readFirewallDecisions,
   readFirewallEvidence,
+  readFirewallEvidenceSlices,
   readFirewallFrontiers,
+  readFirewallPolicy,
+  readFirewallRequestAdmission,
   readPendingFirewallItems,
+  retireFirewallItem,
+  writeFirewallPolicy,
 } from "./firewall.js";
 import {
   acknowledgeInboxItem,
@@ -128,22 +137,41 @@ function makeFirewallOperations(state: StoreState, run: StoreRunner) {
       run(() => readFirewallFrontiers(state.database)),
     readPendingFirewallItems: (after) =>
       run(() => readPendingFirewallItems(state.database, after)),
+    readFirewallPolicy: () => run(() => readFirewallPolicy(state.database)),
+    writeFirewallPolicy: (rules, activation) =>
+      run(() => {
+        writeFirewallPolicy(state.database, rules, activation);
+      }),
+    readFirewallActivations: (request) =>
+      run(() => readFirewallActivations(state.database, request)),
+    readFirewallDecisions: (since) =>
+      run(() => readFirewallDecisions(state.database, since)),
     readFirewallAuditPage: (after) =>
       run(() => readFirewallAuditPage(state.database, after)),
     readFirewallEvidence: (input) =>
       run(() => readFirewallEvidence(state.database, input)),
+    readFirewallEvidenceSlices: (input) =>
+      run(() => readFirewallEvidenceSlices(state.database, input)),
+    readFirewallRequestAdmission: (recordHash) =>
+      run(() => readFirewallRequestAdmission(state.database, recordHash)),
     beginFirewallAttempt: (attempt) =>
       run(() => {
         beginFirewallAttempt(state.database, attempt);
       }),
-    finishFirewallAttempt: (completion) =>
-      run(() => {
-        finishFirewallAttempt(state.database, completion);
-      }),
     admitFirewallItem: (item, completion) =>
       run(() => admitFirewallItem(state.database, item, completion)),
+    admitFirewallLocalItem: (admission) =>
+      run(() => admitFirewallLocalItem(state.database, admission)),
+    retireFirewallItem: (token) =>
+      run(() => {
+        retireFirewallItem(state.database, token);
+      }),
+    admitFirewallOperation: (completion, candidate) =>
+      run(() => admitFirewallOperation(state.database, completion, candidate)),
     bindCheckedPostIntent: (binding, completion) =>
       run(() => bindCheckedPostIntent(state.database, binding, completion)),
+    bindAdmittedPostIntent: (binding, operation) =>
+      run(() => bindAdmittedPostIntent(state.database, binding, operation)),
   } satisfies Partial<EndpointStore>;
 }
 
@@ -270,6 +298,7 @@ function makeManagementOperations(state: StoreState, run: StoreRunner) {
       run(() => {
         releaseStoredContinuation(state, continuation);
       }),
-    recover: () => run(() => recoverStoredState(state.database)),
+    recover: (conversationId) =>
+      run(() => recoverStoredState(state.database, conversationId)),
   } satisfies Partial<EndpointStore>;
 }

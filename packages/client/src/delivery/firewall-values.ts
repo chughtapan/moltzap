@@ -4,6 +4,7 @@ import { AgentId } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import {
   decodeFrozen,
+  firewallActivationSchema,
   FirewallSettings,
   Message,
   MessageContext,
@@ -58,7 +59,7 @@ const firewallAuditInput = exactStruct({
 });
 
 const digest = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u));
-const format = Schema.Literal("moltzap.firewall-audit/v1");
+const format = Schema.Literal("moltzap.firewall-audit/v3");
 const snapshotId = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u));
 
 /** The public author-scoped post identity joins an assessment to endpoint history. */
@@ -117,8 +118,8 @@ const firewallAuditResult = exactStruct({
 
 /**
  * One NDJSON record in an operator-only shutdown snapshot. A complete file has
- * one start, every retained check, and one matching complete record. Its digest
- * covers exactly the UTF-8 check lines including their trailing newlines.
+ * one start, every retained check and activation, and one matching complete record.
+ * Its digest covers the UTF-8 check and activation lines including trailing newlines.
  * Candidate bytes are opaque canonical Client data, encoded as base64. A null
  * result or checking/interrupted disposition never represents permission.
  * The nullable post reference identifies supported messages without decoding candidate bytes.
@@ -141,7 +142,6 @@ export const FirewallAuditRecord = Schema.Union(
       "stale",
       "admitted",
       "withheld",
-      "observed",
     ),
     post: Schema.NullOr(firewallAuditPost),
     candidate: Schema.Uint8ArrayFromBase64,
@@ -149,10 +149,15 @@ export const FirewallAuditRecord = Schema.Union(
     result: Schema.NullOr(firewallAuditResult),
   }),
   exactStruct({
+    kind: Schema.Literal("activation"),
+    ...firewallActivationSchema.fields,
+  }),
+  exactStruct({
     kind: Schema.Literal("complete"),
     format,
     snapshotId,
     checkCount: Schema.NonNegativeInt,
+    activationCount: Schema.NonNegativeInt,
     sha256: digest,
   }),
 ).annotations({ identifier: "FirewallAuditRecord" });
@@ -202,36 +207,74 @@ export const decodeFirewallAuditEntry = Effect.fn("decodeFirewallAuditEntry")(
   },
 );
 
-/** Projection relies on Client's retained verified sender, never host text or a name lookup. */
+/**
+ * Projection relies on Client's retained verified sender, never host text or
+ * a name lookup. A checked message with one post names it: an outgoing post,
+ * or an incoming message or request. A gather, checked before its posts
+ * exist, and a result or failure, which no single post carries, name none.
+ */
 function auditPost(entry: FirewallAuditEntry, message: Message | null) {
+  if (message === null) {
+    return Effect.succeed(null);
+  }
+  return entry.direction === "outgoing"
+    ? outgoingPost(entry, message)
+    : incomingPost(entry, message);
+}
+
+function outgoingPost(entry: FirewallAuditEntry, message: Message) {
   return Effect.gen(function* () {
-    if (message === null) {
+    if (
+      message.operation?.kind === "request" &&
+      message.operation.op === "gather"
+    ) {
       return null;
     }
-    if (entry.direction === "outgoing") {
-      const intent = yield* decodeRuntimeValue(
-        PostIntent,
-        entry.canonicalCandidate,
-      );
-      if (intent.authorAgentId !== message.sender) {
-        return yield* new EndpointStoreError({ reason: "corrupt" });
-      }
-      return { authorAgentId: intent.authorAgentId, postId: intent.postId };
+    const intent = yield* decodeRuntimeValue(
+      PostIntent,
+      entry.canonicalCandidate,
+    );
+    if (intent.authorAgentId !== message.sender) {
+      return yield* new EndpointStoreError({ reason: "corrupt" });
     }
+    return { authorAgentId: intent.authorAgentId, postId: intent.postId };
+  });
+}
+
+function incomingPost(entry: FirewallAuditEntry, message: Message) {
+  return Effect.gen(function* () {
     const item = yield* decodeRuntimeValue(
       InboundItem,
       entry.canonicalCandidate,
     );
-    if (item.kind !== "multicast") {
+    const postId = itemPostId(item);
+    if (postId === undefined) {
       return null;
     }
     return yield* Schema.decodeUnknown(firewallAuditPost)({
       authorAgentId: message.sender,
-      postId: item.message.postId,
+      postId,
     }).pipe(
       Effect.catchTag("ParseError", () =>
         Effect.fail(new EndpointStoreError({ reason: "corrupt" })),
       ),
     );
   });
+}
+
+/** The post an incoming item derives from; a result or failure has none. */
+function itemPostId(item: InboundItem): string | undefined {
+  switch (item.kind) {
+    case "multicast":
+      return item.message.postId;
+    case "collectiveRequest":
+      return item.postId;
+    case "collectiveResult":
+    case "operationFailed":
+      return undefined;
+    default: {
+      const exhaustive: never = item;
+      return exhaustive;
+    }
+  }
 }

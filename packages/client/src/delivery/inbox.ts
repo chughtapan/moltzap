@@ -38,6 +38,23 @@ export const readRuntimeEvent = (
     if (retained === undefined) {
       return yield* Effect.fail({ reason: "unknown-event" });
     }
+    return yield* decodeInboxEntry(retained);
+  }).pipe(
+    Effect.catchTag("ParseError", () =>
+      Effect.fail({ reason: "invalid-event" }),
+    ),
+    Effect.withSpan("readRuntimeEvent"),
+  );
+
+/**
+ * The retained item and the local guidance it was admitted with, if any.
+ * @param retained One inbox entry's canonical item and guidance bytes.
+ * @returns The decoded item and guidance, or a corrupt-store failure.
+ */
+export function decodeInboxEntry(
+  retained: Pick<InboxEntry, "canonicalItem" | "canonicalGuidance">,
+) {
+  return Effect.gen(function* () {
     return {
       item: yield* decodeRuntimeValue(InboundItem, retained.canonicalItem),
       ...(retained.canonicalGuidance === undefined
@@ -49,12 +66,8 @@ export const readRuntimeEvent = (
             ),
           }),
     };
-  }).pipe(
-    Effect.catchTag("ParseError", () =>
-      Effect.fail({ reason: "invalid-event" }),
-    ),
-    Effect.withSpan("readRuntimeEvent"),
-  );
+  }).pipe(Effect.withSpan("decodeInboxEntry"));
+}
 
 const cursorSchema = Schema.Struct({
   after: Schema.NonNegativeInt,
@@ -192,10 +205,13 @@ const recoverRequest = Effect.fn("recoverRequest")(function* (
 
 /**
  * Retire requests whose schema, address and answered state were process-local.
- * Results and failures retain their original delivery identity across restart.
+ * A request the runtime was shown becomes a separately identified failure,
+ * since its agent may be answering it. One still waiting for admission was
+ * never shown, so it retires without a trace the agent can see. Results and
+ * failures retain their original delivery identity across restart.
  * @param store Daemon-owned endpoint persistence.
  * @param withFirewall Whether replacements require private admission before visibility.
- * @returns Completion after each lost request has a separately identified failure.
+ * @returns Completion once each shown request has a separately identified failure and each unadmitted one is retired.
  */
 export const recoverRuntimeInbox = (
   store: EndpointStore,
@@ -226,7 +242,7 @@ function recoverPrivateRequests(store: EndpointStore) {
     while (true) {
       const entries = yield* store.readPendingFirewallItems(after);
       for (const entry of entries) {
-        yield* recoverRequest(store, entry, true);
+        yield* retireUnadmittedRequest(store, entry);
       }
       const last = entries.at(-1);
       if (last === undefined) {
@@ -235,4 +251,17 @@ function recoverPrivateRequests(store: EndpointStore) {
       after = last.sequence;
     }
   });
+}
+
+function retireUnadmittedRequest(store: EndpointStore, entry: InboxEntry) {
+  return Effect.gen(function* () {
+    const item = yield* decodeRuntimeValue(InboundItem, entry.canonicalItem);
+    if (item.kind !== "collectiveRequest") {
+      return;
+    }
+    yield* store.retireFirewallItem(entry.deliveryToken);
+    yield* Effect.logWarning(
+      `collective request retired unseen at restart: ${item.id}`,
+    );
+  }).pipe(Effect.withSpan("retireUnadmittedRequest"));
 }
