@@ -606,112 +606,6 @@ const requestRuntime = (input: ToolCallInput) => ({
   context: input.context,
 });
 
-// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native Effect bridge.
-const handleStatusToolCall = async (
-  input: ToolCallInput,
-  operations: HarnessMcpOperations,
-) => {
-  const decoded = await decodeToolInput(
-    emptyInput,
-    emptyRequestSchema,
-    input.toolArguments,
-    input.name,
-  );
-  if (Object.keys(decoded).length !== 0) {
-    throw new ProtocolError(
-      ProtocolErrorCode.InvalidParams,
-      "Status accepts no arguments",
-    );
-  }
-  return await runValidatedOperation(statusOutput, input.name, {
-    operation: operations.readStatus(),
-    label: "Status",
-    allowedReasons: STATUS_REASONS,
-    fallbackReason: "incompatible-daemon",
-    ...requestRuntime(input),
-  });
-};
-
-// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
-const handleRegistrationToolCall = async (
-  input: ToolCallInput,
-  operations: HarnessMcpOperations,
-) => {
-  const decoded = await decodeToolInput(
-    registerInput,
-    managementRegisterRequestSchema,
-    input.toolArguments,
-    input.name,
-  );
-  return await runValidatedOperation(registerOutput, input.name, {
-    operation: operations.register(decoded),
-    label: "Registration",
-    allowedReasons: REGISTER_REASONS,
-    fallbackReason: "dependency-unavailable",
-    ...requestRuntime(input),
-  });
-};
-
-// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
-const handleSearchAgentsToolCall = async (
-  input: ToolCallInput,
-  operations: HarnessMcpOperations,
-) => {
-  const decoded = await decodeToolInput(
-    searchAgentsInput,
-    managementSearchAgentsRequestSchema,
-    input.toolArguments,
-    input.name,
-  );
-  return await runValidatedOperation(searchAgentsOutput, input.name, {
-    operation: operations.searchAgents(decoded),
-    label: "Agent search",
-    allowedReasons: SEARCH_AGENTS_REASONS,
-    fallbackReason: "dependency-unavailable",
-    ...requestRuntime(input),
-  });
-};
-
-// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
-const handleSearchConversationsToolCall = async (
-  input: ToolCallInput,
-  operations: HarnessMcpOperations,
-) => {
-  const decoded = await decodeToolInput(
-    searchConversationsInput,
-    managementSearchConversationsRequestSchema,
-    input.toolArguments,
-    input.name,
-  );
-  return await runValidatedOperation(searchConversationsOutput, input.name, {
-    operation: operations.searchConversations(decoded),
-    label: "Conversation search",
-    allowedReasons: SEARCH_CONVERSATIONS_REASONS,
-    fallbackReason: "persistence-failed",
-    ...requestRuntime(input),
-  });
-};
-
-// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
-const handleReadConversationToolCall = async (
-  input: ToolCallInput,
-  operations: HarnessMcpOperations,
-) => {
-  const decoded = await decodeToolInput(
-    readConversationInput,
-    managementReadConversationRequestSchema,
-    input.toolArguments,
-    input.name,
-  );
-  return await runValidatedOperation(readConversationOutput, input.name, {
-    operation: operations.readConversation(decoded),
-    label: "Conversation read",
-    allowedReasons: READ_CONVERSATION_REASONS,
-    fallbackReason: "persistence-failed",
-    ...requestRuntime(input),
-  });
-};
-
 const decodeInvocationInput = <A>(
   input: Effect.Effect<A, ParseResult.ParseError>,
   signal: AbortSignal,
@@ -769,68 +663,6 @@ const handleSendToolCall = async (
   );
 };
 
-// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
-const handleAcknowledgeDeliveryToolCall = async (
-  input: ToolCallInput,
-  operations: HarnessMcpOperations,
-) => {
-  const decoded = await decodeToolInput(
-    acknowledgeDeliveryInput,
-    harnessAcknowledgeDeliveryRequestSchema,
-    input.toolArguments,
-    input.name,
-  );
-  return await runValidatedOperation(emptyOutput, input.name, {
-    operation: operations
-      .acknowledgeDelivery(decoded.deliveryToken)
-      .pipe(Effect.as<HarnessEmptyResult>({})),
-    label: "Delivery acknowledgment",
-    allowedReasons: ACKNOWLEDGE_DELIVERY_REASONS,
-    fallbackReason: "transport-failed",
-    ...requestRuntime(input),
-  });
-};
-
-// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
-const handleReadEventToolCall = async (
-  input: ToolCallInput,
-  operations: HarnessMcpOperations,
-) =>
-  await runValidatedOperation(readEventOutput, input.name, {
-    operation: operations.readEvent(
-      await decodeToolInput(
-        readEventInput,
-        readEventRequestSchema,
-        input.toolArguments,
-        input.name,
-      ),
-    ),
-    label: "Event read",
-    allowedReasons: RUNTIME_READ_REASONS,
-    fallbackReason: "persistence-failed",
-    ...requestRuntime(input),
-  });
-
-// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
-const handleReadInboxToolCall = async (
-  input: ToolCallInput,
-  operations: HarnessMcpOperations,
-) =>
-  await runValidatedOperation(readInboxOutput, input.name, {
-    operation: operations.readInbox(
-      await decodeToolInput(
-        readInboxInput,
-        inboxRequestSchema,
-        input.toolArguments,
-        input.name,
-      ),
-    ),
-    label: "Inbox read",
-    allowedReasons: RUNTIME_READ_REASONS,
-    fallbackReason: "persistence-failed",
-    ...requestRuntime(input),
-  });
-
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits argument decoding and the Promise-native operation bridge.
 const handleReadSendToolCall = async (
   input: ToolCallInput,
@@ -857,71 +689,6 @@ const POLICY_REASONS = new Set([
   "build-failed",
   "persistence-failed",
 ]);
-
-// #ignore-sloppy-code-next-line[async-keyword]: MCP schema validation and request execution are Promise-native.
-const handlePolicyRead = async (
-  input: ToolCallInput,
-  operations: HarnessMcpOperations,
-) => {
-  await decodeToolInput(
-    emptyInput,
-    emptyRequestSchema,
-    input.toolArguments,
-    input.name,
-  );
-  return await runValidatedOperation(policyReadOutput, input.name, {
-    operation:
-      operations.policy?.read() ?? Effect.fail({ reason: "not-configured" }),
-    label: "Policy read",
-    allowedReasons: POLICY_REASONS,
-    fallbackReason: "persistence-failed",
-    ...requestRuntime(input),
-  });
-};
-
-// #ignore-sloppy-code-next-line[async-keyword]: MCP schema validation and request execution are Promise-native.
-const handlePolicyUpdate = async (
-  input: ToolCallInput,
-  operations: HarnessMcpOperations,
-) => {
-  const request = await decodeToolInput(
-    policyUpdateInput,
-    policyUpdateSchema,
-    input.toolArguments,
-    input.name,
-  );
-  return await runValidatedOperation(policyUpdateOutput, input.name, {
-    operation:
-      operations.policy?.update(request) ??
-      Effect.fail({ reason: "not-configured" }),
-    label: "Policy update",
-    allowedReasons: POLICY_REASONS,
-    fallbackReason: "build-failed",
-    ...requestRuntime(input),
-  });
-};
-
-// #ignore-sloppy-code-next-line[async-keyword]: MCP schema validation and request execution are Promise-native.
-const handleDecisions = async (
-  input: ToolCallInput,
-  operations: HarnessMcpOperations,
-) => {
-  const request = await decodeToolInput(
-    decisionsInput,
-    firewallDecisionsRequestSchema,
-    input.toolArguments,
-    input.name,
-  );
-  return await runValidatedOperation(decisionsOutput, input.name, {
-    operation:
-      operations.policy?.decisions(request) ??
-      Effect.fail({ reason: "not-configured" }),
-    label: "Firewall decisions",
-    allowedReasons: POLICY_REASONS,
-    fallbackReason: "persistence-failed",
-    ...requestRuntime(input),
-  });
-};
 
 /** The operations a tool call runs: the daemon's and the event subscription's. */
 interface ToolOperations extends HarnessMcpOperations {
@@ -958,30 +725,187 @@ type ToolHandler = (
   // eslint-disable-next-line agent-code-guard/promise-type -- MCP tool handlers are Promise callbacks of the official SDK.
 ) => Promise<ReturnType<typeof toolResult>>;
 
+/** Couples each decoded request to its operation and validated result. */
+const makeToolHandler =
+  <
+    Request,
+    Diagnostics,
+    Encoded,
+    Value extends Readonly<Record<string, unknown>>,
+  >(
+    inputSchema: StandardSchemaV1<unknown, Request>,
+    diagnosticsSchema: Schema.Schema<Diagnostics, Encoded>,
+    outputSchema: StandardSchemaV1<unknown, Value>,
+    options: Pick<
+      RunOperationOptions<Value>,
+      "label" | "allowedReasons" | "fallbackReason"
+    > & {
+      readonly execute: (
+        operations: HarnessMcpOperations,
+        request: Request,
+      ) => Effect.Effect<Value, ClosedOperationError>;
+    },
+  ): ToolHandler =>
+  // #ignore-sloppy-code-next-line[async-keyword]: The MCP callback awaits Promise-capable schema validation and the Effect bridge.
+  async (input, operations) => {
+    const request = await decodeToolInput(
+      inputSchema,
+      diagnosticsSchema,
+      input.toolArguments,
+      input.name,
+    );
+    return await runValidatedOperation(outputSchema, input.name, {
+      ...options,
+      operation: options.execute(operations, request),
+      ...requestRuntime(input),
+    });
+  };
+
 /**
  * The handler for each tool the catalog can list, keyed like `toolListings`,
  * so a listed tool without a handler does not compile.
  */
 const toolHandlers = {
-  policy_read: handlePolicyRead,
-  policy_update: handlePolicyUpdate,
-  firewall_decisions: handleDecisions,
-  [STATUS_TOOL]: handleStatusToolCall,
-  [REGISTER_TOOL]: handleRegistrationToolCall,
+  policy_read: makeToolHandler(
+    emptyInput,
+    emptyRequestSchema,
+    policyReadOutput,
+    {
+      execute: (operations) =>
+        operations.policy?.read() ?? Effect.fail({ reason: "not-configured" }),
+      label: "Policy read",
+      allowedReasons: POLICY_REASONS,
+      fallbackReason: "persistence-failed",
+    },
+  ),
+  policy_update: makeToolHandler(
+    policyUpdateInput,
+    policyUpdateSchema,
+    policyUpdateOutput,
+    {
+      execute: (operations, request) =>
+        operations.policy?.update(request) ??
+        Effect.fail({ reason: "not-configured" }),
+      label: "Policy update",
+      allowedReasons: POLICY_REASONS,
+      fallbackReason: "build-failed",
+    },
+  ),
+  firewall_decisions: makeToolHandler(
+    decisionsInput,
+    firewallDecisionsRequestSchema,
+    decisionsOutput,
+    {
+      execute: (operations, request) =>
+        operations.policy?.decisions(request) ??
+        Effect.fail({ reason: "not-configured" }),
+      label: "Firewall decisions",
+      allowedReasons: POLICY_REASONS,
+      fallbackReason: "persistence-failed",
+    },
+  ),
+  [STATUS_TOOL]: makeToolHandler(emptyInput, emptyRequestSchema, statusOutput, {
+    execute: (operations, request) => {
+      if (Object.keys(request).length !== 0) {
+        throw new ProtocolError(
+          ProtocolErrorCode.InvalidParams,
+          "Status accepts no arguments",
+        );
+      }
+      return operations.readStatus();
+    },
+    label: "Status",
+    allowedReasons: STATUS_REASONS,
+    fallbackReason: "incompatible-daemon",
+  }),
+  [REGISTER_TOOL]: makeToolHandler(
+    registerInput,
+    managementRegisterRequestSchema,
+    registerOutput,
+    {
+      execute: (operations, request) => operations.register(request),
+      label: "Registration",
+      allowedReasons: REGISTER_REASONS,
+      fallbackReason: "dependency-unavailable",
+    },
+  ),
   event_subscription_status: (input, operations) =>
     handleOwnerOperation(operations.events.status, input),
   revoke_event_subscription: (input, operations) =>
     handleOwnerOperation(operations.events.revoke.pipe(Effect.as({})), input),
   resume_event_subscription: (input, operations) =>
     handleOwnerOperation(operations.events.resume.pipe(Effect.as({})), input),
-  [SEARCH_AGENTS_TOOL]: handleSearchAgentsToolCall,
-  [SEARCH_CONVERSATIONS_TOOL]: handleSearchConversationsToolCall,
-  [READ_CONVERSATION_TOOL]: handleReadConversationToolCall,
-  [HARNESS_READ_INBOX_TOOL]: handleReadInboxToolCall,
+  [SEARCH_AGENTS_TOOL]: makeToolHandler(
+    searchAgentsInput,
+    managementSearchAgentsRequestSchema,
+    searchAgentsOutput,
+    {
+      execute: (operations, request) => operations.searchAgents(request),
+      label: "Agent search",
+      allowedReasons: SEARCH_AGENTS_REASONS,
+      fallbackReason: "dependency-unavailable",
+    },
+  ),
+  [SEARCH_CONVERSATIONS_TOOL]: makeToolHandler(
+    searchConversationsInput,
+    managementSearchConversationsRequestSchema,
+    searchConversationsOutput,
+    {
+      execute: (operations, request) => operations.searchConversations(request),
+      label: "Conversation search",
+      allowedReasons: SEARCH_CONVERSATIONS_REASONS,
+      fallbackReason: "persistence-failed",
+    },
+  ),
+  [READ_CONVERSATION_TOOL]: makeToolHandler(
+    readConversationInput,
+    managementReadConversationRequestSchema,
+    readConversationOutput,
+    {
+      execute: (operations, request) => operations.readConversation(request),
+      label: "Conversation read",
+      allowedReasons: READ_CONVERSATION_REASONS,
+      fallbackReason: "persistence-failed",
+    },
+  ),
+  [HARNESS_READ_INBOX_TOOL]: makeToolHandler(
+    readInboxInput,
+    inboxRequestSchema,
+    readInboxOutput,
+    {
+      execute: (operations, request) => operations.readInbox(request),
+      label: "Inbox read",
+      allowedReasons: RUNTIME_READ_REASONS,
+      fallbackReason: "persistence-failed",
+    },
+  ),
   [HARNESS_READ_SEND_TOOL]: handleReadSendToolCall,
   [HARNESS_SEND_TOOL]: handleSendToolCall,
-  [HARNESS_READ_EVENT_TOOL]: handleReadEventToolCall,
-  [HARNESS_ACKNOWLEDGE_DELIVERY_TOOL]: handleAcknowledgeDeliveryToolCall,
+  [HARNESS_READ_EVENT_TOOL]: makeToolHandler(
+    readEventInput,
+    readEventRequestSchema,
+    readEventOutput,
+    {
+      execute: (operations, request) => operations.readEvent(request),
+      label: "Event read",
+      allowedReasons: RUNTIME_READ_REASONS,
+      fallbackReason: "persistence-failed",
+    },
+  ),
+  [HARNESS_ACKNOWLEDGE_DELIVERY_TOOL]: makeToolHandler(
+    acknowledgeDeliveryInput,
+    harnessAcknowledgeDeliveryRequestSchema,
+    emptyOutput,
+    {
+      execute: (operations, request) =>
+        operations
+          .acknowledgeDelivery(request.deliveryToken)
+          .pipe(Effect.as<HarnessEmptyResult>({})),
+      label: "Delivery acknowledgment",
+      allowedReasons: ACKNOWLEDGE_DELIVERY_REASONS,
+      fallbackReason: "transport-failed",
+    },
+  ),
 } satisfies Readonly<Record<ToolName, ToolHandler>>;
 
 /**

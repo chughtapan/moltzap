@@ -5,7 +5,14 @@ import {
   Ed25519PublicKey,
   legacyKeys,
 } from "@moltzap/identity";
-import { Config, Effect, Redacted, Schema } from "effect";
+import {
+  Config,
+  type ConfigError,
+  Effect,
+  Match,
+  Redacted,
+  Schema,
+} from "effect";
 import {
   credentialMatches,
   type HarnessMcpCredentials,
@@ -51,6 +58,9 @@ const isSerializedOrigin = (value: string): boolean => {
 
 const origin = Schema.String.pipe(
   Schema.filter(isSerializedOrigin),
+  Schema.annotations({
+    identifier: "serialized HTTP(S) origin without a path",
+  }),
   Schema.compose(Schema.URL),
 );
 const compactPublicKeyJson = Schema.String.pipe(
@@ -58,39 +68,134 @@ const compactPublicKeyJson = Schema.String.pipe(
   Schema.compose(Schema.parseJson(Ed25519PublicKey)),
 );
 
-const configuredValues = Config.all({
-  stateDirectory: Schema.Config("SHARNESS_STATE_DIRECTORY", configuredPath),
-  mcpPort: Schema.Config("SHARNESS_MCP_PORT", port),
-  registryOrigin: Schema.Config("SHARNESS_REGISTRY_ORIGIN", origin),
-  registrySignerPublicKey: Schema.Config(
+const configurationFields = {
+  stateDirectory: setting("SHARNESS_STATE_DIRECTORY", configuredPath),
+  mcpPort: setting("SHARNESS_MCP_PORT", port),
+  registryOrigin: setting("SHARNESS_REGISTRY_ORIGIN", origin),
+  registrySignerPublicKey: setting(
     "SHARNESS_REGISTRY_SIGNER_PUBLIC_KEY",
     compactPublicKeyJson,
   ),
-  routerOrigin: Schema.Config("SHARNESS_ROUTER_ORIGIN", origin),
-  agentPrivateKeyFile: Config.redacted(
-    Schema.Config("SHARNESS_AGENT_PRIVATE_KEY_FILE", configuredPath),
+  routerOrigin: setting("SHARNESS_ROUTER_ORIGIN", origin),
+  agentPrivateKeyFile: setting(
+    "SHARNESS_AGENT_PRIVATE_KEY_FILE",
+    configuredPath,
   ),
-  admissionCredentialFile: Schema.Config(
+  admissionCredentialFile: setting(
     "SHARNESS_ADMISSION_CREDENTIAL_FILE",
     optionalConfiguredPath,
-  ).pipe(
-    Config.withDefault(""),
-    Config.map((path) => (path === "" ? undefined : Redacted.make(path))),
+    "",
   ),
-  historyExport: Schema.Config("SHARNESS_HISTORY_EXPORT", configuredPath).pipe(
-    Config.withDefault(undefined),
+  historyExport: setting("SHARNESS_HISTORY_EXPORT", configuredPath, undefined),
+  mcpRuntimeCredentialFile: setting(
+    "SHARNESS_MCP_RUNTIME_CREDENTIAL_FILE",
+    configuredPath,
+    undefined,
   ),
-  mcpRuntimeCredentialFile: Config.redacted(
-    Schema.Config("SHARNESS_MCP_RUNTIME_CREDENTIAL_FILE", configuredPath),
-  ).pipe(Config.withDefault(undefined)),
-  mcpOwnerCredentialFile: Config.redacted(
-    Schema.Config("SHARNESS_MCP_OWNER_CREDENTIAL_FILE", configuredPath),
-  ).pipe(Config.withDefault(undefined)),
-});
+  mcpOwnerCredentialFile: setting(
+    "SHARNESS_MCP_OWNER_CREDENTIAL_FILE",
+    configuredPath,
+    undefined,
+  ),
+};
+
+const configuredValues = Config.all(configurationFields);
+
+/** Usage is generated from the same fields consumed by the process. */
+export const processHelp = [
+  "Usage: sharnessd [--help]",
+  "",
+  "Environment:",
+  "  Admission credential: required only before registration; MCP credential files: supply both or neither.",
+  ...Object.values(configurationFields).map((field) => `  ${field.usage}`),
+].join("\n");
+
+const configurationFailureMessages: Readonly<
+  Record<DaemonConfigurationFailure, string>
+> = {
+  "legacy-key": "retired environment keys are configured",
+  environment: "environment configuration is invalid",
+  "agent-private-key-file":
+    "SHARNESS_AGENT_PRIVATE_KEY_FILE must name a readable file",
+  "agent-private-key":
+    "SHARNESS_AGENT_PRIVATE_KEY_FILE must contain an Ed25519 PKCS#8 private key",
+  "admission-credential-file":
+    "SHARNESS_ADMISSION_CREDENTIAL_FILE is required for an unregistered daemon and must name a readable file",
+  "admission-credential":
+    "SHARNESS_ADMISSION_CREDENTIAL_FILE must contain a valid admission credential",
+  "mcp-runtime-credential-file":
+    "SHARNESS_MCP_RUNTIME_CREDENTIAL_FILE must name a readable file",
+  "mcp-owner-credential-file":
+    "SHARNESS_MCP_OWNER_CREDENTIAL_FILE must name a readable file",
+  "mcp-credential":
+    "SHARNESS_MCP_RUNTIME_CREDENTIAL_FILE and SHARNESS_MCP_OWNER_CREDENTIAL_FILE must both be supplied and contain distinct valid tokens of at least 32 characters",
+};
 
 const configurationError = (
   reason: DaemonConfigurationFailure,
-): DaemonConfigurationError => new DaemonConfigurationError({ reason });
+): DaemonConfigurationError =>
+  new DaemonConfigurationError({
+    reason,
+    message: configurationFailureMessages[reason],
+  });
+
+const loadedConfiguration = configuredValues.pipe(
+  Effect.map(
+    (configuration): DaemonProcessConfiguration => ({
+      ...configuration,
+      agentPrivateKeyFile: Redacted.make(configuration.agentPrivateKeyFile),
+      admissionCredentialFile:
+        configuration.admissionCredentialFile === ""
+          ? undefined
+          : Redacted.make(configuration.admissionCredentialFile),
+      mcpRuntimeCredentialFile:
+        configuration.mcpRuntimeCredentialFile === undefined
+          ? undefined
+          : Redacted.make(configuration.mcpRuntimeCredentialFile),
+      mcpOwnerCredentialFile:
+        configuration.mcpOwnerCredentialFile === undefined
+          ? undefined
+          : Redacted.make(configuration.mcpOwnerCredentialFile),
+    }),
+  ),
+  Effect.mapError((cause) =>
+    Match.value(cause).pipe(
+      Match.discriminatorsExhaustive("_op")({
+        And: (error) =>
+          new DaemonConfigurationError({
+            reason: "environment",
+            message: configurationMessage(error),
+          }),
+        Or: (error) =>
+          new DaemonConfigurationError({
+            reason: "environment",
+            message: configurationMessage(error),
+          }),
+        InvalidData: (error) =>
+          new DaemonConfigurationError({
+            reason: "environment",
+            message: configurationMessage(error),
+          }),
+        MissingData: (error) =>
+          new DaemonConfigurationError({
+            reason: "environment",
+            message: configurationMessage(error),
+          }),
+        SourceUnavailable: (error) =>
+          new DaemonConfigurationError({
+            reason: "environment",
+            message: configurationMessage(error),
+          }),
+        Unsupported: (error) =>
+          new DaemonConfigurationError({
+            reason: "environment",
+            message: configurationMessage(error),
+          }),
+      }),
+    ),
+  ),
+  Effect.withSpan("loadDaemonProcessConfiguration"),
+);
 
 /** Loads explicit daemon inputs with optional export and MCP authority separation. */
 export const loadDaemonProcessConfiguration: Effect.Effect<
@@ -99,15 +204,16 @@ export const loadDaemonProcessConfiguration: Effect.Effect<
 > = Effect.suspend(() => {
   // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- Configuration acquisition enumerates unknown legacy keys, which Effect.Config cannot name in advance.
   const keys = legacyKeys(process.env);
-  return keys.length === 0
-    ? configuredValues.pipe(
-        Effect.map(
-          (configuration): DaemonProcessConfiguration => configuration,
-        ),
-        Effect.mapError(() => configurationError("environment")),
-        Effect.withSpan("loadDaemonProcessConfiguration"),
-      )
-    : Effect.fail(new DaemonConfigurationError({ reason: "legacy-key", keys }));
+  if (keys.length > 0) {
+    return Effect.fail(
+      new DaemonConfigurationError({
+        reason: "legacy-key",
+        keys,
+        message: `${configurationFailureMessages["legacy-key"]}: ${keys.join(", ")}`,
+      }),
+    );
+  }
+  return loadedConfiguration;
 });
 
 const credentialFailure =
@@ -191,3 +297,65 @@ export const loadDaemonBootstrap = (
       ...(mcpCredentials === undefined ? {} : { mcpCredentials }),
     });
   }).pipe(Effect.withSpan("loadDaemonBootstrap"));
+
+/** Config and operator text share the name, schema and default at declaration. */
+function setting<A, D = never>(
+  name: string,
+  schema: Schema.Schema<A, string>,
+  ...defaults: [] | [D]
+) {
+  const config = Schema.Config(name, schema);
+  return Object.assign(
+    defaults.length === 0
+      ? config
+      : config.pipe(Config.withDefault(defaults[0])),
+    {
+      name,
+      reason: `must satisfy ${schema.ast.toString()}`,
+      usage: `${name}: ${settingUsage(defaults)}`,
+    },
+  );
+}
+
+/** Distinguishes absent defaults from explicitly unset or empty defaults in operator help. */
+function settingUsage(defaults: readonly unknown[]): string {
+  if (defaults.length === 0) {
+    return "required; default: none";
+  }
+  if (defaults[0] === undefined) {
+    return "optional; default: unset";
+  }
+  if (defaults[0] === "") {
+    return "optional; default: none";
+  }
+  return `optional; default: ${JSON.stringify(defaults[0])}`;
+}
+
+/** ConfigError trees retain every missing field without printing rejected inputs. */
+function configurationMessage(error: ConfigError.ConfigError): string {
+  return Match.value(error).pipe(
+    Match.discriminatorsExhaustive("_op")({
+      And: (cause) =>
+        `${configurationMessage(cause.left)}; ${configurationMessage(cause.right)}`,
+      Or: (cause) =>
+        `${configurationMessage(cause.left)} or ${configurationMessage(cause.right)}`,
+      MissingData: (cause) => `${Array.from(cause.path).join("_")} is required`,
+      InvalidData: invalidConfigurationMessage,
+      SourceUnavailable: (cause) =>
+        `${Array.from(cause.path).join("_")} configuration source unavailable`,
+      Unsupported: (cause) =>
+        `${Array.from(cause.path).join("_")} configuration source unavailable`,
+    }),
+  );
+}
+
+/** Only declared setting constraints may appear in invalid-value diagnostics. */
+function invalidConfigurationMessage(error: ConfigError.InvalidData): string {
+  const name = Array.from(error.path).join("_");
+  const field = Object.values(configurationFields).find(
+    (candidate) => candidate.name === name,
+  );
+  return field === undefined
+    ? "environment configuration is invalid"
+    : `${name} ${field.reason}`;
+}

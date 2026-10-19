@@ -5,10 +5,6 @@ import { LIVE_WIRE_VERSIONS, WireVersions } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Data, Duration, Effect, Layer, Option } from "effect";
-import type {
-  DaemonConfigurationError,
-  DaemonProcessConfiguration,
-} from "./bootstrap.js";
 import {
   type FirewallOptions as InstalledFirewallOptions,
   installEditableFirewall,
@@ -20,8 +16,13 @@ import {
   type OutboxTooOldError,
 } from "../store/index.js";
 import {
+  DaemonConfigurationError,
+  type DaemonProcessConfiguration,
+} from "./bootstrap.js";
+import {
   loadDaemonBootstrap,
   loadDaemonProcessConfiguration,
+  processHelp,
 } from "./configuration.js";
 import { type DaemonRuntimeError, runDaemonRuntime } from "./lifecycle.js";
 import {
@@ -79,6 +80,9 @@ export type {
 
 // eslint-disable-next-line @typescript-eslint/no-namespace -- The published service subpath intentionally merges its runtime values with the closed startup-error type.
 export namespace Daemon {
+  /** Usage text listing the daemon process's environment variables. */
+  export const help = processHelp;
+
   /** Trusted process composition fixes code and evidence while owner tools edit English rules. */
   export type FirewallOptions = InstalledFirewallOptions & {
     /**
@@ -88,7 +92,7 @@ export namespace Daemon {
     readonly auditExport?: string;
   };
 
-  /** Closed daemon startup phase without configuration or platform detail. */
+  /** Closed startup phase with sanitized configuration details. */
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
     readonly reason?:
@@ -97,17 +101,16 @@ export namespace Daemon {
       | "pre-reset"
       | "legacy-key";
     readonly keys?: readonly string[];
+    readonly detail?: string;
   }> {
     /**
-     * Names the failed phase and any actionable compatibility refusal.
-     * @returns The startup failure message.
+     * Only closed refusal reasons and sanitized configuration details enter the process log.
+     * @returns The startup phase and any safe operator diagnostic.
      */
     override get message(): string {
-      const phase = `sharnessd startup failed in phase ${this.phase}`;
-      const keys = this.keys === undefined ? "" : ` (${this.keys.join(", ")})`;
-      return this.reason === undefined
-        ? phase
-        : `${phase}: ${this.reason}${keys}`;
+      const reason = this.reason === undefined ? "" : ` (${this.reason})`;
+      const detail = this.detail === undefined ? "" : `: ${this.detail}`;
+      return `sharnessd startup failed in phase ${this.phase}${reason}${detail}`;
     }
   }
 
@@ -186,18 +189,16 @@ export namespace Daemon {
     });
   }
 
-  function configurationFailure(
-    error: DaemonConfigurationError | { readonly _tag: string },
-  ): StartupError {
-    return error._tag === "DaemonConfigurationError" &&
-      "reason" in error &&
-      error.reason === "legacy-key"
-      ? new StartupError({
-          phase: "configuration",
-          reason: "legacy-key",
-          ...("keys" in error ? { keys: error.keys } : {}),
-        })
-      : new StartupError({ phase: "configuration" });
+  function configurationFailure(cause: unknown): StartupError {
+    return new StartupError({
+      phase: "configuration",
+      ...(cause instanceof DaemonConfigurationError &&
+      cause.reason === "legacy-key"
+        ? { reason: "legacy-key" as const, keys: cause.keys }
+        : {}),
+      detail:
+        cause instanceof DaemonConfigurationError ? cause.message : undefined,
+    });
   }
 
   /** Operational failures keep their storage phase; only reset boundaries add a reason. */

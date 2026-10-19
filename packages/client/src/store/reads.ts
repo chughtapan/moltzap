@@ -37,7 +37,7 @@ import {
 } from "./rows/index.js";
 
 const HISTORY_PAGE_SIZE = 50;
-const historyQuery = `
+const historySelect = `
   SELECT staged.conversation_id, staged.record_hash,
          staged.previous_record_hash, staged.membership_hash,
          staged.anchor_hash, staged.action_hash, staged.author_agent_id,
@@ -46,8 +46,6 @@ const historyQuery = `
   JOIN staged_records AS staged
     ON staged.conversation_id = certified.conversation_id
    AND staged.record_hash = certified.record_hash
-  WHERE certified.conversation_id = ? AND certified.ordinal > ?
-  ORDER BY certified.ordinal
 `;
 
 /**
@@ -210,7 +208,11 @@ function beginConversationRead(
 ): HistoryPage {
   const afterOrdinal = resolveAfterOrdinal(state.database, request);
   const rows = state.database
-    .prepare(historyQuery)
+    .prepare(
+      `${historySelect}
+       WHERE certified.conversation_id = ? AND certified.ordinal > ?
+       ORDER BY certified.ordinal`,
+    )
     .all(request.conversationId, afterOrdinal);
   if (rows.length === 0 && afterOrdinal === -1) {
     throw new StoreSignal("not-found");
@@ -420,17 +422,9 @@ function readAllCertifiedRecords(
   return Object.freeze(
     database
       .prepare(
-        historyQuery
-          .replace(
-            "WHERE certified.conversation_id = ? AND certified.ordinal > ?",
-            conversationId === undefined
-              ? ""
-              : "WHERE certified.conversation_id = ?",
-          )
-          .replace(
-            "ORDER BY certified.ordinal",
-            "ORDER BY certified.conversation_id, certified.ordinal",
-          ),
+        `${historySelect}
+         ${conversationId === undefined ? "" : "WHERE certified.conversation_id = ?"}
+         ORDER BY certified.conversation_id, certified.ordinal`,
       )
       .all(...(conversationId === undefined ? [] : [conversationId]))
       .map((row) => readCertifiedRecord(database, row)),

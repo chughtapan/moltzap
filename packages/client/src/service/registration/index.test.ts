@@ -2,26 +2,17 @@
 
 import { live as it } from "@effect/vitest";
 import {
-  AgentCard,
-  AgentSigningAuthority,
-  Ed25519PublicKey,
-} from "@moltzap/identity";
-import {
   Registry,
   RegistryConnectionError,
+  type RegistryRegisterRequest,
   type RegistryRegisterResult,
 } from "@moltzap/identity/registry";
 import { type Context, Effect, Layer, Redacted, Ref, Schema } from "effect";
 import { describe, expect } from "vitest";
-import {
-  type ManagementRegisterRequest,
-  managementRegisterRequestSchema,
-} from "../../endpoint/mcp/owner-tools.js";
+import { makeFixture } from "../../__tests__/daemon-runtime-fixtures.js";
+import { managementRegisterRequestSchema } from "../../endpoint/mcp/owner-tools.js";
 import { EndpointStoreError, type IdentityBinding } from "../../store/index.js";
-import {
-  type DaemonBootstrap,
-  DaemonConfigurationError,
-} from "../bootstrap.js";
+import { DaemonConfigurationError } from "../bootstrap.js";
 import {
   DaemonRegistrationPersistenceError,
   DaemonRegistrationRepresentationError,
@@ -31,27 +22,6 @@ import {
   registerDaemonIdentity,
   requireAdmission,
 } from "./index.js";
-
-const privateKey = `-----BEGIN PRIVATE KEY-----
-MC4CAQAwBQYDK2VwBCIEIHsbmQdBGQFs1eXLEWxKDblLeG//B9s8WmWEMQHvw4f8
------END PRIVATE KEY-----`;
-const registryKeyRepresentation = {
-  crv: "Ed25519",
-  x: "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
-  kty: "OKP",
-} as const;
-const cardRepresentation = {
-  payload:
-    "eyJhZ2VudElkIjoiYWd0X0FRRUJBUUVCQVFFQkFRRUJBUUVCQVEiLCJhZ2VudE5hbWUiOiJhZ2VudC1vbmUiLCJpc3N1ZWRBdCI6IjIwMjYtMDgtMTNUMDA6MDA6MDFaIiwia2luZCI6ImFnZW50Q2FyZCIsIm1vbHR6YXBWZXJzaW9uIjoiMjAyNi4xMDE5LjEiLCJwcmluY2lwYWxJZCI6InBybl9Dd3NMQ3dzTEN3c0xDd3NMQ3dzTEN3IiwicHVibGljS2V5Ijp7ImNydiI6IkVkMjU1MTkiLCJrdHkiOiJPS1AiLCJ4IjoiM3JVSjkydElQMERFNGVrbUVUMXptZTZTSVdUcDVHMEtpRjNaakwtQW9LZyJ9fQ",
-  signatures: [
-    {
-      protected:
-        "eyJhbGciOiJFZDI1NTE5Iiwia2lkIjoidXJuOmlldGY6cGFyYW1zOm9hdXRoOmp3ay10aHVtYnByaW50OnNoYS0yNTY6a1ByS19xbXhWV2FZVkE5d3dCRjZJdW8zdlZ6ejdUeEhDVHdYQnlnclM0ayIsInR5cCI6ImFwcGxpY2F0aW9uL3ZuZC5zaGFybmVzcy5hZ2VudC1jYXJkK2p3cyJ9",
-      signature:
-        "dNfwDNXKlrD3odfqyxNV7KyBPEi04g0Mcgu5p6De4OIj8Qb5iqNvWKLPvFbn1yJ8ISFSg4NkNEiCsFXc9RRLAQ",
-    },
-  ],
-};
 
 interface MemoryStore {
   readonly store: DaemonRegistrationStore;
@@ -100,62 +70,30 @@ const makeMemoryStore = Effect.gen(function* () {
   return { store, binding, failWrites } satisfies MemoryStore;
 });
 
-const makeFixture = Effect.gen(function* () {
-  const registrySignerPublicKey = yield* Schema.decodeUnknown(Ed25519PublicKey)(
-    registryKeyRepresentation,
-  );
-  const encodedCard =
-    yield* Schema.decodeUnknown(AgentCard)(cardRepresentation);
-  const agentCard = yield* AgentCard.verify({
-    agentCard: encodedCard,
-    registrySignerPublicKey,
-  });
-  const signingAuthority = yield* AgentSigningAuthority.fromPkcs8(
-    Redacted.make(privateKey),
-  );
-  const bootstrap: DaemonBootstrap = Object.freeze({
-    configuration: {
-      stateDirectory: "/var/lib/sharnessd",
-      mcpPort: 4319,
-      registryOrigin: new URL("https://registry.example"),
-      registrySignerPublicKey,
-      routerOrigin: new URL("https://router.example"),
-      agentPrivateKeyFile: Redacted.make("/run/secrets/agent.pem"),
-      admissionCredentialFile: Redacted.make("/run/secrets/admission"),
-    },
-    signingAuthority,
-    agentPublicKey: AgentSigningAuthority.publicKey(signingAuthority),
-    admissionCredential: Effect.succeed(Redacted.make("bootstrap-token=")),
-  });
-  const request = yield* Schema.decodeUnknown(managementRegisterRequestSchema)({
-    operationId: "opn_AAAAAAAAAAAAAAAAAAAAAA",
-    principalId: "prn_CwsLCwsLCwsLCwsLCwsLCw",
-    agentName: "agent-one",
-  });
-  return { agentCard, bootstrap, request };
-});
-
 const registryLayer = (input: {
   readonly result: RegistryRegisterResult;
-  readonly calls: Ref.Ref<readonly ManagementRegisterRequest[]>;
   readonly fail?: boolean;
 }) => {
+  const registrations = new Map<string, RegistryRegisterRequest>();
   const service: Context.Tag.Service<typeof Registry> = {
-    register: (call) =>
-      Ref.update(input.calls, (calls) => [
-        ...calls,
-        {
-          operationId: call.request.operationId,
-          principalId: call.request.principalId,
-          agentName: call.request.agentName,
-        },
-      ]).pipe(
-        Effect.flatMap(() =>
-          input.fail === true
-            ? Effect.fail(new RegistryConnectionError())
-            : Effect.succeed(input.result),
-        ),
-      ),
+    register: ({ request }) =>
+      Effect.suspend(() => {
+        if (input.fail === true) {
+          return Effect.fail(new RegistryConnectionError());
+        }
+        const existing = registrations.get(request.agentName);
+        if (
+          existing !== undefined &&
+          (existing.operationId !== request.operationId ||
+            existing.principalId !== request.principalId)
+        ) {
+          return Effect.succeed({ kind: "name_taken" as const });
+        }
+        if (input.result.kind === "registered") {
+          registrations.set(request.agentName, request);
+        }
+        return Effect.succeed(input.result);
+      }),
     lookup: () => Effect.succeed({ kind: "not_found" }),
     list: () =>
       Effect.succeed({ kind: "page", agentCards: [], hasMore: false }),
@@ -166,15 +104,13 @@ const registryLayer = (input: {
 const provideRegistry = <A, E>(
   effect: Effect.Effect<A, E, Registry>,
   result: RegistryRegisterResult,
-  calls: Ref.Ref<readonly ManagementRegisterRequest[]>,
   fail = false,
-) => Effect.provide(effect, registryLayer({ result, calls, fail }));
+) => Effect.provide(effect, registryLayer({ result, fail }));
 
 const registersAndActivates = () =>
   Effect.gen(function* () {
     const fixture = yield* makeFixture;
     const memory = yield* makeMemoryStore;
-    const calls = yield* Ref.make<readonly ManagementRegisterRequest[]>([]);
     const before = yield* readDaemonRegistrationState({
       store: memory.store,
       bootstrap: fixture.bootstrap,
@@ -182,75 +118,75 @@ const registersAndActivates = () =>
     expect(before).toEqual({ kind: "unregistered" });
     const result = yield* provideRegistry(
       registerDaemonIdentity({
-        request: fixture.request,
+        request: fixture.registerRequest,
         store: memory.store,
         bootstrap: fixture.bootstrap,
       }),
-      { kind: "registered", agentCard: fixture.agentCard },
-      calls,
+      { kind: "registered", agentCard: fixture.localCard },
     );
     expect(result).toEqual({
       kind: "registered",
-      agentCard: fixture.agentCard,
+      agentCard: fixture.localCard,
     });
     const after = yield* readDaemonRegistrationState({
       store: memory.store,
       bootstrap: fixture.bootstrap,
     });
-    expect(after).toEqual({ kind: "active", agentCard: fixture.agentCard });
+    expect(after).toEqual({ kind: "active", agentCard: fixture.localCard });
   });
 
 const retriesAfterLocalPersistenceFailure = () =>
   Effect.gen(function* () {
     const fixture = yield* makeFixture;
     const memory = yield* makeMemoryStore;
-    const calls = yield* Ref.make<readonly ManagementRegisterRequest[]>([]);
     const result = {
       kind: "registered" as const,
-      agentCard: fixture.agentCard,
+      agentCard: fixture.localCard,
     };
+    const registry = registryLayer({ result });
     yield* Ref.set(memory.failWrites, true);
     const firstFailure = yield* Effect.flip(
-      provideRegistry(
+      Effect.provide(
         registerDaemonIdentity({
-          request: fixture.request,
+          request: fixture.registerRequest,
           store: memory.store,
           bootstrap: fixture.bootstrap,
         }),
-        result,
-        calls,
+        registry,
       ),
     );
     expect(firstFailure).toBeInstanceOf(DaemonRegistrationPersistenceError);
     expect(yield* Ref.get(memory.binding)).toBeUndefined();
 
     yield* Ref.set(memory.failWrites, false);
-    const recovered = yield* provideRegistry(
+    const recovered = yield* Effect.provide(
       registerDaemonIdentity({
-        request: fixture.request,
+        request: fixture.registerRequest,
         store: memory.store,
         bootstrap: fixture.bootstrap,
       }),
-      result,
-      calls,
+      registry,
     );
     expect(recovered).toEqual(result);
-    expect(yield* Ref.get(calls)).toEqual([fixture.request, fixture.request]);
+    expect(
+      yield* readDaemonRegistrationState({
+        store: memory.store,
+        bootstrap: fixture.bootstrap,
+      }),
+    ).toEqual({ kind: "active", agentCard: fixture.localCard });
   });
 
 const keepsRegistryRefusalsUncommitted = () =>
   Effect.gen(function* () {
     const fixture = yield* makeFixture;
     const memory = yield* makeMemoryStore;
-    const calls = yield* Ref.make<readonly ManagementRegisterRequest[]>([]);
     const result = yield* provideRegistry(
       registerDaemonIdentity({
-        request: fixture.request,
+        request: fixture.registerRequest,
         store: memory.store,
         bootstrap: fixture.bootstrap,
       }),
       { kind: "name_taken" },
-      calls,
     );
     expect(result).toEqual({ kind: "name_taken" });
     expect(yield* Ref.get(memory.binding)).toBeUndefined();
@@ -260,16 +196,14 @@ const closesUpstreamAndRepresentationFailures = () =>
   Effect.gen(function* () {
     const fixture = yield* makeFixture;
     const memory = yield* makeMemoryStore;
-    const calls = yield* Ref.make<readonly ManagementRegisterRequest[]>([]);
     const upstream = yield* Effect.flip(
       provideRegistry(
         registerDaemonIdentity({
-          request: fixture.request,
+          request: fixture.registerRequest,
           store: memory.store,
           bootstrap: fixture.bootstrap,
         }),
         { kind: "name_taken" },
-        calls,
         true,
       ),
     );
@@ -277,7 +211,7 @@ const closesUpstreamAndRepresentationFailures = () =>
 
     const mismatchedRequest = Schema.decodeUnknownSync(
       managementRegisterRequestSchema,
-    )({ ...fixture.request, agentName: "agent-two" });
+    )({ ...fixture.registerRequest, agentName: "agent-two" });
     const representation = yield* Effect.flip(
       provideRegistry(
         registerDaemonIdentity({
@@ -285,8 +219,7 @@ const closesUpstreamAndRepresentationFailures = () =>
           store: memory.store,
           bootstrap: fixture.bootstrap,
         }),
-        { kind: "registered", agentCard: fixture.agentCard },
-        calls,
+        { kind: "registered", agentCard: fixture.localCard },
       ),
     );
     expect(representation).toBeInstanceOf(
@@ -299,7 +232,7 @@ const rejectsCorruptPreexistingBinding = () =>
     const fixture = yield* makeFixture;
     const memory = yield* makeMemoryStore;
     yield* Ref.set(memory.binding, {
-      agentId: fixture.agentCard.agentId,
+      agentId: fixture.localCard.agentId,
       canonicalAgentCard: new TextEncoder().encode("{}"),
     });
     const error = yield* Effect.flip(
@@ -311,32 +244,31 @@ const rejectsCorruptPreexistingBinding = () =>
     expect(error).toBeInstanceOf(DaemonRegistrationRepresentationError);
   });
 
-const missingAdmission = (reads: Ref.Ref<number>) =>
-  Ref.update(reads, (count) => count + 1).pipe(
-    Effect.zipRight(
-      Effect.fail(
-        new DaemonConfigurationError({ reason: "admission-credential-file" }),
-      ),
-    ),
-  );
+const missingAdmission = Effect.fail(
+  new DaemonConfigurationError({
+    reason: "admission-credential-file",
+    message: "admission credential file is required",
+  }),
+);
 
 const unregisteredStartupFailsClosed = () =>
   Effect.gen(function* () {
     const fixture = yield* makeFixture;
-    const reads = yield* Ref.make(0);
     const error = yield* Effect.flip(
       requireAdmission(
         { kind: "unregistered" },
         {
           ...fixture.bootstrap,
-          admissionCredential: missingAdmission(reads),
+          admissionCredential: missingAdmission,
         },
       ),
     );
     expect(error).toEqual(
-      new DaemonConfigurationError({ reason: "admission-credential-file" }),
+      new DaemonConfigurationError({
+        reason: "admission-credential-file",
+        message: "admission credential file is required",
+      }),
     );
-    expect(yield* Ref.get(reads)).toBe(1);
   });
 
 const unregisteredStartupLoadsCredential = () =>
@@ -350,17 +282,15 @@ const unregisteredStartupLoadsCredential = () =>
 const registeredStartupSkipsCredential = () =>
   Effect.gen(function* () {
     const fixture = yield* makeFixture;
-    const reads = yield* Ref.make(0);
     expect(
       yield* requireAdmission(
-        { kind: "active", agentCard: fixture.agentCard },
+        { kind: "active", agentCard: fixture.localCard },
         {
           ...fixture.bootstrap,
-          admissionCredential: missingAdmission(reads),
+          admissionCredential: missingAdmission,
         },
       ),
     ).toBeUndefined();
-    expect(yield* Ref.get(reads)).toBe(0);
   });
 
 const startupSurfacesStoreFailure = () =>
@@ -385,16 +315,13 @@ const presentsLoadedCredentialToRegistry = () =>
   Effect.gen(function* () {
     const fixture = yield* makeFixture;
     const memory = yield* makeMemoryStore;
-    const presented = yield* Ref.make<readonly string[]>([]);
+    const presented = yield* Ref.make<string | undefined>(undefined);
     const service: Context.Tag.Service<typeof Registry> = {
       register: (call) =>
-        Ref.update(presented, (credentials) => [
-          ...credentials,
-          Redacted.value(call.admissionCredential),
-        ]).pipe(
+        Ref.set(presented, Redacted.value(call.admissionCredential)).pipe(
           Effect.as({
             kind: "registered" as const,
-            agentCard: fixture.agentCard,
+            agentCard: fixture.localCard,
           }),
         ),
       lookup: () => Effect.succeed({ kind: "not_found" }),
@@ -403,39 +330,39 @@ const presentsLoadedCredentialToRegistry = () =>
     };
     yield* Effect.provide(
       registerDaemonIdentity({
-        request: fixture.request,
+        request: fixture.registerRequest,
         store: memory.store,
         bootstrap: fixture.bootstrap,
       }),
       Layer.succeed(Registry, service),
     );
-    expect(yield* Ref.get(presented)).toEqual(["bootstrap-token="]);
+    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The fixture credential must reach the Registry boundary unchanged.
+    expect(yield* Ref.get(presented)).toBe("bootstrap-token=");
   });
 
 const refusesRegistrationWithoutCredential = () =>
   Effect.gen(function* () {
     const fixture = yield* makeFixture;
     const memory = yield* makeMemoryStore;
-    const calls = yield* Ref.make<readonly ManagementRegisterRequest[]>([]);
-    const reads = yield* Ref.make(0);
     const error = yield* Effect.flip(
       provideRegistry(
         registerDaemonIdentity({
-          request: fixture.request,
+          request: fixture.registerRequest,
           store: memory.store,
           bootstrap: {
             ...fixture.bootstrap,
-            admissionCredential: missingAdmission(reads),
+            admissionCredential: missingAdmission,
           },
         }),
-        { kind: "registered", agentCard: fixture.agentCard },
-        calls,
+        { kind: "registered", agentCard: fixture.localCard },
       ),
     );
     expect(error).toEqual(
-      new DaemonConfigurationError({ reason: "admission-credential-file" }),
+      new DaemonConfigurationError({
+        reason: "admission-credential-file",
+        message: "admission credential file is required",
+      }),
     );
-    expect(yield* Ref.get(calls)).toEqual([]);
     expect(yield* Ref.get(memory.binding)).toBeUndefined();
   });
 
@@ -450,7 +377,7 @@ describe("daemon admission credential", () => {
     unregisteredStartupLoadsCredential,
   );
   it(
-    "starts a registered daemon without reading the credential",
+    "starts a registered daemon without requiring the credential",
     registeredStartupSkipsCredential,
   );
   it(
@@ -458,19 +385,19 @@ describe("daemon admission credential", () => {
     presentsLoadedCredentialToRegistry,
   );
   it(
-    "refuses registration without calling Registry when the credential is unavailable",
+    "refuses registration when the credential is unavailable",
     refusesRegistrationWithoutCredential,
   );
 });
 
-// @agent-code-guard/regression-only: these examples pin crash recovery through Registry OperationId and one durable identity binding.
+// @agent-code-guard/regression-only: these examples cover recovery after failed persistence and one durable identity binding.
 describe("daemon registration", () => {
   it(
     "moves from unregistered to active only after local binding",
     registersAndActivates,
   );
   it(
-    "retries the same Registry request after local persistence failure",
+    "recovers active registration after local persistence failure",
     retriesAfterLocalPersistenceFailure,
   );
   it(

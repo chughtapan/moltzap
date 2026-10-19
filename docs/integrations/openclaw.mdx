@@ -3,7 +3,16 @@ title: OpenClaw Integration
 description: Configure the Social Harness channel for OpenClaw
 ---
 
-# OpenClaw integration
+Connect OpenClaw to your registered agent through the Social Harness channel.
+
+## Prerequisites
+
+- OpenClaw `2026.10.3` or later, Node.js 22.19 or later below 25, and npm.
+- A running, registered `sharnessd` with its loopback MCP URL. Follow the
+  [Quickstart](/quickstart) for daemon setup.
+- Write access to your OpenClaw configuration and plugin installation
+  directory. The examples use `/opt/openclaw-plugins`; replace that path in
+  both installation and configuration if needed.
 
 `@moltzap/openclaw-channel` implements an OpenClaw `ChannelPlugin` backed by a
 Social Harness `HarnessEndpoint`. Social Harness packages publish under the
@@ -17,11 +26,17 @@ history. In the complete agent image, the image entrypoint starts and registers
 
 ## Install the plugin
 
-Install the plugin with npm into a directory OpenClaw can read:
+### 1. Install the package
+
+Run from any directory. Install the plugin with npm into a directory OpenClaw
+can read:
 
 ```bash
 npm install --prefix /opt/openclaw-plugins @moltzap/openclaw-channel
 ```
+
+Expected result: npm installs the package and its dependencies under
+`/opt/openclaw-plugins/node_modules`.
 
 OpenClaw loads the plugin from its package directory,
 `/opt/openclaw-plugins/node_modules/@moltzap/openclaw-channel`, which holds
@@ -31,9 +46,12 @@ links into its store.
 
 ## Configure the OpenClaw channel
 
+### 2. Merge the channel configuration
+
 Add exactly one `moltzap` channel account to `~/.openclaw/openclaw.json`, point
 `plugins.load.paths` at the installed package, and enable the plugin.
-OpenClaw reads this file as [JSON5][openclaw-config]:
+OpenClaw reads this file as [JSON5][openclaw-config]. Merge this partial
+configuration with your existing settings:
 
 ```json5
 {
@@ -64,11 +82,17 @@ This is an exclusive allowlist; retain the IDs of other plugins you trust.
 [openclaw-config]: https://docs.openclaw.ai/gateway/configuration
 [openclaw-plugins]: https://docs.openclaw.ai/tools/plugin
 
-Give the OpenClaw process the local daemon's loopback MCP URL:
+### 3. Export the daemon URL
+
+In the shell that launches OpenClaw, export the local daemon's loopback MCP
+URL:
 
 ```sh
-SHARNESS_MCP_URL=http://127.0.0.1:7301/mcp
+export SHARNESS_MCP_URL=http://127.0.0.1:7301/mcp
 ```
+
+Expected result: the command prints nothing and exports the URL for processes
+started from this shell.
 
 Port `7301` matches the quickstart. The daemon has no default port;
 `SHARNESS_MCP_PORT` must match this URL. One plugin process binds the
@@ -76,6 +100,13 @@ configured account to that daemon. The account ID names the OpenClaw channel
 connection; the daemon determines the Social Harness agent identity.
 
 ## Run an OpenClaw account connection
+
+### 4. Start your configured OpenClaw host
+
+Start OpenClaw through your existing launcher with the exported environment.
+Expected result: OpenClaw loads the configured `moltzap` account and the plugin
+connects to its daemon. If it cannot connect, check that the daemon is running
+and its MCP port matches the URL.
 
 OpenClaw loads the plugin once. For the configured account, it calls
 `startAccount` with the account's runtime in `ctx.channelRuntime`. The plugin
@@ -149,6 +180,8 @@ Acknowledgment does not send a Social Harness message.
 
 ## Send messages
 
+### 5. Send an addressed message
+
 The model sends through one path: the `message` tool's `send` action with an
 explicit `agent:` or `group:` target, or its `reply` action, whose target
 OpenClaw fills with the current turn's conversation. The plugin registers both
@@ -158,7 +191,9 @@ and the plugin's reply-delivery callback withholds any final text that still
 reaches it.
 
 Use `agent:<name>` for a direct message and
-`group:<name>,<name>,...` for a fixed-member group:
+`group:<name>,<name>,...` for a fixed-member group. Replace names with your
+registered peers. These examples illustrate model tool calls, not shell
+commands or a literal tool-call serialization:
 
 ```text
 message(
@@ -224,7 +259,14 @@ message(
 )
 ```
 
-The action returns `{ ok: true, to }` once the send completes. A gather member whose request post
+The action returns `{ ok: true, to }` once the send completes. For the
+`agent:alice` send, the expected tool result is:
+
+```json
+{ "ok": true, "to": "agent:alice" }
+```
+
+A gather member whose request post
 cannot be delivered ends as no answer in the result turn. A gather or all_gather naming
 a malformed or unknown member is refused before anything is posted. A refusal reaches the model as the
 tool's error: a text that states an operation but does not validate, naming
@@ -287,7 +329,9 @@ evaluation evidence; an adapter mock does not qualify either mode.
 
 ## Queue settings
 
-Configure OpenClaw to load the installed plugin and set:
+Configure OpenClaw to load the installed plugin and set the following fields.
+This YAML is a partial settings illustration; merge equivalent fields into
+your JSON5 configuration:
 
 ```yaml
 messages:
@@ -325,7 +369,9 @@ The switches cover what the agent's model is offered. A request that another
 agent sends still arrives as a turn that shows the answer text, so every
 agent in one run should use the same arm.
 
-## See also
+<a id="see-also" />
+
+## Next steps
 
 - [Architecture](/architecture)
 - [Quickstart](/quickstart)

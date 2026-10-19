@@ -42,7 +42,7 @@ export const PollCursor = Schema.String.pipe(
 
 Opaque, authenticated continuation for one caller and Router instance.
 
-### [`Router`](./router.ts#L68)
+### [`Router`](./router.ts#L88)
 
 _Class_
 
@@ -299,11 +299,11 @@ Equality receipt for one complete retained SignedMessage.
 
 ### `@moltzap/router/server`
 
-#### [`RouterServer`](./server.ts#L28)
+#### [`RouterServer`](./server.ts#L33)
 
 _Namespace_
 
-#### [`RouterServer.StartupError`](./server.ts#L30)
+#### [`RouterServer.StartupError`](./server.ts#L38)
 
 _Class_
 
@@ -312,22 +312,34 @@ _Class_
     "RouterServerStartupError",
   )<{
     readonly phase: "configuration" | "listener";
+    readonly detail?: string;
     readonly reason?: "legacy-key";
     readonly keys?: readonly string[];
   }> {
+    /** Rejected environment values never enter the operator message. */
     override get message(): string {
-      const details =
-        this.reason === undefined
-          ? ""
-          : ` (${this.reason}: ${this.keys?.join(", ")})`;
-      return `Router startup failed: ${this.phase}${details}`;
+      const keys = this.keys === undefined ? "" : `: ${this.keys.join(", ")}`;
+      const reason =
+        this.reason === undefined ? "" : ` (${this.reason}${keys})`;
+      const detail = this.detail === undefined ? reason : `: ${this.detail}`;
+      return `sharness-router startup failed in phase ${this.phase}${detail}`;
     }
   }
 ```
 
 Closed Router startup phase.
 
-#### [`RouterServer.layer`](./server.ts#L77)
+#### [`RouterServer.help`](./server.ts#L35)
+
+_Variable_
+
+```ts
+  export const help = processHelp
+```
+
+Usage text listing the Router process's environment variables.
+
+#### [`RouterServer.layer`](./server.ts#L90)
 
 _Variable_
 

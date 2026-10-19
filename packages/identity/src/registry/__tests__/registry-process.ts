@@ -46,6 +46,7 @@ const ADMISSION_CREDENTIAL = "registry-binary-admission";
 const READY_STATUS = 204;
 const STARTUP_TIMEOUT_MS = 30_000;
 const SHUTDOWN_TIMEOUT_MS = 5_000;
+const POLL_ATTEMPT_TIMEOUT = Duration.seconds(1);
 const POLL_INTERVAL_MS = 25;
 const RAW_REQUEST_TIMEOUT = Duration.seconds(5);
 const REGISTRATION_SIGNATURE_FIELDS = [
@@ -192,7 +193,13 @@ const canConnect = (port: number) =>
     return Effect.sync(() => {
       socket.destroy();
     });
-  });
+  }).pipe(
+    Effect.timeoutTo({
+      duration: POLL_ATTEMPT_TIMEOUT,
+      onTimeout: () => false,
+      onSuccess: (connected) => connected,
+    }),
+  );
 
 const waitForTcpListener = (runningProcess: RunningProcess, port: number) =>
   Effect.gen(function* () {
@@ -245,6 +252,7 @@ const waitForHealthStatus = (input: {
             Effect.map((body) => ({ status: result.status, body })),
           ),
         ),
+        Effect.timeout(POLL_ATTEMPT_TIMEOUT),
         Effect.option,
       );
       if (

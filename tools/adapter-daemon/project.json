@@ -26,9 +26,9 @@
           "env": "SHARNESS_MCP_URL"
         },
         "{workspaceRoot}/packages/client/integration/daemon-process-harness.ts",
-        "{workspaceRoot}/scripts/test/adapter-daemon-process.integration.test.ts",
-        "{workspaceRoot}/scripts/test/adapter-daemon-vitest.config.ts",
-        "{workspaceRoot}/scripts/test/tsconfig.adapter-daemon.json"
+        "{workspaceRoot}/scripts/test/adapter-daemon-*.ts",
+        "{workspaceRoot}/scripts/test/tsconfig.adapter-daemon.json",
+        "{workspaceRoot}/scripts/tsconfig.json"
       ],
       "dependsOn": [
         "^build"

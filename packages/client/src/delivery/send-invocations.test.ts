@@ -400,6 +400,7 @@ const reportsAnUnreadableEarlierAttemptAsUnknown = () =>
 const classifiesAFailedReservation = (
   reason: EndpointStoreError["reason"],
   expected: SendError["reason"],
+  commitOutcome?: EndpointStoreError["commitOutcome"],
 ) =>
   Effect.gen(function* () {
     const store = yield* temporaryDirectory.pipe(
@@ -410,7 +411,8 @@ const classifiesAFailedReservation = (
     const invocations = yield* makeSendInvocations(
       {
         ...store,
-        beginSendAttempt: () => Effect.fail(new EndpointStoreError({ reason })),
+        beginSendAttempt: () =>
+          Effect.fail(new EndpointStoreError({ reason, commitOutcome })),
       },
       () => Effect.dieMessage("unreserved send executed"),
       yield* Scope.Scope,
@@ -420,6 +422,24 @@ const classifiesAFailedReservation = (
       yield* invocations.send(onceRequest).pipe(Effect.flip),
     ).toStrictEqual(new SendError({ reason: expected }));
   }).pipe(Effect.provide(NodeFileSystem.layer));
+
+const reservationFailureCases = [
+  {
+    reason: "persistence",
+    commitOutcome: undefined,
+    expected: "outcome-unknown",
+  },
+  {
+    reason: "persistence",
+    commitOutcome: "not-committed",
+    expected: "persistence-failed",
+  },
+  {
+    reason: "invalid-input",
+    commitOutcome: undefined,
+    expected: "persistence-failed",
+  },
+] as const;
 
 // @agent-code-guard/regression-only: these crash and concurrency transcripts pin the invocation contract without asserting collective completion.
 describe("durable send invocations", () => {
@@ -464,11 +484,9 @@ describe("durable send invocations", () => {
     "reports a retried key whose earlier attempt cannot be read as outcome-unknown",
     reportsAnUnreadableEarlierAttemptAsUnknown,
   );
-  it.each([
-    { reason: "persistence", expected: "outcome-unknown" },
-    { reason: "invalid-input", expected: "persistence-failed" },
-  ] as const)(
+  it.each(reservationFailureCases)(
     "reports a reservation that meets a $reason store failure as $expected",
-    ({ reason, expected }) => classifiesAFailedReservation(reason, expected),
+    ({ reason, expected, commitOutcome }) =>
+      classifiesAFailedReservation(reason, expected, commitOutcome),
   );
 });

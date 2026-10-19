@@ -1,11 +1,12 @@
 /** @file Tests for the in-place Modules navigation writer. */
 import { NodeContext } from "@effect/platform-node";
 import { Effect } from "effect";
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Synchronous filesystem operations create and restore test fixtures outside the Effect under test.
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { writeModulesNav } from "../mintlify-nav.js";
+import { writeModulesNav } from "../mintlify-nav.ts";
 
 const write = (path: string, slugs: readonly string[]) =>
   Effect.runPromise(
@@ -30,20 +31,24 @@ const fixture = (groups: readonly unknown[]): string => {
   return path;
 };
 
-const parse = (
-  path: string,
-): {
+interface DocsJson {
   readonly navigation: {
-    readonly tabs: readonly {
-      readonly groups: readonly {
+    readonly tabs: ReadonlyArray<{
+      readonly groups: ReadonlyArray<{
         readonly group: string;
         readonly pages: readonly string[];
-      }[];
-    }[];
+      }>;
+    }>;
   };
-} => JSON.parse(readFileSync(path, "utf8"));
+}
+const parse = (path: string): DocsJson =>
+  /* Safe because The fixture writer emits this shape, and the navigation writer preserves it. */ JSON.parse(
+    readFileSync(path, "utf8"),
+  ) as DocsJson;
 
+// @agent-code-guard/regression-only: fixed navigation and TypeDoc fixtures exercise distinct formatting and failure regressions.
 describe("writeModulesNav", () => {
+  // eslint-disable-next-line agent-code-guard/async-keyword -- Vitest awaits this Promise boundary; the implementation under test remains an Effect.
   it("replaces an existing Modules group with the sorted module pages", async () => {
     const path = fixture([{ group: "Modules", pages: ["modules/stale"] }]);
     await write(path, ["router/src", "identity/src"]);
@@ -55,6 +60,7 @@ describe("writeModulesNav", () => {
     ]);
   });
 
+  // eslint-disable-next-line agent-code-guard/async-keyword -- Vitest awaits this Promise boundary; the implementation under test remains an Effect.
   it("appends a Modules group after the existing groups when none exists", async () => {
     const path = fixture([{ group: "Guides", pages: ["g"] }]);
     await write(path, ["client/src"]);
@@ -64,13 +70,14 @@ describe("writeModulesNav", () => {
     ]);
   });
 
+  // eslint-disable-next-line agent-code-guard/async-keyword -- Vitest awaits this Promise boundary; the implementation under test remains an Effect.
   it("keeps the document's top-level key order and is a no-op when nothing changed", async () => {
     const path = fixture([{ group: "Modules", pages: ["modules/client/src"] }]);
     const before = readFileSync(path, "utf8");
     await write(path, ["client/src"]);
     const after = readFileSync(path, "utf8");
     expect(after).toBe(before);
-    expect(Object.keys(JSON.parse(after))).toEqual([
+    expect(Object.keys(parse(path))).toEqual([
       "$schema",
       "name",
       "navigation",
@@ -78,6 +85,7 @@ describe("writeModulesNav", () => {
     ]);
   });
 
+  // eslint-disable-next-line agent-code-guard/async-keyword -- Vitest awaits this Promise boundary; the implementation under test remains an Effect.
   it("dies on a document without navigation tabs", async () => {
     const path = join(
       mkdtempSync(join(tmpdir(), "mintlify-nav-")),

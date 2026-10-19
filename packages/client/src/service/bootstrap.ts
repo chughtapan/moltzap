@@ -19,11 +19,12 @@ export type DaemonConfigurationFailure =
   | "mcp-owner-credential-file"
   | "mcp-credential";
 
-/** One non-diagnostic daemon configuration failure. */
+/** Daemon configuration failure with a safe operator message. */
 export class DaemonConfigurationError extends Data.TaggedError(
   "DaemonConfigurationError",
 )<{
   readonly reason: DaemonConfigurationFailure;
+  readonly message: string;
   readonly keys?: readonly string[];
 }> {}
 

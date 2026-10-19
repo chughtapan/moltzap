@@ -637,11 +637,11 @@ What a completed send returns: a collecting operation names its id.
 
 ### `@moltzap/client/service`
 
-#### [`Daemon`](./service/index.ts#L81)
+#### [`Daemon`](./service/index.ts#L82)
 
 _Namespace_
 
-#### [`Daemon.StartupError`](./service/index.ts#L92)
+#### [`Daemon.StartupError`](./service/index.ts#L96)
 
 _Class_
 
@@ -654,24 +654,23 @@ _Class_
       | "pre-reset"
       | "legacy-key";
     readonly keys?: readonly string[];
+    readonly detail?: string;
   }> {
     /**
-     * Names the failed phase and any actionable compatibility refusal.
-     * @returns The startup failure message.
+     * Only closed refusal reasons and sanitized configuration details enter the process log.
+     * @returns The startup phase and any safe operator diagnostic.
      */
     override get message(): string {
-      const phase = `sharnessd startup failed in phase ${this.phase}`;
-      const keys = this.keys === undefined ? "" : ` (${this.keys.join(", ")})`;
-      return this.reason === undefined
-        ? phase
-        : `${phase}: ${this.reason}${keys}`;
+      const reason = this.reason === undefined ? "" : ` (${this.reason})`;
+      const detail = this.detail === undefined ? "" : `: ${this.detail}`;
+      return `sharnessd startup failed in phase ${this.phase}${reason}${detail}`;
     }
   }
 ```
 
-Closed daemon startup phase without configuration or platform detail.
+Closed startup phase with sanitized configuration details.
 
-#### [`Daemon.FirewallOptions`](./service/index.ts#L83)
+#### [`Daemon.FirewallOptions`](./service/index.ts#L87)
 
 _TypeAlias_
 
@@ -687,7 +686,17 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-#### [`Daemon.layer`](./service/index.ts#L161)
+#### [`Daemon.help`](./service/index.ts#L84)
+
+_Variable_
+
+```ts
+  export const help = processHelp
+```
+
+Usage text listing the daemon process's environment variables.
+
+#### [`Daemon.layer`](./service/index.ts#L164)
 
 _Variable_
 
@@ -699,7 +708,7 @@ _Variable_
 
 Complete production process composition for `sharnessd`.
 
-#### [`Daemon.withFirewall`](./service/index.ts#L170)
+#### [`Daemon.withFirewall`](./service/index.ts#L173)
 
 _Function_
 

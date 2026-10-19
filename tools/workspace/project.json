@@ -37,8 +37,8 @@
         "parallel": false,
         "commands": [
           "pnpm exec typedoc",
-          "pnpm exec tsx scripts/docs/generate-modules.ts",
-          "pnpm exec tsx scripts/docs/generate-constants-snippets.ts"
+          "node scripts/docs/generate-modules.ts",
+          "node scripts/docs/generate-constants-snippets.ts"
         ]
       }
     },
@@ -53,7 +53,7 @@
         "parallel": false,
         "commands": [
           "pnpm exec puppeteer browsers install chrome-headless-shell",
-          "pnpm exec tsx scripts/docs/check-mermaid.ts"
+          "node scripts/docs/check-mermaid.ts"
         ]
       }
     },
@@ -65,7 +65,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "pnpm exec tsx scripts/docs/check-no-hardcoded-constants.ts"
+        "command": "node scripts/docs/check-no-hardcoded-constants.ts"
       }
     },
     "docs:check:doc-imports-resolve": {
@@ -76,7 +76,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "pnpm exec tsx scripts/docs/check-doc-imports-resolve.ts"
+        "command": "node scripts/docs/check-doc-imports-resolve.ts"
       }
     },
     "arch:config:generate": {
@@ -126,7 +126,6 @@
         "parallel": false,
         "commands": [
           "tsc --noEmit -p tsconfig.eslint.json",
-          "tsc --noEmit -p scripts/docs/tsconfig.json",
           "tsc --noEmit -p scripts/tsconfig.json"
         ]
       }
@@ -203,7 +202,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "pnpm exec tsx scripts/repo/check-script-reachability.ts"
+        "command": "node scripts/repo/check-script-reachability.ts"
       }
     },
     "lint:root": {
@@ -253,7 +252,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "pnpm exec tsx scripts/repo/check-agent-files.ts"
+        "command": "node scripts/repo/check-agent-files.ts"
       }
     },
     "test": {
@@ -261,7 +260,6 @@
       "inputs": [
         "{workspaceRoot}/scripts/docs/**/*.ts",
         "{workspaceRoot}/scripts/docs/mermaid-puppeteer.json",
-        "{workspaceRoot}/scripts/docs/tsconfig.json",
         "{workspaceRoot}/tsconfig.base.json"
       ],
       "executor": "nx:run-commands",

@@ -591,6 +591,11 @@ const admissionLifetimeBehavior = Effect.gen(function* () {
   const firstRun = yield* acquireDaemonProcess(registeredFixture);
   yield* registerFixture(registeredFixture);
   yield* stopProcess(firstRun);
+  expect(firstRun.logs()).toContain(
+    `sharnessd listening on ${registeredFixture.endpoint}`,
+  );
+  expect(firstRun.logs()).toMatch(/\(package \S+; WIRE_VERSION \S+\)/u);
+  expect(firstRun.logs().match(/sharnessd listening on/gu)).toHaveLength(1);
 
   const unsetRun = yield* acquireDaemonProcess(
     withoutAdmissionCredential(registeredFixture),

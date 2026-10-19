@@ -3,14 +3,7 @@
  * settled when the requester stops waiting.
  */
 
-import {
-  Effect,
-  Array as EffectArray,
-  Either,
-  Exit,
-  Fiber,
-  Option,
-} from "effect";
+import { Effect, Either, Exit, Fiber, Option } from "effect";
 import type { SendError } from "../messaging/errors.js";
 import type { EngineSentPost } from "../messaging/index.js";
 import type { AgentAddress } from "../wire/values.js";
@@ -94,35 +87,32 @@ export const lookupRefusals = (
  * Where a gather's request posts stand when the send stops waiting: each
  * certified post and each member refused. A send still pending keeps
  * running and is in neither.
- * @param members The members asked, in the order of their sends.
  * @param sends Each member's request send.
  * @returns The posts and refusals, in member order.
  */
 export const requestsSoFar = (
-  members: readonly AgentAddress[],
   sends: readonly RequestSend[],
 ): Effect.Effect<{
   readonly posts: EngineSentPost[];
   readonly refused: RequestRefusal[];
 }> =>
   Effect.forEach(
-    EffectArray.zip(members, sends),
-    ([member, send]) =>
+    sends,
+    (send) =>
       Fiber.poll(send).pipe(
-        Effect.map((poll) => ({
-          member,
-          result: Option.flatMap(poll, (exit) =>
+        Effect.map((poll) =>
+          Option.flatMap(poll, (exit) =>
             Exit.isSuccess(exit) ? Option.some(exit.value) : Option.none(),
           ),
-        })),
+        ),
       ),
     { concurrency: 1 },
   ).pipe(
     Effect.map((states) => ({
-      posts: states.flatMap(({ result }) =>
+      posts: states.flatMap((result) =>
         Option.toArray(Option.flatMap(result, Either.getRight)),
       ),
-      refused: states.flatMap(({ result }) =>
+      refused: states.flatMap((result) =>
         Option.toArray(Option.flatMap(result, Either.getLeft)),
       ),
     })),

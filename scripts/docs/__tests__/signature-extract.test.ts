@@ -1,9 +1,10 @@
 /** @file Workspace tests for TypeScript declaration selection and signature rendering. */
 
-import { describe, expect, it } from "vitest";
 import { ReflectionKind } from "typedoc";
-import { extractSignatureText, resolveExportDeclaration } from "../modules.js";
-import type { TypeDocExport } from "../typedoc-load.js";
+import { describe, expect, it } from "vitest";
+import type { TypeDocExport } from "../typedoc-load.ts";
+import { resolveExportDeclaration } from "../modules.ts";
+import { extractSignatureText } from "../signature-extract.ts";
 
 const mergedExport = (
   name: string,
@@ -21,7 +22,9 @@ const mergedExport = (
   namespace: null,
 });
 
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- This declarative test group keeps its related regression cases and source fixtures together.
 describe("extractSignatureText", () => {
+  // @agent-code-guard/regression-only: fixed syntax and gate failure fixtures exercise distinct regressions.
   it("returns null on empty input", () => {
     expect(extractSignatureText("", 1, ReflectionKind.Function)).toBeNull();
     expect(
@@ -57,6 +60,7 @@ describe("extractSignatureText", () => {
       "",
     ].join("\n");
     const sig = extractSignatureText(source, 1, ReflectionKind.Function);
+    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
     expect(sig).toBe("export function bar(x: number): number");
   });
 
@@ -97,9 +101,8 @@ describe("extractSignatureText", () => {
   });
 
   it("keeps the closing brace of an interface longer than 120 lines", () => {
-    const members = Array.from(
-      { length: 121 },
-      (_, index) => `  readonly field${index}: string;`,
+    const members = [...Array.from({ length: 121 }).keys()].map(
+      (index) => `  readonly field${index}: string;`,
     );
     const source = [
       "export interface LargeSurface {",
@@ -116,6 +119,7 @@ describe("extractSignatureText", () => {
   it("cuts a one-line type alias at its trailing semicolon", () => {
     const source = "export type Foo = string;\n";
     const sig = extractSignatureText(source, 1, ReflectionKind.TypeAlias);
+    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
     expect(sig).toBe("export type Foo = string;");
   });
 
@@ -129,6 +133,7 @@ describe("extractSignatureText", () => {
       "",
     ].join("\n");
     const sig = extractSignatureText(source, 1, ReflectionKind.TypeAlias);
+    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
     expect(sig).toBe("export type Foo = Bar;");
   });
 
@@ -229,6 +234,7 @@ describe("extractSignatureText", () => {
       "",
     ].join("\n");
     const sig = extractSignatureText(source, 1, ReflectionKind.Function);
+    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
     expect(sig).toBe("export function gate(n: number = 0): number");
   });
 
@@ -239,6 +245,7 @@ describe("extractSignatureText", () => {
       "",
     ].join("\n");
     const sig = extractSignatureText(source, 1, ReflectionKind.Variable);
+    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
     expect(sig).toBe("export const greet = (name: string): string");
   });
 

@@ -7,6 +7,7 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { FINAL_PACKAGES } from "./architecture/boundary-contract.ts";
 import {
   type Archives,
   extractPackedArchive,
@@ -15,7 +16,8 @@ import {
   installPackedConsumer,
   type PackedManifest,
   PackGateError,
-  packWorkspaceClosure,
+  packProductClosure,
+  readConsumerPins,
   readText,
   requireCondition,
   runCommand,
@@ -23,11 +25,6 @@ import {
 } from "./test/packed-workspace.ts";
 
 const workspaceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const workspacePackageRoots = {
-  "@moltzap/client": join(workspaceRoot, "packages", "client"),
-  "@moltzap/identity": join(workspaceRoot, "packages", "identity"),
-  "@moltzap/router": join(workspaceRoot, "packages", "router"),
-};
 
 /**
  * Package-relative modules the packed root entry may load. Hosts import the
@@ -82,11 +79,6 @@ const importPatterns: readonly RegExp[] = [
   /\bimport\(\s*["']([^"']+)["']\s*\)/gu,
 ];
 const unresolvableLoad = /\bimport\(\s*[^"'\s]|\bcreateRequire\b|\brequire\(/u;
-
-/** Every package in the Client closure publishes. */
-const publishedPackages: ReadonlySet<string> = new Set(
-  Object.keys(workspacePackageRoots),
-);
 
 /** A packed consumer composes English and code middleware without a live provider. */
 const policyConsumerCheck = `
@@ -166,18 +158,18 @@ if (!(startupError instanceof service.Daemon.StartupError) ||
 
 runGate("moltzap-client-pack-", (temporaryRoot) =>
   Effect.gen(function* () {
-    const { archives, manifests } = yield* packWorkspaceClosure(
-      workspacePackageRoots,
+    const { archives, manifests } = yield* packProductClosure(
+      workspaceRoot,
+      "client",
       temporaryRoot,
-      publishedPackages,
     );
     const archive = archives["@moltzap/client"];
     const manifest = manifests["@moltzap/client"];
-    const effectDependency = manifest?.dependencies?.effect;
+    const { effect: effectDependency } = yield* readConsumerPins(workspaceRoot);
     if (
       archive === undefined ||
       manifest === undefined ||
-      effectDependency === undefined
+      manifest.dependencies?.effect === undefined
     ) {
       return yield* new PackGateError({
         message: "client package or Effect dependency is missing",
@@ -210,19 +202,18 @@ function verifyPackedManifest(
     );
     const daemonTarget = manifest.bin?.sharnessd;
     yield* requireCondition(
-      daemonTarget === "./bin/sharnessd",
+      daemonTarget === FINAL_PACKAGES.client.bin.sharnessd,
       "packed client does not expose the sharnessd executable",
     );
     const exportEntries = Object.entries(manifest.exports ?? {});
     yield* requireCondition(
-      exportEntries.length === 2 &&
-        exportEntries.some(([subpath]) => subpath === ".") &&
-        exportEntries.some(([subpath]) => subpath === "./service"),
+      JSON.stringify(manifest.exports) ===
+        JSON.stringify(FINAL_PACKAGES.client.exports),
       "packed client must expose exactly the root and ./service entrypoints",
     );
     yield* verifyExportTargets(extractedPackage, manifest, exportEntries);
     yield* verifyHostImportGraph(extractedPackage, String(manifest.main));
-    yield* verifyDaemon(join(extractedPackage, "bin", "sharnessd"));
+    yield* verifyDaemon(join(extractedPackage, String(daemonTarget)));
     return exportEntries.map(([subpath]) =>
       subpath === "." ? manifest.name : `${manifest.name}/${subpath.slice(2)}`,
     );

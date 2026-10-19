@@ -4,7 +4,8 @@ import type { Implementation } from "@modelcontextprotocol/server";
 import type { Registry } from "@moltzap/identity/registry";
 import type { Router } from "@moltzap/router";
 import { NodeFileSystem } from "@effect/platform-node";
-import { Effect, type Scope } from "effect";
+import { WIRE_VERSION } from "@moltzap/identity";
+import { Console, Effect, type Scope } from "effect";
 import {
   type HistoryExportPort,
   makeHistoryExport,
@@ -15,6 +16,7 @@ import { packageVersion } from "../endpoint/implementation.js";
 import {
   acquireHarnessMcpHttpServer,
   type HarnessMcpEventHandler,
+  LOOPBACK_HOST,
   makeHarnessMcpHttpHandler,
 } from "../endpoint/mcp/index.js";
 import { makeEndpointEngine } from "../transport/messaging/index.js";
@@ -89,11 +91,7 @@ function runDaemonResources(
   dependencies: DaemonRuntimeDependencies,
 ) {
   return Effect.gen(function* () {
-    const exportPath = input.bootstrap.configuration.historyExport;
-    const historyExport =
-      exportPath === undefined
-        ? noHistoryExport
-        : yield* dependencies.makeHistoryExport(exportPath);
+    const historyExport = yield* openHistoryExport(input, dependencies);
     const daemon = yield* makeDaemon({
       ...input,
       historyExport,
@@ -130,7 +128,21 @@ function runDaemonResources(
           handler,
         })
         .pipe(Effect.mapError(() => runtimeFailure("listener")));
+      yield* Console.log(
+        `sharnessd listening on http://${LOOPBACK_HOST}:${input.bootstrap.configuration.mcpPort}/mcp (package ${packageVersion}; WIRE_VERSION ${WIRE_VERSION})`,
+      );
       return yield* daemon.awaitFailure;
     }).pipe(Effect.raceFirst(daemon.awaitFailure));
   });
+}
+
+/** An unset export path leaves certified history in endpoint-owned storage. */
+function openHistoryExport(
+  input: DaemonStartup,
+  dependencies: DaemonRuntimeDependencies,
+) {
+  const path = input.bootstrap.configuration.historyExport;
+  return path === undefined
+    ? Effect.succeed(noHistoryExport)
+    : dependencies.makeHistoryExport(path);
 }

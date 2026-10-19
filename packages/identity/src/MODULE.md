@@ -442,7 +442,7 @@ export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()
 
 No exact HTTP route owns the request target.
 
-### [`SealedBody`](./sealed-body.ts#L552)
+### [`SealedBody`](./sealed-body.ts#L540)
 
 _Variable_
 
@@ -933,7 +933,7 @@ Closed Registry bootstrap registration request.
 
 ### `@moltzap/identity/registry/server`
 
-#### [`StartupError`](./registry/server.ts#L135)
+#### [`StartupError`](./registry/server.ts#L149)
 
 _Class_
 
@@ -942,20 +942,23 @@ export class StartupError extends Data.TaggedError(
   "RegistryServerStartupError",
 )<{
   readonly phase: "configuration" | "storage" | "listener";
+  readonly detail?: string;
   readonly reason?: RegistryStorageInitializationError["reason"] | "legacy-key";
   readonly keys?: readonly string[];
 }> {
+  /** Operator diagnostics exclude rejected inputs and platform paths. */
   override get message(): string {
     const keys = this.keys === undefined ? "" : `: ${this.keys.join(", ")}`;
-    const details = this.reason === undefined ? "" : ` (${this.reason}${keys})`;
-    return `Registry startup failed: ${this.phase}${details}`;
+    const detail = this.detail === undefined ? keys : `: ${this.detail}`;
+    const reason = this.reason === undefined ? "" : ` (${this.reason})`;
+    return `sharness-registry startup failed in phase ${this.phase}${reason}${detail}`;
   }
 }
 ```
 
 Closed Registry startup failure.
 
-#### [`layer`](./registry/server.ts#L213)
+#### [`layer`](./registry/server.ts#L240)
 
 _Variable_
 
@@ -979,6 +982,21 @@ flowchart TD
   Rpc --> Storage
   Http --> Response["HttpServerResponse"]
 ```
+
+#### [`processHelp`](./registry/server.ts#L123)
+
+_Variable_
+
+```ts
+export const processHelp = [
+  "Usage: sharness-registry [--help]",
+  "",
+  "Environment:",
+  ...Object.values(configurationFields).map((field) => `  ${field.usage}`),
+].join("\n")
+```
+
+Usage is generated from the same fields consumed by the process.
 
 ## Files
 

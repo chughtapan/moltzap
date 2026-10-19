@@ -19,6 +19,8 @@ export type EndpointStoreFailure =
 /** One closed endpoint-store failure. */
 export class EndpointStoreError extends Data.TaggedError("EndpointStoreError")<{
   readonly reason: EndpointStoreFailure;
+  /** Absent means the store has no evidence that excludes a commit. */
+  readonly commitOutcome?: "not-committed";
 }> {}
 
 /** Pending signed bytes require an earlier release to drain the outbox. */
@@ -45,6 +47,9 @@ export function mapStoreFailure(
   failure: unknown,
   fallback: EndpointStoreFailure,
 ): EndpointStoreError {
+  if (failure instanceof EndpointStoreError) {
+    return failure;
+  }
   return new EndpointStoreError({
     reason: failure instanceof StoreSignal ? failure.reason : fallback,
   });

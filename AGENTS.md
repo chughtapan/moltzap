@@ -168,7 +168,10 @@ output rather than a summary of it here.
   applies it to every test in that file. A test that pins implementation
   (a dependency's private modules or dist layout, exact manifest fields,
   version numbers, call sequences) is deleted, not fixed. What stays tests
-  behaviour through public APIs and breaks only when behaviour changes.
+  behaviour through public APIs and breaks only when behaviour changes. It
+  asserts what this repository owns: another repository's defaults, rendered
+  output or wording only where they are part of this repository's public
+  contract.
 - `*.types-check.ts` canaries pin current type-level invariants; the
   header states the invariant and why it matters. Pin what exists —
   never a negative canary for something deleted.

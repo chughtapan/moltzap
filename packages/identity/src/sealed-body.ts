@@ -341,44 +341,34 @@ const decodeProtectedHeader = (
     return header;
   });
 
-/**
- * Checks the one ephemeral-key placement the sealer produces: the protected
- * header carries it for a single recipient, and each recipient header carries
- * its own otherwise.
- */
-const hasExactEphemeralKeyPlacement = (
-  representation: SealedBodyRepresentation,
-  header: ProtectedHeader,
-): boolean =>
-  representation.recipients.length === 1
-    ? header.epk !== undefined &&
-      representation.recipients.every(
-        (recipient) => recipient.header === undefined,
-      )
-    : header.epk === undefined &&
-      representation.recipients.every(
-        (recipient) => recipient.header !== undefined,
-      );
-
 type RecipientEntry = SealedBodyRepresentation["recipients"][number];
 
 /**
- * Selects the one entry sealed to `agentId`. Entries follow the canonical
- * order of the SignedMessage recipient list, so the agent's position in that
- * list is its entry, and no other entry is tried.
+ * Selects the one entry sealed to `agentId` after requiring the one
+ * ephemeral-key placement the sealer produces: the protected header carries it
+ * for a single recipient, and each recipient header carries its own otherwise.
+ * Entries follow the canonical SignedMessage recipient order, so the agent's
+ * position in that list is its entry and no other entry is tried.
  */
-const recipientEntry = (
+const localRecipientEntry = (
   representation: SealedBodyRepresentation,
+  header: ProtectedHeader,
   recipientAgentIds: readonly AgentIdValue[],
   agentId: AgentIdValue,
 ): Effect.Effect<RecipientEntry, SealedBodyOpeningError> => {
-  if (representation.recipients.length !== recipientAgentIds.length) {
-    return Effect.fail(new SealedBodyOpeningError());
-  }
-  const entry = representation.recipients[recipientAgentIds.indexOf(agentId)];
-  return entry === undefined
-    ? Effect.fail(new SealedBodyOpeningError())
-    : Effect.succeed(entry);
+  const { recipients } = representation;
+  const single = recipients.length === 1;
+  const entry = recipients[recipientAgentIds.indexOf(agentId)];
+  const validPlacement =
+    (header.epk !== undefined) === single &&
+    recipients.every(
+      (recipient) => (recipient.header === undefined) === single,
+    );
+  return recipients.length === recipientAgentIds.length &&
+    entry !== undefined &&
+    validPlacement
+    ? Effect.succeed(entry)
+    : Effect.fail(new SealedBodyOpeningError());
 };
 
 interface OpenInput {
@@ -441,20 +431,18 @@ const open = (
       input.signedMessage.body,
     ).pipe(Effect.mapError(openingFailure));
     const header = yield* decodeProtectedHeader(representation.protected);
-    if (!hasExactEphemeralKeyPlacement(representation, header)) {
-      return yield* new SealedBodyOpeningError();
-    }
+    const entry = yield* localRecipientEntry(
+      representation,
+      header,
+      input.signedMessage.recipientAgentIds,
+      card.agentId,
+    );
     if (
       header[SENDER_HEADER] !== input.signedMessage.senderAgentId ||
       header[MESSAGE_ID_HEADER] !== input.signedMessage.messageId
     ) {
       return yield* new SealedBodyOpeningError();
     }
-    const entry = yield* recipientEntry(
-      representation,
-      input.signedMessage.recipientAgentIds,
-      card.agentId,
-    );
     const decrypted = yield* Effect.tryPromise({
       try: () =>
         generalDecrypt(

@@ -9,14 +9,10 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "allowImportingTsExtensions": true,
-    "erasableSyntaxOnly": true
+    "erasableSyntaxOnly": true,
+    "paths": {
+      "@moltzap/openclaw-channel": ["../packages/openclaw-channel/src/index.ts"]
+    }
   },
-  "include": ["**/*.ts"],
-  "exclude": [
-    "__tests__",
-    "docs",
-    "repo",
-    "test/adapter-daemon-process.integration.test.ts",
-    "test/adapter-daemon-vitest.config.ts"
-  ]
+  "include": ["**/*.ts"]
 }

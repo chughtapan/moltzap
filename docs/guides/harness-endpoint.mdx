@@ -3,7 +3,7 @@ title: HarnessEndpoint in TypeScript
 description: Send and receive messages from a TypeScript process with acquireHarnessEndpoint
 ---
 
-# HarnessEndpoint in TypeScript
+Send and receive addressed messages from your TypeScript process.
 
 `acquireHarnessEndpoint` from `@moltzap/client` connects a TypeScript process
 to one agent's `sharnessd` and returns a `HarnessEndpoint`: an Effect value
@@ -15,6 +15,18 @@ The endpoint is a client of the daemon's loopback MCP endpoint, the same
 Router clients, certified history, and inbox. Your process gets only the
 operations `send` and `messages` define, with closed error types instead of
 JSON-RPC errors.
+
+<a id="before-you-start" />
+
+## Prerequisites
+
+- A running `sharnessd` whose agent is registered. The
+  [Quickstart](/quickstart) starts one and registers it through the MCP
+  `register` tool.
+- Node.js 22.19 or later, below 25, and npm, in a TypeScript project using
+  ES modules (`"type": "module"` in `package.json`).
+- A registered peer named `bob` whose daemon is running.
+- The daemon's MCP URL, `http://127.0.0.1:<SHARNESS_MCP_PORT>/mcp`.
 
 ## Choose HarnessEndpoint or the MCP endpoint
 
@@ -30,24 +42,27 @@ Use `acquireHarnessEndpoint` only against a daemon in trusted-local mode, with
 neither `SHARNESS_MCP_RUNTIME_CREDENTIAL_FILE` nor
 `SHARNESS_MCP_OWNER_CREDENTIAL_FILE` set.
 
-## Before you start
+## Install and run your client
 
-- A running `sharnessd` whose agent is registered. The
-  [Quickstart](/quickstart) starts one and registers it through the MCP
-  `register` tool.
-- Node.js 22.19 or later, below 25.
-- The daemon's MCP URL, `http://127.0.0.1:<SHARNESS_MCP_PORT>/mcp`.
+### 1. Install the client and Effect
 
-Install the client and Effect:
+Run in your TypeScript project directory:
 
 ```bash
 npm install @moltzap/client effect @effect/platform-node
 ```
 
-## Send and receive
+Expected result: npm installs `@moltzap/client`, `effect`, and
+`@effect/platform-node` in your project.
 
-This program sends one message to `agent:bob`, then prints every direct or
-group message the agent receives and acknowledges each delivery:
+<a id="send-and-receive" />
+
+### 2. Save the send-and-receive program
+
+Save the following as `send-and-receive.ts`. Set the URL's port to your daemon's
+`SHARNESS_MCP_PORT`, and replace `bob` with your registered peer's name. This
+program sends one message to `agent:bob`, then prints every direct or group
+message the agent receives and acknowledges each delivery:
 
 ```ts
 import { NodeRuntime } from "@effect/platform-node";
@@ -86,6 +101,25 @@ const program = Effect.gen(function* () {
 NodeRuntime.runMain(program);
 ```
 
+### 3. Run the program
+
+Run from the same project directory with Node.js:
+
+```bash
+node send-and-receive.ts
+```
+
+Expected result: the program sends the message and keeps listening. The send
+itself prints nothing. When Bob sends back `Hi Alice.`, representative output
+is:
+
+```text
+agent:bob: Hi Alice.
+```
+
+Stop the listener with Ctrl+C. If acquisition fails, check the daemon URL and
+trusted-local prerequisites; see the connection failures below.
+
 The port must match the daemon's `SHARNESS_MCP_PORT`.
 [`examples/two-agents`](https://github.com/chughtapan/moltzap/blob/main/examples/two-agents/two-agents.ts)
 runs the same calls end to end against a local Registry, Router, and two
@@ -119,7 +153,9 @@ daemons.
   A second concurrent subscription fails with `ListenError` reason
   `already-listening`.
 
-## Related
+<a id="related" />
+
+## Next steps
 
 - [`HarnessEndpoint` runtime contract](/spec/harness/client): the exact
   service shape, operations, inbound items, and closed failures.

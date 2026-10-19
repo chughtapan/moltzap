@@ -11,7 +11,7 @@ import {
   ReflectionKind,
   type TypeDocCache,
   type TypeDocExport,
-} from "./typedoc-load.js";
+} from "./typedoc-load.ts";
 
 /** Describes flow coverage gap. */
 export interface FlowCoverageGap {
@@ -36,8 +36,6 @@ const EFFECT_LIKE_TYPE_NAMES = new Set([
  * qualify directly. Variables only qualify when their declared type
  * resolves to an Effect-family constructor (`Effect`, `Layer`,
  * `Stream`, `Scope`, `Schedule`, `Fiber`).
- * @param ex TypeDoc export reflection to inspect.
- * @returns Whether behavioral export.
  */
 export function isBehavioralExport(ex: TypeDocExport): boolean {
   if (ex.kind === ReflectionKind.Function) {
@@ -54,6 +52,76 @@ export function isBehavioralExport(ex: TypeDocExport): boolean {
 }
 
 /**
+ * Return the list of behavioral exports lacking either a JSDoc summary
+ * or a fenced `mermaid` block in their JSDoc body. Sorted by file
+ * path then line.
+ */
+export function computeFlowCoverage(
+  cache: TypeDocCache,
+): readonly FlowCoverageGap[] {
+  const out: FlowCoverageGap[] = [];
+  for (const ex of cache.all) {
+    const gap = flowGap(ex);
+    if (gap !== null) {
+      out.push(gap);
+    }
+  }
+  out.sort((a, b) =>
+    a.file === b.file ? a.line - b.line : a.file.localeCompare(b.file),
+  );
+  return out;
+}
+
+/**
+ * Print the gap list to stderr in the form
+ * `&lt;file>:&lt;line> &lt;symbol> — &lt;reason>`. Returns the count.
+ */
+export function printFlowCoverage(
+  gaps: readonly FlowCoverageGap[],
+): Effect.Effect<number> {
+  return Effect.sync(() => {
+    if (gaps.length === 0) {
+      process.stderr.write(
+        "Flow coverage: every behavioral export documented.\n",
+      );
+      return 0;
+    }
+    process.stderr.write(
+      `\nFlow coverage gaps (${gaps.length} behavioral export${gaps.length === 1 ? "" : "s"} without summary or flow):\n`,
+    );
+    for (const g of gaps) {
+      process.stderr.write(`  ${g.file}:${g.line} ${g.symbol} — ${g.reason}\n`);
+    }
+    return gaps.length;
+  });
+}
+
+function flowGap(ex: TypeDocExport): FlowCoverageGap | null {
+  if (!isBehavioralExport(ex)) {
+    return null;
+  }
+  if (isInternalExport(ex)) {
+    return null;
+  }
+  const src = ex.sources[0];
+  if (!src) {
+    return null;
+  }
+  const hasSummary = (ex.comment?.summary ?? "").trim().length > 0;
+  const hasFlow = hasMermaidBlock(ex);
+  if (hasSummary && hasFlow) {
+    return null;
+  }
+  const reason = classifyReason(hasSummary, hasFlow);
+  return {
+    file: src.fileName,
+    line: src.line,
+    symbol: ex.name,
+    reason,
+  };
+}
+
+/**
  * Return true when `ex` is internal scaffolding the user-facing flow
  * report should ignore. Three signals, any of which suffices:
  *
@@ -67,8 +135,6 @@ export function isBehavioralExport(ex: TypeDocExport): boolean {
  *   the export is structural, not part of the public surface.
  * - JSDoc carries an `@internal` tag. Per-export opt-out for cases
  *   where the folder convention doesn't apply.
- * @param ex TypeDoc export reflection to inspect.
- * @returns Whether internal export.
  */
 function isInternalExport(ex: TypeDocExport): boolean {
   const src = ex.sources[0];
@@ -79,47 +145,6 @@ function isInternalExport(ex: TypeDocExport): boolean {
     return false;
   }
   return ex.comment.tags.some((tag) => tag.tag === "@internal");
-}
-
-/**
- * Return the list of behavioral exports lacking either a JSDoc summary
- * or a fenced `mermaid` block in their JSDoc body. Sorted by file
- * path then line.
- * @param cache Loaded TypeDoc reflection cache.
- * @returns The compute flow coverage result.
- */
-export function computeFlowCoverage(
-  cache: TypeDocCache,
-): readonly FlowCoverageGap[] {
-  const out: FlowCoverageGap[] = [];
-  for (const ex of cache.all) {
-    if (!isBehavioralExport(ex)) {
-      continue;
-    }
-    if (isInternalExport(ex)) {
-      continue;
-    }
-    const src = ex.sources[0];
-    if (!src) {
-      continue;
-    }
-    const hasSummary = (ex.comment?.summary ?? "").trim().length > 0;
-    const hasFlow = hasMermaidBlock(ex);
-    if (hasSummary && hasFlow) {
-      continue;
-    }
-    const reason = classifyReason(hasSummary, hasFlow);
-    out.push({
-      file: src.fileName,
-      line: src.line,
-      symbol: ex.name,
-      reason,
-    });
-  }
-  out.sort((a, b) =>
-    a.file === b.file ? a.line - b.line : a.file.localeCompare(b.file),
-  );
-  return out;
 }
 
 function classifyReason(
@@ -149,28 +174,3 @@ function hasMermaidBlock(ex: TypeDocExport): boolean {
   }
   return false;
 }
-
-/**
- * Print the gap list to stderr in the form
- * `&lt;file>:&lt;line> &lt;symbol> — &lt;reason>`. Returns the count.
- * @param gaps Coverage gaps to report.
- * @returns The print flow coverage result.
- */
-export const printFlowCoverage = (
-  gaps: readonly FlowCoverageGap[],
-): Effect.Effect<number> =>
-  Effect.sync(() => {
-    if (gaps.length === 0) {
-      process.stderr.write(
-        "Flow coverage: every behavioral export documented.\n",
-      );
-      return 0;
-    }
-    process.stderr.write(
-      `\nFlow coverage gaps (${gaps.length} behavioral export${gaps.length === 1 ? "" : "s"} without summary or flow):\n`,
-    );
-    for (const g of gaps) {
-      process.stderr.write(`  ${g.file}:${g.line} ${g.symbol} — ${g.reason}\n`);
-    }
-    return gaps.length;
-  });

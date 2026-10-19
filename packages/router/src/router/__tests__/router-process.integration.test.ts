@@ -21,6 +21,7 @@ const NO_CONTENT_STATUS = 204;
 const EMPTY_BODY = "";
 const STARTUP_TIMEOUT_MS = 30_000;
 const SHUTDOWN_TIMEOUT_MS = 5_000;
+const POLL_ATTEMPT_TIMEOUT = Duration.seconds(1);
 const POLL_INTERVAL_MS = 25;
 const RAW_REQUEST_TIMEOUT = Duration.seconds(5);
 const JSON_CONTENT_TYPE = "application/json";
@@ -167,7 +168,13 @@ const canConnect = (port: number) =>
     return Effect.sync(() => {
       socket.destroy();
     });
-  });
+  }).pipe(
+    Effect.timeoutTo({
+      duration: POLL_ATTEMPT_TIMEOUT,
+      onTimeout: () => false,
+      onSuccess: (connected) => connected,
+    }),
+  );
 
 const receiveRawResponse =
   (requestDescription: string, complete: CompleteRawRequest) =>
@@ -585,6 +592,7 @@ const waitForHealth = (runningProcess: RunningProcess, origin: URL) =>
             Effect.map((body) => ({ status: result.status, body })),
           ),
         ),
+        Effect.timeout(POLL_ATTEMPT_TIMEOUT),
         Effect.option,
       );
       if (
@@ -676,6 +684,12 @@ const routerBinaryBehavior = Effect.gen(function* () {
   yield* assertStreamingAdmissionBound(routerPort);
 
   yield* stopProcess(router);
+  expect(router.logs()).toContain(
+    `sharness-router listening on ${origin.origin}`,
+  );
+  expect(router.logs()).toContain(`WIRE_VERSION ${WIRE_VERSION}`);
+  expect(router.logs()).toMatch(/\(package \S+;/u);
+  expect(router.logs().match(/sharness-router listening on/gu)).toHaveLength(1);
   expect(
     router.child.exitCode !== null || router.child.signalCode !== null,
   ).toBe(true);

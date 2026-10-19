@@ -30,6 +30,12 @@ The package needs Node.js 22.19 or later, below 25. It publishes under the
 HTTP on the configured host and port. It needs a PostgreSQL database and an
 unencrypted Ed25519 private key in PKCS#8 PEM, which signs every `AgentCard`.
 
+Run `sharness-registry --help` to list environment variables, requirements, and
+defaults without starting the process. Successful startup prints the listening
+URL, package version, and `WIRE_VERSION` wire compatibility value. Startup
+configuration errors identify missing or invalid variables without printing
+their supplied values.
+
 1. Create the signing key and keep it private:
 
    ```bash

@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * @file Script-reachability gate. Every file under `scripts/` must be
  * reachable from something a person or a machine actually runs: a
@@ -41,74 +41,16 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map();
  * package. A cwd-relative `ls-files scripts` silently scans that package's
  * own `scripts/` directory instead of the workspace one.
  */
+// eslint-disable-next-line sonarjs/no-os-command-from-path -- Developer tooling intentionally resolves installed commands through the caller’s PATH.
 const repoRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
   encoding: "utf8",
 }).trim();
 
-const git = (args: readonly string[]): string =>
-  execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8" });
-
-/**
- * `git grep` exits 1 to mean "no match", which `execFileSync` raises as an
- * error. Only that exit code is benign; anything else is a real failure and
- * must not be swallowed into a false "unreferenced" verdict.
- *
- * This file is excluded from its own search: it names every allowlisted path,
- * so counting it as a reference would make each allowlist entry
- * self-justifying.
- */
-const gitGrepFiles = (needle: string, scope = "."): readonly string[] => {
-  try {
-    return git([
-      "grep",
-      "--fixed-strings",
-      "--files-with-matches",
-      needle,
-      "--",
-      scope,
-      ":(exclude)scripts/__tests__",
-      ":(exclude)scripts/repo/check-script-reachability.ts",
-    ]).split("\n");
-  } catch (error) {
-    if ((error as { status?: number }).status === 1) return [];
-    throw error;
-  }
-};
-
-const trackedScripts = (): readonly string[] =>
-  git(["ls-files", "scripts"])
-    .split("\n")
-    .filter((p) => p.length > 0 && !p.startsWith("scripts/__tests__/"));
-
-/**
- * True when any tracked file other than `path` mentions it by its repo-relative
- * path, or a sibling in its directory imports it as `./<name>`. A sibling
- * import makes a module reachable through whatever reaches that sibling.
- */
-const isReferenced = (path: string): boolean =>
-  [
-    ...gitGrepFiles(path),
-    ...gitGrepFiles(`./${basename(path)}`, `:(glob)${dirname(path)}/*`),
-  ].some((f) => f.length > 0 && f !== path);
-
-const main = (): void => {
+function main(): void {
   const scripts = trackedScripts();
   const unreachable: string[] = [];
   const staleAllowlist: string[] = [];
-
-  for (const path of scripts) {
-    const referenced = isReferenced(path);
-    if (ALLOWLIST.has(path)) {
-      if (referenced) staleAllowlist.push(path);
-      continue;
-    }
-    if (!referenced) unreachable.push(path);
-  }
-
-  for (const path of ALLOWLIST.keys()) {
-    if (!scripts.includes(path)) staleAllowlist.push(path);
-  }
-
+  collectReachabilityFailures(scripts, unreachable, staleAllowlist);
   if (unreachable.length === 0 && staleAllowlist.length === 0) {
     console.log(
       `[check-script-reachability] PASS — ${scripts.length} script(s) reachable ` +
@@ -116,7 +58,6 @@ const main = (): void => {
     );
     process.exit(0);
   }
-
   console.error("[check-script-reachability] FAIL\n");
   for (const path of unreachable) {
     console.error(`  ${path}`);
@@ -135,6 +76,94 @@ const main = (): void => {
     );
   }
   process.exit(1);
-};
+}
+
+function trackedScripts(): readonly string[] {
+  return git(["ls-files", "scripts"])
+    .split("\n")
+    .filter((p) => p.length > 0 && !p.startsWith("scripts/__tests__/"));
+}
+
+function collectReachabilityFailures(
+  scripts: readonly string[],
+  unreachable: string[],
+  staleAllowlist: string[],
+): void {
+  for (const path of scripts) {
+    const referenced = isReferenced(path);
+    if (ALLOWLIST.has(path)) {
+      if (referenced) {
+        staleAllowlist.push(path);
+      }
+      continue;
+    }
+    if (!referenced) {
+      unreachable.push(path);
+    }
+  }
+  collectMissingAllowlistEntries(scripts, staleAllowlist);
+}
+
+/**
+ * True when any tracked file other than `path` mentions it by its repo-relative
+ * path, or a sibling in its directory imports it as `./&lt;name>`. A sibling
+ * import makes a module reachable through whatever reaches that sibling.
+ */
+function isReferenced(path: string): boolean {
+  return [
+    ...gitGrepFiles(path),
+    ...gitGrepFiles(`./${basename(path)}`, `:(glob)${dirname(path)}/*`),
+  ].some((f) => f.length > 0 && f !== path);
+}
+
+/**
+ * `git grep` exits 1 to mean "no match", which `execFileSync` raises as an
+ * error. Only that exit code is benign; anything else is a real failure and
+ * must not be swallowed into a false "unreferenced" verdict.
+ *
+ * This file is excluded from its own search: it names every allowlisted path,
+ * so counting it as a reference would make each allowlist entry
+ * self-justifying.
+ */
+function gitGrepFiles(needle: string, scope = "."): readonly string[] {
+  try {
+    return git([
+      "grep",
+      "--fixed-strings",
+      "--files-with-matches",
+      needle,
+      "--",
+      scope,
+      ":(exclude)scripts/__tests__",
+      ":(exclude)scripts/repo/check-script-reachability.ts",
+    ]).split("\n");
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "status" in error &&
+      error.status === 1
+    ) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+function git(args: readonly string[]): string {
+  // eslint-disable-next-line sonarjs/no-os-command-from-path -- Developer tooling intentionally resolves installed commands through the caller’s PATH.
+  return execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8" });
+}
+
+function collectMissingAllowlistEntries(
+  scripts: readonly string[],
+  staleAllowlist: string[],
+): void {
+  for (const path of ALLOWLIST.keys()) {
+    if (!scripts.includes(path)) {
+      staleAllowlist.push(path);
+    }
+  }
+}
 
 main();

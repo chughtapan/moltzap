@@ -14,9 +14,9 @@ on:
 # that secret the pull request falls back to the read-only token. Writing from
 # pull requests lets main reuse the results a pull request already computed,
 # at a cost: anyone who can push a branch here can write cache artifacts that
-# a later main run restores instead of executing. Fork pull requests receive
-# no secrets, so they skip the remote cache and run cold; the repository
-# variable NX_CACHE_DISABLED=true skips it everywhere.
+# a later main run restores instead of executing. Fork and Dependabot pull
+# requests receive no Actions secrets, so they skip the remote cache and run
+# cold; the repository variable NX_CACHE_DISABLED=true skips it everywhere.
 
 jobs:
   ci:
@@ -25,10 +25,10 @@ jobs:
     env:
       NX_SELF_HOSTED_REMOTE_CACHE_SERVER: ${{ vars.NX_CACHE_URL }}
       NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && secrets.NX_CACHE_WRITE_TOKEN || secrets.NX_CACHE_TOKEN }}
-      NX_SKIP_REMOTE_CACHE: ${{ (vars.NX_CACHE_DISABLED == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'true' || 'false' }}
+      NX_SKIP_REMOTE_CACHE: ${{ (vars.NX_CACHE_DISABLED == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.actor == 'dependabot[bot]') && 'true' || 'false' }}
     steps:
       # Depth 2 gives the CHANGELOG.md guard the merge commit's parents.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
       # The release commit writes CHANGELOG.md from the fragments in
@@ -52,8 +52,8 @@ jobs:
           "$RUNNER_TEMP/towncrier/bin/pip" install --quiet --require-hashes --no-deps \
             -r scripts/release/towncrier-requirements.txt
           "$RUNNER_TEMP/towncrier/bin/towncrier" build --draft --version 0.0.0
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -101,23 +101,23 @@ jobs:
     env:
       NX_SELF_HOSTED_REMOTE_CACHE_SERVER: ${{ vars.NX_CACHE_URL }}
       NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && secrets.NX_CACHE_WRITE_TOKEN || secrets.NX_CACHE_TOKEN }}
-      NX_SKIP_REMOTE_CACHE: ${{ (vars.NX_CACHE_DISABLED == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'true' || 'false' }}
+      NX_SKIP_REMOTE_CACHE: ${{ (vars.NX_CACHE_DISABLED == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.actor == 'dependabot[bot]') && 'true' || 'false' }}
     steps:
       # A pull request runs only the projects its diff affects, against the PR
       # base that nx-set-shas resolves; fetch-depth: 0 gives it that history.
       # A push to main runs every project. Each target builds what it needs
       # through dependsOn, so there is no separate build step.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .node-version
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      - uses: nrwl/nx-set-shas@v4
+      - uses: nrwl/nx-set-shas@e602fada7ad5987b0f7b1905e7a99ea1c661514c # v5.1.0
         if: github.event_name == 'pull_request'
       - name: Test the affected projects
         if: github.event_name == 'pull_request'
@@ -130,8 +130,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
