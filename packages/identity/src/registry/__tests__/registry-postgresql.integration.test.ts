@@ -315,12 +315,13 @@ const realPostgreSqlBehavior = Effect.gen(function* () {
   Effect.provide(NodeHttpClient.layer),
 );
 
+// @agent-code-guard/regression-only: these scenarios cover distinct database restart, outage, and startup refusal contracts against real PostgreSQL.
 it("persists across Registry restart on real PostgreSQL and reports a database outage", () => {
   expect.hasAssertions();
   return Effect.runPromise(realPostgreSqlBehavior);
 }, 180_000);
 
-it("starts from a known ledger and serves a card despite a different metadata wire version", () => {
+it("reopens a known ledger and serves the same card", () => {
   expect.hasAssertions();
   return Effect.runPromise(
     Effect.gen(function* () {
@@ -348,8 +349,6 @@ it("starts from a known ledger and serves a card despite a different metadata wi
         registrySigningAuthority: setup.signingAuthority,
       });
       expect(registered.kind).toBe(REGISTERED_KIND);
-      yield* sql`UPDATE moltzap_registry_metadata SET moltzap_version = 'different-wire-version'`;
-
       yield* initializeRegistryStorage({
         sql,
         registrySignerPublicKey: setup.registrySignerPublicKey,
@@ -365,6 +364,61 @@ it("starts from a known ledger and serves a card despite a different metadata wi
     }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
   );
 }, 180_000);
+
+it.each([
+  { mismatch: "wire version", reason: "unavailable" },
+  { mismatch: "signer", reason: "signer-mismatch" },
+])(
+  "refuses a metadata $mismatch mismatch through storage and process startup",
+  ({ mismatch, reason }) => {
+    expect.hasAssertions();
+    return Effect.runPromise(
+      Effect.gen(function* () {
+        const setup = yield* makePostgreSqlRegistrySetup;
+        const sql = yield* PgClient.make({
+          url: Redacted.make(setup.container.getConnectionUri()),
+        }).pipe(Effect.provide(Reactivity.layer));
+        yield* initializeRegistryStorage({
+          sql,
+          registrySignerPublicKey: setup.registrySignerPublicKey,
+        });
+        yield* mismatch === "signer"
+          ? sql`UPDATE moltzap_registry_metadata SET signer_thumbprint = 'different-signer'`
+          : sql`UPDATE moltzap_registry_metadata SET moltzap_version = 'different-wire-version'`;
+
+        const initialized = yield* initializeRegistryStorage({
+          sql,
+          registrySignerPublicKey: setup.registrySignerPublicKey,
+        }).pipe(Effect.either);
+        Either.match(initialized, {
+          onLeft: (error) => {
+            expect(error.reason).toBe(reason);
+          },
+          onRight: () => {
+            expect.fail(`Registry accepted a metadata ${mismatch} mismatch`);
+          },
+        });
+        const process = yield* managedProcess(
+          REGISTRY_BINARY,
+          [],
+          setup.environment,
+        );
+        yield* waitForExit(process).pipe(
+          Effect.timeoutFail({
+            duration: Duration.seconds(10),
+            onTimeout: () =>
+              processTestError(
+                `Registry did not refuse the metadata mismatch\n${process.logs()}`,
+              ),
+          }),
+        );
+        expect(process.child.exitCode).not.toBe(0);
+        expect(process.logs()).toContain(`storage (${reason})`);
+      }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+    );
+  },
+  180_000,
+);
 
 it("refuses an unknown applied migration with newer-schema through storage and process startup", () => {
   expect.hasAssertions();

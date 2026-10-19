@@ -787,9 +787,9 @@ boundary.
 `StartupError` from `@moltzap/identity/registry/server` is a
 `Data.TaggedError` named
 `RegistryServerStartupError` with `_tag`, `phase`, and an optional closed
-`reason`. Storage failures carry `newer-schema` or `unavailable`, and the
-error message includes the reason so it reaches the process log. Its
-closed phases are `configuration`, `storage`, and `listener`.
+`reason`. Storage failures carry `newer-schema`, `signer-mismatch`, or
+`unavailable`, and the error message includes the reason so it reaches the
+process log. Its closed phases are `configuration`, `storage`, and `listener`.
 Configuration covers Effect Config validation, admission credential
 and signing-key loading, and representation or resource fit. Storage
 covers pool acquisition, migration, metadata, and readiness. Listener
@@ -841,7 +841,8 @@ Registry PostgreSQL storage atomically owns:
 - registration operations, exact canonical request bytes, and stable
   exact result bytes;
 - accepted replay nonces through expiry; and
-- metadata binding the Registry signer thumbprint to the database.
+- metadata binding the Registry signer thumbprint and wire compatibility value
+  to the database.
 
 The Migrator ledger is the only schema authority. Before running migrations,
 startup checks every applied migration id against the binary's migration set
@@ -850,9 +851,9 @@ under the ledger lock. An unknown applied id fails closed with
 their ledger entries commit transactionally; a failed migration rolls back.
 Operators run `pg_dump` before upgrading. Downgrades are unsupported.
 
-Startup also fails closed when the configured signer differs from the
-database metadata. The retained metadata wire-version column does not gate
-startup. Other storage initialization failures carry reason `unavailable`.
+Startup also fails closed when the configured signer or version differs from the
+database metadata. A signer mismatch carries reason `signer-mismatch`.
+Other storage initialization failures carry reason `unavailable`.
 Registration serializes through the metadata row,
 enforces uniqueness, and commits the card with the operation result.
 

@@ -36,7 +36,7 @@ import { registryMigration } from "./migrations/0001_registry.js";
 export class RegistryStorageInitializationError extends Data.TaggedError(
   "RegistryStorageInitializationError",
 )<{
-  readonly reason: "newer-schema" | "unavailable";
+  readonly reason: "newer-schema" | "signer-mismatch" | "unavailable";
 }> {}
 
 const LEDGER_TABLE = "moltzap_registry_migrations";
@@ -135,6 +135,7 @@ const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
     parseOptions: { exact: true, onExcessProperty: "error" },
   });
 const metadataRow = exactStruct({
+  moltzapVersion: Schema.String,
   signerThumbprint: Schema.String,
 });
 const ledgerRow = exactStruct({
@@ -343,6 +344,7 @@ const bindStorageMetadata = (input: {
       `;
       const rows = yield* input.sql`
         SELECT
+          moltzap_version AS "moltzapVersion",
           signer_thumbprint AS "signerThumbprint"
         FROM moltzap_registry_metadata
         WHERE singleton = true
@@ -352,8 +354,13 @@ const bindStorageMetadata = (input: {
         rows,
         { exact: true, onExcessProperty: "error" },
       );
-      if (metadata[0].signerThumbprint !== input.signerThumbprint) {
+      if (metadata[0].moltzapVersion !== MOLTZAP_VERSION) {
         return yield* Effect.die("Registry metadata mismatch");
+      }
+      if (metadata[0].signerThumbprint !== input.signerThumbprint) {
+        return yield* new RegistryStorageInitializationError({
+          reason: "signer-mismatch",
+        });
       }
     }),
   );

@@ -1,5 +1,6 @@
 /** @file Production Registry process configuration, composition, and startup boundary. */
 
+import type { SqlError } from "@effect/sql/SqlError";
 import * as Reactivity from "@effect/experimental/Reactivity";
 import { FileSystem, HttpServer, HttpServerResponse } from "@effect/platform";
 import { NodeContext, NodeHttpServer } from "@effect/platform-node";
@@ -290,7 +291,7 @@ function configurationFailure() {
   return new StartupError({ phase: "configuration" });
 }
 
-function storageFailure(error?: unknown) {
+function storageFailure(error?: RegistryStorageInitializationError | SqlError) {
   return new StartupError({
     phase: "storage",
     reason:

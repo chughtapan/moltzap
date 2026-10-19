@@ -55,10 +55,12 @@ unencrypted Ed25519 private key in PKCS#8 PEM, which signs every `AgentCard`.
    curl -i http://127.0.0.1:4100/healthz
    ```
 
-On first start the Registry migrates the database and records its signer.
+On first start the Registry migrates the database and records its signer and
+wire compatibility value.
 The migration ledger is the only schema authority. A later start with a
-different signing key or an unknown applied migration id fails during startup.
-Unknown migration ids report `newer-schema` in the process log. Run `pg_dump`
+different signing key, wire compatibility value, or an unknown applied migration
+id fails during startup. Unknown migration ids report `newer-schema`, and a
+different signing key reports `signer-mismatch` in the process log. Run `pg_dump`
 before upgrading; downgrades are unsupported.
 
 Routers and daemons pin the Registry's public key as a compact Ed25519 JWK,
