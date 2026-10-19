@@ -1,6 +1,6 @@
 /** @file Empty-conversation foundation replacement after a Router restart. */
 
-import { MOLTZAP_VERSION } from "@moltzap/identity";
+import { WIRE_VERSION } from "@moltzap/identity";
 import { Effect } from "effect";
 import type {
   ConversationFoundation,
@@ -135,7 +135,7 @@ function replacementEmptyFoundation(
   expected: ConversationFoundation,
 ): Effect.Effect<ReplacementEmptyFoundation, RouterWorkerPersistenceError> {
   const anchor: GenesisAnchorBodyValue = {
-    moltzapVersion: MOLTZAP_VERSION,
+    moltzapVersion: WIRE_VERSION,
     kind: "genesis_anchor_body",
     conversationId: membership.descriptor.conversationId,
     membershipHash: membership.hash,

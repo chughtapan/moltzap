@@ -3,11 +3,7 @@
  * after its durable position, and any endpoint answers such requests.
  */
 
-import {
-  type AgentId,
-  MOLTZAP_VERSION,
-  SignedMessage,
-} from "@moltzap/identity";
+import { type AgentId, SignedMessage, WIRE_VERSION } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import type { EndpointRecovery, StagedRecord } from "../../../store/index.js";
 import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
@@ -837,7 +833,7 @@ function sendCatchUpIncomplete(
     yield* responder.queue(membership, {
       kind: "direct",
       packet: {
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         kind: "catch_up_incomplete",
         request,
         attestation,
@@ -865,7 +861,7 @@ function sendCatchUpPage(
     yield* responder.queue(membership, {
       kind: "direct",
       packet: {
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         kind: "catch_up_page",
         request,
         item: successor.item,
@@ -887,7 +883,7 @@ function signCatchUpAttestation(
 ) {
   return signEvidenceMessage({
     statement: {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "catch_up_attestation",
       signerAgentId: runtime.input.localAgentCard.agentId,
       request,
@@ -1070,7 +1066,7 @@ function makeCatchUpRequest(
   knownAnchorHash: AnchorHashValue | null,
 ): Effect.Effect<CatchUpRequestValue, RouterWorkerPersistenceError> {
   return Schema.decodeUnknown(CatchUpRequest)({
-    moltzapVersion: MOLTZAP_VERSION,
+    moltzapVersion: WIRE_VERSION,
     kind: "catch_up_request",
     conversationId: membership.descriptor.conversationId,
     membershipHash: membership.hash,

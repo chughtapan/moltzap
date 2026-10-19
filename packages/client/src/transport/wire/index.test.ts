@@ -4,9 +4,9 @@ import { it } from "@effect/vitest";
 import {
   AgentId,
   MessageId,
-  MOLTZAP_VERSION,
   SealedBody,
   SignedMessage,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import canonicalize from "canonicalize";
 import { Effect, Encoding, Schema } from "effect";
@@ -62,7 +62,7 @@ const canonicalInputBytes = (value: unknown): Uint8Array => {
 };
 
 const catchUpRequest = Schema.decodeUnknownSync(CatchUpRequest)({
-  moltzapVersion: MOLTZAP_VERSION,
+  moltzapVersion: WIRE_VERSION,
   kind: "catch_up_request",
   conversationId,
   membershipHash,
@@ -133,7 +133,7 @@ const enforcesContentBounds = () =>
 const derivesStableEvidenceIdentity = () =>
   Effect.gen(function* () {
     const statement = Schema.decodeUnknownSync(ActionSignatureStatement)({
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "action_signature",
       signerAgentId: firstAgentId,
       actionHash: Schema.decodeUnknownSync(ActionHash)(

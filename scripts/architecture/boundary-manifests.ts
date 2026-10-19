@@ -21,6 +21,7 @@ import {
   failOnSetDrift,
   isJsonObject,
   type JsonObject,
+  MalformedBoundaryInput,
   objectAt,
   readJsonObject,
   stringAt,
@@ -67,12 +68,12 @@ export function checkCompatibilityVersion(run: BoundaryRun): string | null {
       "packages/identity/src/index.ts: missing; it exports the compatibility value",
     );
   } else if (
-    !/export\s*\{\s*MOLTZAP_VERSION\s*\}\s*from\s*["']\.\/version\.js["']/.test(
+    !/export\s*\{[^}]*\bWIRE_VERSION\b[^}]*\}\s*from\s*["']\.\/version\.js["']/.test(
       readFileSync(identityIndex, "utf8"),
     )
   ) {
     run.failures.push(
-      "packages/identity/src/index.ts: must re-export MOLTZAP_VERSION from ./version.js",
+      "packages/identity/src/index.ts: must re-export WIRE_VERSION from ./version.js",
     );
   }
   return compatibilityVersion;
@@ -188,19 +189,18 @@ function readCompatibilityVersion(
     );
     return null;
   }
-  const literal =
-    /export\s+const\s+MOLTZAP_VERSION\s*=\s*["']([^"']*)["']/.exec(
-      readFileSync(identityVersion, "utf8"),
-    )?.[1];
+  const literal = /export\s+const\s+WIRE_VERSION\s*=\s*["']([^"']*)["']/.exec(
+    readFileSync(identityVersion, "utf8"),
+  )?.[1];
   if (literal === undefined) {
     run.failures.push(
-      "packages/identity/src/version.ts: must export the literal MOLTZAP_VERSION",
+      "packages/identity/src/version.ts: must export the literal WIRE_VERSION",
     );
     return null;
   }
   if (!CALENDAR_VERSION.test(literal)) {
     run.failures.push(
-      `packages/identity/src/version.ts: MOLTZAP_VERSION "${literal}" is not a YYYY.MDD.N CalVer`,
+      `packages/identity/src/version.ts: WIRE_VERSION "${literal}" is not a YYYY.MDD.N CalVer`,
     );
     return null;
   }
@@ -230,7 +230,19 @@ function checkLintEntryPoints(run: BoundaryRun): void {
     path.join(run.repo, "tools", "workspace", "project.json"),
   );
   const lintTarget = objectAt(objectAt(workspaceProject, "targets"), "lint");
-  if (!stringsAt(lintTarget, "dependsOn").includes("lint:effect")) {
+  const dependencies = arrayAt(lintTarget, "dependsOn");
+  for (const entry of dependencies) {
+    if (
+      typeof entry !== "string" &&
+      (!isJsonObject(entry) || typeof entry.target !== "string")
+    ) {
+      throw new MalformedBoundaryInput({
+        message:
+          "Malformed dependsOn entry: expected a target string or object",
+      });
+    }
+  }
+  if (!dependencies.includes("lint:effect")) {
     run.failures.push(
       "tools/workspace/project.json: workspace:lint must depend on workspace:lint:effect",
     );
@@ -597,7 +609,13 @@ function checkReleaseWorkflow(run: BoundaryRun): void {
 }
 
 function referencePaths(tsconfig: JsonObject): readonly string[] {
-  return arrayAt(tsconfig, "references")
-    .filter((reference) => isJsonObject(reference))
-    .flatMap((reference) => stringAt(reference, "path") ?? []);
+  return arrayAt(tsconfig, "references").map((reference) => {
+    if (!isJsonObject(reference) || typeof reference.path !== "string") {
+      throw new MalformedBoundaryInput({
+        message:
+          "Malformed references entry: expected an object with a string path",
+      });
+    }
+    return reference.path;
+  });
 }

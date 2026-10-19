@@ -1,7 +1,7 @@
 /** @file Black-box Router binary tests for framing, configuration, bounds, and shutdown. */
 import { HttpClient } from "@effect/platform";
 import { NodeHttpClient } from "@effect/platform-node";
-import { MOLTZAP_VERSION } from "@moltzap/identity";
+import { WIRE_VERSION } from "@moltzap/identity";
 import { Data, Duration, Effect, Option } from "effect";
 import { type ChildProcess, spawn } from "node:child_process";
 import { createPublicKey, generateKeyPairSync } from "node:crypto";
@@ -21,6 +21,7 @@ const NO_CONTENT_STATUS = 204;
 const EMPTY_BODY = "";
 const STARTUP_TIMEOUT_MS = 30_000;
 const SHUTDOWN_TIMEOUT_MS = 5_000;
+const POLL_ATTEMPT_TIMEOUT = Duration.seconds(1);
 const POLL_INTERVAL_MS = 25;
 const RAW_REQUEST_TIMEOUT = Duration.seconds(5);
 const JSON_CONTENT_TYPE = "application/json";
@@ -167,7 +168,13 @@ const canConnect = (port: number) =>
     return Effect.sync(() => {
       socket.destroy();
     });
-  });
+  }).pipe(
+    Effect.timeoutTo({
+      duration: POLL_ATTEMPT_TIMEOUT,
+      onTimeout: () => false,
+      onSuccess: (connected) => connected,
+    }),
+  );
 
 const receiveRawResponse =
   (requestDescription: string, complete: CompleteRawRequest) =>
@@ -333,7 +340,7 @@ const chunkedPollRequest = (
     `Host: ${LOOPBACK_HOST}`,
     `Connection: ${connection}`,
     `Content-Type: ${JSON_CONTENT_TYPE}`,
-    `Moltzap-Version: ${MOLTZAP_VERSION}`,
+    `Moltzap-Version: ${WIRE_VERSION}`,
     "Transfer-Encoding: chunked",
     "",
     body.length.toString(16),
@@ -407,7 +414,7 @@ const assertStreamingAdmissionBound = (port: number) =>
           headers: {
             "content-length": String(OVERSIZED_POLL_BODY_LENGTH),
             "content-type": JSON_CONTENT_TYPE,
-            "moltzap-version": MOLTZAP_VERSION,
+            "moltzap-version": WIRE_VERSION,
           },
         });
         expectEnvelope(declaredOversize, envelopes.payloadTooLarge);
@@ -455,7 +462,7 @@ const assertRouteAndFramingEnvelopes = (port: number) =>
       path: "/v1/messages:poll",
       headers: {
         "content-type": [JSON_CONTENT_TYPE, JSON_CONTENT_TYPE],
-        "moltzap-version": MOLTZAP_VERSION,
+        "moltzap-version": WIRE_VERSION,
       },
       body: "{}",
     });
@@ -470,7 +477,7 @@ const assertRouteAndFramingEnvelopes = (port: number) =>
         "Host: duplicate.invalid",
         "Connection: close",
         `Content-Type: ${JSON_CONTENT_TYPE}`,
-        `Moltzap-Version: ${MOLTZAP_VERSION}`,
+        `Moltzap-Version: ${WIRE_VERSION}`,
         "Content-Length: 2",
         "",
         "{}",
@@ -493,7 +500,7 @@ const assertReceivedBodyBound = (
       path,
       headers: {
         "content-type": JSON_CONTENT_TYPE,
-        "moltzap-version": MOLTZAP_VERSION,
+        "moltzap-version": WIRE_VERSION,
       },
       body: "x".repeat(maximumBodyLength),
     });
@@ -506,7 +513,7 @@ const assertReceivedBodyBound = (
       path,
       headers: {
         "content-type": JSON_CONTENT_TYPE,
-        "moltzap-version": MOLTZAP_VERSION,
+        "moltzap-version": WIRE_VERSION,
       },
       body: "x".repeat(maximumBodyLength + 1),
     });
@@ -522,7 +529,7 @@ const assertMediaAndBodyBoundEnvelopes = (port: number) =>
       path: "/v1/messages:poll",
       headers: {
         "content-type": "text/plain",
-        "moltzap-version": MOLTZAP_VERSION,
+        "moltzap-version": WIRE_VERSION,
       },
       body: "{}",
     });
@@ -536,7 +543,7 @@ const assertMediaAndBodyBoundEnvelopes = (port: number) =>
       headers: {
         "content-length": String(OVERSIZED_POLL_BODY_LENGTH),
         "content-type": JSON_CONTENT_TYPE,
-        "moltzap-version": MOLTZAP_VERSION,
+        "moltzap-version": WIRE_VERSION,
       },
     });
     expectEnvelope(declaredOversize, envelopes.payloadTooLarge);
@@ -585,6 +592,7 @@ const waitForHealth = (runningProcess: RunningProcess, origin: URL) =>
             Effect.map((body) => ({ status: result.status, body })),
           ),
         ),
+        Effect.timeout(POLL_ATTEMPT_TIMEOUT),
         Effect.option,
       );
       if (
@@ -676,6 +684,12 @@ const routerBinaryBehavior = Effect.gen(function* () {
   yield* assertStreamingAdmissionBound(routerPort);
 
   yield* stopProcess(router);
+  expect(router.logs()).toContain(
+    `moltzap-router listening on ${origin.origin}`,
+  );
+  expect(router.logs()).toContain(`WIRE_VERSION ${WIRE_VERSION}`);
+  expect(router.logs()).toMatch(/\(package \S+;/u);
+  expect(router.logs().match(/moltzap-router listening on/gu)).toHaveLength(1);
   expect(
     router.child.exitCode !== null || router.child.signalCode !== null,
   ).toBe(true);

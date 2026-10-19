@@ -74,8 +74,7 @@ const streamServer = (
   );
 
 /**
- * How long a wakeup stream waits for its initial headers before it fails,
- * mirroring the inline 60-second bound in `events.ts → open`.
+ * Startup must fail within the transport's 60-second connection bound.
  */
 const INITIAL_HEADERS_BOUND = Duration.seconds(60);
 
@@ -192,8 +191,67 @@ const continuesAfterRecoverableErrors = () =>
     ]);
   });
 
-// @agent-code-guard/regression-only: these real HTTP transcripts pin external framing and bounded startup, without mocking transport methods.
+const rejectsFrame = ({
+  method,
+  params,
+  wrongId,
+}: {
+  readonly method: string;
+  readonly params: Readonly<Record<string, unknown>>;
+  readonly wrongId: boolean;
+}) =>
+  Effect.gen(function* () {
+    const handler = streamServer([], (context) =>
+      Effect.tryPromise(() =>
+        context.mcpReq.notify({
+          method,
+          params: {
+            ...params,
+            _meta: {
+              [SUBSCRIPTION_ID_META_KEY]: wrongId
+                ? "foreign"
+                : context.mcpReq.id,
+            },
+          },
+        }),
+      ).pipe(Effect.zipRight(Effect.never)),
+    );
+    const endpoint = yield* loopbackMcpEndpoint(handler);
+    const failure = yield* inboxWakeups(endpoint).pipe(
+      Stream.runDrain,
+      Effect.flip,
+    );
+    expect(failure.reason).toBe("decode-failed");
+  });
+
+// @agent-code-guard/regression-only: Real HTTP transcripts cover external framing and bounded startup.
 describe("native MCP Events reception", () => {
+  it.each([
+    {
+      name: "a frame before activation",
+      method: "notifications/events/heartbeat",
+      params: {},
+      wrongId: false,
+    },
+    {
+      name: "a malformed activation",
+      method: "notifications/events/active",
+      params: { truncated: "invalid" },
+      wrongId: false,
+    },
+    {
+      name: "a foreign subscription",
+      method: "notifications/events/active",
+      params: { truncated: false },
+      wrongId: true,
+    },
+    {
+      name: "an unknown Events method",
+      method: "notifications/events/unknown",
+      params: { error: { code: -32603, message: "Unknown" } },
+      wrongId: false,
+    },
+  ])("rejects $name", rejectsFrame);
   it.each([
     { failure: "an unsupported", code: -32601, reason: "incompatible-daemon" },
     { failure: "a transient", code: -32603, reason: "transport-failed" },

@@ -39,21 +39,6 @@ export const publishEveryPost: CollectiveOperations["classify"] = ({
 }) => Effect.succeedSome<InboundItem>({ kind: "multicast", message });
 
 /**
- * Consumes one delivery's post, as the collective layer does an answer, and
- * classifies every other post as a multicast.
- * @param consumed The delivery whose post the layer consumes.
- * @returns The classify port.
- */
-export function consumeOnly(
-  consumed: EnginePendingMessage,
-): CollectiveOperations["classify"] {
-  return ({ message }) =>
-    message.postId === consumed.message.postId
-      ? Effect.succeedNone
-      : Effect.succeedSome<InboundItem>({ kind: "multicast", message });
-}
-
-/**
  * An engine that acknowledges every delivery.
  * @param acknowledged Receives each acknowledged token, in order.
  * @returns The engine's acknowledgment port.

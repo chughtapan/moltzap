@@ -245,7 +245,10 @@ const rejectsCorruptPreexistingBinding = () =>
   });
 
 const missingAdmission = Effect.fail(
-  new DaemonConfigurationError({ reason: "admission-credential-file" }),
+  new DaemonConfigurationError({
+    reason: "admission-credential-file",
+    message: "admission credential file is required",
+  }),
 );
 
 const unregisteredStartupFailsClosed = () =>
@@ -261,7 +264,10 @@ const unregisteredStartupFailsClosed = () =>
       ),
     );
     expect(error).toEqual(
-      new DaemonConfigurationError({ reason: "admission-credential-file" }),
+      new DaemonConfigurationError({
+        reason: "admission-credential-file",
+        message: "admission credential file is required",
+      }),
     );
   });
 
@@ -352,7 +358,10 @@ const refusesRegistrationWithoutCredential = () =>
       ),
     );
     expect(error).toEqual(
-      new DaemonConfigurationError({ reason: "admission-credential-file" }),
+      new DaemonConfigurationError({
+        reason: "admission-credential-file",
+        message: "admission credential file is required",
+      }),
     );
     expect(yield* Ref.get(memory.binding)).toBeUndefined();
   });

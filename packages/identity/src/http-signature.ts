@@ -26,7 +26,7 @@ import {
 } from "./agent-key.js";
 import { AuthenticationFailedError } from "./http-errors.js";
 import { hasCanonicalBase64UrlLength } from "./identifiers.js";
-import { MOLTZAP_VERSION } from "./version.js";
+import { WIRE_VERSION } from "./version.js";
 
 /** An agent-owned HTTP request could not be signed. */
 export class AgentSigningError extends Data.TaggedError("AgentSigningError") {}
@@ -133,7 +133,7 @@ const prepareRequest = (input: {
   input.httpRequest.pipe(
     ClientRequest.bodyUint8Array(input.bodyBytes, "application/json"),
     ClientRequest.setHeader("content-digest", contentDigest(input.bodyBytes)),
-    ClientRequest.setHeader("moltzap-version", MOLTZAP_VERSION),
+    ClientRequest.setHeader("moltzap-version", WIRE_VERSION),
   );
 
 const signPreparedRequest = (input: {

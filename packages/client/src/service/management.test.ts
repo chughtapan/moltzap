@@ -7,8 +7,8 @@ import {
   AgentCard,
   AgentSigningAuthority,
   Ed25519PublicKey,
-  MOLTZAP_VERSION,
   type VerifiedAgentCard,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import {
   Registry,
@@ -137,7 +137,7 @@ const makeMembershipRow = (members: readonly VerifiedAgentCard[]) =>
       ...otherAgents.map((card) => card.agentId),
     ]);
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "membership_descriptor",
       conversationId,
       members: yield* Effect.forEach(

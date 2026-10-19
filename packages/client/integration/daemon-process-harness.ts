@@ -57,6 +57,7 @@ const SHUTDOWN_TIMEOUT = Duration.seconds(5);
  * killed.
  */
 const TEARDOWN_TIMEOUT_MS = 60_000;
+const POLL_ATTEMPT_TIMEOUT = Duration.seconds(1);
 const POLL_INTERVAL = Duration.millis(25);
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
 const WORKSPACE_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
@@ -189,9 +190,10 @@ const startProcess = (
   executable: string,
   arguments_: readonly string[],
   environment: Readonly<Record<string, string>> = {},
+  cwd = WORKSPACE_ROOT,
 ): RunningProcess => {
   const child = spawn(executable, arguments_, {
-    cwd: WORKSPACE_ROOT,
+    cwd,
     env: { PATH: CHILD_PATH, ...environment },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -260,9 +262,10 @@ const managedProcess = (
   executable: string,
   arguments_: readonly string[],
   environment: Readonly<Record<string, string>> = {},
+  cwd = WORKSPACE_ROOT,
 ) =>
   Effect.acquireRelease(
-    Effect.sync(() => startProcess(executable, arguments_, environment)),
+    Effect.sync(() => startProcess(executable, arguments_, environment, cwd)),
     (running, exit) =>
       Exit.isInterrupted(exit)
         ? Console.error(
@@ -283,7 +286,13 @@ const canConnect = (port: number) =>
     return Effect.sync(() => {
       socket.destroy();
     });
-  });
+  }).pipe(
+    Effect.timeoutTo({
+      duration: POLL_ATTEMPT_TIMEOUT,
+      onTimeout: () => false,
+      onSuccess: (connected) => connected,
+    }),
+  );
 
 /** Whether `origin` answers its health check as ready. */
 const isHealthy = (origin: URL) =>
@@ -294,7 +303,10 @@ const isHealthy = (origin: URL) =>
         return response.status === READY_STATUS;
       }),
     catch: (cause) => processTestError("health request failed", cause),
-  }).pipe(Effect.orElseSucceed(() => false));
+  }).pipe(
+    Effect.timeout(POLL_ATTEMPT_TIMEOUT),
+    Effect.orElseSucceed(() => false),
+  );
 
 /**
  * Polls `probe` until it reads true, and fails with the child's output once
@@ -506,14 +518,14 @@ const daemonCommand = (
 /** Starts one moltzapd and returns only after its guarded loopback port listens. */
 export const acquireDaemonProcess = (
   fixture: DaemonProcessFixture,
+  executable?: string,
 ): Effect.Effect<RunningProcess, ProcessTestError, Scope.Scope> =>
   Effect.gen(function* () {
-    const [executable, arguments_] = daemonCommand(fixture);
-    const running = yield* managedProcess(
-      executable,
-      arguments_,
-      fixture.environment,
-    );
+    const [binary, args] =
+      executable === undefined
+        ? daemonCommand(fixture)
+        : ([executable, []] as const);
+    const running = yield* managedProcess(binary, args, fixture.environment);
     yield* awaitReady(
       running,
       canConnect(Number(fixture.endpoint.port)),
@@ -534,13 +546,22 @@ export interface DaemonStartupFailure {
  */
 export const awaitDaemonStartupFailure = (
   fixture: DaemonProcessFixture,
+  command?: {
+    readonly executable: string;
+    readonly args: readonly string[];
+    readonly cwd?: string;
+  },
 ): Effect.Effect<DaemonStartupFailure, ProcessTestError, Scope.Scope> =>
   Effect.gen(function* () {
-    const [executable, arguments_] = daemonCommand(fixture);
+    const [executable, arguments_] =
+      command === undefined
+        ? daemonCommand(fixture)
+        : ([command.executable, command.args] as const);
     const running = yield* managedProcess(
       executable,
       arguments_,
       fixture.environment,
+      command?.cwd,
     );
     const listened = yield* awaitReady(
       running,

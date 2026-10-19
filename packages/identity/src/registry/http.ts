@@ -21,7 +21,7 @@ import {
   UnsupportedMediaTypeError,
   VersionMismatchError,
 } from "../http-errors.js";
-import { MOLTZAP_VERSION } from "../version.js";
+import { LIVE_WIRE_VERSIONS } from "../version.js";
 import { verifyBootstrapRegistration } from "./admission.js";
 import {
   HEALTH_PATH,
@@ -227,7 +227,11 @@ function publicReadHandler<
         input.requestSemaphore,
         Effect.gen(function* () {
           const bodyBytes = yield* readBoundedBody(request, input.bodyCap);
-          if (request.headers["moltzap-version"] !== MOLTZAP_VERSION) {
+          if (
+            !LIVE_WIRE_VERSIONS.some(
+              (version) => version === request.headers["moltzap-version"],
+            )
+          ) {
             return yield* new VersionMismatchError();
           }
           const decoded = yield* decodeCanonicalJson(
@@ -444,7 +448,14 @@ function errorResponse(
 ): HttpServerResponse.HttpServerResponse {
   const envelope = httpEnvelope(error);
   return jsonResponse(
-    new TextEncoder().encode(`{"error":"${envelope.code}"}`),
+    new TextEncoder().encode(
+      JSON.stringify({
+        error: envelope.code,
+        ...(error._tag === "VersionMismatchError"
+          ? { supported: error.supported }
+          : {}),
+      }),
+    ),
     envelope.status,
   );
 }

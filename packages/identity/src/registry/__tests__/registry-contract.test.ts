@@ -437,6 +437,21 @@ const lookupScenarios: readonly LookupScenario[] = [
     expected: INVALID_RESPONSE_TAG,
   },
   {
+    name: "legacy version mismatch without supported versions",
+    client: fixedResponse(() => '{"error":"version_mismatch"}', 412),
+    request: matchingLookup,
+    expected: "VersionMismatchError",
+  },
+  {
+    name: "version mismatch with supported versions",
+    client: fixedResponse(
+      () => '{"error":"version_mismatch","supported":["2099.101.0"]}',
+      412,
+    ),
+    request: matchingLookup,
+    expected: "VersionMismatchError",
+  },
+  {
     name: "declared server envelope",
     client: fixedResponse(() => '{"error":"unavailable"}', 503),
     request: matchingLookup,
