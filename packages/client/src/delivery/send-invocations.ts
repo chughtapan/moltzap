@@ -214,6 +214,8 @@ const reservationReasonByStoreReason = {
   conflict: "idempotency-conflict",
   corrupt: "outcome-unknown",
   incompatible: "outcome-unknown",
+  "pre-reset": "outcome-unknown",
+  "newer-schema": "outcome-unknown",
   "invalid-continuation": "persistence-failed",
   "invalid-input": "persistence-failed",
   "not-found": "outcome-unknown",

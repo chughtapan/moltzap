@@ -119,6 +119,8 @@ const historyFailureReasons = {
   conflict: "persistence-failed",
   corrupt: "persistence-failed",
   incompatible: "persistence-failed",
+  "pre-reset": "persistence-failed",
+  "newer-schema": "persistence-failed",
   persistence: "persistence-failed",
 } as const satisfies Readonly<
   Record<EndpointStoreError["reason"], ManagementFailure>

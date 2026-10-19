@@ -68,7 +68,11 @@ function rejectsNonemptyDatabaseWithoutInitialization() {
   const original = readFileSync(path);
 
   return expectReason(
-    Effect.scoped(openEndpointStore(directory)),
+    Effect.scoped(openEndpointStore(directory)).pipe(
+      Effect.catchTag("OutboxTooOldError", () =>
+        Effect.dieMessage("unexpected pending outbox"),
+      ),
+    ),
     "incompatible",
   ).pipe(
     Effect.tap(() =>

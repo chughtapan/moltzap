@@ -78,6 +78,8 @@ const sendReasonByStoreReason = {
   conflict: "persistence-failed",
   corrupt: "persistence-failed",
   incompatible: "persistence-failed",
+  "pre-reset": "persistence-failed",
+  "newer-schema": "persistence-failed",
   "invalid-continuation": "persistence-failed",
   "invalid-input": "persistence-failed",
   "not-found": "persistence-failed",

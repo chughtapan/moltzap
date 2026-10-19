@@ -1,9 +1,10 @@
 /** @file Production composition for one explicitly configured endpoint daemon. */
 
 import { NodeHttpClient } from "@effect/platform-node";
+import { LIVE_WIRE_VERSIONS, WireVersions } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
-import { Data, Duration, Effect, Layer } from "effect";
+import { Data, Duration, Effect, Layer, Option } from "effect";
 import {
   type FirewallOptions as InstalledFirewallOptions,
   installEditableFirewall,
@@ -30,6 +31,16 @@ import {
 const REGISTRY_REQUEST_TIMEOUT = Duration.seconds(30);
 const ROUTER_SEND_TIMEOUT = Duration.seconds(30);
 const ROUTER_POLL_TIMEOUT = Duration.seconds(35);
+
+const liveWireVersions = Effect.serviceOption(WireVersions).pipe(
+  Effect.map((configuration) =>
+    Option.match(configuration, {
+      onNone: () => LIVE_WIRE_VERSIONS,
+      onSome: (sets) =>
+        LIVE_WIRE_VERSIONS.filter((version) => sets.live.includes(version)),
+    }),
+  ),
+);
 
 /** Trusted operators decode retained checks without reading private storage schemas. */
 export { FirewallAuditRecord } from "../delivery/index.js";
@@ -78,7 +89,7 @@ export namespace Daemon {
   /** Closed startup phase with sanitized configuration details. */
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
-    readonly reason?: "outbox-too-old";
+    readonly reason?: "outbox-too-old" | "newer-schema" | "pre-reset";
     readonly detail?: string;
   }> {
     /**
@@ -109,9 +120,9 @@ export namespace Daemon {
       yield* requireAdmissionToCreate(opening, bootstrap).pipe(
         Effect.mapError(configurationFailure),
       );
-      const store = yield* openEndpointStore(configuration.stateDirectory).pipe(
-        Effect.mapError(storageFailure),
-      );
+      const store = yield* openEndpointStore(configuration.stateDirectory, {
+        liveWireVersions: yield* liveWireVersions,
+      }).pipe(Effect.mapError(storageFailure));
       const firewall =
         firewallOptions === undefined
           ? undefined
@@ -175,8 +186,20 @@ export namespace Daemon {
     });
   }
 
-  function storageFailure(): StartupError {
-    return new StartupError({ phase: "storage" });
+  function storageFailure(error: {
+    readonly reason?: string;
+    readonly _tag: string;
+  }): StartupError {
+    const reason =
+      error._tag === "OutboxTooOldError" ? "outbox-too-old" : error.reason;
+    return new StartupError({
+      phase: "storage",
+      ...(reason === "newer-schema" ||
+      reason === "pre-reset" ||
+      reason === "outbox-too-old"
+        ? { reason }
+        : {}),
+    });
   }
 }
 
