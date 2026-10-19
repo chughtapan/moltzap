@@ -14,9 +14,9 @@ on:
 # that secret the pull request falls back to the read-only token. Writing from
 # pull requests lets main reuse the results a pull request already computed,
 # at a cost: anyone who can push a branch here can write cache artifacts that
-# a later main run restores instead of executing. Fork pull requests receive
-# no secrets, so they skip the remote cache and run cold; the repository
-# variable NX_CACHE_DISABLED=true skips it everywhere.
+# a later main run restores instead of executing. Fork and Dependabot pull
+# requests receive no Actions secrets, so they skip the remote cache and run
+# cold; the repository variable NX_CACHE_DISABLED=true skips it everywhere.
 
 jobs:
   ci:
@@ -25,7 +25,7 @@ jobs:
     env:
       NX_SELF_HOSTED_REMOTE_CACHE_SERVER: ${{ vars.NX_CACHE_URL }}
       NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && secrets.NX_CACHE_WRITE_TOKEN || secrets.NX_CACHE_TOKEN }}
-      NX_SKIP_REMOTE_CACHE: ${{ (vars.NX_CACHE_DISABLED == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'true' || 'false' }}
+      NX_SKIP_REMOTE_CACHE: ${{ (vars.NX_CACHE_DISABLED == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.actor == 'dependabot[bot]') && 'true' || 'false' }}
     steps:
       # Depth 2 gives the CHANGELOG.md guard the merge commit's parents.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -101,7 +101,7 @@ jobs:
     env:
       NX_SELF_HOSTED_REMOTE_CACHE_SERVER: ${{ vars.NX_CACHE_URL }}
       NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && secrets.NX_CACHE_WRITE_TOKEN || secrets.NX_CACHE_TOKEN }}
-      NX_SKIP_REMOTE_CACHE: ${{ (vars.NX_CACHE_DISABLED == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'true' || 'false' }}
+      NX_SKIP_REMOTE_CACHE: ${{ (vars.NX_CACHE_DISABLED == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.actor == 'dependabot[bot]') && 'true' || 'false' }}
     steps:
       # A pull request runs only the projects its diff affects, against the PR
       # base that nx-set-shas resolves; fetch-depth: 0 gives it that history.
