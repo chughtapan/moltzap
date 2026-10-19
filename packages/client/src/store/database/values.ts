@@ -18,7 +18,7 @@ export type EndpointStoreFailure =
 export class EndpointStoreError extends Data.TaggedError("EndpointStoreError")<{
   readonly reason: EndpointStoreFailure;
   /** Absent means the store has no evidence that excludes a commit. */
-  readonly commitOutcome?: "not-committed" | "unknown";
+  readonly commitOutcome?: "not-committed";
 }> {}
 
 /** Internal control-flow signal mapped to the closed store error. */

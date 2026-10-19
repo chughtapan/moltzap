@@ -8,7 +8,12 @@ import {
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Cause, type Context, Deferred, Effect, Schema, Scope } from "effect";
-import type { EndpointStore, StoredMembership } from "../../store/index.js";
+import type {
+  EndpointStore,
+  EndpointStoreError,
+  StoredMembership,
+} from "../../store/index.js";
+import type { ListenError } from "../../transport/messaging/errors.js";
 import type { DaemonBootstrap } from "../bootstrap.js";
 import {
   type ApplicationSender,
@@ -111,10 +116,13 @@ const encodeCard = (
 /** Log only the closed storage reason before waking daemon shutdown. */
 export const reportStorageFault = (
   environment: ProtocolEnvironment,
-  error: { readonly _tag: string; readonly reason?: string },
+  error: EndpointStoreError | ListenError | CollectiveEmitError,
 ): Effect.Effect<void> =>
   Effect.logError("Storage failed, daemon exits").pipe(
-    Effect.annotateLogs({ _tag: error._tag, reason: error.reason }),
+    Effect.annotateLogs({
+      _tag: error._tag,
+      reason: error._tag === "CollectiveEmitError" ? undefined : error.reason,
+    }),
     Effect.zipRight(
       Deferred.fail(environment.fatal, runtimeFailure("storage")),
     ),

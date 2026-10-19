@@ -3185,6 +3185,7 @@ function failsASendWhoseBoundProposalTheStoreRefuses(): Effect.Effect<
  * @param reason The store failure the bind meets.
  * @param expected The send's failure for it.
  * @param expectedFaults Storage faults the author's engine reports for it.
+ * @param commitOutcome Evidence that the failed bind did not commit.
  * @returns The scenario, before its scope closes.
  */
 function failsASendWhoseBindTheStoreFails(
@@ -3286,12 +3287,6 @@ const bindFailureCases = [
   {
     reason: "persistence",
     commitOutcome: undefined,
-    expected: "outcome-unknown",
-    faults: 1,
-  },
-  {
-    reason: "persistence",
-    commitOutcome: "unknown",
     expected: "outcome-unknown",
     faults: 1,
   },

@@ -414,11 +414,6 @@ const reservationFailureCases = [
   },
   {
     reason: "persistence",
-    commitOutcome: "unknown",
-    expected: "outcome-unknown",
-  },
-  {
-    reason: "persistence",
     commitOutcome: "not-committed",
     expected: "persistence-failed",
   },

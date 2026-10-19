@@ -139,7 +139,7 @@ export function transaction<Value>(
       commitOutcome:
         rolledBack || (!commitAttempted && !database.isTransaction)
           ? "not-committed"
-          : "unknown",
+          : undefined,
     });
   }
 }

@@ -72,7 +72,7 @@ it("reports uncertainty when a persistence failure follows the commit", () =>
 
     expect(failure).toMatchObject({
       reason: "persistence",
-      commitOutcome: "unknown",
+      commitOutcome: undefined,
     });
     expect(JSON.stringify(failure)).not.toContain("secret");
     expect(yield* store.readIdentity()).toMatchObject({ agentId: "local" });

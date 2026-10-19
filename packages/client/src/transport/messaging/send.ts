@@ -88,19 +88,20 @@ function failBind(
   runtime: EngineRuntime,
   error: EndpointStoreError,
 ): Effect.Effect<never, SendError> {
-  if (error.commitOutcome === "not-committed") {
+  if (
+    error.reason === "persistence" &&
+    error.commitOutcome === "not-committed"
+  ) {
     return Effect.fail(new SendError({ reason: "persistence-failed" }));
   }
   return error.reason === "persistence"
-    ? runtime.input.reportStorageFault(error).pipe(
-        Effect.zipRight(
-          Effect.fail(
-            new SendError({
-              reason: "outcome-unknown",
-            }),
+    ? runtime.input
+        .reportStorageFault(error)
+        .pipe(
+          Effect.zipRight(
+            Effect.fail(new SendError({ reason: "outcome-unknown" })),
           ),
-        ),
-      )
+        )
     : Effect.fail(storeFailure(error));
 }
 
@@ -395,8 +396,8 @@ function resendProposal(
           ).pipe(
             Effect.as(true),
             Effect.catchTags({
-              EndpointStoreError: () =>
-                runtime.input.reportStorageFault.pipe(Effect.as(false)),
+              EndpointStoreError: (error) =>
+                runtime.input.reportStorageFault(error).pipe(Effect.as(false)),
               ClientRepresentationError: () => Effect.succeed(false),
             }),
           );
