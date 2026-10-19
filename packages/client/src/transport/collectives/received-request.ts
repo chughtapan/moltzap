@@ -61,9 +61,9 @@ type UnmatchedAnswer = Extract<
 /**
  * A request this endpoint received. `postId` is the request post it came in,
  * `recordHash` its certified record, and every answer goes to `to`. A refused
- * answer reopens the request; an all_gather request carries `shared`.
+ * answer reopens the request.
  */
-export interface ReceivedRequest extends RequestStatus {
+interface ReceivedRequestFields extends RequestStatus {
   readonly postId: PostId;
   readonly recordHash: RecordHash;
   readonly from: AgentAddress;
@@ -71,8 +71,14 @@ export interface ReceivedRequest extends RequestStatus {
   readonly question: string;
   readonly requestedSchema: FormModeSchema;
   state: RequestStatus["state"];
-  readonly shared?: SharedAnswers;
 }
+
+/** The request kind determines whether answers are shared until a group close. */
+export type ReceivedRequest = ReceivedRequestFields &
+  (
+    | { readonly kind: "gather" }
+    | { readonly kind: "all_gather"; readonly shared: SharedAnswers }
+  );
 
 type CollectingValue = Extract<
   CollectiveValue,
@@ -193,7 +199,7 @@ export function receivedRequest(
   if (!trustedRequest(message, value, now)) {
     return Option.none();
   }
-  const request: ReceivedRequest = {
+  const request: ReceivedRequestFields = {
     postId: message.postId,
     recordHash: post.recordHash,
     from: message.sender,
@@ -205,10 +211,13 @@ export function receivedRequest(
   };
   if (value.op === "gather") {
     return message.kind === "direct" && now < value.deadlineAt
-      ? Option.some(request)
+      ? Option.some({ ...request, kind: "gather" })
       : Option.none();
   }
-  if (message.kind !== "group" || now >= retainedUntil(request, true)) {
+  if (
+    message.kind !== "group" ||
+    now >= retainedUntil({ ...request, kind: "all_gather" })
+  ) {
     return Option.none();
   }
   const [first, ...rest] = message.members.filter(
@@ -218,6 +227,7 @@ export function receivedRequest(
     ? Option.none()
     : Option.some({
         ...request,
+        kind: "all_gather",
         shared: {
           members: [first, ...rest],
           answers: new Map(),
@@ -235,7 +245,7 @@ export function forgetExpiredRequests(
   now: number,
 ): void {
   for (const [id, request] of requests) {
-    if (now >= retainedUntil(request, request.shared !== undefined)) {
+    if (now >= retainedUntil(request)) {
       requests.delete(id);
     }
   }
@@ -279,8 +289,10 @@ function trustedRequest(
  * all_gather `CLOSE_WAIT` later, since its close follows the deadline.
  */
 function retainedUntil(
-  request: Pick<ReceivedRequest, "deadlineAt">,
-  allGather: boolean,
+  request: Pick<ReceivedRequest, "deadlineAt" | "kind">,
 ): number {
-  return request.deadlineAt + (allGather ? Duration.toMillis(CLOSE_WAIT) : 0);
+  return (
+    request.deadlineAt +
+    (request.kind === "all_gather" ? Duration.toMillis(CLOSE_WAIT) : 0)
+  );
 }
