@@ -43,6 +43,8 @@ export interface TypeDocExport {
   readonly sources: readonly TypeDocSource[];
   readonly comment: TypeDocComment | null;
   readonly signatureReturnTypeName: string | null;
+  /** Dotted path of the enclosing TypeScript namespaces, or null at module scope. */
+  readonly namespace: string | null;
 }
 
 /** Describes type doc cache. */
@@ -181,7 +183,7 @@ function collectExports(root: RawReflection): readonly TypeDocExport[] {
   const out: TypeDocExport[] = [];
   for (const pkg of root.children ?? []) {
     const packageName = pkg.name ?? "<unknown>";
-    walk(pkg, packageName, out);
+    walk(pkg, packageName, out, null);
   }
   return out;
 }
@@ -252,11 +254,11 @@ function collectOwnedExports(
     }
     if (!includeDescendants) {
       return shouldEmit(declaration)
-        ? [toExport(declaration, packageName)]
+        ? [toExport(declaration, packageName, null)]
         : [];
     }
     const exports: TypeDocExport[] = [];
-    walk(declaration, packageName, exports);
+    walk(declaration, packageName, exports, null);
     return exports;
   });
 }
@@ -306,15 +308,22 @@ function walk(
   node: RawReflection,
   packageName: string,
   out: TypeDocExport[],
+  namespace: string | null,
 ): void {
   if (shouldEmit(node)) {
-    out.push(toExport(node, packageName));
+    out.push(toExport(node, packageName, namespace));
   }
   if (isStructuralLeaf(node)) {
     return;
   }
+  const childNamespace =
+    node.kind === ReflectionKind.Namespace && node.name
+      ? namespace === null
+        ? node.name
+        : `${namespace}.${node.name}`
+      : namespace;
   for (const child of node.children ?? []) {
-    walk(child, packageName, out);
+    walk(child, packageName, out, childNamespace);
   }
 }
 
@@ -345,7 +354,11 @@ function isStructuralLeaf(node: RawReflection): boolean {
   return node.kind !== undefined && STRUCTURAL_LEAF_KINDS.has(node.kind);
 }
 
-function toExport(node: RawReflection, packageName: string): TypeDocExport {
+function toExport(
+  node: RawReflection,
+  packageName: string,
+  namespace: string | null,
+): TypeDocExport {
   const sources: TypeDocSource[] = (node.sources ?? []).map((s) => ({
     fileName: normalizeSourcePath(s.fileName ?? "", s.url),
     line: s.line ?? 0,
@@ -361,6 +374,7 @@ function toExport(node: RawReflection, packageName: string): TypeDocExport {
     sources,
     comment: extractComment(node),
     signatureReturnTypeName: extractReturnTypeName(node),
+    namespace,
   };
 }
 
