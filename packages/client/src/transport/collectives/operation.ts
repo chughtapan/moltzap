@@ -157,7 +157,6 @@ import {
   memberOutcomes,
   type Members,
   type ResponseValue,
-  type SharedAnswers,
 } from "./shared-answers.js";
 import { outcomeOfResponse, validateAnswer } from "./validation.js";
 
@@ -215,13 +214,6 @@ interface GatherRequest {
 interface OpenGather extends GatherRequest {
   readonly timer: Fiber.RuntimeFiber<void>;
   requestsSettled: boolean;
-}
-
-/** An all_gather request a member holds, under its id. */
-interface AskedAllGather {
-  readonly id: CollectiveId;
-  readonly request: ReceivedRequest;
-  readonly shared: SharedAnswers;
 }
 
 interface CollectiveState {
@@ -579,7 +571,7 @@ function sendRequests(
     yield* Fiber.awaitAll(sends).pipe(
       Effect.timeoutOption(yield* requestWait(prepared)),
     );
-    const { posts, refused } = yield* requestsSoFar(open.members, sends);
+    const { posts, refused } = yield* requestsSoFar(sends);
     const [refusal, ...refusals] = refused;
     if (
       refusal !== undefined &&
@@ -1057,10 +1049,10 @@ function settleAnswer(
       return Effect.void;
     }
     request.state = Option.isSome(certified) ? "answered" : "open";
-    const shared = request.shared;
-    if (shared === undefined) {
+    if (request.kind === "gather") {
       return Effect.void;
     }
+    const { shared } = request;
     if (Option.isSome(certified)) {
       shared.answers.set(state.ports.self, certified.value);
     }
@@ -1068,7 +1060,7 @@ function settleAnswer(
     shared.heldClose = undefined;
     return held === undefined
       ? Effect.void
-      : applyClose(state, { id, request, shared }, held);
+      : applyClose(state, { id, request }, held);
   });
 }
 
@@ -1217,8 +1209,8 @@ function recordAnswer(
       return recordCountedAnswer(state, open, post, value);
     }
     const request = state.requests.get(value.id);
-    if (request?.shared !== undefined) {
-      recordPeerAnswer(request, request.shared, post, value);
+    if (request?.kind === "all_gather") {
+      recordPeerAnswer(request, post, value);
     }
     return Effect.void;
   });
@@ -1266,8 +1258,7 @@ function answeredInConversation(
 }
 
 function recordPeerAnswer(
-  request: ReceivedRequest,
-  shared: SharedAnswers,
+  request: Extract<ReceivedRequest, { readonly kind: "all_gather" }>,
   post: CertifiedPost,
   value: ResponseValue,
 ): void {
@@ -1279,7 +1270,7 @@ function recordPeerAnswer(
   ) {
     return;
   }
-  keepFirstAnswer(shared, message.sender, {
+  keepFirstAnswer(request.shared, message.sender, {
     recordHash: post.recordHash,
     response: value,
   });
@@ -1302,7 +1293,7 @@ function receiveClose(
   return Effect.suspend(() => {
     const request = state.requests.get(value.id);
     if (
-      request?.shared === undefined ||
+      request?.kind !== "all_gather" ||
       message.kind !== "group" ||
       message.address !== request.to ||
       message.sender !== request.from
@@ -1316,7 +1307,7 @@ function receiveClose(
     }
     return applyClose(
       state,
-      { id: value.id, request, shared: request.shared },
+      { id: value.id, request },
       { postId: message.postId, included: value.included },
     );
   });
@@ -1339,10 +1330,11 @@ function receiveClose(
  */
 function applyClose(
   state: CollectiveState,
-  asked: AskedAllGather,
+  asked: OpenRequest<Extract<ReceivedRequest, { readonly kind: "all_gather" }>>,
   close: HeldClose,
 ): Effect.Effect<void, CollectiveEmitError> {
-  const { id, request, shared } = asked;
+  const { id, request } = asked;
+  const { shared } = request;
   const { answers, missing, repeated } = listedAnswers(shared, close.included);
   if (missing && request.state === "sending") {
     shared.heldClose = close;

@@ -3,6 +3,7 @@
  * the failure list every rule appends to, the tree walkers, and the JSON
  * narrowing helpers that keep decoded manifests typed.
  */
+import { Data } from "effect";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -27,6 +28,13 @@ interface SetDrift {
 
 /** A decoded JSON object whose fields are not yet narrowed. */
 export type JsonObject = Readonly<Record<string, unknown>>;
+
+/** Malformed configuration must terminate the gate instead of hiding entries. */
+export class MalformedBoundaryInput extends Data.TaggedError(
+  "MalformedBoundaryInput",
+)<{
+  readonly message: string;
+}> {}
 
 /**
  * Record a failure at one line of one file.
@@ -112,24 +120,35 @@ export function walkFiles(
 /**
  * Read and decode a JSON file whose top level must be an object.
  * @param file Absolute path.
- * @returns The decoded object, or an empty one when the top level is not an
- * object.
+ * @returns The decoded object; malformed input fails the check.
  */
 export function readJsonObject(file: string): JsonObject {
   const value: unknown = JSON.parse(readFileSync(file, "utf8"));
-  return isJsonObject(value) ? value : {};
+  if (!isJsonObject(value)) {
+    throw new MalformedBoundaryInput({
+      message: `Malformed ${file}: expected a JSON object`,
+    });
+  }
+  return value;
 }
 
 /**
- * The object at one field, or an empty object when it is absent or not an
- * object.
+ * Optional object fields default to empty; malformed fields fail decoding.
  * @param source Object holding the field.
  * @param key Field name.
  * @returns The nested object.
  */
 export function objectAt(source: JsonObject, key: string): JsonObject {
   const value = source[key];
-  return isJsonObject(value) ? value : {};
+  if (value === undefined) {
+    return {};
+  }
+  if (!isJsonObject(value)) {
+    throw new MalformedBoundaryInput({
+      message: `Malformed ${key}: expected an object`,
+    });
+  }
+  return value;
 }
 
 /**
@@ -144,27 +163,39 @@ export function stringAt(source: JsonObject, key: string): string | undefined {
 }
 
 /**
- * The string elements of the array at one field.
+ * Decode an optional string array without dropping malformed entries.
  * @param source Object holding the field.
  * @param key Field name.
- * @returns The string elements, in order.
+ * @returns The string elements, in order; malformed input fails the check.
  */
 export function stringsAt(source: JsonObject, key: string): readonly string[] {
-  return arrayAt(source, key).filter(
-    (element): element is string => typeof element === "string",
-  );
+  return arrayAt(source, key).map((element) => {
+    if (typeof element !== "string") {
+      throw new MalformedBoundaryInput({
+        message: `Malformed ${key} entry: expected a string`,
+      });
+    }
+    return element;
+  });
 }
 
 /**
- * The array at one field, or an empty array when it is absent or not an
- * array.
+ * Optional arrays default to empty; malformed fields fail decoding.
  * @param source Object holding the field.
  * @param key Field name.
  * @returns The array elements, not yet narrowed.
  */
 export function arrayAt(source: JsonObject, key: string): readonly unknown[] {
   const value = source[key];
-  return Array.isArray(value) ? value.map((element: unknown) => element) : [];
+  if (value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new MalformedBoundaryInput({
+      message: `Malformed ${key}: expected an array`,
+    });
+  }
+  return value.map((element: unknown) => element);
 }
 
 /**

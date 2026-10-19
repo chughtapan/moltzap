@@ -62,12 +62,12 @@ jobs:
       # Credentials are not persisted, so nothing that runs before the push
       # (installs, builds, the pack gates' consumer installs) holds a token
       # that can write to main.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       # The repository Node pin ships npm >=11.5 for OIDC trusted publishing.
       - uses: actions/setup-node@v4
         with:
@@ -169,7 +169,7 @@ jobs:
 
       # The release App token is minted only now, scoped to contents, and
       # used for exactly one push.
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         if: steps.plan.outputs.mode == 'bump'
         id: app-token
         with:

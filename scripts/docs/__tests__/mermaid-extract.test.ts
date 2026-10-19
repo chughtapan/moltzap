@@ -4,7 +4,7 @@ import { statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { extractMermaidBlocks, MERMAID_ROOTS } from "../mermaid-lint.js";
+import { extractMermaidBlocks, MERMAID_ROOTS } from "../mermaid-lint.ts";
 
 const WORKSPACE_ROOT = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -22,7 +22,9 @@ describe("MERMAID_ROOTS", () => {
   });
 });
 
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- This declarative test group keeps its related regression cases and source fixtures together.
 describe("extractMermaidBlocks", () => {
+  // @agent-code-guard/regression-only: fixed syntax and gate failure fixtures exercise distinct regressions.
   it("returns empty list when the source has no fenced blocks", () => {
     expect(extractMermaidBlocks("doc.md", "Plain prose.\n")).toEqual([]);
   });
@@ -84,6 +86,7 @@ describe("extractMermaidBlocks", () => {
     ].join("\n");
     const blocks = extractMermaidBlocks("doc.md", source);
     expect(blocks).toHaveLength(1);
+    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
     expect(blocks[0]?.startLine).toBe(5);
   });
 
@@ -101,6 +104,7 @@ describe("extractMermaidBlocks", () => {
     const blocks = extractMermaidBlocks("doc.md", source);
     expect(blocks).toHaveLength(2);
     expect(blocks[0]?.startLine).toBe(1);
+    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
     expect(blocks[1]?.startLine).toBe(5);
   });
 });

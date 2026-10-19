@@ -24,6 +24,7 @@ import {
   Schema,
   Scope,
 } from "effect";
+import { createRequire } from "node:module";
 import { type ChildProcess, spawn } from "node:child_process";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 // This black-box fixture owns exact temporary process files at the Node process boundary.
@@ -46,6 +47,9 @@ import {
   type ManagementStatusResult,
 } from "../src/endpoint/mcp/owner-tools.js";
 
+/** Loader resolution follows Client dependencies even when child processes run from the workspace root. */
+const require = createRequire(import.meta.url);
+
 const LOOPBACK_HOST = "127.0.0.1";
 const ADMISSION_CREDENTIAL = "client-process-admission";
 const READY_STATUS = 204;
@@ -57,6 +61,7 @@ const SHUTDOWN_TIMEOUT = Duration.seconds(5);
  * killed.
  */
 const TEARDOWN_TIMEOUT_MS = 60_000;
+const POLL_ATTEMPT_TIMEOUT = Duration.seconds(1);
 const POLL_INTERVAL = Duration.millis(25);
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
 const WORKSPACE_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
@@ -285,7 +290,13 @@ const canConnect = (port: number) =>
     return Effect.sync(() => {
       socket.destroy();
     });
-  });
+  }).pipe(
+    Effect.timeoutTo({
+      duration: POLL_ATTEMPT_TIMEOUT,
+      onTimeout: () => false,
+      onSuccess: (connected) => connected,
+    }),
+  );
 
 /** Whether `origin` answers its health check as ready. */
 const isHealthy = (origin: URL) =>
@@ -296,7 +307,10 @@ const isHealthy = (origin: URL) =>
         return response.status === READY_STATUS;
       }),
     catch: (cause) => processTestError("health request failed", cause),
-  }).pipe(Effect.orElseSucceed(() => false));
+  }).pipe(
+    Effect.timeout(POLL_ATTEMPT_TIMEOUT),
+    Effect.orElseSucceed(() => false),
+  );
 
 /**
  * Polls `probe` until it reads true, and fails with the child's output once
@@ -503,7 +517,7 @@ const daemonCommand = (
 ): readonly [string, readonly string[]] =>
   fixture.firewall === undefined
     ? [DAEMON_BINARY, []]
-    : [process.execPath, ["--import", "tsx", FIREWALL_DAEMON]];
+    : [process.execPath, ["--import", require.resolve("tsx"), FIREWALL_DAEMON]];
 
 /** Starts one moltzapd and returns only after its guarded loopback port listens. */
 export const acquireDaemonProcess = (

@@ -3,19 +3,37 @@ title: Contributing
 description: Contribution guidelines and conventions
 ---
 
-# Contributing
+Set up the repository, verify your change, and prepare it for independent review.
+
+## Prerequisites
+
+- A local checkout of this repository.
+- The Node version in `.node-version` and the pnpm version in `package.json`.
+- The root `AGENTS.md` and the instructions for any package you change.
 
 ## Local setup
 
-Use the Node version in `.node-version` and the pnpm version in
-`package.json`. From the repository root:
+### 1. Install dependencies and build
+
+From the repository root:
 
 ```bash
 pnpm install --frozen-lockfile
 pnpm build
 ```
 
+Expected result: pnpm installs the locked dependencies and Nx builds packages
+in dependency order. A successful build exits with status 0.
+
+### 2. Make your change
+
+Follow the workflow and conventions below.
+
 ## Before submitting a PR
+
+### 3. Run the checks
+
+From the repository root:
 
 ```bash
 pnpm build
@@ -23,9 +41,23 @@ pnpm test
 pnpm check
 ```
 
+Expected result: Nx reports successful build and test targets; lint and
+format checks exit with status 0. Build before lint so typed linting can
+resolve package declarations.
+
 `pnpm check` runs `pnpm lint` and `pnpm format:check`. A documentation change
 also runs `pnpm docs:check:drift`, which regenerates module pages and
-constants before comparing them.
+constants before comparing them. Run it from the repository root after
+committing your authored docs edits, because its comparison includes all
+tracked changes under `docs/`:
+
+```bash
+NX_DAEMON=false pnpm docs:check:drift
+pnpm docs:check
+```
+
+Expected result: regeneration leaves no diff, constants and imports checks
+report success, and the link check reports no broken internal links.
 
 ## Monorepo conventions
 
@@ -53,7 +85,8 @@ not need access to any private repository to contribute.
 
 `pnpm lint` runs the architecture gates: the package graph and boundary check,
 `arch:check` for every package, and `arch:config:check`. Run a gate on its own
-while you work:
+from the repository root while you work. Successful analysis and drift checks
+exit with status 0; generation writes the package configuration files:
 
 | Command | What it does |
 |---------|--------------|
@@ -64,7 +97,13 @@ while you work:
 Package budgets come from `scripts/architecture/gen-configs.ts`; the JSON files
 are its output, so change a budget in the generator and regenerate. Exceptions
 are `safer-arch-ignore` directives in the source, most at the top of the file
-they cover. List them with `rg -n "safer-arch-ignore" packages/*/src`.
+they cover. List them from the repository root:
+
+```bash
+rg -n "safer-arch-ignore" packages/*/src
+```
+
+Expected output: matching source paths, line numbers, and directives.
 
 Raising a budget or adding a directive is an architecture review point: say so
 in the PR description.
@@ -135,13 +174,25 @@ does not establish approval of proposed ADRs.
 The internal `shared-sdlc` and `records` skills are pinned in
 `.agents/internal-skills.json` and readable under `.agents/skills/` and
 `.claude/skills/`. Maintainers update them from this repository's root,
-using the `bin/records` binary in the `DOCS_INTERNAL_ROOT` checkout:
+using the `bin/records` binary in the `DOCS_INTERNAL_ROOT` checkout. Replace
+`DOCS_COMMIT` with the selected full revision before running either command:
 
 ```bash
 "$DOCS_INTERNAL_ROOT/bin/records" skills sync --target . --revision DOCS_COMMIT
 "$DOCS_INTERNAL_ROOT/bin/records" skills check --target . --revision DOCS_COMMIT
 ```
 
+Expected result: sync updates the installed skill copies to the selected
+revision, and check confirms that they match.
+
 These commands protect local edits and do not modify upstream skills.
 
 [internal-docs]: https://github.com/social-harness/docs-internal
+
+## Next steps
+
+- Obtain independent review and submit your pull request using the workflow
+  in `AGENTS.md`.
+- Read the [architecture](/architecture) and applicable
+  [specifications](/spec/layer-interfaces) before changing a package boundary.
+- Follow the [upgrade guide](/guides/upgrades) when deploying a reset release.

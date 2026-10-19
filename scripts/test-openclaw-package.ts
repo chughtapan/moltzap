@@ -15,11 +15,13 @@ import { Effect, Schema } from "effect";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  checkConsumerTypes,
   type GateError,
   type GateServices,
   installPackedConsumer,
   PackGateError,
-  packWorkspaceClosure,
+  packProductClosure,
+  readConsumerPins,
   readJsonFile,
   readText,
   requireCondition,
@@ -44,12 +46,6 @@ const pluginList = Schema.Struct({ plugins: Schema.Array(jsonObject) });
 
 const workspaceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const channelRoot = join(workspaceRoot, "packages", "openclaw-channel");
-const packageRoots = {
-  "@moltzap/client": join(workspaceRoot, "packages", "client"),
-  "@moltzap/identity": join(workspaceRoot, "packages", "identity"),
-  "@moltzap/openclaw-channel": channelRoot,
-  "@moltzap/router": join(workspaceRoot, "packages", "router"),
-};
 
 runGate("moltzap-openclaw-pack-", (temporaryRoot) =>
   Effect.gen(function* () {
@@ -58,18 +54,19 @@ runGate("moltzap-openclaw-pack-", (temporaryRoot) =>
       join(channelRoot, "package.json"),
       channelManifest,
     )).devDependencies.openclaw;
-    const { archives } = yield* packWorkspaceClosure(
-      packageRoots,
+    const { archives } = yield* packProductClosure(
+      workspaceRoot,
+      "openclaw-channel",
       temporaryRoot,
-      new Set(Object.keys(packageRoots)),
     );
+    const pins = yield* readConsumerPins(workspaceRoot);
     const consumerRoot = yield* installPackedConsumer({
       temporaryRoot,
       workspaceRoot,
       name: "moltzap-openclaw-packed-consumer",
       archives,
-      dependencies: { effect: "3.22.0", openclaw: openclawVersion },
-      devDependencies: { typescript: "6.0.2" },
+      dependencies: { effect: pins.effect, openclaw: openclawVersion },
+      devDependencies: { typescript: pins.typescript },
     });
     yield* verifyTypes(consumerRoot);
     const { openclaw, pluginRoot } = yield* pluginHost(consumerRoot);
@@ -106,11 +103,7 @@ function verifyTypes(
       join(consumerRoot, "check.ts"),
       'import plugin from "@moltzap/openclaw-channel";\nconst pluginId: string = plugin.id;\nvoid pluginId;\n',
     );
-    yield* runCommand(
-      join(consumerRoot, "node_modules", ".bin", "tsc"),
-      ["--project", join(consumerRoot, "tsconfig.json")],
-      { cwd: consumerRoot },
-    );
+    yield* checkConsumerTypes(consumerRoot);
   });
 }
 

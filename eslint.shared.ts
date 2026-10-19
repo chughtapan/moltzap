@@ -188,8 +188,7 @@ export function packageEslintConfig(options: PackageEslintOptions) {
 
 /**
  * Flat configuration for the workspace root: root modules, examples, and the
- * Node-run scripts under `scripts/`. The `scripts/` subtrees ignored here run
- * through `tsx`.
+ * Node-run scripts under `scripts/`.
  */
 export function rootEslintConfig(tsconfigRootDir: string) {
   const languageOptions = makeTsLanguageOptions(tsconfigRootDir, [
@@ -198,15 +197,7 @@ export function rootEslintConfig(tsconfigRootDir: string) {
   ]);
   return [
     {
-      ignores: [
-        ".claude/**",
-        ".repos/**",
-        "packages/**",
-        "scripts/__tests__/**",
-        "scripts/docs/**",
-        "scripts/repo/**",
-        "scripts/test/adapter-daemon-*",
-      ],
+      ignores: [".claude/**", ".repos/**", "packages/**"],
     },
     packageIgnores,
     makeStrictBlock(

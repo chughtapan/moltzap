@@ -59,6 +59,7 @@ const UNAVAILABLE_STATUS = 503;
 const EMPTY_BODY = "";
 const STARTUP_TIMEOUT_MS = 30_000;
 const SHUTDOWN_TIMEOUT_MS = 5_000;
+const POLL_ATTEMPT_TIMEOUT = Duration.seconds(1);
 const POLL_INTERVAL_MS = 25;
 const JSON_CONTENT_TYPE = "application/json";
 const MESSAGE_INVALID_BODY = '{"kind":"message_invalid"}';
@@ -222,7 +223,13 @@ const canConnect = (port: number) =>
     return Effect.sync(() => {
       socket.destroy();
     });
-  });
+  }).pipe(
+    Effect.timeoutTo({
+      duration: POLL_ATTEMPT_TIMEOUT,
+      onTimeout: () => false,
+      onSuccess: (connected) => connected,
+    }),
+  );
 
 const waitForTcpListener = (runningProcess: RunningProcess, port: number) =>
   Effect.gen(function* () {
@@ -271,6 +278,7 @@ const waitForHealth = (runningProcess: RunningProcess, origin: URL) =>
             Effect.map((body) => ({ status: result.status, body })),
           ),
         ),
+        Effect.timeout(POLL_ATTEMPT_TIMEOUT),
         Effect.option,
       );
       if (

@@ -4,6 +4,7 @@ import { Command, FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { scopedLive as it } from "@effect/vitest";
 import { Deferred, Effect, Stream } from "effect";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect } from "vitest";
@@ -13,6 +14,9 @@ import {
   makeAuditFixture,
 } from "../__tests__/firewall-audit-fixtures.js";
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
+
+/** Loader resolution follows Client dependencies even when child processes run from the workspace root. */
+const require = createRequire(import.meta.url);
 
 const childProgram = fileURLToPath(
   new URL("../__tests__/firewall-audit-child.ts", import.meta.url),
@@ -29,7 +33,12 @@ function startAuditedChild(
 ) {
   return Effect.gen(function* () {
     const child = yield* Command.start(
-      Command.make(process.execPath, "--import", "tsx", program).pipe(
+      Command.make(
+        process.execPath,
+        "--import",
+        require.resolve("tsx"),
+        program,
+      ).pipe(
         Command.stderr("inherit"),
         Command.env({
           MOLTZAP_TEST_AUDIT_DIRECTORY: directory,

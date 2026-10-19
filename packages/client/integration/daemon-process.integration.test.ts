@@ -727,3 +727,31 @@ it(
   processTrace(refusesStaleOutbox),
   PROCESS_TEST_TIMEOUT_MS,
 );
+
+it(
+  "reports newer-schema in stderr before changing a newer database",
+  processTrace(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const infrastructure = yield* acquireProcessInfrastructure;
+        const local = yield* makeDaemonProcessFixture(
+          infrastructure,
+          "newer-schema",
+        );
+        const path = join(local.stateDirectory, "moltzapd.sqlite3");
+        const database = new DatabaseSync(path);
+        database.exec("PRAGMA user_version = 2147483647");
+        database.close();
+        const before = storedSchema(local.stateDirectory);
+
+        const failed = yield* awaitDaemonStartupFailure(local);
+
+        expect(failed.exitCode).not.toBe(0);
+        expect(failed.logs).toContain("storage");
+        expect(failed.logs).toContain("newer-schema");
+        expect(storedSchema(local.stateDirectory)).toEqual(before);
+      }),
+    ),
+  ),
+  PROCESS_TEST_TIMEOUT_MS,
+);
