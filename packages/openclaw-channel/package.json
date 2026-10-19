@@ -19,6 +19,7 @@
   "files": [
     "dist",
     "!dist/tsconfig.tsbuildinfo",
+    "!dist/**/*.map",
     "!dist/__tests__",
     "openclaw.plugin.json",
     "skills",

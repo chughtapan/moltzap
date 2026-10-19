@@ -12,6 +12,7 @@
   "files": [
     "dist",
     "!dist/tsconfig.tsbuildinfo",
+    "!dist/**/*.map",
     "LICENSE",
     "NOTICE"
   ],
