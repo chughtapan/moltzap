@@ -187,6 +187,26 @@ function provider(
 
 const defaultProvider = provider();
 
+/** Answers every question in one stage the same way and the rest by default. */
+function answering(
+  stage: DecisionRequest["stage"],
+  answer: DecisionResponse["answers"][string],
+): DecisionProvider {
+  return {
+    decide: (request) =>
+      Effect.succeed(
+        request.stage === stage
+          ? {
+              ...responseFor(request),
+              answers: Object.fromEntries(
+                Object.keys(request.questions).map((id) => [id, answer]),
+              ),
+            }
+          : responseFor(request),
+      ),
+  };
+}
+
 const check = (
   decisions: DecisionProvider = defaultProvider,
   options: {
@@ -370,33 +390,56 @@ const malformedAnswers: ReadonlyArray<{
     choice: "compliant",
     probabilities: { compliant: 0.1, prohibited: 0.8, unresolved: 0.1 },
   },
+  {
+    name: "selection below the maximum by more than rounding",
+    choice: "compliant",
+    probabilities: { compliant: 0.48, prohibited: 0.5, unresolved: 0.02 },
+  },
+  {
+    name: "unrounded nonmaximal selection",
+    choice: "compliant",
+    probabilities: { compliant: 0.4999, prohibited: 0.5001, unresolved: 0 },
+  },
 ];
 
-it.each(malformedAnswers)("holds malformed provider answers: $name", (answer) =>
-  Effect.gen(function* () {
-    const result = yield* check({
-      decide: (request) =>
-        Effect.succeed(
-          request.stage === "safety"
-            ? {
-                ...responseFor(request),
-                answers: Object.fromEntries(
-                  Object.keys(request.questions).map((id) => [
-                    id,
-                    {
-                      choice: answer.choice,
-                      probabilities: answer.probabilities,
-                    },
-                  ]),
-                ),
-              }
-            : responseFor(request),
-        ),
-    });
-    expect(result.reason).toBe("check-unavailable");
-    expect(result.guidance).toEqual([]);
-  }),
+it.each(malformedAnswers)(
+  "holds malformed provider answers: $name",
+  ({ choice, probabilities }) =>
+    Effect.gen(function* () {
+      const result = yield* check(
+        answering("safety", { choice, probabilities }),
+      );
+      expect(result.reason).toBe("check-unavailable");
+      expect(result.guidance).toEqual([]);
+    }),
 );
+
+/** Jev's answer to a relevance question in a collective-norms pilot. */
+const nearTie = {
+  choice: "relevant",
+  confidence: 0.25,
+  probabilities: { relevant: 0.49, irrelevant: 0.5, unresolved: 0.01 },
+};
+
+it("accepts Jev's rounded near-tie and holds its choice below the routing threshold", () =>
+  Effect.gen(function* () {
+    const result = yield* check(answering("applicability", nearTie));
+    expect(result.reason).toBe("unresolved-evidence");
+    expect(result.checks[0]?.trace?.data).toContain(
+      JSON.stringify(nearTie.probabilities),
+    );
+  }));
+
+it("routes by Jev's stated choice when another option leads it within rounding", () =>
+  Effect.gen(function* () {
+    const result = yield* check(
+      answering("safety", {
+        choice: "prohibited",
+        probabilities: { compliant: 0.51, prohibited: 0.5, unresolved: 0 },
+      }),
+    );
+    expect(result.judgment).toBe("block");
+  }));
 
 it("holds uncertain expectations and withholds dependent conformance", () =>
   Effect.gen(function* () {
@@ -554,35 +597,35 @@ it("does not prune a safety rule labeled irrelevant", () =>
     expect(result.judgment).toBe("block");
   }));
 
-it("preserves rounded distributions and routes by selected probability independently of confidence", () =>
-  Effect.gen(function* () {
-    const probabilities = { compliant: 0.71, prohibited: 0.2, unresolved: 0.1 };
-    const decisions: DecisionProvider = {
-      decide: (request) =>
-        Effect.succeed(
-          request.stage === "safety"
-            ? {
-                ...responseFor(request),
-                answers: Object.fromEntries(
-                  Object.keys(request.questions).map((id) => [
-                    id,
-                    { choice: "compliant", probabilities, confidence: 0.01 },
-                  ]),
-                ),
-              }
-            : responseFor(request),
-        ),
-    };
-    const allowed = yield* check(decisions);
-    const held = yield* check(decisions, {
-      settings: { ...settings, minimumProbability: 0.8 },
-    });
-    expect(allowed.judgment).toBe("allow");
-    expect(allowed.checks[0]?.trace?.data).toContain(
-      JSON.stringify(probabilities),
-    );
-    expect(held.reason).toBe("unresolved-evidence");
-  }));
+it.each([
+  {
+    name: "rounded",
+    probabilities: { compliant: 0.71, prohibited: 0.2, unresolved: 0.1 },
+  },
+  {
+    name: "unrounded",
+    probabilities: { compliant: 0.7125, prohibited: 0.1875, unresolved: 0.1 },
+  },
+])(
+  "preserves $name distributions and routes by selected probability independently of confidence",
+  ({ probabilities }) =>
+    Effect.gen(function* () {
+      const decisions = answering("safety", {
+        choice: "compliant",
+        probabilities,
+        confidence: 0.01,
+      });
+      const allowed = yield* check(decisions);
+      const held = yield* check(decisions, {
+        settings: { ...settings, minimumProbability: 0.8 },
+      });
+      expect(allowed.judgment).toBe("allow");
+      expect(allowed.checks[0]?.trace?.data).toContain(
+        JSON.stringify(probabilities),
+      );
+      expect(held.reason).toBe("unresolved-evidence");
+    }),
+);
 
 it("holds confidently unresolved evidence while running independent stages", () =>
   Effect.gen(function* () {

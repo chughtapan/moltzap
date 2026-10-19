@@ -54,6 +54,11 @@ const decideWithinBudget = Effect.fn("EnglishPolicy.decideWithinBudget")(
   },
 );
 
+/**
+ * Each answer must give a probability to exactly its question's choices, sum
+ * to one, and state a choice that no other option exceeds, within
+ * {@link roundingTolerance}. The policy routes by the stated choice.
+ */
 function validAnswers(
   request: DecisionRequest,
   response: DecisionResponse,
@@ -77,24 +82,33 @@ function validAnswers(
     ) {
       return false;
     }
+    const tolerance = roundingTolerance(probabilities);
     return (
       choices.every((choice) => Object.hasOwn(answer.probabilities, choice)) &&
-      probabilities.every((value) => value <= selected) &&
+      probabilities.every((value) => value - selected <= tolerance.choice) &&
       Math.abs(probabilities.reduce((sum, value) => sum + value, 0) - 1) <=
-        roundingTolerance(probabilities)
+        tolerance.sum
     );
   });
 }
 
-/** Jev rounds to hundredths; retain its distribution without normalization. */
-function roundingTolerance(probabilities: readonly number[]): number {
+/**
+ * Jev reports probabilities in hundredths, and in a near-tie its stated choice
+ * can trail another option by one hundredth. A distribution in hundredths may
+ * miss a sum of one, and its choice may trail the maximum, by the same
+ * allowance. Any other distribution states a maximum and sums to one within
+ * 0.001. Distributions are retained without normalization.
+ */
+function roundingTolerance(probabilities: readonly number[]) {
+  const floatingPoint = Number.EPSILON * probabilities.length;
   const rounded = probabilities.every(
     (value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-8,
   );
-  return (
-    (rounded ? Math.min(probabilities.length * 0.005, 0.02) : 0.001) +
-    Number.EPSILON * probabilities.length
-  );
+  if (!rounded) {
+    return { choice: 0, sum: 0.001 + floatingPoint };
+  }
+  const rounding = Math.min(probabilities.length * 0.005, 0.02) + floatingPoint;
+  return { choice: rounding, sum: rounding };
 }
 
 const runStage = Effect.fn("EnglishPolicy.runStage")(function* (
