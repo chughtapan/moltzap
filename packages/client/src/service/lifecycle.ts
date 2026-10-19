@@ -91,11 +91,7 @@ function runDaemonResources(
   dependencies: DaemonRuntimeDependencies,
 ) {
   return Effect.gen(function* () {
-    const exportPath = input.bootstrap.configuration.historyExport;
-    const historyExport =
-      exportPath === undefined
-        ? noHistoryExport
-        : yield* dependencies.makeHistoryExport(exportPath);
+    const historyExport = yield* openHistoryExport(input, dependencies);
     const daemon = yield* makeDaemon({
       ...input,
       historyExport,
@@ -113,6 +109,9 @@ function runDaemonResources(
           implementation: DAEMON_IMPLEMENTATION,
           operations: Object.freeze({
             ...management,
+            ...(input.firewall?.policy === undefined
+              ? {}
+              : { policy: input.firewall.policy }),
             ...daemon.deliveryOperations,
             protocolActive: daemon.protocolActive,
           }),
@@ -135,4 +134,15 @@ function runDaemonResources(
       return yield* daemon.awaitFailure;
     }).pipe(Effect.raceFirst(daemon.awaitFailure));
   });
+}
+
+/** An unset export path leaves certified history in endpoint-owned storage. */
+function openHistoryExport(
+  input: DaemonStartup,
+  dependencies: DaemonRuntimeDependencies,
+) {
+  const path = input.bootstrap.configuration.historyExport;
+  return path === undefined
+    ? Effect.succeed(noHistoryExport)
+    : dependencies.makeHistoryExport(path);
 }

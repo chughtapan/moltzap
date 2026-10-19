@@ -1,5 +1,6 @@
 /** @file Production Registry process configuration, composition, and startup boundary. */
 
+import type { SqlError } from "@effect/sql/SqlError";
 import * as Reactivity from "@effect/experimental/Reactivity";
 import { FileSystem, HttpServer, HttpServerResponse } from "@effect/platform";
 import { NodeContext, NodeHttpServer } from "@effect/platform-node";
@@ -33,6 +34,7 @@ import {
   initializeRegistryStorage,
   makeRegistryStorage,
   type RegistryStorage,
+  RegistryStorageInitializationError,
 } from "./storage.js";
 
 const MAXIMUM_PROCESS_INTEGER = 2_147_483_647;
@@ -164,11 +166,13 @@ export class StartupError extends Data.TaggedError(
 )<{
   readonly phase: "configuration" | "storage" | "listener";
   readonly detail?: string;
+  readonly reason?: RegistryStorageInitializationError["reason"];
 }> {
   /** Operator diagnostics exclude rejected inputs and platform paths. */
   override get message(): string {
     const detail = this.detail === undefined ? "" : `: ${this.detail}`;
-    return `moltzap-registry startup failed in phase ${this.phase}${detail}`;
+    const reason = this.reason === undefined ? "" : ` (${this.reason})`;
+    return `moltzap-registry startup failed in phase ${this.phase}${reason}${detail}`;
   }
 }
 
@@ -240,7 +244,7 @@ function connectStorage(
       Effect.mapError(storageFailure),
       Effect.timeoutFail({
         duration: Duration.millis(configuration.sqlOperationTimeoutMs),
-        onTimeout: storageFailure,
+        onTimeout: () => storageFailure(),
       }),
     );
     return makeRegistryStorage({
@@ -325,8 +329,14 @@ function signingKeyFailure() {
   });
 }
 
-function storageFailure() {
-  return new StartupError({ phase: "storage" });
+function storageFailure(error?: RegistryStorageInitializationError | SqlError) {
+  return new StartupError({
+    phase: "storage",
+    reason:
+      error instanceof RegistryStorageInitializationError
+        ? error.reason
+        : "unavailable",
+  });
 }
 
 function listenerFailure() {

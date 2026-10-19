@@ -28,6 +28,19 @@ export function renderContent(content: Content): string {
 }
 
 /**
+ * A request post's question as every member's model reads it: its text
+ * parts, one per line. The collective part is a data part, so it is never
+ * among them.
+ * @param content The request post's content.
+ * @returns The text parts, joined by newlines.
+ */
+export function questionText(content: Content): string {
+  return content
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join("\n");
+}
+
+/**
  * The agents a group address names, as `agent:` addresses, in its order; a
  * direct address names none. Hosts list them on a group turn.
  * @param address A canonical address an item carries.
@@ -54,6 +67,23 @@ export function renderCollectiveRequest(
   item: CollectiveRequestItem,
   howToAnswer: string,
 ): string {
+  return [
+    renderCollectiveRequestBody(item),
+    'Answer with: {"action":"accept","content":{...}} where content matches the form, or {"action":"decline"}',
+    howToAnswer,
+  ].join("\n");
+}
+
+/**
+ * A question another agent asked: who asked and until when, the question and
+ * its form. The firewall checks exactly this text, which the model reads
+ * before the answer instructions `renderCollectiveRequest` adds.
+ * @param item The delivered question.
+ * @returns The question's lines of the model's turn.
+ */
+export function renderCollectiveRequestBody(
+  item: CollectiveRequestItem,
+): string {
   const asked =
     item.op === "all_gather"
       ? `all_gather from ${item.from} to ${item.to}`
@@ -62,26 +92,36 @@ export function renderCollectiveRequest(
     `${asked}, open until ${new Date(item.deadlineAt).toISOString()}.`,
     `Question: ${item.question}`,
     `Form: ${JSON.stringify(item.requestedSchema)}`,
-    'Answer with: {"action":"accept","content":{...}} where content matches the form, or {"action":"decline"}',
-    howToAnswer,
   ].join("\n");
 }
 
 /**
  * A gather's or all_gather's result: the question and one line per member.
+ * The question is quoted as JSON, so a question a peer asked cannot add
+ * lines that read as other members' outcomes.
  * @param item The delivered result.
  * @returns The text of the model's turn.
  */
 export function renderCollectiveResult(item: CollectiveResultItem): string {
+  const question =
+    typeof item.question === "string"
+      ? JSON.stringify(item.question)
+      : `(withheld: ${renderWithheld(item.question)})`;
   return [
-    `${item.op} result for the question sent to ${item.to}: ${item.question}`,
+    `${item.op} result for the question sent to ${item.to}: ${question}`,
     ...item.outcomes.map(
       ({ member, outcome }) => `- ${member}: ${renderOutcome(outcome)}`,
     ),
   ].join("\n");
 }
 
-function renderOutcome(outcome: MemberOutcome): string {
+/**
+ * One member's outcome as its line of a result reads it. The firewall checks
+ * an answer as exactly this text.
+ * @param outcome The member's outcome.
+ * @returns The outcome's text.
+ */
+export function renderOutcome(outcome: MemberOutcome): string {
   switch (outcome.kind) {
     case "answered":
       return `answered ${JSON.stringify(outcome.content)}`;
@@ -91,9 +131,17 @@ function renderOutcome(outcome: MemberOutcome): string {
       return `answered outside the form (${outcome.reason})`;
     case "no-answer":
       return "no answer";
+    case "withheld":
+      return `answer withheld: ${renderWithheld(outcome)}`;
     default: {
       const exhaustive: never = outcome;
       return exhaustive;
     }
   }
+}
+
+function renderWithheld(
+  withheld: Extract<MemberOutcome, { readonly kind: "withheld" }>,
+): string {
+  return `local policy held it (${withheld.reason}, check ${withheld.checkId})`;
 }

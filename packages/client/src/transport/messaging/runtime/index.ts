@@ -32,9 +32,11 @@ import type {
   ConversationId,
   DecodedOuterBody,
   DirectPacket,
+  EvidenceStatement,
   PostIntent,
   RecordHash,
   RouterAnchor,
+  VerifiedEvidence,
   VerifiedMembership,
 } from "../../wire/index.js";
 import type { AddressRegistryPort } from "../address.js";
@@ -233,6 +235,7 @@ export interface EnginePhases {
   readonly acceptIngress: (
     runtime: EngineRuntime,
     ingress: RouterWorkerIngress<DecodedOuterBody>,
+    statement?: EvidenceStatement,
   ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
   readonly acceptRecoveryIngress: (
     runtime: EngineRuntime,
@@ -253,9 +256,98 @@ export interface EnginePhases {
     runtime: EngineRuntime,
     conversationId: ConversationId,
   ) => Effect.Effect<void>;
+  /** Restart recovery after either form of certification promotes a fenced head. */
+  readonly headAdvanced: (
+    runtime: EngineRuntime,
+    conversationId: ConversationId,
+  ) => Effect.Effect<void, RouterWorkerPersistenceError>;
   /** Whether a conversation is still fenced while it recovers. */
   readonly isRecovering: (
     runtime: EngineRuntime,
     conversationId: ConversationId,
   ) => boolean;
+}
+
+/** A protocol fold selected by an evidence statement's signed subject. */
+export type EvidenceRoute =
+  | Readonly<{ fold: EngineActionFold; kind: "action" }>
+  | Readonly<{ fold: EngineActionFold; kind: "durability" }>;
+
+/**
+ * Resolve evidence once for both recovery fencing and active certification.
+ * @param runtime Engine holding the active folds.
+ * @param statement Decoded statement whose signature has not yet been checked.
+ * @returns Its named conversation and active fold, when known.
+ */
+export function evidenceTarget(
+  runtime: EngineRuntime,
+  statement: EvidenceStatement,
+): {
+  readonly conversationId?: ConversationId;
+  readonly route?: EvidenceRoute;
+} {
+  switch (statement.kind) {
+    case "action_signature": {
+      const fold = runtime.actionFolds.get(statement.actionHash);
+      return fold === undefined
+        ? {}
+        : {
+            conversationId: fold.conversation.conversationId,
+            route: { fold, kind: "action" },
+          };
+    }
+    case "durability_vote": {
+      const fold = runtime.recordFolds.get(statement.recordHash);
+      return {
+        conversationId: statement.conversationId,
+        ...(fold === undefined
+          ? {}
+          : { route: { fold, kind: "durability" as const } }),
+      };
+    }
+    case "reanchor_vote":
+      return { conversationId: statement.reanchor.conversationId };
+    case "catch_up_attestation":
+      return { conversationId: statement.request.conversationId };
+    default: {
+      const exhaustive: never = statement;
+      return exhaustive;
+    }
+  }
+}
+
+/**
+ * Bind verified evidence to the active fold selected by its signed subject.
+ * @param route Active fold and the certificate role the statement targets.
+ * @param statement Cryptographically verified evidence statement.
+ * @returns Whether all fold-specific bindings match.
+ */
+export function evidenceMatchesFold(
+  route: EvidenceRoute,
+  statement: VerifiedEvidence["statement"],
+): boolean {
+  const { fold } = route;
+  switch (route.kind) {
+    case "action":
+      return (
+        statement.kind === "action_signature" &&
+        statement.actionHash === fold.actionHash
+      );
+    case "durability":
+      if (
+        statement.kind !== "durability_vote" ||
+        fold.recordHash === undefined
+      ) {
+        return false;
+      }
+      return (
+        statement.recordHash === fold.recordHash &&
+        statement.conversationId === fold.conversation.conversationId &&
+        statement.membershipHash === fold.conversation.membership.hash
+      );
+    default: {
+      const exhaustive: never = route;
+      return exhaustive;
+    }
+  }
 }

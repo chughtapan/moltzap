@@ -78,6 +78,17 @@ export const DeadlineSeconds = Schema.Number.pipe(
   Schema.between(1, MAXIMUM_DEADLINE_SECONDS),
 );
 
+/** The latest instant a `Date` represents, in epoch milliseconds. */
+const MAXIMUM_EPOCH_MILLIS = 8_640_000_000_000_000;
+
+/**
+ * An absolute time in epoch milliseconds that a `Date` can represent, so
+ * every peer-stated deadline renders. Endpoints assume zero clock skew.
+ */
+export const EpochMillis = Schema.Int.pipe(
+  Schema.between(1, MAXIMUM_EPOCH_MILLIS),
+);
+
 /**
  * Multicast: one post to the `to` address, complete when certified. `op`
  * defaults to multicast, so an omitted `op` and an omitted `collective` mean
@@ -180,9 +191,9 @@ export interface CollectiveSendOutcome extends SendResult {
 
 /**
  * Why a collective send was refused, discriminated by `kind`: a gather or
- * all_gather whose schema is outside the form-mode grammar or whose request
- * post some member could not receive, or a response the member's endpoint
- * cannot send.
+ * all_gather whose schema is outside the form-mode grammar, whose request
+ * post some member could not receive, or whose deadline passed while its
+ * check ran; or a response the member's endpoint cannot send.
  */
 const collectiveFailure = Schema.Union(
   exactStruct({
@@ -207,6 +218,7 @@ const collectiveFailure = Schema.Union(
   exactStruct({ kind: Schema.Literal("request-ambiguous") }),
   exactStruct({ kind: Schema.Literal("request-answered") }),
   exactStruct({ kind: Schema.Literal("request-expired") }),
+  exactStruct({ kind: Schema.Literal("deadline-passed") }),
 );
 /** A validated collective failure. */
 export type CollectiveFailure = typeof collectiveFailure.Type;
@@ -259,22 +271,42 @@ export type AnswerFieldFailures = Extract<
 
 /**
  * Name each failing answer field, such as `field "slot" is invalid (enum)`.
- * A refused reply and a member's `invalid` outcome read the same.
+ * A refused reply and a member's `invalid` outcome read the same. Field
+ * names come from peers, so each is quoted as JSON: no name can close its
+ * quotes or start a new line of the text a model reads.
  * @param fields The failing fields, in validation order.
  * @returns One clause per field, joined by `; `.
  */
 export function answerFieldsText(fields: AnswerFieldFailures): string {
   return fields
     .map(({ field, reason, detail }) => {
-      const problem = answerFieldText[reason];
-      return detail === undefined
-        ? `field "${field}" ${problem}`
-        : `field "${field}" ${problem} (${detail})`;
+      const named = `field ${JSON.stringify(field)} ${answerFieldText[reason]}`;
+      return detail === undefined ? named : `${named} (${detail})`;
     })
     .join("; ");
 }
 
+/** A failure that carries nothing beyond its kind. */
+type FixedFailureKind = Exclude<
+  CollectiveFailure["kind"],
+  "members-unreachable" | "schema-invalid" | "answer-invalid"
+>;
+
+/** The text of each failure that carries nothing beyond its kind. */
+const fixedFailureText: Record<FixedFailureKind, string> = {
+  "request-none": "reply failed: no question is open in this conversation",
+  "request-ambiguous":
+    "reply failed: more than one question is open in this conversation, and answering one of several is not supported",
+  "request-answered": "reply failed: the question was already answered",
+  "request-expired": "reply failed: the question's deadline has passed",
+  "deadline-passed":
+    "send failed: the deadline passed before the question was posted",
+};
+
 function describeCollectiveFailure(failure: CollectiveFailure): string {
+  if (isFixedFailure(failure)) {
+    return fixedFailureText[failure.kind];
+  }
   switch (failure.kind) {
     case "members-unreachable":
       return `send failed: ${failure.members
@@ -288,19 +320,17 @@ function describeCollectiveFailure(failure: CollectiveFailure): string {
       return `send failed: the form is invalid (${failure.detail})`;
     case "answer-invalid":
       return `reply failed: ${answerFieldsText(failure.fields)}`;
-    case "request-none":
-      return "reply failed: no question is open in this conversation";
-    case "request-ambiguous":
-      return "reply failed: more than one question is open in this conversation, and answering one of several is not supported";
-    case "request-answered":
-      return "reply failed: the question was already answered";
-    case "request-expired":
-      return "reply failed: the question's deadline has passed";
     default: {
       const exhaustive: never = failure;
       return exhaustive;
     }
   }
+}
+
+function isFixedFailure(
+  failure: CollectiveFailure,
+): failure is Extract<CollectiveFailure, { readonly kind: FixedFailureKind }> {
+  return Object.hasOwn(fixedFailureText, failure.kind);
 }
 
 /**

@@ -62,8 +62,12 @@ their supplied values.
    ```
 
 On first start the Registry migrates the database and records its signer and
-wire compatibility value there. A later start with a different signing key or
-wire compatibility value fails during startup.
+wire compatibility value.
+The migration ledger is the only schema authority. A later start with a
+different signing key, wire compatibility value, or an unknown applied migration
+id fails during startup. Unknown migration ids report `newer-schema`, and a
+different signing key reports `signer-mismatch` in the process log. Run `pg_dump`
+before upgrading; downgrades are unsupported.
 
 Routers and daemons pin the Registry's public key as a compact Ed25519 JWK,
 `{"crv":"Ed25519","kty":"OKP","x":"..."}`, with the keys in that order.

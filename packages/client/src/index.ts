@@ -15,7 +15,11 @@ export { acquireHarnessEndpoint } from "./endpoint/harness-endpoint/index.js";
 /** One line of the daemon's optional history export. */
 export { HistoryExportRecord } from "./delivery/history-export.js";
 /** Local message refusal and advice expose no private assessment evidence. */
-export { FirewallSendError, type LocalGuidance } from "./firewall/runtime.js";
+export {
+  type CheckedGuidance,
+  FirewallSendError,
+  type LocalGuidance,
+} from "./firewall/runtime.js";
 /** Send input and the closed error of a refused collective send. */
 export {
   CollectiveError,

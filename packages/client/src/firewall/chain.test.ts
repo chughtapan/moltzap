@@ -555,10 +555,25 @@ it("bounds input and results without converting skipped checks into passes", () 
     );
   }));
 
-it("rejects empty or ambiguous registrations", () =>
+it("allows an empty chain while retaining input and evidence validation", () =>
+  Effect.gen(function* () {
+    const firewall = yield* firewallFor([]);
+    expect((yield* firewall.checkOutgoing(draft, context)).judgment).toBe(
+      "allow",
+    );
+    expect((yield* firewall.checkIncoming(incoming, context)).judgment).toBe(
+      "allow",
+    );
+    expect(
+      (yield* firewall
+        .checkOutgoing({ ...draft, sender: "other" }, context)
+        .pipe(Effect.flip)).reason,
+    ).toBe("message");
+  }));
+
+it("rejects ambiguous registrations", () =>
   Effect.gen(function* () {
     for (const chain of [
-      [],
       [policy("same"), policy("same")],
       [{ ...policy("rules"), rules: [rule, rule] }],
     ]) {

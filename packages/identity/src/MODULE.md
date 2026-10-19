@@ -797,7 +797,7 @@ Closed Registry bootstrap registration request.
 
 ### `@moltzap/identity/registry/server`
 
-#### [`StartupError`](./registry/server.ts#L142)
+#### [`StartupError`](./registry/server.ts#L144)
 
 _Class_
 
@@ -806,12 +806,19 @@ export class StartupError extends Data.TaggedError(
   "RegistryServerStartupError",
 )<{
   readonly phase: "configuration" | "storage" | "listener";
-}> {}
+  readonly reason?: RegistryStorageInitializationError["reason"];
+}> {
+  override get message(): string {
+    return this.reason === undefined
+      ? `Registry startup failed: ${this.phase}`
+      : `Registry startup failed: ${this.phase} (${this.reason})`;
+  }
+}
 ```
 
 Closed Registry startup failure.
 
-#### [`layer`](./registry/server.ts#L182)
+#### [`layer`](./registry/server.ts#L191)
 
 _Variable_
 

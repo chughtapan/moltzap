@@ -11,6 +11,8 @@ import type {
   FailureDelivery,
 } from "./forms.js";
 import type { InboundItem } from "./inbound.js";
+import type { CollectiveSendError } from "./ports.js";
+import { FirewallSendError } from "../../firewall/runtime.js";
 
 /**
  * A refused collective send, with the address its failure item routes to.
@@ -26,40 +28,61 @@ export interface RefusedSend<E> {
  * Deliver a refused collective send's error where the host wants it. With
  * `inbound` the send completes, naming the operation, and the error arrives
  * as an `operationFailed` item carrying the same text. When that item cannot
- * be kept, the send fails with the refusal itself, the outcome it had.
+ * be kept, the send fails with the refusal itself, the outcome it had. A
+ * firewall refusal is always the send's own failure: the agent revises from
+ * the tool error, and no inbound item stands in for it.
  */
 export function reportFailure(
   emit: (item: InboundItem) => Effect.Effect<void, CollectiveEmitError>,
   failureDelivery: FailureDelivery,
-  send: Effect.Effect<
-    CollectiveSendOutcome,
-    RefusedSend<SendError | CollectiveError>
-  >,
-): Effect.Effect<CollectiveSendOutcome, SendError | CollectiveError> {
+  send: Effect.Effect<CollectiveSendOutcome, OperationRefusal>,
+): Effect.Effect<CollectiveSendOutcome, CollectiveSendError> {
   return send.pipe(
-    Effect.catchAll((refused) => {
-      switch (failureDelivery) {
-        case "result":
-          return Effect.fail(refused.error);
-        case "inbound":
-          return emit({
-            kind: "operationFailed",
-            id: refused.id,
-            to: refused.to,
-            error: refused.error.message,
-          }).pipe(
-            Effect.as({ operationId: refused.id, postIds: [] }),
-            Effect.catchTag("CollectiveEmitError", () =>
-              Effect.fail(refused.error),
-            ),
-          );
-        default: {
-          const exhaustive: never = failureDelivery;
-          return exhaustive;
+    Effect.catchAll(
+      (refused): Effect.Effect<CollectiveSendOutcome, CollectiveSendError> => {
+        if (refused instanceof FirewallSendError) {
+          return Effect.fail(refused);
         }
-      }
-    }),
+        switch (failureDelivery) {
+          case "result":
+            return Effect.fail(refused.error);
+          case "inbound":
+            return emit({
+              kind: "operationFailed",
+              id: refused.id,
+              to: refused.to,
+              error: refused.error.message,
+            }).pipe(
+              Effect.as({ operationId: refused.id, postIds: [] }),
+              Effect.catchTag("CollectiveEmitError", () =>
+                Effect.fail(refused.error),
+              ),
+            );
+          default: {
+            const exhaustive: never = failureDelivery;
+            return exhaustive;
+          }
+        }
+      },
+    ),
   );
+}
+
+/** How a collective operation's send is refused: by the layer, or by the firewall. */
+export type OperationRefusal =
+  | RefusedSend<SendError | CollectiveError>
+  | FirewallSendError;
+
+/**
+ * Tag every refusal but a firewall's with the operation it refuses; a
+ * firewall refusal stays the send's own failure.
+ * @param id The operation the refusal names.
+ * @param to The address its failure item routes to.
+ * @returns The tagging function.
+ */
+export function refuseOperation(id: CollectiveId, to: MessageAddressInput) {
+  return (error: CollectiveSendError): OperationRefusal =>
+    error instanceof FirewallSendError ? error : { id, to, error };
 }
 
 /**

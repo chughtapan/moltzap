@@ -94,7 +94,8 @@ and credential explicitly; the component never reads environment variables.
 | --- | --- |
 | `MessageMiddleware` | Stable `id`, implementation `revision`, registered `rules`, and `check(input)` returning an Effect of `MiddlewareResult` or `MiddlewareError`. |
 | `MiddlewareInput` | Immutable `event`, `context`, and `previous` validated middleware observations. Earlier private traces are excluded. |
-| `MessageContext` | Local agent and principal identity, verified participant attribution, authorized earlier history, owner facts, evidence gaps, and trusted authorization evidence. |
+| `Message` | The checked text with its verified sender and recipients, and the collective `operation` it belongs to: a request, an answer, a result or a failure; absent for a plain message. |
+| `MessageContext` | Local agent and principal identity, verified participant attribution, authorized earlier history, owner facts, evidence gaps, trusted authorization evidence, and the capture time `now`. |
 | `MiddlewareResult` | Per-rule `findings`, contextual norm `expectations`, and optional opaque private `trace`. |
 | `Firewall.checkIncoming` / `checkOutgoing` result | Composed `judgment` and `reason`, permitted `feedback` and `guidance`, and attributed private `checks`. |
 
@@ -209,7 +210,8 @@ The evaluator lives in this folder: `chain.ts` runs middleware, `decision.ts`
 composes findings, `english.ts` adapts English rules, `questions.ts` constructs
 versioned questions, `jev.ts` handles TypeSafe HTTP, and `values.ts` defines the
 shared values. `index.ts` is the module entry point. Client's
-`delivery/firewall.ts` owns live admission; `runtime.ts` here defines the
+`delivery/firewall.ts` owns live admission, every step of a collective
+operation included; `runtime.ts` here defines the
 guidance and send-refusal values exposed to hosts.
 
 Execution diagrams live with their owners:

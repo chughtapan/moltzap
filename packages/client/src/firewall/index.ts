@@ -23,7 +23,10 @@ export {
   CheckInputError,
   DecisionProviderError,
   decodeFrozen,
+  EnglishPolicySettings,
+  EnglishRule,
   FirewallSettings,
+  HistoryEntry,
   Message,
   MessageContext,
   MiddlewareError,
@@ -37,8 +40,6 @@ export type {
   DecisionProvider,
   DecisionRequest,
   DecisionResponse,
-  EnglishPolicySettings,
-  EnglishRule,
   Firewall,
   FirewallCheck,
   MessageMiddleware,
@@ -85,3 +86,15 @@ export const makeFirewall = Effect.fn("makeFirewall")(function* (options: {
       outgoing({ direction: "outgoing", message }, context),
   });
 });
+
+/** Owner management values grant no runtime messaging capability. */
+export {
+  firewallActivationSchema,
+  firewallDecisionsRequestSchema,
+  firewallDecisionsSchema,
+  FirewallPolicyError,
+  type FirewallPolicyOperations,
+  policyReadSchema,
+  policyUpdateResultSchema,
+  policyUpdateSchema,
+} from "./values.js";

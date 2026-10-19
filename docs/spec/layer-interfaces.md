@@ -405,6 +405,19 @@ Four packages publish to npm as one version set: `@moltzap/identity`,
 `@moltzap/router`, `@moltzap/client`, and `@moltzap/openclaw-channel`.
 `@moltzap/nanoclaw-channel` stays private. The simulator is not published.
 
+In v1, a release that changes the wire compatibility value
+(`MOLTZAP_VERSION` / `moltzapVersion`), endpoint store schema, or Registry
+database schema is a reset release. Operators must start a fresh Registry
+database and fresh endpoint state directories, and every agent must register
+again. Certified history from before the reset is not carried forward.
+Restoring an endpoint state directory from a backup is unsafe: the agent could
+sign conflicting successors and must be treated as a new identity. The
+[daemon format rules](./harness/daemon.md#current-formats-and-failures) and
+[Registry persistence rules](./identity.md#registry-persistence) govern version
+mismatches. Release notes mark each reset release with the phrase
+"Reset release"; the
+[upgrade guide](../guides/upgrades.mdx) gives the operator steps.
+
 - One release computes one calendar version, `YYYY.MDD.N`, one past the
   highest counter in the union of the four packages' npm histories and the
   `v<version>` release tags, and writes it into every published manifest.

@@ -13,7 +13,20 @@ Personal firewall composition for code and English policies.
 
 ## Public surface
 
-### [`CheckInputError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L198)
+### [`CheckedGuidance`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/runtime.ts#L60)
+
+_TypeAlias_
+
+```ts
+export type CheckedGuidance = Extract<
+  LocalGuidance,
+  { readonly checkId: string }
+>;
+```
+
+The guidance of one checked text: a message, a request, an answer or a question.
+
+### [`CheckInputError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L241)
 
 _Class_
 
@@ -25,7 +38,7 @@ export class CheckInputError extends Data.TaggedError("CheckInputError")<{
 
 Invalid construction or evidence is a typed failure, never permission.
 
-### [`DecisionProvider`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L323)
+### [`DecisionProvider`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L366)
 
 _Interface_
 
@@ -41,7 +54,7 @@ export interface DecisionProvider {
 
 Entirely code-based chains have no dependency on this optional capability.
 
-### [`DecisionProviderError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L307)
+### [`DecisionProviderError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L350)
 
 _Class_
 
@@ -64,7 +77,7 @@ export class DecisionProviderError extends Data.TaggedError(
 
 The adapter scrubs credentials before retaining optional private diagnostics.
 
-### [`DecisionRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L271)
+### [`DecisionRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L314)
 
 _Interface_
 
@@ -89,7 +102,7 @@ export interface DecisionRequest {
 
 Provider input contains explicit questions and state, never execution authority.
 
-### [`DecisionResponse`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L289)
+### [`DecisionResponse`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L332)
 
 _Interface_
 
@@ -114,7 +127,7 @@ export class DecisionResponse extends Schema.Class<DecisionResponse>(
 
 Raw distributions and provider confidence survive routing unchanged.
 
-### [`EnglishPolicySettings`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L254)
+### [`EnglishPolicySettings`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L297)
 
 _Interface_
 
@@ -130,7 +143,7 @@ export class EnglishPolicySettings extends Schema.Class<EnglishPolicySettings>(
 
 Bytes bound allocation, not tokenizer capacity; probability is a routing setting.
 
-### [`EnglishRule`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L88)
+### [`EnglishRule`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L131)
 
 _Interface_
 
@@ -143,7 +156,7 @@ export class EnglishRule extends Schema.Class<EnglishRule>("EnglishRule")({
 
 Text is interpreted by the provider; it is never compiled into executable code.
 
-### [`Firewall`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L242)
+### [`Firewall`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L285)
 
 _Interface_
 
@@ -162,7 +175,26 @@ export interface Firewall {
 
 Checking returns data; Client separately owns fresh, atomic send/delivery admission.
 
-### [`FirewallSendError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/runtime.ts#L68)
+### [`FirewallPolicyError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L531)
+
+_Class_
+
+```ts
+export class FirewallPolicyError extends Data.TaggedError(
+  "FirewallPolicyError",
+)<{
+  readonly reason:
+    | "not-configured"
+    | "invalid-rule"
+    | "fixed-rule"
+    | "build-failed"
+    | "persistence-failed";
+}> {}
+```
+
+A failed edit never replaces the active installation or retained editable document.
+
+### [`FirewallSendError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/runtime.ts#L109)
 
 _Class_
 
@@ -183,7 +215,7 @@ export class FirewallSendError extends Data.TaggedError("FirewallSendError")<
 A refusal is returned only before an application invocation creates any intent.
 Its opaque check reference survives hosts that retain only the error message.
 
-### [`FirewallSettings`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L188)
+### [`FirewallSettings`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L231)
 
 _Interface_
 
@@ -200,7 +232,7 @@ export class FirewallSettings extends Schema.Class<FirewallSettings>(
 
 Sequential execution is bounded per entry and across the whole attempt.
 
-### [`LocalGuidance`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/runtime.ts#L36)
+### [`LocalGuidance`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/runtime.ts#L57)
 
 _TypeAlias_
 
@@ -274,7 +306,7 @@ flowchart TD
   C --> R[Return all findings and private stage trace]
 ```
 
-### [`makeFirewall`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/index.ts#L63)
+### [`makeFirewall`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/index.ts#L64)
 
 _Variable_
 
@@ -334,7 +366,7 @@ Uses the fixed TypeSafe origin and an explicitly pinned model. No retry,
 environment lookup or credential serialization occurs here. The evaluator
 owns timeouts; the Effect is interruptible through response-body consumption.
 
-### [`Message`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L11)
+### [`Message`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L38)
 
 _Interface_
 
@@ -344,12 +376,14 @@ export class Message extends Schema.Class<Message>("Message")({
   sender: identifier,
   recipients: Schema.NonEmptyArray(identifier),
   text: Schema.String,
+  operation: Schema.optional(messageOperation),
 }) {}
 ```
 
 Attribution is supplied by Client, never inferred from names in the body.
+`operation` is absent for a plain message.
 
-### [`MessageContext`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L29)
+### [`MessageContext`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L74)
 
 _Interface_
 
@@ -365,13 +399,11 @@ export class MessageContext extends Schema.Class<MessageContext>(
       principal: identifier,
     }),
   ),
-  history: Schema.Array(
-    Schema.Struct({
-      ...Message.fields,
-      visibility,
-      admission: Schema.Literal("admitted", "withheld"),
-    }),
-  ),
+  history: Schema.Array(HistoryEntry),
+  /** Older certified records outside the configured window are not an evidence gap. */
+  earlierHistoryOmitted: Schema.optional(Schema.Boolean),
+  /** Epoch milliseconds when Client captured the context, so a deadline can be judged and a check replayed. */
+  now: Schema.optional(Schema.Int.pipe(Schema.nonNegative())),
   facts: Schema.Array(
     Schema.Struct({
       id: identifier,
@@ -392,7 +424,7 @@ Trusted composition supplies authorized earlier evidence and candidate-specific
 approval. Agent identity and principal identity have different meanings.
 The first live composition supplies absent approval.
 
-### [`MessageMiddleware`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L176)
+### [`MessageMiddleware`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L219)
 
 _Interface_
 
@@ -413,7 +445,7 @@ Code and English policies have the same contract. Registered code is trusted;
 it receives no messaging/store capability and must not retain conversation
 state or perform messaging side effects.
 
-### [`MiddlewareError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L142)
+### [`MiddlewareError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L185)
 
 _Class_
 
@@ -430,7 +462,7 @@ export class MiddlewareError extends Data.TaggedError("MiddlewareError")<{
 
 Operational failures carry closed reasons, never arbitrary exception text.
 
-### [`MiddlewareInput`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L163)
+### [`MiddlewareInput`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L206)
 
 _Interface_
 
@@ -446,7 +478,7 @@ export class MiddlewareInput extends Schema.Class<MiddlewareInput>(
 
 Each invocation gets immutable evidence and previously validated observations.
 
-### [`MiddlewareResult`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L133)
+### [`MiddlewareResult`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L176)
 
 _Interface_
 
@@ -462,7 +494,7 @@ export class MiddlewareResult extends Schema.Class<MiddlewareResult>(
 
 A result is atomic: interrupted middleware has no returned partial findings.
 
-### [`RuleDescription`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L72)
+### [`RuleDescription`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L115)
 
 _Interface_
 
