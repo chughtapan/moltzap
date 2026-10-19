@@ -134,6 +134,13 @@ After registration, the trusted-local and owner catalogs include:
 - owner `event_subscription_status`, `revoke_event_subscription` and
   `resume_event_subscription`.
 
+Every listed tool carries a one-sentence description, and input schemas
+describe identifiers, retry keys, address selectors, and pagination tokens.
+Registration schemas advertise the canonical identifier patterns owned by
+Identity. Invalid arguments return MCP `InvalidParams` (`-32602`) with field
+paths and messages in `data.issues`, as specified in
+[management failures](../management.md#closed-failures).
+
 When installed with `Daemon.withFirewall`, the post-registration owner and
 trusted-local catalogs also include these tools. Tunnel runtime authority cannot
 discover or call them; the baseline daemon does not list them.

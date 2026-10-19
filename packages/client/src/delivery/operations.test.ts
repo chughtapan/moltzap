@@ -205,8 +205,7 @@ describe("Harness MCP operation representation", () => {
       ).toBe(true);
     },
   );
-  // A refused collective names each unreachable member with a send failure
-  // reason; a reason outside that vocabulary must not decode.
+  /** A collective refusal keeps the closed send-failure vocabulary for each member. */
   it.each(["unknown-agent", "network-unavailable"])(
     "decodes an unreachable member with send failure reason %s",
     (reason) => {
@@ -220,6 +219,41 @@ describe("Harness MCP operation representation", () => {
       Exit.isFailure(
         Effect.runSyncExit(
           decodeHarnessSendErrorData(unreachableFailure("transport-failed")),
+        ),
+      ),
+    ).toBe(true);
+  });
+});
+
+// @agent-code-guard/regression-only: validation diagnostics must preserve refusals without admitting raw decoder data.
+describe("Harness send validation diagnostics", () => {
+  it.each([
+    { reason: "content-invalid" },
+    {
+      reason: "content-invalid",
+      issues: [
+        { path: [], message: "Expected object" },
+        { path: ["input", "choices", 0], message: "Expected string" },
+      ],
+    },
+  ])(
+    "preserves a content refusal with optional field diagnostics: %j",
+    (data) => {
+      expect(Effect.runSync(decodeHarnessSendErrorData(data))).toEqual(data);
+    },
+  );
+  it.each([
+    { path: [false], message: "Expected string" },
+    { path: ["input"], message: 123 },
+    { path: ["input"], message: "Expected string", rawDecoder: {} },
+  ])("rejects malformed validation diagnostics: %j", (issue) => {
+    expect(
+      Exit.isFailure(
+        Effect.runSyncExit(
+          decodeHarnessSendErrorData({
+            reason: "content-invalid",
+            issues: [issue],
+          }),
         ),
       ),
     ).toBe(true);
