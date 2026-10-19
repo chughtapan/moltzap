@@ -4,6 +4,7 @@ import { AgentId } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import {
   decodeFrozen,
+  firewallActivationSchema,
   FirewallSettings,
   Message,
   MessageContext,
@@ -58,7 +59,7 @@ const firewallAuditInput = exactStruct({
 });
 
 const digest = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u));
-const format = Schema.Literal("moltzap.firewall-audit/v1");
+const format = Schema.Literal("moltzap.firewall-audit/v2");
 const snapshotId = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u));
 
 /** The public author-scoped post identity joins an assessment to endpoint history. */
@@ -117,8 +118,8 @@ const firewallAuditResult = exactStruct({
 
 /**
  * One NDJSON record in an operator-only shutdown snapshot. A complete file has
- * one start, every retained check, and one matching complete record. Its digest
- * covers exactly the UTF-8 check lines including their trailing newlines.
+ * one start, every retained check and activation, and one matching complete record.
+ * Its digest covers the UTF-8 check and activation lines including trailing newlines.
  * Candidate bytes are opaque canonical Client data, encoded as base64. A null
  * result or checking/interrupted disposition never represents permission.
  * The nullable post reference identifies supported messages without decoding candidate bytes.
@@ -149,10 +150,15 @@ export const FirewallAuditRecord = Schema.Union(
     result: Schema.NullOr(firewallAuditResult),
   }),
   exactStruct({
+    kind: Schema.Literal("activation"),
+    ...firewallActivationSchema.fields,
+  }),
+  exactStruct({
     kind: Schema.Literal("complete"),
     format,
     snapshotId,
     checkCount: Schema.NonNegativeInt,
+    activationCount: Schema.NonNegativeInt,
     sha256: digest,
   }),
 ).annotations({ identifier: "FirewallAuditRecord" });

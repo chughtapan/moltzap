@@ -29,8 +29,8 @@ export interface StoreState {
 }
 
 const DATABASE_NAME = "moltzapd.sqlite3";
-/** Persisted layout accepted by this runtime; other layouts require a reset. */
-const SCHEMA_VERSION = 6;
+/** Only this layout can reopen; incompatible endpoint state requires an explicit reset. */
+const SCHEMA_VERSION = 7;
 
 /** An absent or empty database is created; the current schema reopens. */
 export type StoreOpening = "create" | "reopen";
@@ -466,6 +466,24 @@ const schemaSql = `
   ) STRICT;
 `;
 
+const editablePolicySql = `
+  CREATE TABLE firewall_policy (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    canonical_rules BLOB NOT NULL
+  ) STRICT;
+  CREATE TABLE firewall_activations (
+    sequence INTEGER PRIMARY KEY,
+    activated_at INTEGER NOT NULL,
+    active_revision TEXT NOT NULL,
+    added_rule_ids TEXT NOT NULL,
+    removed_rule_ids TEXT NOT NULL
+  ) STRICT;
+  CREATE INDEX firewall_activations_time ON firewall_activations(activated_at);
+  ALTER TABLE firewall_checks ADD COLUMN decided_at INTEGER;
+  CREATE INDEX firewall_decisions_time ON firewall_checks(decided_at)
+    WHERE decided_at IS NOT NULL;
+`;
+
 /** Creates the current schema atomically in an empty database. */
 function createStore(database: DatabaseSync): void {
   transaction(
@@ -474,6 +492,7 @@ function createStore(database: DatabaseSync): void {
       database.exec(schemaSql);
       database.exec(runtimeSchemaSql);
       database.exec(firewallSchemaSql);
+      database.exec(editablePolicySql);
       database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     },
     "EXCLUSIVE",

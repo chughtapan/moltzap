@@ -237,6 +237,7 @@ const failedReadLeavesIncomplete = () =>
       revision: 0,
     });
     const audit = yield* beginFirewallAudit(path, {
+      readFirewallActivations: store.readFirewallActivations,
       readFirewallAuditPage: (after) =>
         after === 0
           ? store.readFirewallAuditPage(after)
@@ -261,6 +262,7 @@ const failedPublicationLeavesIncomplete = () =>
     const fileSystem = yield* FileSystem.FileSystem;
     const store = yield* openEndpointStore(directory);
     const audit = yield* beginFirewallAudit(path, {
+      readFirewallActivations: store.readFirewallActivations,
       readFirewallAuditPage: (after) =>
         fileSystem
           .chmod(directory, 0o500)

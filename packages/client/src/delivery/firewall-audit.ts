@@ -1,7 +1,7 @@
 /** @file Snapshot retained checks after daemon writers stop and before SQLite closes. */
 
 import { DateTime, Effect, Schema } from "effect";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, type Hash, randomBytes } from "node:crypto";
 import type { EndpointStore } from "../store/index.js";
 import {
   appendAuditText,
@@ -15,7 +15,10 @@ import {
   FirewallAuditRecord,
 } from "./firewall-values.js";
 
-type AuditStore = Pick<EndpointStore, "readFirewallAuditPage">;
+type AuditStore = Pick<
+  EndpointStore,
+  "readFirewallAuditPage" | "readFirewallActivations"
+>;
 const encodeLine = Schema.encode(Schema.parseJson(FirewallAuditRecord));
 
 /** A fixed shutdown action has no messaging or policy-mutation authority. */
@@ -33,7 +36,7 @@ export const beginFirewallAudit = (path: string, store: AuditStore) =>
     const destination = yield* privateAuditPath(path);
     const start: FirewallAuditRecord = {
       kind: "start",
-      format: "moltzap.firewall-audit/v1",
+      format: "moltzap.firewall-audit/v2",
       snapshotId: randomBytes(32).toString("hex"),
       startedAt: yield* DateTime.now,
     };
@@ -81,13 +84,45 @@ function exportSnapshot(
         after = entry.sequence;
       }
     }
+    const activationCount = yield* exportActivations(file, store, digest);
     yield* appendRecord(file, {
       kind: "complete",
       format: start.format,
       snapshotId: start.snapshotId,
       checkCount,
+      activationCount,
       sha256: digest.digest("hex"),
     });
+  });
+}
+
+function exportActivations(file: AuditFile, store: AuditStore, digest: Hash) {
+  return Effect.gen(function* () {
+    let after = 0;
+    let activationCount = 0;
+    while (true) {
+      const page = yield* store
+        .readFirewallActivations({ after })
+        .pipe(
+          Effect.catchTag("EndpointStoreError", () =>
+            Effect.fail(new FirewallAuditError({ reason: "records" })),
+          ),
+        );
+      if (page.length === 0) {
+        break;
+      }
+      for (const entry of page) {
+        const line = yield* recordLine({
+          kind: "activation",
+          ...entry.activation,
+        });
+        yield* appendAuditText(file, line);
+        digest.update(line);
+        activationCount += 1;
+        after = entry.sequence;
+      }
+    }
+    return activationCount;
   });
 }
 

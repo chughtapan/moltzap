@@ -70,6 +70,7 @@ const competingWriterPreservesStaging = () =>
     const release = yield* Deferred.make<undefined>();
     const fileSystem = yield* FileSystem.FileSystem;
     const audit = yield* beginFirewallAudit(path, {
+      readFirewallActivations: () => Effect.succeed([]),
       readFirewallAuditPage: () =>
         Deferred.succeed(entered, undefined).pipe(
           Effect.zipRight(Deferred.await(release)),

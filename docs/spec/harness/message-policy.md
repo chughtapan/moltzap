@@ -14,16 +14,16 @@ items carry local guidance about whether to respond and what to address.
 The [approved architecture decision](https://github.com/social-harness/docs-internal/pull/97)
 places both middleware chains in Client, with one interface for code and English
 policies. It keeps local norm guidance distinct from peer content and returns
-actionable send-call feedback when a message is withheld. Configuration
-interfaces, live policy activation and authenticated human approval channels
-are deferred. Current normative specifications remain the implementation
+actionable send-call feedback when a message is withheld. Owner-authority tools edit English rules and activate policy in process.
+Authenticated human approval channels remain deferred. Current normative specifications remain the implementation
 baseline.
 
 `@moltzap/client/service` exposes the standalone evaluator and
 `Daemon.withFirewall(options)`, which installs it in the daemon's incoming
 and outgoing message paths. Code and English policies implement the same
-`MessageMiddleware` interface. A fixed installation captures the rules, owner
-facts, settings and provider/model provenance before the listener opens.
+`MessageMiddleware` interface. An installation captures fixed code and English rules, owner facts, settings
+and provider/model provenance before the listener opens. Editable English rules
+are restored from the daemon store.
 `Daemon.layer` remains the baseline composition without message checks.
 
 See [delivery/firewall.ts](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/firewall.ts) →
@@ -87,7 +87,7 @@ release API.
 
 ## Middleware execution
 
-Each direction installs a nonempty, ordered list of middleware. The runner copies
+Each direction installs an ordered list of middleware, which may be empty. The runner copies
 and freezes registration metadata and input data, then supplies each check with
 the original event, context and earlier validated observations. Those observations
 exclude private traces. There is no middleware-owned `next()` callback.
@@ -135,7 +135,7 @@ budget or held. Provider timeouts and cancellation are explicit.
 
 The initial bounded catalog and authorized history are supplied in full within
 the configured budget. Required omitted context causes a hold. Retrieval
-pruning, summaries, caching and dynamic chains are later experiments.
+pruning, summaries and caching are later experiments.
 
 The English adapter ignores previous middleware observations because they may be
 derived from an outgoing draft. Outgoing expectations also exclude the draft's
@@ -256,8 +256,14 @@ import { Daemon } from "@moltzap/client/service";
 
 const daemon = Daemon.withFirewall({
   mode: "enforcement",
-  incoming: [englishPolicy],
-  outgoing: [englishPolicy],
+  incoming: [fixedIncomingMiddleware],
+  outgoing: [fixedOutgoingMiddleware],
+  english: {
+    fixedRules: fixedEnglishRules,
+    initialRules: initialEditableRules,
+    provider: jevProvider,
+    settings: englishSettings,
+  },
   settings,
   facts: ownerFacts,
   codeDigest: experimentCodeSha256,
@@ -266,12 +272,63 @@ const daemon = Daemon.withFirewall({
 });
 ```
 
-The supplied middleware, settings and facts are captured for that process.
+The supplied code middleware, fixed English rules, provider, settings and facts
+are captured for that process. `english` is optional; its `fixedRules` and
+`initialRules` default to empty arrays. `initialRules` seeds only a missing
+editable document, never an existing document, including an empty one.
 `maximumHistoryRecords` sets the recent certified-record window per candidate
 conversation in both directions (default 256, range 1–1024).
 `codeDigest` is the operator's SHA-256 identifier for the experiment code; it is
-recorded, not independently attested. No model-facing policy mutation tool or new
-environment variable is introduced. Approval evidence remains absent.
+recorded, not independently attested. Approval evidence remains absent.
+
+### Editable English policy
+
+The daemon owns a durable editable document of at most 256 rules. Each rule has
+`{id, kind: "norm" | "autonomy" | "safety", text, guidance?, feedback?}`;
+`feedback` is `{text, nextAction}` as in `EnglishRule`. A norm requires a nonempty
+`guidance` template. Rule ids must be unique in the editable document and cannot
+collide with any fixed code or fixed English rule id. Fixed English text is
+installed by trusted composition and cannot be read, removed or replaced through
+policy editing tools; `policy_read` exposes only its ids.
+
+The owner-only [MCP policy tools](./daemon.md#mcp-catalog) validate an edit, build
+both replacement chains, atomically persist the editable document and an
+activation record, and activate it before returning `activeRevision`. Each chain
+consists of its fixed code middleware,
+then one English middleware (`moltzap.english`) over fixed plus editable English
+rules. That middleware id is reserved when English rules are present. With no
+English rules, it is omitted; an entirely empty chain still validates input and
+required evidence without invoking a provider.
+
+Updates are serialized. Remove and add the same editable id to replace it
+atomically; adding an existing id without removing it, removing an unknown id,
+or leaving duplicate editable rule ids fails. A no-op edit may return the same revision.
+`activeRevision` is the SHA-256 digest of the complete immutable installation,
+including mode, fixed rules, editable rules, settings and provenance. Identical
+installations across restarts have the same revision; it is not an increasing
+counter. Every successful update, including a no-op, retains its activation time
+in Unix milliseconds, `activeRevision`, `addedRuleIds` and `removedRuleIds`.
+Replacing an id lists it in both arrays. Activation records add no rule text,
+guidance, feedback or provider traces. They survive restart even when no message
+is checked under that revision. Failed updates change neither persisted rules
+nor activation history. The owner decisions feed exposes them in a parallel `activations`
+array, as specified by the [daemon](./daemon.md#mcp-catalog).
+
+Each check captures one active installation before constructing context and
+running middleware. Checks already in flight finish on that installation;
+later checks capture the replacement. A replacement build failure returns a
+closed `FirewallPolicyError` (`build-failed`) and keeps the previous document and
+chain. Other reasons are `invalid-rule`, `fixed-rule`, `not-configured` (English
+rules without a configured provider), and `persistence-failed`. Persist and swap
+are uninterruptible once started. Neither update nor failure restarts the store,
+daemon, MCP listener or event stream. Inference permits are shared across revisions.
+
+Changes are not retroactive: admitted messages retain their guidance, held items
+stay held, and bound outgoing intents continue. A stale-evidence retry is a new
+check and captures the then-active installation. Policy swaps themselves do not
+invalidate checks already in flight. Every retained attempt records its immutable
+installation and digest; the v1 audit exposes that digest as `input.configurationDigest`, equal to the
+decisions feed’s `activeRevision` and separate from the evidence `revision`.
 
 Both directions share a bounded inference semaphore. Incoming workers serialize
 within each conversation and progress independently across conversations. Checks
@@ -305,8 +362,9 @@ an unavailable check; guidance mode admits without that advice. Peer text is
 never relabelled as a registered instruction.
 
 The current store contains the private incoming queue, evidence revision and
-check records alongside identity, protocol, inbox and invocation state. It
-reopens only the current schema; earlier state requires a reset. Checks retain
+check and activation records alongside identity, protocol, inbox and invocation
+state. Only schema 7 reopens; earlier state requires an explicit reset under the
+[reset release policy](../layer-interfaces.md#publication-and-versions). Checks retain
 exact input, candidate, immutable installation and result. Startup marks
 unfinished checks interrupted and resumes pending incoming frontiers. A held
 item stays held. Previously admitted items remain readable with their original
@@ -379,18 +437,21 @@ leave at most this one staging file, which the next successful startup reclaims.
 Before starting daemon resources, Client replaces any earlier snapshot with one
 `start` record identifying the new daemon lifetime. Failure prevents startup.
 On graceful shutdown, Client stops and joins its workers and MCP request
-operations, including their finalizers, then reads every retained check in bounded
-pages while the endpoint store remains open and publishes the snapshot. There is
+operations, including their finalizers, then reads every retained check and
+activation in bounded pages while the endpoint store remains open and publishes the snapshot. There is
 no periodic export or live-tail guarantee. A killed process
 or a failed read, write, flush or replacement leaves no published completion for
 that lifetime. An export failure fails shutdown. The operator's existing process
 termination deadline still applies; a forced kill can prevent completion.
 
 Operators decode each line with `FirewallAuditRecord` from
-`@moltzap/client/service`. The `moltzap.firewall-audit/v1` format has one `start`,
-zero or more `check` records, and one `complete` record. The start and completion
-must have the same `snapshotId`; the completion's `checkCount` and `sha256` must
-match all emitted check lines, including each trailing newline, in file order.
+`@moltzap/client/service`. The `moltzap.firewall-audit/v2` format has one `start`,
+zero or more `check` records, zero or more `activation` records, and one
+`complete` record. Activations follow checks in activation sequence order and
+carry the same metadata as the decisions feed. The start and completion must
+have the same `snapshotId`; the completion's `checkCount` and `activationCount`
+must match their respective records. Its `sha256` covers every check and
+activation line, including each trailing newline, in file order.
 Missing or malformed records, truncation, or a mismatched count or digest make
 the artifact incomplete. Check records preserve the exact semantic input,
 installation metadata, private provider traces, judgment and applied disposition.
@@ -437,5 +498,5 @@ comparison does not isolate the contribution of each direction.
 A message gate cannot undo a prior tool action, prove an unseen calendar change,
 guarantee that an agent follows a reminder, or detect hidden collusion without
 evidence. Measure those outcomes separately. Approval fixtures do not qualify
-human authentication. Dynamic chains, live configuration, human approval UX and
-other client integrations are follow-up work.
+human authentication. Human approval UX, editable code/provider configuration and other client
+integrations are follow-up work.

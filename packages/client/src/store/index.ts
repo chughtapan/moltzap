@@ -19,6 +19,7 @@ export type {
   EmptyConversationRestart,
   EndpointRecovery,
   EndpointStore,
+  FirewallActivation,
   FirewallAttempt,
   FirewallAuditEntry,
   FirewallCommit,
