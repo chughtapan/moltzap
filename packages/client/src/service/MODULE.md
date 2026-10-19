@@ -8,6 +8,10 @@ Production composition for one explicitly configured endpoint daemon.
 
 ## Public surface
 
+### [`Daemon`](./index.ts#L61)
+
+_Namespace_
+
 ### [`FirewallOptions`](./index.ts#L63)
 
 _TypeAlias_
@@ -24,7 +28,7 @@ _TypeAlias_
 
 Trusted fixed process composition; agents receive no policy mutation capability.
 
-### [`layer`](./index.ts#L129)
+### [`layer`](./index.ts#L127)
 
 _Variable_
 
@@ -36,18 +40,12 @@ _Variable_
 
 Complete production process composition for `moltzapd`.
 
-### [`MoltZapService`](./index.ts#L61)
-
-_Namespace_
-
 ### [`StartupError`](./index.ts#L72)
 
 _Class_
 
 ```ts
-  export class StartupError extends Data.TaggedError(
-    "MoltZapServiceStartupError",
-  )<{
+  export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
   }> {
     /**
@@ -62,7 +60,7 @@ _Class_
 
 Closed daemon startup phase without configuration or platform detail.
 
-### [`withFirewall`](./index.ts#L138)
+### [`withFirewall`](./index.ts#L136)
 
 _Function_
 

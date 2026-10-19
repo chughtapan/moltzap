@@ -17,7 +17,7 @@ import {
 } from "openclaw/plugin-sdk/channel-inbound";
 import { describe, expect, vi } from "vitest";
 
-import { createMoltzapChannelPlugin } from "./plugin.js";
+import { createChannelPlugin } from "./plugin.js";
 
 const ACCOUNT_ID = "primary";
 const CONFIG: OpenClawConfig = {
@@ -31,7 +31,7 @@ const SLOT_SCHEMA = {
 };
 const OPERATION_ID = collectiveId();
 
-type MoltZapPlugin = ReturnType<typeof createMoltzapChannelPlugin>;
+type Plugin = ReturnType<typeof createChannelPlugin>;
 
 class OutboundLogTestError extends Data.TaggedError("OutboundLogTestError")<{
   readonly operation: string;
@@ -133,10 +133,10 @@ function refusedSendLogsTheFailure() {
  * `send`, and returns its outcome with the gateway log lines written so far.
  */
 function sendThroughConnectedAccount<A, E>(
-  send: (plugin: MoltZapPlugin) => Effect.Effect<A, E | OutboundLogTestError>,
+  send: (plugin: Plugin) => Effect.Effect<A, E | OutboundLogTestError>,
   result: Effect.Effect<SendResult, CollectiveError>,
 ) {
-  const plugin = createMoltzapChannelPlugin({
+  const plugin = createChannelPlugin({
     harnessEndpointForAccount: () => ({
       send: () => result,
       messages: Stream.never,
@@ -157,7 +157,7 @@ function sendThroughConnectedAccount<A, E>(
 }
 
 function startAccount(
-  plugin: MoltZapPlugin,
+  plugin: Plugin,
   abortSignal: AbortSignal,
   logLines: string[],
 ) {
@@ -234,7 +234,7 @@ function waitForConnected(logLines: readonly string[]) {
 }
 
 function runMessageAction(
-  plugin: MoltZapPlugin,
+  plugin: Plugin,
   action: "send" | "reply",
   to: string,
   message: string,
@@ -256,7 +256,7 @@ function runMessageAction(
   });
 }
 
-function runSendText(plugin: MoltZapPlugin, to: string, text: string) {
+function runSendText(plugin: Plugin, to: string, text: string) {
   const sendText = plugin.message?.send?.text;
   if (sendText === undefined) {
     return Effect.fail(testError("sendText", "missing OpenClaw text sender"));

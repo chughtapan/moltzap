@@ -4,38 +4,29 @@
  */
 
 import type { Layer, Types } from "effect";
-import type { MoltZapService } from "./index.js";
+import type { Daemon } from "./index.js";
 
 type Expect<Value extends true> = Value;
 
 type NamespaceIsExact = Expect<
-  Types.Equals<
-    keyof typeof MoltZapService,
-    "StartupError" | "layer" | "withFirewall"
-  >
+  Types.Equals<keyof typeof Daemon, "StartupError" | "layer" | "withFirewall">
 >;
-type StartupValue = InstanceType<typeof MoltZapService.StartupError>;
+type StartupValue = InstanceType<typeof Daemon.StartupError>;
 type StartupTagIsExact = Expect<
-  Types.Equals<StartupValue["_tag"], "MoltZapServiceStartupError">
+  Types.Equals<StartupValue["_tag"], "DaemonStartupError">
 >;
 type StartupPhaseIsExact = Expect<
   Types.Equals<StartupValue["phase"], "configuration" | "storage" | "listener">
 >;
 type LayerIsExact = Expect<
-  Types.Equals<
-    typeof MoltZapService.layer,
-    Layer.Layer<never, MoltZapService.StartupError>
-  >
+  Types.Equals<typeof Daemon.layer, Layer.Layer<never, Daemon.StartupError>>
 >;
 type AuditPathIsOptional = Expect<
-  Types.Equals<
-    MoltZapService.FirewallOptions["auditExport"],
-    string | undefined
-  >
+  Types.Equals<Daemon.FirewallOptions["auditExport"], string | undefined>
 >;
 
 /** Compile-time witnesses for the closed Client process boundary. */
-export type MoltZapServiceCanaries = [
+export type DaemonCanaries = [
   NamespaceIsExact,
   StartupTagIsExact,
   StartupPhaseIsExact,

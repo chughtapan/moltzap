@@ -24,7 +24,7 @@ export const MOLTZAP_VERSION_LITERAL =
  * @param workspaceRoot Absolute workspace root.
  * @returns The trimmed literal, or an error message.
  */
-export const readMoltzapVersion = (
+export const readCompatibilityVersion = (
   workspaceRoot: string,
 ): { readonly value: string } | { readonly error: string } => {
   const filePath = resolve(workspaceRoot, MOLTZAP_VERSION_SOURCE);

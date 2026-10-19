@@ -47,7 +47,7 @@ export interface DaemonStartup {
 }
 
 /** The running daemon the lifecycle composes into MCP operations. */
-export interface Daemon {
+export interface RunningDaemon {
   /** The registration status reads; active from the bind commit on. */
   readonly readRegistration: () => DaemonRegistrationState;
   /**
@@ -332,7 +332,7 @@ const assembleDaemon = ({
   changes,
   reconciler,
   initialize,
-}: DaemonAssembly): Daemon => ({
+}: DaemonAssembly): RunningDaemon => ({
   readRegistration: () => environment.state.registration,
   protocolActive: () => environment.state.activeProtocol !== undefined,
   activateRegistered: (agentCard) =>
@@ -361,7 +361,11 @@ const assembleDaemon = ({
  */
 export const makeDaemon = (
   input: DaemonInput,
-): Effect.Effect<Daemon, DaemonRuntimeError, Registry | Router | Scope.Scope> =>
+): Effect.Effect<
+  RunningDaemon,
+  DaemonRuntimeError,
+  Registry | Router | Scope.Scope
+> =>
   Effect.gen(function* () {
     const daemonScope = yield* Scope.Scope;
     const activationGate = yield* Effect.makeSemaphore(1);

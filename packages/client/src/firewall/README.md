@@ -6,7 +6,7 @@ ordered middleware. A code policy and an English policy implement the same
 `checkOutgoing`; each returns a judgment, registered advice, and private audit.
 The component is available through `@moltzap/client/service`.
 
-`MoltZapService.withFirewall` installs the chains at Client's incoming and
+`Daemon.withFirewall` installs the chains at Client's incoming and
 outgoing message boundaries. Client retains admission decisions and send-call
 errors; OpenClaw presents local guidance and refusal feedback to the agent.
 See the [runtime specification](../../../../docs/spec/harness/message-policy.md)

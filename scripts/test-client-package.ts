@@ -149,7 +149,7 @@ const received = await Effect.runPromise(firewall.checkIncoming(incoming, contex
 if (received.judgment !== "allow") {
   throw new Error("Client code middleware could not admit an incoming message");
 }
-const invalidInstallation = service.MoltZapService.withFirewall({
+const invalidInstallation = service.Daemon.withFirewall({
   mode: "enforcement", incoming: [], outgoing: [], facts: [], codeDigest: "0".repeat(64),
   auditExport: "/operator/private/firewall-audit.ndjson",
   settings: { timeoutMilliseconds: 10000, middlewareTimeoutMilliseconds: 5000,
@@ -158,7 +158,7 @@ const invalidInstallation = service.MoltZapService.withFirewall({
 const startupError = await Effect.runPromise(
   Effect.scoped(Layer.build(invalidInstallation)).pipe(Effect.flip),
 );
-if (!(startupError instanceof service.MoltZapService.StartupError) ||
+if (!(startupError instanceof service.Daemon.StartupError) ||
     startupError.phase !== "configuration") {
   throw new Error("Invalid firewall installation did not stop daemon startup");
 }
