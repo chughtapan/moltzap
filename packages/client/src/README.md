@@ -27,8 +27,8 @@ entrypoints are `mcp/index.ts`, `harness-endpoint/index.ts`, and
   history export, and the operations hosts call on them.
 - `endpoint/`: the loopback MCP, owner tools, and `HarnessEndpoint`.
 - `service/`: the always-on daemon process that composes the rest;
-  `bin/moltzapd` is its entry point.
+  `bin/sharnessd` is its entry point.
 
 `index.ts` re-exports the adapter-facing values each domain owns. The exact
-registration, recovery, and `moltzapd` process contracts live in the daemon and
+registration, recovery, and `sharnessd` process contracts live in the daemon and
 management specifications; keep implementation details behind `./service`.

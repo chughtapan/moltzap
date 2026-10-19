@@ -8,7 +8,6 @@ import {
   type AgentId,
   SignedMessage,
   type SignedMessage as SignedMessageValue,
-  WIRE_VERSION,
 } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
@@ -183,12 +182,12 @@ export function assembleCompletedReanchor(
         return Effect.fail(persistenceFailure());
       }
       const completed: CompletedReanchorValue = {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: body.sharnessVersion,
         kind: "completed_reanchor",
         anchorHash,
         reanchor: body,
         certificate: {
-          moltzapVersion: WIRE_VERSION,
+          sharnessVersion: body.sharnessVersion,
           kind: "reanchor_certificate",
           anchorHash,
           votes: ordered,

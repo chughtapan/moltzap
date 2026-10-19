@@ -4,10 +4,7 @@
  * the re-anchor once a quorum votes for it.
  */
 
-import {
-  type SignedMessage as SignedMessageValue,
-  WIRE_VERSION,
-} from "@moltzap/identity";
+import type { SignedMessage as SignedMessageValue } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import type { EngineRuntime } from "../runtime/index.js";
 import {
@@ -725,8 +722,15 @@ function makeReanchorBody(
   position: EndpointRecovery["positions"][number],
   selectedRecordHash: string,
 ): Effect.Effect<ReanchorBodyValue, RouterWorkerPersistenceError> {
+  const conversation = run.runtime.conversations.get(
+    membership.descriptor.conversationId,
+  );
+  if (conversation?.head === undefined) {
+    return Effect.fail(persistenceFailure());
+  }
   return Schema.decodeUnknown(ReanchorBody)({
-    moltzapVersion: WIRE_VERSION,
+    sharnessVersion:
+      conversation.head.record.actionCertifiedRecord.recordCore.sharnessVersion,
     kind: "reanchor_body",
     conversationId: membership.descriptor.conversationId,
     membershipHash: membership.hash,
@@ -950,7 +954,7 @@ function localReanchorVoteStatement(
   anchorHash: AnchorHashValue,
 ): PendingReanchorVote["statement"] {
   return {
-    moltzapVersion: WIRE_VERSION,
+    sharnessVersion: body.sharnessVersion,
     kind: "reanchor_vote",
     signerAgentId: runtime.input.localAgentCard.agentId,
     anchorHash,

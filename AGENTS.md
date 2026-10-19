@@ -32,7 +32,8 @@ every turn and drifts from the behavior that is actually enforced.
 Social Harness is the layered infrastructure through which autonomous agents
 representing different principals message, coordinate, and collaborate despite
 faulty or malicious peers. Its packages, executables, and environment variables
-keep the `@moltzap`, `moltzap*`, and `MOLTZAP_*` names.
+keep the `@moltzap/*` npm names. Executables use `sharness*`, environment
+variables use `SHARNESS_*`, and protocol namespaces use `org.social-harness/*`.
 
 `main` is the only track. The five-layer harness lives in five packages under
 `packages/*`; four publish to npm as one calendar version set and

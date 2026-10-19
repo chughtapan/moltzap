@@ -4,7 +4,7 @@
  * engine builds and the records it restores from the store.
  */
 
-import { SignedMessage, WIRE_VERSION } from "@moltzap/identity";
+import { SignedMessage } from "@moltzap/identity";
 import { Effect, type ParseResult, Schema } from "effect";
 import {
   type ActionCertifiedRecord,
@@ -59,13 +59,13 @@ export function actionCertifiedRecord(
   signatures: CertificateSignatures,
 ): ActionCertifiedRecord {
   return {
-    moltzapVersion: WIRE_VERSION,
+    sharnessVersion: recordCore.sharnessVersion,
     kind: "action_certified_record",
     recordHash,
     recordCore,
     routerAnchor,
     actionCertificate: {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: recordCore.sharnessVersion,
       kind: "action_certificate",
       actionHash: recordCore.actionHash,
       signatures,
@@ -84,11 +84,11 @@ export function certifiedRecord(
   votes: CertificateSignatures,
 ): CertifiedRecord {
   return {
-    moltzapVersion: WIRE_VERSION,
+    sharnessVersion: record.recordCore.sharnessVersion,
     kind: "certified_record",
     actionCertifiedRecord: record,
     durabilityCertificate: {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: record.recordCore.sharnessVersion,
       kind: "durability_certificate",
       recordHash: record.recordHash,
       votes,

@@ -294,7 +294,7 @@ const acceptsOmittedSubscribeCursor = () =>
   Effect.gen(function* () {
     const { endpoint } = yield* acquireEventsServer;
     const omittedCursor = yield* rawRequest(endpoint, "events/subscribe", {
-      name: "moltzap.inbox.item",
+      name: "org.social-harness/inbox.item",
       arguments: {},
       delivery: {
         mode: "webhook",

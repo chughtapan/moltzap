@@ -11,17 +11,17 @@ import { decodeCanonical } from "../transport/wire/index.js";
  * began is inactive and forwards nothing.
  * @param store Store that owns the outbox row.
  * @param outbound Receives each envelope the Router accepts.
- * @param outboundId Outbox row to transmit.
+ * @param messageId Outbox row to transmit.
  * @param transit Time the envelope spends between beginning and completing.
  * @returns Completion once the row is handled.
  */
 export function forwardStoredOutbound(
   store: EndpointStore,
   outbound: Queue.Queue<SignedMessage>,
-  outboundId: string,
+  messageId: string,
   transit?: Duration.DurationInput,
 ): Effect.Effect<void> {
-  return store.beginOutbound(outboundId).pipe(
+  return store.beginOutbound(messageId).pipe(
     Effect.flatMap((attempt) => {
       switch (attempt.kind) {
         case "inactive":

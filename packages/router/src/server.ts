@@ -40,11 +40,16 @@ export namespace RouterServer {
   )<{
     readonly phase: "configuration" | "listener";
     readonly detail?: string;
+    readonly reason?: "legacy-key";
+    readonly keys?: readonly string[];
   }> {
     /** Rejected environment values never enter the operator message. */
     override get message(): string {
-      const detail = this.detail === undefined ? "" : `: ${this.detail}`;
-      return `moltzap-router startup failed in phase ${this.phase}${detail}`;
+      const keys = this.keys === undefined ? "" : `: ${this.keys.join(", ")}`;
+      const reason =
+        this.reason === undefined ? "" : ` (${this.reason}${keys})`;
+      const detail = this.detail === undefined ? reason : `: ${this.detail}`;
+      return `sharness-router startup failed in phase ${this.phase}${detail}`;
     }
   }
 
@@ -63,7 +68,7 @@ export namespace RouterServer {
       Effect.provide(NodeHttpServer.layerContext),
     );
     yield* Console.log(
-      `moltzap-router listening on ${listeningUrl(httpServer.address)} (package ${packageJson.version}; WIRE_VERSION ${WIRE_VERSION})`,
+      `sharness-router listening on ${listeningUrl(httpServer.address)} (package ${packageJson.version}; WIRE_VERSION ${WIRE_VERSION})`,
     );
   }).pipe(Effect.withSpan("RouterServer.layer"));
 
@@ -72,7 +77,7 @@ export namespace RouterServer {
    *
    * ```mermaid
    * flowchart LR
-   *   Binary["moltzap-router"] --> Server["RouterServer.layer"]
+   *   Binary["sharness-router"] --> Server["RouterServer.layer"]
    *   Server --> App["buildRouterApp"]
    *   App --> Http["makeRouterHttpApp"]
    *   Http --> Authentication["AuthenticatedHttp"]
@@ -89,11 +94,11 @@ export namespace RouterServer {
     return Effect.gen(function* () {
       const routerInstanceId = yield* Effect.try({
         try: generateRouterInstanceId,
-        catch: configurationFailure,
+        catch: () => new StartupError({ phase: "configuration" }),
       });
       const cursorKey = yield* Effect.try({
         try: generatePollCursorKey,
-        catch: configurationFailure,
+        catch: () => new StartupError({ phase: "configuration" }),
       });
       const feed = yield* makeRouterFeed({
         routerInstanceId,
@@ -143,9 +148,14 @@ export namespace RouterServer {
     }).pipe(Layer.provide(registryLayer));
   }
 
-  function configurationFailure(cause: unknown) {
+  function configurationFailure(
+    cause: Effect.Effect.Error<typeof loadRouterConfiguration>,
+  ) {
     return new StartupError({
       phase: "configuration",
+      ...(cause._tag === "LegacyConfigurationError"
+        ? { reason: "legacy-key" as const, keys: cause.keys }
+        : {}),
       detail: ConfigError.isConfigError(cause)
         ? configurationMessage(cause)
         : undefined,

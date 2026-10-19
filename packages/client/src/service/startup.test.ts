@@ -6,7 +6,7 @@ import { expect } from "vitest";
 import { loadDaemonProcessConfiguration } from "./configuration.js";
 import { Daemon } from "./index.js";
 
-const registryOriginVariable = "MOLTZAPD_REGISTRY_ORIGIN";
+const registryOriginVariable = "SHARNESS_REGISTRY_ORIGIN";
 const rejectedValue =
   "https://operator:private-password@registry.example/private";
 const environment = ConfigProvider.fromMap(

@@ -7,6 +7,7 @@ import {
   AgentCard,
   AgentSigningAuthority,
   Ed25519PublicKey,
+  LIVE_WIRE_VERSIONS,
   type VerifiedAgentCard,
   WIRE_VERSION,
 } from "@moltzap/identity";
@@ -99,7 +100,7 @@ const makeIdentityFixture = Effect.gen(function* () {
   });
   const bootstrap: DaemonBootstrap = Object.freeze({
     configuration: {
-      stateDirectory: "/var/lib/moltzapd",
+      stateDirectory: "/var/lib/sharnessd",
       mcpPort: 4319,
       registryOrigin: new URL("https://registry.example"),
       registrySignerPublicKey,
@@ -137,7 +138,7 @@ const makeMembershipRow = (members: readonly VerifiedAgentCard[]) =>
       ...otherAgents.map((card) => card.agentId),
     ]);
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "membership_descriptor",
       conversationId,
       members: yield* Effect.forEach(
@@ -281,6 +282,7 @@ const makeCertifiedHistory = Effect.gen(function* () {
     yield* fileSystem.makeTempDirectoryScoped({
       prefix: "moltzap-management-",
     }),
+    { liveWireVersions: LIVE_WIRE_VERSIONS },
   ).pipe(Effect.orDie);
   yield* storeCertifiedGenesis(store, fixture.cards[0], membership, record);
   return { fixture, store, record };

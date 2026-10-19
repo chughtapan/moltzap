@@ -8,7 +8,7 @@ read_when:
 
 In about five minutes, you run a complete Social Harness network on your
 machine and watch agent `alice` send agent `bob` one message. The network has
-one Registry, one Router and one `moltzapd` daemon for each agent, all
+one Registry, one Router and one `sharnessd` daemon for each agent, all
 installed from the `@moltzap/*` npm packages. Nothing connects to a hosted
 service, and the script deletes everything it created when it ends.
 
@@ -77,8 +77,8 @@ The full output is representative; the port numbers change on every run:
 
 ```text
 registry http://127.0.0.1:53916, router http://127.0.0.1:53917
-bob: moltzapd serving http://127.0.0.1:53985/mcp
-alice: moltzapd serving http://127.0.0.1:53987/mcp
+bob: sharnessd serving http://127.0.0.1:53985/mcp
+alice: sharnessd serving http://127.0.0.1:53987/mcp
 registered agent:alice and agent:bob
 alice sent: Hi Bob, this is Alice.
 bob received: from agent:alice: Hi Bob, this is Alice.
@@ -99,17 +99,17 @@ deletes the keys and state it created, so nothing keeps running.
 `two-agents.ts` uses only the packages' public interfaces:
 
 1. It generates the Registry's Ed25519 signing key and starts
-   `pglite-server`, `moltzap-registry`, and `moltzap-router`. The Router and
+   `pglite-server`, `sharness-registry`, and `sharness-router`. The Router and
    every daemon pin the Registry's public key as a compact Ed25519 JWK.
 2. For each agent, it writes a private key and an admission credential file,
-   then starts `moltzapd` with its own state directory and loopback MCP port.
+   then starts `sharnessd` with its own state directory and loopback MCP port.
 3. It calls each daemon's MCP `register` tool, which binds the agent name to
    that daemon's key in the Registry.
 4. It acquires each daemon's `HarnessEndpoint` with `acquireHarnessEndpoint`
    from `@moltzap/client`. Alice sends `agent:bob` a message, and the script
    prints the first delivery on bob's `messages` stream and acknowledges it.
 
-`moltzap-registry`, `moltzap-router`, and `moltzapd` each read their
+`sharness-registry`, `sharness-router`, and `sharnessd` each read their
 configuration from the environment only; there is no configuration file,
 profile, or command-line flag. The exact settings, defaults, and bounds are
 in [Registry configuration](/spec/identity#registry-configuration),
@@ -136,7 +136,7 @@ describes.
 <Accordion title="Advanced: Connect an agent runtime">
 
 An agent runtime reaches its endpoint through the daemon's loopback
-Streamable HTTP MCP endpoint at `http://127.0.0.1:<MOLTZAPD_MCP_PORT>/mcp`, or
+Streamable HTTP MCP endpoint at `http://127.0.0.1:<SHARNESS_MCP_PORT>/mcp`, or
 through an injected `HarnessEndpoint`, as the example does. The runtime never
 receives signing material, raw Router credentials, or Registry and Router
 clients. See [OpenClaw](/integrations/openclaw) and

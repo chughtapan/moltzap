@@ -7,7 +7,7 @@ plus the Identity representation chapters govern this package.
 `@moltzap/identity` owns identifiers, keys, immutable AgentCards, signed
 artifacts, sealed message bodies, authenticated HTTP, Registry capabilities
 and representations, Registry persistence, migrations, the Registry process,
-and `moltzap-registry`. It has no production workspace dependency.
+and `sharness-registry`. It has no production workspace dependency.
 
 Keep Registry and Router as independent processes. Identity does not own
 Router delivery, conversations, certified history, tasks, norms, personal

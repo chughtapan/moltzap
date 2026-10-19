@@ -317,15 +317,14 @@ export interface PendingDelivery extends InboundDeliveryInput {
 
 /** Canonical complete outer message before it receives a stable outbox key. */
 export interface OutboundMessageInput {
+  readonly wireVersion: string;
   readonly conversationId: string;
   readonly messageId: string;
   readonly canonicalSignedMessage: Uint8Array;
 }
 
-/** Current complete outer envelope retained under its initial message identity. */
-export interface StoredOutboundMessage extends OutboundMessageInput {
-  readonly outboundId: string;
-}
+/** One immutable signed envelope retained under its message identity. */
+export type StoredOutboundMessage = OutboundMessageInput;
 
 /**
  * A staged action-certified record this endpoint still owes its members,
@@ -602,7 +601,7 @@ export interface EndpointStore {
     message: OutboundMessageInput,
   ) => Effect.Effect<StoredOutboundMessage, EndpointStoreError>;
   readonly beginOutbound: (
-    outboundId: string,
+    messageId: string,
   ) => Effect.Effect<OutboundAttempt, EndpointStoreError>;
   readonly completeOutbound: (
     outbound: StoredOutboundMessage,

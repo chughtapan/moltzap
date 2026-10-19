@@ -25,8 +25,8 @@ const POLL_ATTEMPT_TIMEOUT = Duration.seconds(1);
 const POLL_INTERVAL_MS = 25;
 const RAW_REQUEST_TIMEOUT = Duration.seconds(5);
 const JSON_CONTENT_TYPE = "application/json";
-const MAXIMUM_POLL_BODY_LENGTH = 422;
-const MAXIMUM_SEND_BODY_LENGTH = 471_821;
+const MAXIMUM_POLL_BODY_LENGTH = 423;
+const MAXIMUM_SEND_BODY_LENGTH = 471_824;
 const OVERSIZED_POLL_BODY_LENGTH = MAXIMUM_POLL_BODY_LENGTH + 1;
 const envelopes = Object.freeze({
   malformed: {
@@ -60,7 +60,7 @@ const WORKSPACE_ROOT = fileURLToPath(
 const CHILD_PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
 const ROUTER_BINARY = join(
   WORKSPACE_ROOT,
-  "packages/router/bin/moltzap-router",
+  "packages/router/bin/sharness-router",
 );
 
 interface RunningProcess {
@@ -128,12 +128,12 @@ const startRouter = (
     cwd: WORKSPACE_ROOT,
     env: {
       PATH: CHILD_PATH,
-      MOLTZAP_ROUTER_HOST: LOOPBACK_HOST,
-      MOLTZAP_ROUTER_PORT: String(port),
-      MOLTZAP_ROUTER_REGISTRY_ORIGIN: `http://${LOOPBACK_HOST}:${registryPort}`,
-      MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY: registrySignerPublicKey,
-      MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT: "2",
-      MOLTZAP_ROUTER_HELD_POLL_CAPACITY: "1",
+      SHARNESS_ROUTER_HOST: LOOPBACK_HOST,
+      SHARNESS_ROUTER_PORT: String(port),
+      SHARNESS_ROUTER_REGISTRY_ORIGIN: `http://${LOOPBACK_HOST}:${registryPort}`,
+      SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY: registrySignerPublicKey,
+      SHARNESS_ROUTER_REQUEST_CONCURRENCY_LIMIT: "2",
+      SHARNESS_ROUTER_HELD_POLL_CAPACITY: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -414,7 +414,7 @@ const assertStreamingAdmissionBound = (port: number) =>
           headers: {
             "content-length": String(OVERSIZED_POLL_BODY_LENGTH),
             "content-type": JSON_CONTENT_TYPE,
-            "moltzap-version": WIRE_VERSION,
+            "sharness-version": WIRE_VERSION,
           },
         });
         expectEnvelope(declaredOversize, envelopes.payloadTooLarge);
@@ -462,7 +462,7 @@ const assertRouteAndFramingEnvelopes = (port: number) =>
       path: "/v1/messages:poll",
       headers: {
         "content-type": [JSON_CONTENT_TYPE, JSON_CONTENT_TYPE],
-        "moltzap-version": WIRE_VERSION,
+        "sharness-version": WIRE_VERSION,
       },
       body: "{}",
     });
@@ -500,7 +500,7 @@ const assertReceivedBodyBound = (
       path,
       headers: {
         "content-type": JSON_CONTENT_TYPE,
-        "moltzap-version": WIRE_VERSION,
+        "sharness-version": WIRE_VERSION,
       },
       body: "x".repeat(maximumBodyLength),
     });
@@ -513,7 +513,7 @@ const assertReceivedBodyBound = (
       path,
       headers: {
         "content-type": JSON_CONTENT_TYPE,
-        "moltzap-version": WIRE_VERSION,
+        "sharness-version": WIRE_VERSION,
       },
       body: "x".repeat(maximumBodyLength + 1),
     });
@@ -529,7 +529,7 @@ const assertMediaAndBodyBoundEnvelopes = (port: number) =>
       path: "/v1/messages:poll",
       headers: {
         "content-type": "text/plain",
-        "moltzap-version": WIRE_VERSION,
+        "sharness-version": WIRE_VERSION,
       },
       body: "{}",
     });
@@ -543,7 +543,7 @@ const assertMediaAndBodyBoundEnvelopes = (port: number) =>
       headers: {
         "content-length": String(OVERSIZED_POLL_BODY_LENGTH),
         "content-type": JSON_CONTENT_TYPE,
-        "moltzap-version": WIRE_VERSION,
+        "sharness-version": WIRE_VERSION,
       },
     });
     expectEnvelope(declaredOversize, envelopes.payloadTooLarge);
@@ -685,11 +685,11 @@ const routerBinaryBehavior = Effect.gen(function* () {
 
   yield* stopProcess(router);
   expect(router.logs()).toContain(
-    `moltzap-router listening on ${origin.origin}`,
+    `sharness-router listening on ${origin.origin}`,
   );
   expect(router.logs()).toContain(`WIRE_VERSION ${WIRE_VERSION}`);
   expect(router.logs()).toMatch(/\(package \S+;/u);
-  expect(router.logs().match(/moltzap-router listening on/gu)).toHaveLength(1);
+  expect(router.logs().match(/sharness-router listening on/gu)).toHaveLength(1);
   expect(
     router.child.exitCode !== null || router.child.signalCode !== null,
   ).toBe(true);

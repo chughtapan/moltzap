@@ -28,7 +28,7 @@ import {
   VersionMismatchError,
 } from "../http-errors.js";
 import { AgentSigningError, signHttpRequest } from "../http-signature.js";
-import { WIRE_VERSION } from "../version.js";
+import { WireVersions } from "../wire-versions.js";
 import {
   LIST_PATH,
   listResponseSchema,
@@ -320,10 +320,11 @@ const makePost = (
   origin: URL,
   path: string,
   bodyBytes: Uint8Array,
+  wireVersion: string,
 ): HttpClientRequest.HttpClientRequest =>
   HttpClientRequest.post(new URL(path, origin)).pipe(
     HttpClientRequest.bodyUint8Array(bodyBytes, "application/json"),
-    HttpClientRequest.setHeader("moltzap-version", WIRE_VERSION),
+    HttpClientRequest.setHeader("sharness-version", wireVersion),
   );
 
 const makeSignedRegistrationRequest = (
@@ -345,7 +346,12 @@ const makeSignedRegistrationRequest = (
     const bodyBytes = yield* encodeRequest(registrationBody, {
       request: call.request,
     });
-    const httpRequest = makePost(input.origin, REGISTER_PATH, bodyBytes).pipe(
+    const httpRequest = makePost(
+      input.origin,
+      REGISTER_PATH,
+      bodyBytes,
+      yield* WireVersions.emitted,
+    ).pipe(
       HttpClientRequest.setHeader(
         "authorization",
         `MoltZap-Admission ${Redacted.value(call.admissionCredential)}`,
@@ -437,7 +443,12 @@ function makeLookup(
       const bodyBytes = yield* encodeRequest(RegistryLookupRequest, call);
       const [response, responseBytes] = yield* executePublicRead({
         client: input.client,
-        request: makePost(input.origin, LOOKUP_PATH, bodyBytes),
+        request: makePost(
+          input.origin,
+          LOOKUP_PATH,
+          bodyBytes,
+          yield* WireVersions.emitted,
+        ),
         operation: "lookup",
       });
       yield* requireJsonSuccess(response);
@@ -478,7 +489,12 @@ function makeList(
       const bodyBytes = yield* encodeRequest(RegistryListRequest, call);
       const [response, responseBytes] = yield* executePublicRead({
         client: input.client,
-        request: makePost(input.origin, LIST_PATH, bodyBytes),
+        request: makePost(
+          input.origin,
+          LIST_PATH,
+          bodyBytes,
+          yield* WireVersions.emitted,
+        ),
         operation: "list",
       });
       yield* requireJsonSuccess(response);
@@ -491,15 +507,8 @@ function makeList(
         (card) => verifyCard(card, input.registrySignerPublicKey),
         { concurrency: 1 },
       );
-      let previous = call.afterAgentId;
-      for (const card of agentCards) {
-        if (
-          previous !== undefined &&
-          compareAgentIds(previous, card.agentId) >= 0
-        ) {
-          return yield* invalidResponse();
-        }
-        previous = card.agentId;
+      if (!cardsAreOrdered(agentCards, call.afterAgentId)) {
+        return yield* invalidResponse();
       }
       return Object.freeze({
         kind: "page",
@@ -507,4 +516,22 @@ function makeList(
         hasMore: result.hasMore,
       });
     }).pipe((effect) => withDeadline(effect, input.requestTimeout));
+}
+
+/** Registry pages advance strictly beyond the caller's continuation. */
+function cardsAreOrdered(
+  cards: readonly VerifiedAgentCard[],
+  afterAgentId?: AgentId,
+): boolean {
+  let previous = afterAgentId;
+  for (const card of cards) {
+    if (
+      previous !== undefined &&
+      compareAgentIds(previous, card.agentId) >= 0
+    ) {
+      return false;
+    }
+    previous = card.agentId;
+  }
+  return true;
 }

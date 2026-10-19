@@ -441,28 +441,30 @@ The Router process defines one private `Config.all` value.
 `RouterServerStartupError` with phase `configuration`. The executable
 supplies `ConfigProvider.fromEnv`; tests use
 `ConfigProvider.fromMap`; embedded composition may supply another
-provider. There is no direct `process.env` access, custom environment
-parser, mutable singleton, hot reload, or public configuration type.
-Unrelated and unused environment entries are ignored.
+provider. Before loading declared values, `legacyKeys(process.env)` rejects
+every `MOLTZAP_*` or `MOLTZAPD_*` key with `legacy-key` and its name, without
+disclosing values. Other unrelated and unused entries are ignored. There is
+no custom environment parser, mutable singleton, hot reload, or public
+configuration type.
 
 The exact Router server environment is:
 
 | Key | Meaning | Required/default | Range and constraints |
 |---|---|---|---|
-| `MOLTZAP_ROUTER_HOST` | listener bind host | `127.0.0.1` | nonempty Node bind host; `0.0.0.0` and `::` allowed |
-| `MOLTZAP_ROUTER_PORT` | listener port | required | integer 1–65535 |
-| `MOLTZAP_ROUTER_REGISTRY_ORIGIN` | Registry client origin | required | serialized HTTP or HTTPS origin with no userinfo, route path, query, or fragment |
-| `MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY` | deployment-pinned Registry signer | required | inline exact closed Ed25519 public JWK JSON in compact JCS spelling |
-| `MOLTZAP_ROUTER_RETAINED_MESSAGE_CAPACITY` | global-ring message count | `4,096` | positive count; one copy per message |
-| `MOLTZAP_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY` | global-ring byte retention | `67,108,864` | sum of complete SignedMessage JCS bytes |
-| `MOLTZAP_ROUTER_POLL_MESSAGE_LIMIT` | maximum messages in one batch | `128` | positive count |
-| `MOLTZAP_ROUTER_POLL_RESPONSE_BYTE_LIMIT` | maximum complete poll result | `1,048,576` | UTF-8 JCS result bytes including PollCursor |
-| `MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT` | active request permits | `512` | positive integer |
-| `MOLTZAP_ROUTER_HELD_POLL_CAPACITY` | globally held continuation polls | `256` | positive and strictly less than request concurrency |
-| `MOLTZAP_ROUTER_LIVE_NONCE_CAPACITY` | current-instance unexpired nonces | `100,000` | positive; never evict a live nonce |
-| `MOLTZAP_ROUTER_AGENT_CARD_CACHE_CAPACITY` | positive immutable-card LRU | `10,000` | positive entry count |
-| `MOLTZAP_ROUTER_REGISTRY_LOOKUP_CONCURRENCY_LIMIT` | concurrent underlying Registry lookups | `32` | positive; same-AgentId misses remain single-flight |
-| `MOLTZAP_ROUTER_REGISTRY_LOOKUP_TIMEOUT_MS` | complete Registry lookup deadline | `5,000` | positive milliseconds through verified-card result |
+| `SHARNESS_ROUTER_HOST` | listener bind host | `127.0.0.1` | nonempty Node bind host; `0.0.0.0` and `::` allowed |
+| `SHARNESS_ROUTER_PORT` | listener port | required | integer 1–65535 |
+| `SHARNESS_ROUTER_REGISTRY_ORIGIN` | Registry client origin | required | serialized HTTP or HTTPS origin with no userinfo, route path, query, or fragment |
+| `SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY` | deployment-pinned Registry signer | required | inline exact closed Ed25519 public JWK JSON in compact JCS spelling |
+| `SHARNESS_ROUTER_RETAINED_MESSAGE_CAPACITY` | global-ring message count | `4,096` | positive count; one copy per message |
+| `SHARNESS_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY` | global-ring byte retention | `67,108,864` | sum of complete SignedMessage JCS bytes |
+| `SHARNESS_ROUTER_POLL_MESSAGE_LIMIT` | maximum messages in one batch | `128` | positive count |
+| `SHARNESS_ROUTER_POLL_RESPONSE_BYTE_LIMIT` | maximum complete poll result | `1,048,576` | UTF-8 JCS result bytes including PollCursor |
+| `SHARNESS_ROUTER_REQUEST_CONCURRENCY_LIMIT` | active request permits | `512` | positive integer |
+| `SHARNESS_ROUTER_HELD_POLL_CAPACITY` | globally held continuation polls | `256` | positive and strictly less than request concurrency |
+| `SHARNESS_ROUTER_LIVE_NONCE_CAPACITY` | current-instance unexpired nonces | `100,000` | positive; never evict a live nonce |
+| `SHARNESS_ROUTER_AGENT_CARD_CACHE_CAPACITY` | positive immutable-card LRU | `10,000` | positive entry count |
+| `SHARNESS_ROUTER_REGISTRY_LOOKUP_CONCURRENCY_LIMIT` | concurrent underlying Registry lookups | `32` | positive; same-AgentId misses remain single-flight |
+| `SHARNESS_ROUTER_REGISTRY_LOOKUP_TIMEOUT_MS` | complete Registry lookup deadline | `5,000` | positive milliseconds through verified-card result |
 
 Accepting either HTTP or HTTPS only establishes a usable Registry
 client origin. It does not require HTTPS, reject non-loopback HTTP, or
@@ -501,10 +503,10 @@ count and byte retention, accepted-nonce and positive-card cache
 capacities, and request, held-poll, and Registry-lookup concurrency.
 Identity fixes the opaque body at 262,144 decoded bytes maximum and the
 recipient set at 128 AgentIds maximum. Identity derives the complete
-SignedMessage maximum as 471,673 UTF-8 JCS bytes. Router derives the
-send and poll received-body caps as 471,821 and 422 octets,
-respectively. A PollCursor is at most 348 ASCII characters, and a
-complete one-message batch is at most 472,121 UTF-8 JCS bytes.
+SignedMessage maximum as 471,676 UTF-8 JCS bytes. Router derives the
+send and poll received-body caps as 471,824 and 423 octets,
+respectively. A PollCursor is at most 349 ASCII characters, and a
+complete one-message batch is at most 472,125 UTF-8 JCS bytes.
 
 The representation depth, these fixed and derived bounds, and the
 25-second poll hold are not deployment configuration.

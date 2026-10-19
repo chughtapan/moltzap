@@ -5,6 +5,7 @@
  */
 
 import { live as it } from "@effect/vitest";
+import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Effect, Encoding, Option, Schema, Scope } from "effect";
 import { expect } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
@@ -43,7 +44,7 @@ const message = () =>
       {
         type: "data",
         value: {
-          "xyz.moltzap/collective": {
+          "org.social-harness/collective": {
             kind: "operation",
             op: "gather",
             id,
@@ -102,7 +103,9 @@ const seedRequest = (store: EndpointStore, request: InboundMessage) =>
 const storeRequest = (path: string) =>
   Effect.scoped(
     Effect.gen(function* () {
-      const store = yield* openEndpointStore(path);
+      const store = yield* openEndpointStore(path, {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      });
       yield* seedRequest(store, message());
       return yield* store.recover();
     }),
@@ -115,7 +118,9 @@ const preservesUnprojectedRequest = () => {
     const before = yield* storeRequest(path);
     yield* Effect.scoped(
       Effect.gen(function* () {
-        const store = yield* openEndpointStore(path);
+        const store = yield* openEndpointStore(path, {
+          liveWireVersions: LIVE_WIRE_VERSIONS,
+        });
         yield* recoverRuntimeInbox(store);
         const pending = yield* store.readPendingDeliveries();
         expect(pending).toEqual(before.pendingDeliveries);
@@ -158,7 +163,9 @@ it("retires a request still waiting for admission, and its raw delivery, without
     yield* queueRequestBeforeRestart(path, counter);
     yield* Effect.scoped(
       Effect.gen(function* () {
-        const store = yield* openEndpointStore(path);
+        const store = yield* openEndpointStore(path, {
+          liveWireVersions: LIVE_WIRE_VERSIONS,
+        });
         yield* recoverRuntimeInbox(store, true);
         expect(yield* store.readPendingDeliveries()).toEqual([]);
         expect((yield* readRuntimeInbox(store, {})).items).toEqual([]);
@@ -173,7 +180,9 @@ it("retires a request still waiting for admission, and its raw delivery, without
 function queueRequestBeforeRestart(path: string, counter: { count: number }) {
   return Effect.scoped(
     Effect.gen(function* () {
-      const store = yield* openEndpointStore(path);
+      const store = yield* openEndpointStore(path, {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      });
       const request = message();
       yield* seedRequest(store, request);
       const pending = yield* store.readPendingDeliveries();

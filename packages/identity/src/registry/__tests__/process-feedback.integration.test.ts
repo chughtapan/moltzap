@@ -9,13 +9,13 @@ import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
 
 const binary = fileURLToPath(
-  new URL("../../../bin/moltzap-registry", import.meta.url),
+  new URL("../../../bin/sharness-registry", import.meta.url),
 );
-const processName = "moltzap-registry";
-const requiredVariable = "MOLTZAP_REGISTRY_POSTGRESQL_URL";
-const defaultEntry = 'MOLTZAP_REGISTRY_HOST: optional; default: "127.0.0.1"';
+const processName = "sharness-registry";
+const requiredVariable = "SHARNESS_REGISTRY_POSTGRESQL_URL";
+const defaultEntry = 'SHARNESS_REGISTRY_HOST: optional; default: "127.0.0.1"';
 const secret = "not a valid secret-value";
-const invalidVariable = "MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL";
+const invalidVariable = "SHARNESS_REGISTRY_ADMISSION_CREDENTIAL";
 
 /** An empty environment makes missing-variable behavior independent of the test runner. */
 function runProcess(

@@ -90,7 +90,7 @@ const UNIVERSAL_SIGNATURE_BYTES = Buffer.from(
   `01${"00".repeat(63)}`,
   "hex",
 ).toString("base64");
-const UNIVERSAL_SIGNATURE = `moltzap=:${UNIVERSAL_SIGNATURE_BYTES}:`;
+const UNIVERSAL_SIGNATURE = `sharness=:${UNIVERSAL_SIGNATURE_BYTES}:`;
 const expectStartupFailure = (process: RunningProcess) =>
   Effect.gen(function* () {
     const exited = yield* Effect.raceFirst(
@@ -244,7 +244,7 @@ const makeJsonRequest = (origin: URL, path: string, body: string) =>
       new TextEncoder().encode(body),
       "application/json",
     ),
-    HttpClientRequest.setHeader("moltzap-version", WIRE_VERSION),
+    HttpClientRequest.setHeader("sharness-version", WIRE_VERSION),
   );
 
 const assertBoundaryResponse = (
@@ -286,8 +286,8 @@ const sharedEnvelopeCases: readonly SharedEnvelopeCase[] = [
       path: "/v1/identities:lookup",
       headers: [
         ["content-type", "application/json"],
-        ["moltzap-version", WIRE_VERSION],
-        ["moltzap-version", WIRE_VERSION],
+        ["sharness-version", WIRE_VERSION],
+        ["sharness-version", WIRE_VERSION],
       ],
       body: "{}",
     },
@@ -300,7 +300,7 @@ const sharedEnvelopeCases: readonly SharedEnvelopeCase[] = [
       path: "/v1/identities:lookup",
       headers: [
         ["content-type", "text/plain"],
-        ["moltzap-version", WIRE_VERSION],
+        ["sharness-version", WIRE_VERSION],
       ],
       body: "{}",
     },
@@ -317,7 +317,7 @@ const sharedEnvelopeCases: readonly SharedEnvelopeCase[] = [
       headers: [
         ["content-type", "application/json"],
         ["content-length", "4096"],
-        ["moltzap-version", WIRE_VERSION],
+        ["sharness-version", WIRE_VERSION],
       ],
     },
     expected: {
@@ -333,7 +333,7 @@ const assertReceivedOverflow = (port: number) => {
     "POST /v1/identities:register HTTP/1.1",
     `Host: ${LOOPBACK_HOST}:${port}`,
     "Content-Type: application/json",
-    `MoltZap-Version: ${WIRE_VERSION}`,
+    `Sharness-Version: ${WIRE_VERSION}`,
     "Transfer-Encoding: chunked",
     "Connection: close",
     "",
@@ -457,7 +457,7 @@ const assertPublicAuthenticationFraming = (origin: URL) =>
       "not-json",
     ).pipe(
       HttpClientRequest.setHeader("authorization", "MoltZap-Admission ignored"),
-      HttpClientRequest.setHeader("moltzap-version", "incompatible"),
+      HttpClientRequest.setHeader("sharness-version", "incompatible"),
     );
     assertBoundaryResponse(yield* executeRequest(authenticationFraming), {
       status: BAD_REQUEST_STATUS,
@@ -742,7 +742,7 @@ const assertNonceRetention = (input: {
     const registry = yield* startReadyRegistry(
       {
         ...input.environment,
-        MOLTZAP_REGISTRY_LIVE_NONCE_CAPACITY: "1",
+        SHARNESS_REGISTRY_LIVE_NONCE_CAPACITY: "1",
       },
       input.origin,
     );
@@ -780,7 +780,7 @@ const assertStartupRejection = (
 const setupRegistryInfrastructure = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const temporaryDirectory = yield* fileSystem.makeTempDirectoryScoped({
-    prefix: "moltzap-registry-binary-",
+    prefix: "sharness-registry-binary-",
   });
   const registryKeyPath = join(temporaryDirectory, "registry-key.pem");
   const wrongKeyPath = join(temporaryDirectory, "wrong-key.pem");
@@ -835,11 +835,11 @@ const assertStartupContracts = (input: {
   Effect.gen(function* () {
     yield* assertStartupRejection({
       ...input.environment,
-      MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL: "short",
+      SHARNESS_REGISTRY_ADMISSION_CREDENTIAL: "short",
     });
     yield* assertStartupRejection({
       ...input.environment,
-      MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH: input.wrongKeyPath,
+      SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH: input.wrongKeyPath,
     });
     yield* input.addUnknownMigration;
     const process = yield* managedProcess(
@@ -864,12 +864,12 @@ const registryBinaryBehavior = Effect.gen(function* () {
   );
   yield* stopProcess(registry);
   expect(registry.logs()).toContain(
-    `moltzap-registry listening on ${infrastructure.origin.origin}`,
+    `sharness-registry listening on ${infrastructure.origin.origin}`,
   );
   expect(registry.logs()).toMatch(/\(package \S+; WIRE_VERSION \S+\)/u);
-  expect(registry.logs().match(/moltzap-registry listening on/gu)).toHaveLength(
-    1,
-  );
+  expect(
+    registry.logs().match(/sharness-registry listening on/gu),
+  ).toHaveLength(1);
   expect(yield* canConnect(infrastructure.registryPort)).toBe(false);
 
   yield* exerciseRestart({
@@ -884,9 +884,9 @@ const registryBinaryBehavior = Effect.gen(function* () {
     url: Redacted.make(infrastructure.postgresqlUrl),
     maxConnections: 2,
     connectTimeout: Duration.seconds(5),
-    applicationName: "moltzap-registry-acceptance",
+    applicationName: "sharness-registry-acceptance",
   }).pipe(Effect.provide(Reactivity.layer));
-  yield* sql`DELETE FROM moltzap_registry_nonces`;
+  yield* sql`DELETE FROM sharness_registry_nonces`;
   yield* assertNonceRetention({
     origin: infrastructure.origin,
     environment: infrastructure.environment,
@@ -895,7 +895,7 @@ const registryBinaryBehavior = Effect.gen(function* () {
     environment: infrastructure.environment,
     wrongKeyPath: infrastructure.wrongKeyPath,
     addUnknownMigration: sql`
-      INSERT INTO moltzap_registry_migrations (migration_id, name)
+      INSERT INTO sharness_registry_migrations (migration_id, name)
       VALUES (9999, 'future')
     `,
   });

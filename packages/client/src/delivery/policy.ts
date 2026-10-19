@@ -29,7 +29,7 @@ import {
 } from "./firewall.js";
 
 const editableRules = policyReadSchema.fields.rules.pipe(Schema.maxItems(256));
-const englishId = "moltzap.english";
+const englishId = "org.social-harness/english";
 
 const persistenceFailure = () =>
   new FirewallPolicyError({ reason: "persistence-failed" });

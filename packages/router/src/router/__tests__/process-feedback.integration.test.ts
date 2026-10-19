@@ -11,13 +11,13 @@ import { expect } from "vitest";
 /* @agent-code-guard/regression-only: each case pins a distinct process startup diagnostic or resource relationship failure. */
 
 const binary = fileURLToPath(
-  new URL("../../../bin/moltzap-router", import.meta.url),
+  new URL("../../../bin/sharness-router", import.meta.url),
 );
-const processName = "moltzap-router";
-const requiredVariable = "MOLTZAP_ROUTER_PORT";
-const defaultEntry = 'MOLTZAP_ROUTER_HOST: optional; default: "127.0.0.1"';
+const processName = "sharness-router";
+const requiredVariable = "SHARNESS_ROUTER_PORT";
+const defaultEntry = 'SHARNESS_ROUTER_HOST: optional; default: "127.0.0.1"';
 const secret = "not a valid secret-value";
-const invalidVariable = "MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY";
+const invalidVariable = "SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY";
 
 /** An empty environment makes missing-variable behavior independent of the test runner. */
 function runProcess(
@@ -101,19 +101,19 @@ const registryKey =
   '{"crv":"Ed25519","kty":"OKP","x":"y1j1FUgbqjCPeQVEnllv-2euwn_s9DeDkfEh3gk_OJ0"}';
 const fitFailures = [
   [
-    "MOLTZAP_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY",
+    "SHARNESS_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY",
     "1",
     "retain one maximum-size message",
   ],
   [
-    "MOLTZAP_ROUTER_POLL_RESPONSE_BYTE_LIMIT",
+    "SHARNESS_ROUTER_POLL_RESPONSE_BYTE_LIMIT",
     "1",
     "return one maximum-size message",
   ],
   [
-    "MOLTZAP_ROUTER_HELD_POLL_CAPACITY",
+    "SHARNESS_ROUTER_HELD_POLL_CAPACITY",
     "512",
-    "less than MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT",
+    "less than SHARNESS_ROUTER_REQUEST_CONCURRENCY_LIMIT",
   ],
 ] as const;
 
@@ -123,9 +123,9 @@ for (const [name, value, reason] of fitFailures) {
     () =>
       Effect.gen(function* () {
         const result = yield* runProcess([], {
-          MOLTZAP_ROUTER_PORT: "4320",
-          MOLTZAP_ROUTER_REGISTRY_ORIGIN: "http://127.0.0.1:4321",
-          MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY: registryKey,
+          SHARNESS_ROUTER_PORT: "4320",
+          SHARNESS_ROUTER_REGISTRY_ORIGIN: "http://127.0.0.1:4321",
+          SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY: registryKey,
           [name]: value,
         });
         expect(result.exitCode).not.toBe(0);

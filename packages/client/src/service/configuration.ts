@@ -1,6 +1,10 @@
 /** @file Loads the daemon process configuration and its redacted bootstrap material from the environment. */
 
-import { AgentSigningAuthority, Ed25519PublicKey } from "@moltzap/identity";
+import {
+  AgentSigningAuthority,
+  Ed25519PublicKey,
+  legacyKeys,
+} from "@moltzap/identity";
 import {
   Config,
   type ConfigError,
@@ -65,31 +69,31 @@ const compactPublicKeyJson = Schema.String.pipe(
 );
 
 const configurationFields = {
-  stateDirectory: setting("MOLTZAPD_STATE_DIRECTORY", configuredPath),
-  mcpPort: setting("MOLTZAPD_MCP_PORT", port),
-  registryOrigin: setting("MOLTZAPD_REGISTRY_ORIGIN", origin),
+  stateDirectory: setting("SHARNESS_STATE_DIRECTORY", configuredPath),
+  mcpPort: setting("SHARNESS_MCP_PORT", port),
+  registryOrigin: setting("SHARNESS_REGISTRY_ORIGIN", origin),
   registrySignerPublicKey: setting(
-    "MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY",
+    "SHARNESS_REGISTRY_SIGNER_PUBLIC_KEY",
     compactPublicKeyJson,
   ),
-  routerOrigin: setting("MOLTZAPD_ROUTER_ORIGIN", origin),
+  routerOrigin: setting("SHARNESS_ROUTER_ORIGIN", origin),
   agentPrivateKeyFile: setting(
-    "MOLTZAPD_AGENT_PRIVATE_KEY_FILE",
+    "SHARNESS_AGENT_PRIVATE_KEY_FILE",
     configuredPath,
   ),
   admissionCredentialFile: setting(
-    "MOLTZAPD_ADMISSION_CREDENTIAL_FILE",
+    "SHARNESS_ADMISSION_CREDENTIAL_FILE",
     optionalConfiguredPath,
     "",
   ),
-  historyExport: setting("MOLTZAPD_HISTORY_EXPORT", configuredPath, undefined),
+  historyExport: setting("SHARNESS_HISTORY_EXPORT", configuredPath, undefined),
   mcpRuntimeCredentialFile: setting(
-    "MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE",
+    "SHARNESS_MCP_RUNTIME_CREDENTIAL_FILE",
     configuredPath,
     undefined,
   ),
   mcpOwnerCredentialFile: setting(
-    "MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE",
+    "SHARNESS_MCP_OWNER_CREDENTIAL_FILE",
     configuredPath,
     undefined,
   ),
@@ -99,7 +103,7 @@ const configuredValues = Config.all(configurationFields);
 
 /** Usage is generated from the same fields consumed by the process. */
 export const processHelp = [
-  "Usage: moltzapd [--help]",
+  "Usage: sharnessd [--help]",
   "",
   "Environment:",
   "  Admission credential: required only before registration; MCP credential files: supply both or neither.",
@@ -109,21 +113,22 @@ export const processHelp = [
 const configurationFailureMessages: Readonly<
   Record<DaemonConfigurationFailure, string>
 > = {
+  "legacy-key": "retired environment keys are configured",
   environment: "environment configuration is invalid",
   "agent-private-key-file":
-    "MOLTZAPD_AGENT_PRIVATE_KEY_FILE must name a readable file",
+    "SHARNESS_AGENT_PRIVATE_KEY_FILE must name a readable file",
   "agent-private-key":
-    "MOLTZAPD_AGENT_PRIVATE_KEY_FILE must contain an Ed25519 PKCS#8 private key",
+    "SHARNESS_AGENT_PRIVATE_KEY_FILE must contain an Ed25519 PKCS#8 private key",
   "admission-credential-file":
-    "MOLTZAPD_ADMISSION_CREDENTIAL_FILE is required for an unregistered daemon and must name a readable file",
+    "SHARNESS_ADMISSION_CREDENTIAL_FILE is required for an unregistered daemon and must name a readable file",
   "admission-credential":
-    "MOLTZAPD_ADMISSION_CREDENTIAL_FILE must contain a valid admission credential",
+    "SHARNESS_ADMISSION_CREDENTIAL_FILE must contain a valid admission credential",
   "mcp-runtime-credential-file":
-    "MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE must name a readable file",
+    "SHARNESS_MCP_RUNTIME_CREDENTIAL_FILE must name a readable file",
   "mcp-owner-credential-file":
-    "MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE must name a readable file",
+    "SHARNESS_MCP_OWNER_CREDENTIAL_FILE must name a readable file",
   "mcp-credential":
-    "MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE and MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE must both be supplied and contain distinct valid tokens of at least 32 characters",
+    "SHARNESS_MCP_RUNTIME_CREDENTIAL_FILE and SHARNESS_MCP_OWNER_CREDENTIAL_FILE must both be supplied and contain distinct valid tokens of at least 32 characters",
 };
 
 const configurationError = (
@@ -134,11 +139,7 @@ const configurationError = (
     message: configurationFailureMessages[reason],
   });
 
-/** Loads explicit daemon inputs with optional export and MCP authority separation. */
-export const loadDaemonProcessConfiguration: Effect.Effect<
-  DaemonProcessConfiguration,
-  DaemonConfigurationError
-> = configuredValues.pipe(
+const loadedConfiguration = configuredValues.pipe(
   Effect.map(
     (configuration): DaemonProcessConfiguration => ({
       ...configuration,
@@ -195,6 +196,25 @@ export const loadDaemonProcessConfiguration: Effect.Effect<
   ),
   Effect.withSpan("loadDaemonProcessConfiguration"),
 );
+
+/** Loads explicit daemon inputs with optional export and MCP authority separation. */
+export const loadDaemonProcessConfiguration: Effect.Effect<
+  DaemonProcessConfiguration,
+  DaemonConfigurationError
+> = Effect.suspend(() => {
+  // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- Configuration acquisition enumerates unknown legacy keys, which Effect.Config cannot name in advance.
+  const keys = legacyKeys(process.env);
+  if (keys.length > 0) {
+    return Effect.fail(
+      new DaemonConfigurationError({
+        reason: "legacy-key",
+        keys,
+        message: `${configurationFailureMessages["legacy-key"]}: ${keys.join(", ")}`,
+      }),
+    );
+  }
+  return loadedConfiguration;
+});
 
 const credentialFailure =
   (

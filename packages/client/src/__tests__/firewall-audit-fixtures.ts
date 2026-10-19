@@ -42,7 +42,7 @@ const policyOptions = {
 
 const candidates = Effect.all({
   outgoing: Schema.decodeUnknown(PostIntent)({
-    moltzapVersion: WIRE_VERSION,
+    sharnessVersion: WIRE_VERSION,
     kind: "post_intent",
     conversationId: digest("cnv_", 1),
     membershipHash: digest("mbr_", 2),

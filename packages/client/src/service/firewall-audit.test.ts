@@ -3,6 +3,7 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { scopedLive as it } from "@effect/vitest";
+import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Cause, Deferred, Effect, Exit, Fiber, Option } from "effect";
 import { join } from "node:path";
 import { describe, expect } from "vitest";
@@ -29,7 +30,9 @@ const makeAuditedRuntime = Effect.gen(function* () {
   const fixture = yield* makeFixture;
   const harness = yield* makeHarness(fixture, "none");
   harness.delivery.acknowledged = true;
-  const store = yield* openEndpointStore(directory);
+  const store = yield* openEndpointStore(directory, {
+    liveWireVersions: LIVE_WIRE_VERSIONS,
+  });
   yield* store.bindIdentity({
     agentId: fixture.localCard.agentId,
     canonicalAgentCard: fixture.canonicalLocalCard,
@@ -109,7 +112,9 @@ const invalidDestinationPreventsListening = () =>
     const directory = stateDirectory();
     const fixture = yield* makeFixture;
     const harness = yield* makeHarness(fixture, "none");
-    const store = yield* openEndpointStore(directory);
+    const store = yield* openEndpointStore(directory, {
+      liveWireVersions: LIVE_WIRE_VERSIONS,
+    });
     const error = yield* Effect.flip(
       run(fixture, store, harness, join(directory, "missing", "audit.ndjson")),
     );

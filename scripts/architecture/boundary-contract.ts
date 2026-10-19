@@ -19,6 +19,7 @@ export type PackageDir =
 
 /** The `types` and `import` conditions one public subpath resolves to. */
 interface ExportTarget {
+  readonly testOnly?: true;
   readonly types: string;
   readonly import: string;
 }
@@ -80,8 +81,13 @@ export const FINAL_PACKAGES: Readonly<Record<PackageDir, PackageContract>> = {
         types: "./dist/registry/server.d.ts",
         import: "./dist/registry/server.js",
       },
+      "./test": {
+        testOnly: true,
+        types: "./dist/wire-versions.d.ts",
+        import: "./dist/wire-versions.js",
+      },
     },
-    bin: { "moltzap-registry": "./bin/moltzap-registry" },
+    bin: { "sharness-registry": "./bin/sharness-registry" },
     targets: SERVICE_TARGETS,
   },
   router: {
@@ -95,7 +101,7 @@ export const FINAL_PACKAGES: Readonly<Record<PackageDir, PackageContract>> = {
         import: "./dist/server.js",
       },
     },
-    bin: { "moltzap-router": "./bin/moltzap-router" },
+    bin: { "sharness-router": "./bin/sharness-router" },
     targets: SERVICE_TARGETS,
   },
   client: {
@@ -109,7 +115,7 @@ export const FINAL_PACKAGES: Readonly<Record<PackageDir, PackageContract>> = {
         import: "./dist/service/index.js",
       },
     },
-    bin: { moltzapd: "./bin/moltzapd" },
+    bin: { sharnessd: "./bin/sharnessd" },
     targets: [
       "arch:check",
       "build",

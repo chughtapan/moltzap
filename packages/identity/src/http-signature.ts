@@ -26,12 +26,12 @@ import {
 } from "./agent-key.js";
 import { AuthenticationFailedError } from "./http-errors.js";
 import { hasCanonicalBase64UrlLength } from "./identifiers.js";
-import { WIRE_VERSION } from "./version.js";
+import { WireVersions } from "./wire-versions.js";
 
 /** An agent-owned HTTP request could not be signed. */
 export class AgentSigningError extends Data.TaggedError("AgentSigningError") {}
 
-const SIGNATURE_LABEL = "moltzap";
+const SIGNATURE_LABEL = "sharness";
 const SIGNATURE_INTERVAL_SECONDS = 300;
 const FUTURE_SKEW_SECONDS = 5;
 const SIGNATURE_BYTES = 64;
@@ -43,7 +43,7 @@ const NORMAL_FIELDS = Object.freeze([
   "@query",
   "content-digest",
   "content-type",
-  "moltzap-version",
+  "sharness-version",
 ]);
 
 const REGISTRATION_FIELDS = Object.freeze([...NORMAL_FIELDS, "authorization"]);
@@ -64,7 +64,7 @@ const fieldsFor = (profile: HttpSignatureProfile): readonly string[] =>
   profile === "normal" ? NORMAL_FIELDS : REGISTRATION_FIELDS;
 
 const tagFor = (profile: HttpSignatureProfile): string =>
-  profile === "normal" ? "moltzap-request-v1" : "moltzap-registration-v1";
+  profile === "normal" ? "sharness-request-v1" : "sharness-registration-v1";
 
 /**
  * Exact RFC 8941 SHA-256 content-digest field value.
@@ -129,11 +129,12 @@ const makeSigningParameters = (
 const prepareRequest = (input: {
   readonly httpRequest: HttpClientRequest.HttpClientRequest;
   readonly bodyBytes: Uint8Array;
+  readonly wireVersion: string;
 }): HttpClientRequest.HttpClientRequest =>
   input.httpRequest.pipe(
     ClientRequest.bodyUint8Array(input.bodyBytes, "application/json"),
     ClientRequest.setHeader("content-digest", contentDigest(input.bodyBytes)),
-    ClientRequest.setHeader("moltzap-version", WIRE_VERSION),
+    ClientRequest.setHeader("sharness-version", input.wireVersion),
   );
 
 const signPreparedRequest = (input: {
@@ -187,7 +188,10 @@ export const signHttpRequest = (input: {
 }): Effect.Effect<HttpClientRequest.HttpClientRequest, AgentSigningError> =>
   Effect.gen(function* () {
     const parameters = yield* makeSigningParameters(input.signingAuthority);
-    const prepared = prepareRequest(input);
+    const prepared = prepareRequest({
+      ...input,
+      wireVersion: yield* WireVersions.emitted,
+    });
     const signed = yield* signPreparedRequest({
       prepared,
       parameters,

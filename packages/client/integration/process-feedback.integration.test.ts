@@ -8,12 +8,12 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
 
-const binary = fileURLToPath(new URL("../bin/moltzapd", import.meta.url));
-const processName = "moltzapd";
-const requiredVariable = "MOLTZAPD_STATE_DIRECTORY";
-const defaultEntry = "MOLTZAPD_HISTORY_EXPORT: optional; default: unset";
+const binary = fileURLToPath(new URL("../bin/sharnessd", import.meta.url));
+const processName = "sharnessd";
+const requiredVariable = "SHARNESS_STATE_DIRECTORY";
+const defaultEntry = "SHARNESS_HISTORY_EXPORT: optional; default: unset";
 const secret = "secret-path-value";
-const invalidVariable = "MOLTZAPD_MCP_PORT";
+const invalidVariable = "SHARNESS_MCP_PORT";
 
 /** An empty environment makes missing-variable behavior independent of the test runner. */
 function runProcess(

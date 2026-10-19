@@ -393,7 +393,15 @@ function checkExports(
     wanted: Object.keys(wanted),
   });
   for (const [subpath, wantedTarget] of Object.entries(wanted)) {
-    const actualTarget = objectAt(actualExports, subpath);
+    const actualTarget = resolvedExportTarget(
+      run,
+      objectAt(actualExports, subpath),
+      {
+        where,
+        subpath,
+        testOnly: wantedTarget.testOnly,
+      },
+    );
     for (const condition of ["types", "import"] as const) {
       const actual = stringAt(actualTarget, condition);
       if (actual !== wantedTarget[condition]) {
@@ -412,6 +420,28 @@ function checkExports(
       `${where}: main/types must match the root export (${rootExport.import}, ${rootExport.types})`,
     );
   }
+}
+
+/** Test entries have no fallback condition that production resolution could select. */
+function resolvedExportTarget(
+  run: BoundaryRun,
+  entry: JsonObject,
+  site: {
+    readonly where: string;
+    readonly subpath: string;
+    readonly testOnly?: true;
+  },
+): JsonObject {
+  if (site.testOnly !== true) {
+    return entry;
+  }
+  failOnSetDrift(run, {
+    where: site.where,
+    what: `test-only export "${site.subpath}" conditions drifted`,
+    actual: Object.keys(entry),
+    wanted: ["sharness-test"],
+  });
+  return objectAt(entry, "sharness-test");
 }
 
 /**

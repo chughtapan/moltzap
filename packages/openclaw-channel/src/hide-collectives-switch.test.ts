@@ -1,5 +1,5 @@
 /**
- * @file The `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES` experiment switch: which
+ * @file The `SHARNESS_EXPERIMENT_HIDE_COLLECTIVES` experiment switch: which
  * message texts it refuses.
  */
 
@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createChannelPlugin } from "./plugin.js";
 
-const HIDE_COLLECTIVES = "MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES";
+const HIDE_COLLECTIVES = "SHARNESS_EXPERIMENT_HIDE_COLLECTIVES";
 const REFUSAL = "gather, all_gather and answers are not available";
 const CONFIG: OpenClawConfig = {
   channels: { moltzap: { accounts: [{ id: "primary" }] } },
@@ -37,6 +37,19 @@ class SwitchTestError extends Data.TaggedError("SwitchTestError")<{
 describe("OpenClaw hide-collectives experiment switch", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it.each(["MOLTZAP_MCP_URL", "MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES"])(
+    "refuses startup with retired key %s without printing its value",
+    (key) => {
+      vi.stubEnv(key, "private-retired-value");
+      expect(() => createChannelPlugin()).toThrow(key);
+      expect(() => createChannelPlugin()).not.toThrow("private-retired-value");
+    },
+  );
+  it("refuses an empty retired key", () => {
+    vi.stubEnv("MOLTZAP_MCP_URL", "");
+    expect(() => createChannelPlugin()).toThrow("MOLTZAP_MCP_URL");
   });
 
   it(

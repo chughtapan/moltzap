@@ -87,7 +87,7 @@ export function issueTestCard(
     const protectedText = canonicalize({
       alg: "Ed25519",
       kid: `urn:ietf:params:oauth:jwk-thumbprint:sha-256:${thumbprint}`,
-      typ: "application/vnd.moltzap.agent-card+jws",
+      typ: "application/vnd.sharness.agent-card+jws",
     });
     const payloadText = canonicalize({
       agentId: Schema.decodeUnknownSync(AgentId)(
@@ -96,7 +96,7 @@ export function issueTestCard(
       agentName: Schema.decodeUnknownSync(AgentName)(input.name),
       issuedAt: "2026-08-27T12:00:00Z",
       kind: "agentCard",
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       principalId: Schema.decodeUnknownSync(PrincipalId)(
         identifier("prn_", input.byte),
       ),

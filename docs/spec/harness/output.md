@@ -140,7 +140,7 @@ send's check, present when the local firewall left a norm judgment of the
 admitted send uncertain.
 
 `RuntimeSendOptions` travels in request metadata at
-`_meta["xyz.moltzap/send"]`, outside the tool's argument schema. The MCP-backed
+`_meta["org.social-harness/send"]`, outside the tool's argument schema. The MCP-backed
 `HarnessEndpoint` supplies it from send options. The daemon validates the
 semantic arguments and runtime options separately before reserving an
 invocation. Bookkeeping fields in tool arguments and malformed runtime options

@@ -8,8 +8,8 @@ import { layer, StartupError } from "../server.js";
 
 const rejectedValue =
   "postgresql://operator:private-password@localhost/database#invalid";
-const databaseVariable = "MOLTZAP_REGISTRY_POSTGRESQL_URL";
-const signingKeyVariable = "MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH";
+const databaseVariable = "SHARNESS_REGISTRY_POSTGRESQL_URL";
+const signingKeyVariable = "SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH";
 const environment = ConfigProvider.fromMap(
   new Map([[databaseVariable, rejectedValue]]),
 );
@@ -34,9 +34,9 @@ it("identifies signing key file failures without exposing the path", () =>
     const privatePath = "/missing/private-registry-signing-key.pem";
     const provider = ConfigProvider.fromMap(
       new Map([
-        ["MOLTZAP_REGISTRY_PORT", "4100"],
+        ["SHARNESS_REGISTRY_PORT", "4100"],
         [databaseVariable, "postgresql://localhost/registry"],
-        ["MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL", "admission-token"],
+        ["SHARNESS_REGISTRY_ADMISSION_CREDENTIAL", "admission-token"],
         [signingKeyVariable, privatePath],
       ]),
     );

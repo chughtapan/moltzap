@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/identity",
-  "version": "2026.1019.1",
+  "version": "2026.1019.2",
   "description": "Identity contracts and representation, AuthenticatedHttp, Registry client and PostgreSQL server",
   "license": "Apache-2.0",
   "repository": {
@@ -38,10 +38,16 @@
     "./registry/server": {
       "types": "./dist/registry/server.d.ts",
       "import": "./dist/registry/server.js"
+    },
+    "./test": {
+      "sharness-test": {
+        "types": "./dist/wire-versions.d.ts",
+        "import": "./dist/wire-versions.js"
+      }
     }
   },
   "bin": {
-    "moltzap-registry": "./bin/moltzap-registry"
+    "sharness-registry": "./bin/sharness-registry"
   },
   "scripts": {
     "build": "nx run @moltzap/identity:build",
@@ -146,5 +152,6 @@
     "fast-check": "3.23.2",
     "typescript": "catalog:",
     "vitest": "3.2.4"
-  }
+  },
+  "moltzapWireVersion": "2026.1019.2"
 }

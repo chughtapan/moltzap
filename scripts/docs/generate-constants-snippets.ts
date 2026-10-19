@@ -39,7 +39,7 @@ import { fileURLToPath } from "node:url";
 import {
   readCompatibilityVersion,
   WIRE_VERSION_SOURCE,
-} from "./moltzap-version.ts";
+} from "./sharness-version.ts";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 

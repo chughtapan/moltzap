@@ -109,7 +109,7 @@ export const routerInstanceId = (byte: number) =>
  */
 export const pollCursor = (byte: number) =>
   Schema.decodeUnknownSync(PollCursor)(
-    `plc_eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIiwidHlwIjoiYXBwbGljYXRpb24vdm5kLm1vbHR6YXAucG9sbC1jdXJzb3IrandlIn0..${Encoding.encodeBase64Url(new Uint8Array(12).fill(byte))}.${Encoding.encodeBase64Url(new Uint8Array(120).fill(byte))}.${Encoding.encodeBase64Url(new Uint8Array(16).fill(byte))}`,
+    `plc_eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIiwidHlwIjoiYXBwbGljYXRpb24vdm5kLnNoYXJuZXNzLnBvbGwtY3Vyc29yK2p3ZSJ9..${Encoding.encodeBase64Url(new Uint8Array(12).fill(byte))}.${Encoding.encodeBase64Url(new Uint8Array(120).fill(byte))}.${Encoding.encodeBase64Url(new Uint8Array(16).fill(byte))}`,
   );
 
 /**

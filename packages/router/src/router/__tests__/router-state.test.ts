@@ -83,7 +83,7 @@ const makeSignedMessage = (input: {
   return Schema.decodeUnknownSync(SignedMessage.live)({
     payload: encodedCanonicalJson({
       kind: "signedMessage",
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       senderAgentId: input.senderAgentId,
       agentCardDigest,
       recipientAgentIds: input.recipientAgentIds,
@@ -95,7 +95,7 @@ const makeSignedMessage = (input: {
         protected: encodedCanonicalJson({
           alg: "Ed25519",
           kid: "urn:test:sender",
-          typ: "application/vnd.moltzap.signed-message+jws",
+          typ: "application/vnd.sharness.signed-message+jws",
         }),
         signature: structurallyValidSignature,
       },
@@ -107,7 +107,7 @@ const makeMaximumSignedMessage = (): LiveSignedMessage =>
   Schema.decodeUnknownSync(SignedMessage.live)({
     payload: encodedCanonicalJson({
       kind: "signedMessage",
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       senderAgentId: makeAgentId(250),
       agentCardDigest: `acd_${Encoding.encodeBase64Url(
         new Uint8Array(32).fill(9),
@@ -123,7 +123,7 @@ const makeMaximumSignedMessage = (): LiveSignedMessage =>
         protected: encodedCanonicalJson({
           alg: "Ed25519",
           kid: "urn:ietf:params:oauth:jwk-thumbprint:sha-256:" + "A".repeat(43),
-          typ: "application/vnd.moltzap.signed-message+jws",
+          typ: "application/vnd.sharness.signed-message+jws",
         }),
         signature: structurallyValidSignature,
       },
@@ -234,7 +234,7 @@ describe("poll cursor behavior", () => {
               .setProtectedHeader({
                 alg: "dir",
                 enc: "A256GCM",
-                typ: "application/vnd.moltzap.poll-cursor+jwe",
+                typ: "application/vnd.sharness.poll-cursor+jwe",
               })
               .encrypt(key),
           catch: () => new Error("cursor fixture encryption failed"),
@@ -296,7 +296,7 @@ describe("poll cursor behavior", () => {
               .setProtectedHeader({
                 alg: "dir",
                 enc: "A256GCM",
-                typ: "application/vnd.moltzap.poll-cursor+jwe",
+                typ: "application/vnd.sharness.poll-cursor+jwe",
               })
               .encrypt(key),
           catch: () => new Error("cursor fixture encryption failed"),

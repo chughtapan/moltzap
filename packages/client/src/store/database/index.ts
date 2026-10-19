@@ -33,3 +33,6 @@ export {
   StoreSignal,
   validateContinuation,
 } from "./values.js";
+
+/** Synthetic migration policies enter through the database boundary. */
+export type { MigrationSteps } from "./migrations.js";

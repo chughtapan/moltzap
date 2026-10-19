@@ -320,12 +320,12 @@ and posts nothing.
 
 The operation travels in the post's content. Client certifies `text` as a
 `text` part followed by one `data` part whose value is an object with the key
-`xyz.moltzap/collective`. For a multicast that value is exactly
+`org.social-harness/collective`. For a multicast that value is exactly
 `{"kind": "operation", "op": "multicast"}`, so every post an endpoint authors
 names its operation. A gather or all_gather request carries
 `{"kind": "operation", "op", "id", "nonce", "deadlineAt", "requestedSchema"}`
 after its question, where `id` is `col_` followed by the base64url SHA-256 of
-`xyz.moltzap/collective-id`, a NUL, the requester's `agent:` address, a NUL
+`org.social-harness/collective-id`, a NUL, the requester's `agent:` address, a NUL
 and `nonce`; a response carries `{"kind": "response", "id", "action",
 "content"?}` alone, and an all_gather close carries
 `{"kind": "close", "id", "included"}` alone. The envelope travels sealed to

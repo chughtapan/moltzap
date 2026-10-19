@@ -20,7 +20,6 @@ import {
 import { decodeCanonicalJson, encodeCanonicalJson } from "../canonical-json.js";
 import { InternalServerError, UnavailableError } from "../http-errors.js";
 import { AgentId, type AgentId as AgentIdValue } from "../identifiers.js";
-import { WIRE_VERSION } from "../version.js";
 import {
   registerResponseSchema,
   type RegistryListRequest,
@@ -36,10 +35,14 @@ import { registryMigration } from "./migrations/0001_registry.js";
 export class RegistryStorageInitializationError extends Data.TaggedError(
   "RegistryStorageInitializationError",
 )<{
-  readonly reason: "newer-schema" | "signer-mismatch" | "unavailable";
+  readonly reason:
+    | "pre-reset"
+    | "newer-schema"
+    | "signer-mismatch"
+    | "unavailable";
 }> {}
 
-const LEDGER_TABLE = "moltzap_registry_migrations";
+const LEDGER_TABLE = "sharness_registry_migrations";
 
 type StorageError = UnavailableError | InternalServerError;
 type StorageInput = Readonly<{
@@ -135,7 +138,6 @@ const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
     parseOptions: { exact: true, onExcessProperty: "error" },
   });
 const metadataRow = exactStruct({
-  moltzapVersion: Schema.String,
   signerThumbprint: Schema.String,
 });
 const ledgerRow = exactStruct({
@@ -252,7 +254,7 @@ const mintUnusedAgentId = (
       const candidate = yield* mintAgentId();
       const rows = yield* sql`
         SELECT COUNT(*)::text AS retained
-        FROM moltzap_registry_agents
+        FROM sharness_registry_agents
         WHERE agent_id = ${candidate}
       `;
       if ((yield* retainedCount(rows)) === 0) {
@@ -337,16 +339,15 @@ const bindStorageMetadata = (input: {
   input.sql.withTransaction(
     Effect.gen(function* () {
       yield* input.sql`
-        INSERT INTO moltzap_registry_metadata
-          (singleton, moltzap_version, signer_thumbprint)
-        VALUES (true, ${WIRE_VERSION}, ${input.signerThumbprint})
+        INSERT INTO sharness_registry_metadata
+          (singleton, signer_thumbprint)
+        VALUES (true, ${input.signerThumbprint})
         ON CONFLICT (singleton) DO NOTHING
       `;
       const rows = yield* input.sql`
         SELECT
-          moltzap_version AS "moltzapVersion",
           signer_thumbprint AS "signerThumbprint"
-        FROM moltzap_registry_metadata
+        FROM sharness_registry_metadata
         WHERE singleton = true
         FOR UPDATE
       `;
@@ -354,9 +355,6 @@ const bindStorageMetadata = (input: {
         rows,
         { exact: true, onExcessProperty: "error" },
       );
-      if (metadata[0].moltzapVersion !== WIRE_VERSION) {
-        return yield* Effect.die("Registry metadata mismatch");
-      }
       if (metadata[0].signerThumbprint !== input.signerThumbprint) {
         return yield* new RegistryStorageInitializationError({
           reason: "signer-mismatch",
@@ -371,6 +369,13 @@ function runStorageInitialization(input: {
   readonly registrySignerPublicKey: Ed25519PublicKey;
 }) {
   return Effect.gen(function* () {
+    const legacy =
+      yield* input.sql`SELECT to_regclass('moltzap_registry_migrations')::text AS legacy`;
+    if (legacy.some((row) => row.legacy !== null)) {
+      return yield* new RegistryStorageInitializationError({
+        reason: "pre-reset",
+      });
+    }
     yield* ensureMigrationTable(input.sql);
     yield* input.sql.withTransaction(
       Effect.gen(function* () {
@@ -395,28 +400,28 @@ const claimNonceTransaction = (
   sql.withTransaction(
     Effect.gen(function* () {
       yield* sql`
-        SELECT singleton FROM moltzap_registry_metadata
+        SELECT singleton FROM sharness_registry_metadata
         WHERE singleton = true FOR UPDATE
       `;
       yield* sql`
-        DELETE FROM moltzap_registry_nonces
+        DELETE FROM sharness_registry_nonces
         WHERE expires_at < ${claim.now}
       `;
       const existing = yield* sql`
         SELECT COUNT(*)::text AS retained
-        FROM moltzap_registry_nonces WHERE nonce = ${claim.nonce}
+        FROM sharness_registry_nonces WHERE nonce = ${claim.nonce}
       `;
       if ((yield* retainedCount(existing)) !== 0) {
         return "replayed" as const;
       }
       const retained = yield* sql`
-        SELECT COUNT(*)::text AS retained FROM moltzap_registry_nonces
+        SELECT COUNT(*)::text AS retained FROM sharness_registry_nonces
       `;
       if ((yield* retainedCount(retained)) >= claim.capacity) {
         return "full" as const;
       }
       yield* sql`
-        INSERT INTO moltzap_registry_nonces (nonce, expires_at)
+        INSERT INTO sharness_registry_nonces (nonce, expires_at)
         VALUES (${claim.nonce}, ${claim.expires})
       `;
       return "claimed" as const;
@@ -442,7 +447,7 @@ const findStoredOperation = (
     SELECT
       request_bytes AS "requestBytes",
       result_bytes AS "resultBytes"
-    FROM moltzap_registry_operations
+    FROM sharness_registry_operations
     WHERE public_key_thumbprint = ${keyThumbprint}
       AND operation_id = ${operationId}
   `.pipe(
@@ -453,7 +458,7 @@ const findStoredOperation = (
 const keyIsRegistered = (sql: SqlClient, thumbprint: string) =>
   sql`
     SELECT COUNT(*)::text AS retained
-    FROM moltzap_registry_agents
+    FROM sharness_registry_agents
     WHERE public_key_thumbprint = ${thumbprint}
   `.pipe(
     Effect.flatMap(retainedCount),
@@ -466,7 +471,7 @@ const nameIsRegistered = (
 ) =>
   sql`
     SELECT COUNT(*)::text AS retained
-    FROM moltzap_registry_agents
+    FROM sharness_registry_agents
     WHERE agent_name = ${agentName}
   `.pipe(
     Effect.flatMap(retainedCount),
@@ -494,7 +499,7 @@ const insertNewAgent = (
     const agentCardBytes = yield* internalFailure(encodeAgentCard(agentCard));
     const agentIdBytes = yield* decodeAgentIdBytes(agentId);
     yield* input.sql`
-      INSERT INTO moltzap_registry_agents
+      INSERT INTO sharness_registry_agents
         (agent_id, agent_id_bytes, principal_id, agent_name,
          public_key_thumbprint, agent_card_bytes)
       VALUES
@@ -527,7 +532,7 @@ const recordOperation = (input: {
   readonly resultBytes: Uint8Array;
 }) =>
   input.sql`
-    INSERT INTO moltzap_registry_operations
+    INSERT INTO sharness_registry_operations
       (public_key_thumbprint, operation_id, request_bytes, result_bytes)
     VALUES
       (${input.keyThumbprint}, ${input.operationId},
@@ -542,7 +547,7 @@ const registerTransaction = (
   input.sql.withTransaction(
     Effect.gen(function* () {
       yield* input.sql`
-        SELECT singleton FROM moltzap_registry_metadata
+        SELECT singleton FROM sharness_registry_metadata
         WHERE singleton = true FOR UPDATE
       `;
       const previous = yield* findStoredOperation(
@@ -589,12 +594,12 @@ const findCardRows = (sql: SqlClient, request: RegistryLookupRequest) =>
   "agentId" in request
     ? sql`
         SELECT agent_card_bytes AS "agentCardBytes"
-        FROM moltzap_registry_agents
+        FROM sharness_registry_agents
         WHERE agent_id = ${request.agentId}
       `
     : sql`
         SELECT agent_card_bytes AS "agentCardBytes"
-        FROM moltzap_registry_agents
+        FROM sharness_registry_agents
         WHERE agent_name = ${request.agentName}
       `;
 
@@ -627,13 +632,13 @@ const readListRows = (input: StorageInput, afterBytes?: Uint8Array) => {
   return afterBytes === undefined
     ? input.sql`
         SELECT agent_card_bytes AS "agentCardBytes"
-        FROM moltzap_registry_agents
+        FROM sharness_registry_agents
         ORDER BY agent_id_bytes ASC
         LIMIT ${maximumRows}
       `
     : input.sql`
         SELECT agent_card_bytes AS "agentCardBytes"
-        FROM moltzap_registry_agents
+        FROM sharness_registry_agents
         WHERE agent_id_bytes > ${afterBytes}
         ORDER BY agent_id_bytes ASC
         LIMIT ${maximumRows}

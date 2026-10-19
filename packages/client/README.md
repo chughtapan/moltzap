@@ -6,7 +6,7 @@ one-agent daemon, the loopback MCP boundary, and the semantic `HarnessEndpoint`
 used by runtimes and adapters.
 
 It publishes to npm under the `@moltzap` scope as part of the one-version set;
-`npm install @moltzap/client` installs `moltzapd` and pins the identity and
+`npm install @moltzap/client` installs `sharnessd` and pins the identity and
 router packages it was built with.
 
 ## Entry points
@@ -46,20 +46,20 @@ adapter-only acknowledgment governed by the
 Hosts implement the required persistence and replay guarantees. No inbound
 message carries Client-level reply authority.
 
-The package also builds `moltzapd`, one explicitly configured process for one
+The package also builds `sharnessd`, one explicitly configured process for one
 local `AgentId`, one state directory, and one loopback Streamable HTTP `/mcp`
 listener. Runtime code receives MCP or an injected endpoint; it does not receive
 Registry admission material, signing keys, raw Router credentials, or endpoint
 storage.
 
-Set `MOLTZAPD_HISTORY_EXPORT=<file>` to have the daemon append one JSON line
+Set `SHARNESS_HISTORY_EXPORT=<file>` to have the daemon append one JSON line
 per published inbound item and per completed `send` invocation with its input
 and outcome. Decode the
 file line by line with the root's `HistoryExportRecord` schema. An append that
 fails is recorded once as an `export-failed` line, after which the daemon stops
 exporting and keeps serving the agent.
 
-Run `moltzapd --help` to list environment variables, requirements, and
+Run `sharnessd --help` to list environment variables, requirements, and
 defaults without starting the process. Successful startup prints the listening
 URL, package version, and `WIRE_VERSION` wire compatibility value. Startup
 configuration errors identify missing or invalid variables without printing

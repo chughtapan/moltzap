@@ -19,7 +19,7 @@ machinery through a compatibility facade. In particular, do not add a
 host-side service facade, channel-core abstraction, profile acquisition,
 protocol/server proxy, bespoke CLI, Unix socket, generic-send path, or
 standalone notification catalog. The `./service` subpath is the admitted
-process composition that `moltzapd` runs; it is not such a facade.
+process composition that `sharnessd` runs; it is not such a facade.
 
 Further work may harden or validate the implementation without widening its
 public surface or relocating its admitted Identity and Router dependencies.
@@ -64,7 +64,7 @@ never become a compatibility shim.
 
 ## Daemon boundary
 
-`moltzapd` is one explicitly configured process for one local `AgentId` and
+`sharnessd` is one explicitly configured process for one local `AgentId` and
 one state directory. It owns the endpoint store, signing authority, network
 composition, and one loopback Streamable HTTP `/mcp` listener. There are no
 named profiles, profile selectors, dynamic daemon discovery, bespoke CLI,

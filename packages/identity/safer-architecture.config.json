@@ -13,7 +13,12 @@
       "reason": "Effect platform abstractions used at boundaries"
     }
   ],
-  "allowedTestPublicSubpaths": [],
+  "allowedTestPublicSubpaths": [
+    {
+      "subpath": "./test",
+      "reason": "Adjacent-release overrides require the explicit sharness-test resolution condition and are forbidden in production source"
+    }
+  ],
   "folderReadmeFileNames": [
     "README.md",
     "MODULE.md"

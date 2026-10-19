@@ -3,6 +3,7 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { scopedLive as it } from "@effect/vitest";
+import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Deferred, Effect, Fiber, Schema, Scope } from "effect";
 import { describe, expect } from "vitest";
 import { EndpointStoreError, openEndpointStore } from "../store/index.js";
@@ -71,7 +72,9 @@ const onceRequest = { input, idempotencyKey: "once" };
 /** Invocations over a fresh store whose send blocks until `complete` resolves. */
 const freshInvocations = Effect.gen(function* () {
   const store = yield* temporaryDirectory.pipe(
-    Effect.flatMap(openEndpointStore),
+    Effect.flatMap((directory) =>
+      openEndpointStore(directory, { liveWireVersions: LIVE_WIRE_VERSIONS }),
+    ),
   );
   const scope = yield* Scope.Scope;
   return { store, scope, ...(yield* invocationFixture(store, scope)) };
@@ -162,7 +165,9 @@ const executesEverySendWithoutAKey = () =>
 const interruptsDaemon = (path: string) =>
   Effect.scoped(
     Effect.gen(function* () {
-      const store = yield* openEndpointStore(path);
+      const store = yield* openEndpointStore(path, {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      });
       const scope = yield* Scope.Scope;
       const started = yield* Deferred.make<undefined>();
       const invocations = yield* makeSendInvocations(
@@ -214,7 +219,9 @@ const checksReplayedFailure = (
 const checksRestart = (path: string) =>
   Effect.scoped(
     Effect.gen(function* () {
-      const store = yield* openEndpointStore(path);
+      const store = yield* openEndpointStore(path, {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      });
       const scope = yield* Scope.Scope;
       let calls = 0;
       const invocations = yield* makeSendInvocations(
@@ -253,7 +260,9 @@ const preservesUncertaintyAndFailure = () =>
 const replaysARefusalWithItsDetail = () =>
   Effect.gen(function* () {
     const path = yield* temporaryDirectory;
-    const store = yield* openEndpointStore(path);
+    const store = yield* openEndpointStore(path, {
+      liveWireVersions: LIVE_WIRE_VERSIONS,
+    });
     const scope = yield* Scope.Scope;
     const refusal = new SendError({
       reason: "unknown-agent",
@@ -284,7 +293,9 @@ const replaysARefusalWithItsDetail = () =>
 const returnsTheOwnOutcomeWhenItCannotBeRetained = () =>
   Effect.gen(function* () {
     const store = yield* temporaryDirectory.pipe(
-      Effect.flatMap(openEndpointStore),
+      Effect.flatMap((directory) =>
+        openEndpointStore(directory, { liveWireVersions: LIVE_WIRE_VERSIONS }),
+      ),
     );
     const invocations = yield* makeSendInvocations(
       {
@@ -310,7 +321,9 @@ const returnsTheOwnOutcomeWhenItCannotBeRetained = () =>
 const replaysAnUndecodableOutcomeAsUnknown = () =>
   Effect.gen(function* () {
     const store = yield* temporaryDirectory.pipe(
-      Effect.flatMap(openEndpointStore),
+      Effect.flatMap((directory) =>
+        openEndpointStore(directory, { liveWireVersions: LIVE_WIRE_VERSIONS }),
+      ),
     );
     const scope = yield* Scope.Scope;
     const first = yield* makeSendInvocations(
@@ -353,7 +366,9 @@ const replaysAnUndecodableOutcomeAsUnknown = () =>
 const reportsAnUnreadableEarlierAttemptAsUnknown = () =>
   Effect.gen(function* () {
     const store = yield* temporaryDirectory.pipe(
-      Effect.flatMap(openEndpointStore),
+      Effect.flatMap((directory) =>
+        openEndpointStore(directory, { liveWireVersions: LIVE_WIRE_VERSIONS }),
+      ),
     );
     const scope = yield* Scope.Scope;
     const first = yield* makeSendInvocations(
@@ -389,7 +404,9 @@ const classifiesAFailedReservation = (
 ) =>
   Effect.gen(function* () {
     const store = yield* temporaryDirectory.pipe(
-      Effect.flatMap(openEndpointStore),
+      Effect.flatMap((directory) =>
+        openEndpointStore(directory, { liveWireVersions: LIVE_WIRE_VERSIONS }),
+      ),
     );
     const invocations = yield* makeSendInvocations(
       {

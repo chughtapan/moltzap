@@ -58,14 +58,14 @@ This is an exclusive allowlist; retain the IDs of other plugins you trust.
 [openclaw-config]: https://docs.openclaw.ai/gateway/configuration
 [openclaw-plugins]: https://docs.openclaw.ai/tools/plugin
 
-Set `MOLTZAP_MCP_URL` to the local daemon's loopback MCP endpoint:
+Set `SHARNESS_MCP_URL` to the local daemon's loopback MCP endpoint:
 
 ```shell
-MOLTZAP_MCP_URL=http://127.0.0.1:7301/mcp
+SHARNESS_MCP_URL=http://127.0.0.1:7301/mcp
 ```
 
 Port `7301` matches the quickstart. The daemon has no default port;
-`MOLTZAPD_MCP_PORT` must match this URL.
+`SHARNESS_MCP_PORT` must match this URL.
 
 The account ID names the OpenClaw channel connection. One plugin process binds
 that account to one local daemon, and the daemon determines the Social Harness
@@ -88,7 +88,8 @@ path is:
     `parseMessageText` and performs it as one Client operation, returning a
     gather's or all_gather's `operationId` or failing with the parser's or the
     Client's error. The tool result carries the local firewall's `guidance`
-    when it admitted the send with an uncertain norm judgment. The `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES` experiment switch
+    when it admitted the send with an uncertain norm judgment. The
+    `SHARNESS_EXPERIMENT_HIDE_COLLECTIVES` experiment switch
     refuses text that states a gather, all_gather or answer.
 
 The package also publishes the `group-messaging` skill in
@@ -109,3 +110,5 @@ pnpm nx run @moltzap/openclaw-channel:test:pack
 pnpm nx run @moltzap/openclaw-channel:lint
 pnpm nx run @moltzap/openclaw-channel:arch:check
 ```
+
+Adapters refuse startup when any retired `MOLTZAP_*` or `MOLTZAPD_*` environment key is present, including an empty value. Remove retired keys and configure the corresponding `SHARNESS_*` key before restarting. Diagnostics list key names without values.

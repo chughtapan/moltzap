@@ -1,6 +1,6 @@
 /** @file Closed Router wire values, requests, results, bounds, and client failures. */
 import {
-  type AgentId,
+  AgentId,
   type AgentSigningError,
   AuthenticationFailedError,
   InternalServerError,
@@ -15,6 +15,7 @@ import {
   UnavailableError,
   UnsupportedMediaTypeError,
   VersionMismatchError,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import canonicalize from "canonicalize";
 import { Data, Effect, Either, Encoding, Option, Schema } from "effect";
@@ -36,18 +37,22 @@ export const routerJsonContentType = "application/json";
 
 const INSTANCE_BYTE_LENGTH = 16;
 const DIGEST_BYTE_LENGTH = 32;
-const MAXIMUM_CURSOR_LENGTH = 348;
+/** Reset representations retain their own cursor type and encoded bound. */
+const wireProfiles = {
+  [WIRE_VERSION]: {
+    pollCursorType: "application/vnd.sharness.poll-cursor+jwe",
+  },
+} as const;
 
 /** Exact protected header carried by every PollCursor. */
 export const pollCursorProtectedHeader = Object.freeze({
   alg: "dir" as const,
   enc: "A256GCM" as const,
-  typ: "application/vnd.moltzap.poll-cursor+jwe" as const,
+  typ: wireProfiles[WIRE_VERSION].pollCursorType,
 });
 
 /** Canonical protected-header JSON carried by every PollCursor. */
-const pollCursorProtectedHeaderJson =
-  '{"alg":"dir","enc":"A256GCM","typ":"application/vnd.moltzap.poll-cursor+jwe"}';
+const pollCursorProtectedHeaderJson = `{"alg":"dir","enc":"A256GCM","typ":"${wireProfiles[WIRE_VERSION].pollCursorType}"}`;
 
 /** Canonical encoded protected header carried by every PollCursor. */
 export const encodedPollCursorProtectedHeader = Encoding.encodeBase64Url(
@@ -441,6 +446,56 @@ const signedMessagePlaceholderByteLength = utf8Encoder.encode(
 const maximumAgentId = "agt_AAAAAAAAAAAAAAAAAAAAAA";
 const maximumRouterInstanceId = "rti_AAAAAAAAAAAAAAAAAAAAAA";
 
+/**
+ * Computes exact cursor length for a caller, instance, and order width.
+ *
+ * @param input Plaintext cursor members.
+ * @param input.agentId Caller bound into the encrypted continuation.
+ * @param input.routerInstanceId Process bound into the continuation.
+ * @param input.lastScannedOrder Private order bound into the continuation.
+ * @returns The complete prefixed Compact JWE length.
+ */
+export const pollCursorEncodedLength = (input: {
+  readonly agentId: AgentId;
+  readonly routerInstanceId: RouterInstanceId;
+  readonly lastScannedOrder: bigint;
+}): number => {
+  const plaintext = canonicalize({
+    agentId: input.agentId,
+    routerInstanceId: input.routerInstanceId,
+    lastScannedOrder: input.lastScannedOrder.toString(10),
+  });
+  if (plaintext === undefined) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const plaintextLength = utf8Encoder.encode(plaintext).byteLength;
+  return (
+    pollCursorPrefix.length +
+    encodedPollCursorProtectedHeaderLength +
+    1 +
+    1 +
+    16 +
+    1 +
+    base64UrlLength(plaintextLength) +
+    1 +
+    22
+  );
+};
+
+/** Maximum ASCII characters in a valid PollCursor. */
+export const maximumPollCursorLength = pollCursorEncodedLength({
+  agentId: Schema.decodeUnknownSync(AgentId)(maximumAgentId),
+  routerInstanceId: Schema.decodeUnknownSync(RouterInstanceId)(
+    maximumRouterInstanceId,
+  ),
+  lastScannedOrder: (1n << 128n) - 1n,
+});
+const MAXIMUM_CURSOR_LENGTH = maximumPollCursorLength;
+
+function base64UrlLength(byteLength: number): number {
+  return Math.ceil((byteLength * 8) / 6);
+}
+
 const canonicalByteLength = (
   value: unknown,
 ): Effect.Effect<number, RouterRepresentationLengthError> => {
@@ -527,48 +582,6 @@ export const calculateRouterRepresentationLimits = (
 export const routerRepresentationLimits = Effect.runSync(
   calculateRouterRepresentationLimits(SignedMessage.maximumEncodedByteLength),
 );
-
-const base64UrlLength = (byteLength: number): number =>
-  Math.ceil((byteLength * 8) / 6);
-
-/**
- * Computes exact cursor length for a caller, instance, and order width.
- *
- * @param input Plaintext cursor members.
- * @param input.agentId Caller bound into the encrypted continuation.
- * @param input.routerInstanceId Process bound into the continuation.
- * @param input.lastScannedOrder Private order bound into the continuation.
- * @returns The complete prefixed Compact JWE length.
- */
-export const pollCursorEncodedLength = (input: {
-  readonly agentId: AgentId;
-  readonly routerInstanceId: RouterInstanceId;
-  readonly lastScannedOrder: bigint;
-}): number => {
-  const plaintext = canonicalize({
-    agentId: input.agentId,
-    routerInstanceId: input.routerInstanceId,
-    lastScannedOrder: input.lastScannedOrder.toString(10),
-  });
-  if (plaintext === undefined) {
-    return Number.POSITIVE_INFINITY;
-  }
-  const plaintextLength = utf8Encoder.encode(plaintext).byteLength;
-  return (
-    pollCursorPrefix.length +
-    encodedPollCursorProtectedHeaderLength +
-    1 +
-    1 +
-    16 +
-    1 +
-    base64UrlLength(plaintextLength) +
-    1 +
-    22
-  );
-};
-
-/** Maximum ASCII characters in a valid PollCursor. */
-export const maximumPollCursorLength = MAXIMUM_CURSOR_LENGTH;
 
 /** Encoded byte width of a RouterInstanceId payload. */
 export const routerInstanceIdByteLength = INSTANCE_BYTE_LENGTH;

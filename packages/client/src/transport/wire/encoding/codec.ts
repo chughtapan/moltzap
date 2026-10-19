@@ -47,6 +47,7 @@ import {
   decodeCanonicalBase64Url,
   PostId,
   type PostId as PostIdValue,
+  wireProfiles,
 } from "../values.js";
 import {
   type ClientRepresentationError,
@@ -60,7 +61,8 @@ import {
 const HASH_BYTE_LENGTH = 32;
 const AGENT_ID_BYTE_LENGTH = 16;
 const MESSAGE_ID_BYTE_LENGTH = 16;
-const CLIENT_DOMAIN = "moltzap/client/v2/";
+
+const CLIENT_DOMAIN = wireProfiles[WIRE_VERSION].clientHashDomain;
 const EVIDENCE_MESSAGE_ID_DOMAIN = `${CLIENT_DOMAIN}evidence-message-id\0`;
 const utf8Encoder = new TextEncoder();
 
@@ -115,7 +117,6 @@ export const deriveConversationId = (
     return Effect.fail(representationFailure());
   }
   const input: ConversationIdentityInput = {
-    moltzapVersion: WIRE_VERSION,
     kind: "conversation_identity",
     memberAgentIds,
   };

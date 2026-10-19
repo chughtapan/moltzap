@@ -3,12 +3,12 @@
  * traces that run collective operations under one.
  *
  * The daemon runs `Daemon.withFirewall` with one deterministic code policy in
- * the mode `MOLTZAP_TEST_FIREWALL_MODE` names, so a trace decides each check
+ * the mode `SHARNESS_TEST_FIREWALL_MODE` names, so a trace decides each check
  * by the text it sends: the policy blocks an incoming text that carries
  * `[in]` and an outgoing text that carries `[out]`, asks the agent to
  * respond to an incoming text that carries `[guide]`, and leaves its norm
  * judgment of a text that carries `[unsure]` unsettled in either direction.
- * Every other `MOLTZAPD_*` setting is read as `moltzapd` reads it.
+ * Every other `SHARNESS_*` setting is read as `sharnessd` reads it.
  */
 
 import { NodeRuntime } from "@effect/platform-node";
@@ -69,7 +69,7 @@ const markers: MessageMiddleware = {
 const program = Config.literal(
   "guidance",
   "enforcement",
-)("MOLTZAP_TEST_FIREWALL_MODE").pipe(
+)("SHARNESS_TEST_FIREWALL_MODE").pipe(
   Effect.flatMap((mode) =>
     Layer.launch(
       Daemon.withFirewall({

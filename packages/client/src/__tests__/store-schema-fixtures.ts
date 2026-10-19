@@ -1,5 +1,6 @@
 /** @file Isolated state directories and scoped endpoint store fixtures. */
 
+import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Effect } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Store tests create and remove real SQLite state directories around independent Effect scopes.
 import { mkdtempSync, rmSync } from "node:fs";
@@ -33,12 +34,16 @@ export function withStore<Value, Failure>(
   directory: string,
   use: (store: EndpointStore) => Effect.Effect<Value, Failure>,
 ): Effect.Effect<Value, Failure | EndpointStoreError | OutboxTooOldError> {
-  return Effect.scoped(openEndpointStore(directory).pipe(Effect.flatMap(use)));
+  return Effect.scoped(
+    openEndpointStore(directory, { liveWireVersions: LIVE_WIRE_VERSIONS }).pipe(
+      Effect.flatMap(use),
+    ),
+  );
 }
 
 /** The SQLite file the endpoint store keeps inside a state directory. */
 export function databasePath(directory: string): string {
-  return join(directory, "moltzapd.sqlite3");
+  return join(directory, "sharnessd.sqlite3");
 }
 
 /** A conversation foundation and one certified record in it. */

@@ -1,5 +1,6 @@
 /** @file Minimal real-process fixtures for the Client daemon acceptance test. */
 
+import { WireVersions } from "@moltzap/identity/test";
 import {
   Client,
   ProtocolError,
@@ -19,6 +20,7 @@ import {
   Effect,
   Exit,
   Fiber,
+  Option,
   Redacted,
   Ref,
   Schema,
@@ -72,19 +74,19 @@ const PGLITE_BINARY = join(
 );
 const REGISTRY_BINARY = join(
   WORKSPACE_ROOT,
-  "packages/identity/bin/moltzap-registry",
+  "packages/identity/bin/sharness-registry",
 );
 const ROUTER_BINARY = join(
   WORKSPACE_ROOT,
-  "packages/router/bin/moltzap-router",
+  "packages/router/bin/sharness-router",
 );
-const DAEMON_BINARY = join(WORKSPACE_ROOT, "packages/client/bin/moltzapd");
+const DAEMON_BINARY = join(WORKSPACE_ROOT, "packages/client/bin/sharnessd");
 const FIREWALL_DAEMON = join(
   WORKSPACE_ROOT,
   "packages/client/integration/firewall-daemon.ts",
 );
 
-/** The mode of the firewall a daemon fixture installs; absent for `moltzapd` itself. */
+/** The mode of the firewall a daemon fixture installs; absent for `sharnessd` itself. */
 export type FirewallMode = "guidance" | "enforcement";
 
 /** One closed process-fixture failure with captured child output when available. */
@@ -115,7 +117,7 @@ export interface ProcessInfrastructure {
 /**
  * Exact reusable process inputs for one daemon identity and state directory.
  * A fixture with a `firewall` mode runs `firewall-daemon.ts`, which installs
- * that firewall; one without runs `moltzapd`.
+ * that firewall; one without runs `sharnessd`.
  */
 export interface DaemonProcessFixture {
   readonly agentName: AgentName;
@@ -124,6 +126,11 @@ export interface DaemonProcessFixture {
   readonly stateDirectory: string;
   readonly agentPrivateKeyFile: string;
   readonly firewall?: FirewallMode;
+  readonly wireVersions?: {
+    readonly emitted: string;
+    readonly live: readonly string[];
+    readonly history: readonly string[];
+  };
 }
 
 /** Private management calls used to bootstrap and inspect a real daemon. */
@@ -392,6 +399,7 @@ export const acquireProcessInfrastructure: Effect.Effect<
   ProcessTestError,
   Scope.Scope
 > = Effect.gen(function* () {
+  const versions = yield* Effect.serviceOption(WireVersions);
   const temporaryDirectory = yield* acquireTemporaryDirectory;
   const registryKeyPath = join(temporaryDirectory, "registry-key.pem");
   const registryPrivateKey = makePrivateKeyPem();
@@ -421,25 +429,61 @@ export const acquireProcessInfrastructure: Effect.Effect<
       "--max-connections=20",
     ]);
     yield* awaitReady(postgresql, canConnect(postgresqlPort), "listening");
-    const registry = yield* managedProcess(REGISTRY_BINARY, [], {
-      MOLTZAP_REGISTRY_HOST: LOOPBACK_HOST,
-      MOLTZAP_REGISTRY_PORT: String(registryPort),
-      MOLTZAP_REGISTRY_POSTGRESQL_URL: `postgresql://postgres:postgres@${LOOPBACK_HOST}:${postgresqlPort}/postgres`,
-      MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL: ADMISSION_CREDENTIAL,
-      MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH: registryKeyPath,
-      MOLTZAP_REGISTRY_LIST_PAGE_SIZE: "16",
-    });
+    const registryCommand: readonly [string, readonly string[]] = Option.isNone(
+      versions,
+    )
+      ? [REGISTRY_BINARY, []]
+      : [
+          process.execPath,
+          [
+            "--conditions=sharness-test",
+            "--input-type=module",
+            "-e",
+            `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity/test"; import { layer } from "@moltzap/identity/registry/server"; import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions.value)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
+          ],
+        ];
+    const registry = yield* managedProcess(
+      registryCommand[0],
+      registryCommand[1],
+      {
+        SHARNESS_REGISTRY_HOST: LOOPBACK_HOST,
+        SHARNESS_REGISTRY_PORT: String(registryPort),
+        SHARNESS_REGISTRY_POSTGRESQL_URL: `postgresql://postgres:postgres@${LOOPBACK_HOST}:${postgresqlPort}/postgres`,
+        SHARNESS_REGISTRY_ADMISSION_CREDENTIAL: ADMISSION_CREDENTIAL,
+        SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH: registryKeyPath,
+        SHARNESS_REGISTRY_LIST_PAGE_SIZE: "16",
+      },
+      join(WORKSPACE_ROOT, "packages/client"),
+    );
     yield* awaitReady(registry, isHealthy(registryOrigin), "health response");
   });
   const scope = yield* Effect.scope;
-  const startRouter = managedProcess(ROUTER_BINARY, [], {
-    MOLTZAP_ROUTER_HOST: LOOPBACK_HOST,
-    MOLTZAP_ROUTER_PORT: String(routerPort),
-    MOLTZAP_ROUTER_REGISTRY_ORIGIN: registryOrigin.origin,
-    MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY: registrySignerPublicKeyJson,
-    MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT: "16",
-    MOLTZAP_ROUTER_HELD_POLL_CAPACITY: "8",
-  }).pipe(
+  const routerCommand: readonly [string, readonly string[]] = Option.isNone(
+    versions,
+  )
+    ? [ROUTER_BINARY, []]
+    : [
+        process.execPath,
+        [
+          "--conditions=sharness-test",
+          "--input-type=module",
+          "-e",
+          `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity/test"; import { RouterServer } from "@moltzap/router/server"; import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(RouterServer.layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions.value)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
+        ],
+      ];
+  const startRouter = managedProcess(
+    routerCommand[0],
+    routerCommand[1],
+    {
+      SHARNESS_ROUTER_HOST: LOOPBACK_HOST,
+      SHARNESS_ROUTER_PORT: String(routerPort),
+      SHARNESS_ROUTER_REGISTRY_ORIGIN: registryOrigin.origin,
+      SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY: registrySignerPublicKeyJson,
+      SHARNESS_ROUTER_REQUEST_CONCURRENCY_LIMIT: "16",
+      SHARNESS_ROUTER_HELD_POLL_CAPACITY: "8",
+    },
+    join(WORKSPACE_ROOT, "packages/client"),
+  ).pipe(
     Effect.tap((router) =>
       awaitReady(router, isHealthy(routerOrigin), "health response"),
     ),
@@ -495,17 +539,17 @@ export const makeDaemonProcessFixture = (
       stateDirectory,
       agentPrivateKeyFile: keyPath,
       environment: {
-        MOLTZAPD_STATE_DIRECTORY: stateDirectory,
-        MOLTZAPD_MCP_PORT: String(port),
-        MOLTZAPD_REGISTRY_ORIGIN: infrastructure.registryOrigin.origin,
-        MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY:
+        SHARNESS_STATE_DIRECTORY: stateDirectory,
+        SHARNESS_MCP_PORT: String(port),
+        SHARNESS_REGISTRY_ORIGIN: infrastructure.registryOrigin.origin,
+        SHARNESS_REGISTRY_SIGNER_PUBLIC_KEY:
           infrastructure.registrySignerPublicKeyJson,
-        MOLTZAPD_ROUTER_ORIGIN: infrastructure.routerOrigin.origin,
-        MOLTZAPD_AGENT_PRIVATE_KEY_FILE: keyPath,
-        MOLTZAPD_ADMISSION_CREDENTIAL_FILE: credentialPath,
+        SHARNESS_ROUTER_ORIGIN: infrastructure.routerOrigin.origin,
+        SHARNESS_AGENT_PRIVATE_KEY_FILE: keyPath,
+        SHARNESS_ADMISSION_CREDENTIAL_FILE: credentialPath,
         ...(firewall === undefined
           ? {}
-          : { MOLTZAP_TEST_FIREWALL_MODE: firewall }),
+          : { SHARNESS_TEST_FIREWALL_MODE: firewall }),
       },
       ...(firewall === undefined ? {} : { firewall }),
     };
@@ -519,17 +563,32 @@ const daemonCommand = (
     ? [DAEMON_BINARY, []]
     : [process.execPath, ["--import", require.resolve("tsx"), FIREWALL_DAEMON]];
 
-/** Starts one moltzapd and returns only after its guarded loopback port listens. */
+/** Starts one sharnessd and returns only after its guarded loopback port listens. */
 export const acquireDaemonProcess = (
   fixture: DaemonProcessFixture,
   executable?: string,
 ): Effect.Effect<RunningProcess, ProcessTestError, Scope.Scope> =>
   Effect.gen(function* () {
     const [binary, args] =
-      executable === undefined
-        ? daemonCommand(fixture)
-        : ([executable, []] as const);
-    const running = yield* managedProcess(binary, args, fixture.environment);
+      fixture.wireVersions !== undefined
+        ? ([
+            process.execPath,
+            [
+              "--conditions=sharness-test",
+              "--input-type=module",
+              "-e",
+              `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity/test"; import { Daemon } from "@moltzap/client/service"; import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(Daemon.layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(fixture.wireVersions)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
+            ],
+          ] as const)
+        : executable === undefined
+          ? daemonCommand(fixture)
+          : ([executable, []] as const);
+    const running = yield* managedProcess(
+      binary,
+      args,
+      fixture.environment,
+      join(WORKSPACE_ROOT, "packages/client"),
+    );
     yield* awaitReady(
       running,
       canConnect(Number(fixture.endpoint.port)),
@@ -545,7 +604,7 @@ export interface DaemonStartupFailure {
 }
 
 /**
- * Starts one moltzapd that must stop before it listens. A daemon that listens
+ * Starts one sharnessd that must stop before it listens. A daemon that listens
  * instead fails the fixture.
  */
 export const awaitDaemonStartupFailure = (

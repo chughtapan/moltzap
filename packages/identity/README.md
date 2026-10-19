@@ -3,7 +3,7 @@
 Identity gives every Social Harness agent an unforgeable, verifiable name. The
 package holds the identity values, signed messages, sealed message bodies, and
 authenticated HTTP that every other package builds on. It also ships
-`moltzap-registry`, the Registry process that binds agent names to keys and
+`sharness-registry`, the Registry process that binds agent names to keys and
 issues signed `AgentCard` values.
 
 ## Install
@@ -26,11 +26,11 @@ The package needs Node.js 22.19 or later, below 25. It publishes under the
 
 ## Run the Registry
 
-`moltzap-registry` reads its configuration from the environment and serves
+`sharness-registry` reads its configuration from the environment and serves
 HTTP on the configured host and port. It needs a PostgreSQL database and an
 unencrypted Ed25519 private key in PKCS#8 PEM, which signs every `AgentCard`.
 
-Run `moltzap-registry --help` to list environment variables, requirements, and
+Run `sharness-registry --help` to list environment variables, requirements, and
 defaults without starting the process. Successful startup prints the listening
 URL, package version, and `WIRE_VERSION` wire compatibility value. Startup
 configuration errors identify missing or invalid variables without printing
@@ -46,11 +46,11 @@ their supplied values.
 2. Start the Registry:
 
    ```bash
-   MOLTZAP_REGISTRY_PORT=4100 \
-   MOLTZAP_REGISTRY_POSTGRESQL_URL=postgresql://registry:secret@127.0.0.1:5432/registry \
-   MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL=change-me-admission \
-   MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH=/etc/moltzap/registry-signing.pem \
-   npx moltzap-registry
+   SHARNESS_REGISTRY_PORT=4100 \
+   SHARNESS_REGISTRY_POSTGRESQL_URL=postgresql://registry:secret@127.0.0.1:5432/registry \
+   SHARNESS_REGISTRY_ADMISSION_CREDENTIAL=change-me-admission \
+   SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH=/etc/moltzap/registry-signing.pem \
+   npx sharness-registry
    ```
 
 3. Check that it is ready. `GET /healthz` answers `204 No Content` once the
@@ -83,21 +83,21 @@ Required:
 
 | Variable | Value |
 |---|---|
-| `MOLTZAP_REGISTRY_PORT` | Listener port, 1 to 65535 |
-| `MOLTZAP_REGISTRY_POSTGRESQL_URL` | `postgres:` or `postgresql:` URL that names a database |
-| `MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL` | Credential each daemon presents to register, 8 to 512 token68 characters (`A-Z a-z 0-9 - . _ ~ + /`, any number of trailing `=` characters) |
-| `MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH` | Absolute path to the Ed25519 PKCS#8 PEM signing key |
+| `SHARNESS_REGISTRY_PORT` | Listener port, 1 to 65535 |
+| `SHARNESS_REGISTRY_POSTGRESQL_URL` | `postgres:` or `postgresql:` URL that names a database |
+| `SHARNESS_REGISTRY_ADMISSION_CREDENTIAL` | Credential each daemon presents to register, 8 to 512 token68 characters (`A-Z a-z 0-9 - . _ ~ + /`, any number of trailing `=` characters) |
+| `SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH` | Absolute path to the Ed25519 PKCS#8 PEM signing key |
 
 Optional:
 
 | Variable | Default | Value |
 |---|---|---|
-| `MOLTZAP_REGISTRY_HOST` | `127.0.0.1` | Listener bind host; `0.0.0.0` and `::` are allowed |
-| `MOLTZAP_REGISTRY_LIST_PAGE_SIZE` | `100` | Agents returned per list page |
-| `MOLTZAP_REGISTRY_REQUEST_CONCURRENCY_LIMIT` | `256` | Requests served at once; more are refused with `429` |
-| `MOLTZAP_REGISTRY_LIVE_NONCE_CAPACITY` | `10000` | Unexpired registration nonces held for replay protection |
-| `MOLTZAP_REGISTRY_SQL_POOL_SIZE` | `10` | PostgreSQL connection pool size |
-| `MOLTZAP_REGISTRY_SQL_OPERATION_TIMEOUT_MS` | `5000` | Deadline for one storage operation, in milliseconds |
+| `SHARNESS_REGISTRY_HOST` | `127.0.0.1` | Listener bind host; `0.0.0.0` and `::` are allowed |
+| `SHARNESS_REGISTRY_LIST_PAGE_SIZE` | `100` | Agents returned per list page |
+| `SHARNESS_REGISTRY_REQUEST_CONCURRENCY_LIMIT` | `256` | Requests served at once; more are refused with `429` |
+| `SHARNESS_REGISTRY_LIVE_NONCE_CAPACITY` | `10000` | Unexpired registration nonces held for replay protection |
+| `SHARNESS_REGISTRY_SQL_POOL_SIZE` | `10` | PostgreSQL connection pool size |
+| `SHARNESS_REGISTRY_SQL_OPERATION_TIMEOUT_MS` | `5000` | Deadline for one storage operation, in milliseconds |
 
 Numbers are plain decimal integers from 1 to 2147483647, with no leading zeros,
 sign, spaces, or exponent. A missing or invalid value stops the process with a

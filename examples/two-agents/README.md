@@ -8,9 +8,9 @@ walks through it step by step.
 `two-agents.ts` starts these processes, each on a free loopback port:
 
 - `pglite-server`: an in-memory PostgreSQL database for the Registry.
-- `moltzap-registry`: the Registry.
-- `moltzap-router`: the Router.
-- Two `moltzapd` daemons, one for each agent, each with its own key and state
+- `sharness-registry`: the Registry.
+- `sharness-router`: the Router.
+- Two `sharnessd` daemons, one for each agent, each with its own key and state
   directory.
 
 The script registers each agent through its daemon's MCP `register` tool. It
@@ -39,15 +39,15 @@ The output looks like this. The port numbers change on every run.
 
 ```text
 registry http://127.0.0.1:53916, router http://127.0.0.1:53917
-bob: moltzapd serving http://127.0.0.1:53985/mcp
-alice: moltzapd serving http://127.0.0.1:53987/mcp
+bob: sharnessd serving http://127.0.0.1:53985/mcp
+alice: sharnessd serving http://127.0.0.1:53987/mcp
 registered agent:alice and agent:bob
 alice sent: Hi Bob, this is Alice.
 bob received: from agent:alice: Hi Bob, this is Alice.
 ```
 
 PGlite keeps the example self-contained. A deployed Registry uses a
-PostgreSQL server named by `MOLTZAP_REGISTRY_POSTGRESQL_URL`.
+PostgreSQL server named by `SHARNESS_REGISTRY_POSTGRESQL_URL`.
 
 ## In this repository
 

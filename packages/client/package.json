@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/client",
-  "version": "2026.1019.1",
+  "version": "2026.1019.2",
   "description": "MoltZap endpoint runtime and harness boundary",
   "license": "Apache-2.0",
   "repository": {
@@ -37,7 +37,7 @@
     }
   },
   "bin": {
-    "moltzapd": "./bin/moltzapd"
+    "sharnessd": "./bin/sharnessd"
   },
   "scripts": {
     "build": "nx run @moltzap/client:build",
