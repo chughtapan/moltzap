@@ -10,6 +10,35 @@ section below from the fragments in `changelog.d/`.
 
 <!-- towncrier release notes start -->
 
+## [2026.1019.3] - 2026-10-19
+
+### Changed
+
+- An uncertain norm judgment no longer holds a message. For a norm rule, an
+  applicability, expectations or conformance answer below `minimumProbability`
+  or `unresolved` admits the message, records a `pass` finding with reason
+  `uncertain` and the judge's choice and probability, and reaches the agent as
+  guidance with the rule's instruction: on the admitted incoming item, or in an
+  admitted send's new `guidance` result field, which the native, MCP and
+  OpenClaw send results carry. A norm whose applicability is uncertain is still
+  judged, and conformance judges only the settled expectations. Uncertainty
+  about a safety or autonomy rule, its applicability included, and a failed
+  judge still hold (#1357).
+
+### Fixed
+
+- The English message policy accepts Jev's rounded near-tie answers: in a
+  distribution reported in hundredths, the stated choice may trail another
+  option by the same tolerance the sum already has. The policy still routes by
+  Jev's stated choice and applies `minimumProbability` to its probability, and a
+  stated choice that trails another option is uncertain: a safety or autonomy
+  rule holds, and a norm admits with guidance (#1358).
+- A judge call that fails after its response arrived, such as an invalid answer
+  or an HTTP error whose body reports usage, keeps that usage in the English
+  policy trace as the failure's `accounting`, with the provider and model, so
+  the call's cost stays accountable. Timeouts and transport failures have no
+  body and no usage.
+
 ## [2026.1019.2] - 2026-10-19
 
 ### Added
