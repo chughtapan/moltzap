@@ -59,7 +59,7 @@ const firewallAuditInput = exactStruct({
 });
 
 const digest = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u));
-const format = Schema.Literal("moltzap.firewall-audit/v1");
+const format = Schema.Literal("moltzap.firewall-audit/v2");
 const snapshotId = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u));
 
 /** The public author-scoped post identity joins an assessment to endpoint history. */

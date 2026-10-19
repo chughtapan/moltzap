@@ -445,7 +445,7 @@ that lifetime. An export failure fails shutdown. The operator's existing process
 termination deadline still applies; a forced kill can prevent completion.
 
 Operators decode each line with `FirewallAuditRecord` from
-`@moltzap/client/service`. The `moltzap.firewall-audit/v1` format has one `start`,
+`@moltzap/client/service`. The `moltzap.firewall-audit/v2` format has one `start`,
 zero or more `check` records, zero or more `activation` records, and one
 `complete` record. Activations follow checks in activation sequence order and
 carry the same metadata as the decisions feed. The start and completion must
