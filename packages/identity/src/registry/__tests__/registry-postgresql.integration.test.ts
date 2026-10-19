@@ -84,6 +84,10 @@ const managedPostgreSql = Effect.acquireRelease(
   (container) => stopPostgreSql(container).pipe(Effect.ignore),
 );
 
+/**
+ * Docker can claim a released Registry port, so PostgreSQL must publish its
+ * host port before the Registry selects a free listener port.
+ */
 const makePostgreSqlRegistrySetup = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const temporaryDirectory = yield* fileSystem.makeTempDirectoryScoped({
@@ -97,10 +101,8 @@ const makePostgreSqlRegistrySetup = Effect.gen(function* () {
   const signingAuthority = yield* makeSigningAuthority(privateKeyPem);
   const registrySignerPublicKey =
     AgentSigningAuthority.publicKey(signingAuthority);
-  const [container, registryPort] = yield* Effect.all(
-    [managedPostgreSql, reservePort] as const,
-    { concurrency: 2 },
-  );
+  const container = yield* managedPostgreSql;
+  const registryPort = yield* reservePort;
   const origin = new URL(`http://${LOOPBACK_HOST}:${registryPort}`);
   const environment = registryEnvironment({
     port: registryPort,
