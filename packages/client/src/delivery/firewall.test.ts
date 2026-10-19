@@ -10,9 +10,9 @@ import {
   addConversation,
   auditChecks,
   block,
+  churnPolicy,
   destination,
   fixture,
-  type Fixture,
   incomingFixture,
   installation,
   outgoingFixture,
@@ -300,35 +300,6 @@ function interruptedSend() {
 }
 
 it(
-  "refuses unsupported application forms before the collective layer sends",
-  unsupportedSend,
-);
-
-function unsupportedSend() {
-  return Effect.gen(function* () {
-    const subject = yield* fixture;
-    const delivery = yield* outgoingFixture(
-      subject,
-      policy(() => Effect.succeed(pass)),
-    );
-    const refusal = yield* Effect.flip(
-      delivery.operations.send({
-        input: { to: destination, collectiveResponse: { action: "decline" } },
-        failureDelivery: "inbound",
-      }),
-    );
-    expect(refusal.message).toContain(renderedWaitAction);
-    expect(refusal).toMatchObject({
-      refusal: "check-unavailable",
-      feedback: [{ nextAction: waitAction }],
-    });
-    expect((yield* subject.store.recover()).postIntents).toEqual([]);
-    expect((yield* delivery.operations.readInbox({})).items).toEqual([]);
-    expect((yield* auditChecks(subject))[0]?.post).toBeNull();
-  });
-}
-
-it(
   "exports the real incoming and outgoing author-scoped post references",
   auditCorrelatesPosts,
 );
@@ -419,27 +390,6 @@ function concurrentSends() {
     yield* Fiber.interrupt(first);
     yield* Fiber.interrupt(second);
   });
-}
-
-function churnPolicy(subject: Fixture) {
-  let calls = 0;
-  return {
-    count: () => calls,
-    middleware: policy(() =>
-      Effect.gen(function* () {
-        calls += 1;
-        yield* subject.store.putInboxItem({
-          deliveryToken: Schema.decodeUnknownSync(DeliveryToken)(
-            digest("dlv_", 120 + calls),
-          ),
-          canonicalItem: yield* encodeRuntimeValue({
-            kind: "evidence changed",
-          }),
-        });
-        return pass;
-      }).pipe(Effect.orDie),
-    ),
-  };
 }
 
 function staleOutgoing(mode: FirewallOptions["mode"]) {
@@ -629,7 +579,8 @@ function ownerHistoryStaysPrivate() {
     ]);
     const guidance = (yield* runtime.delivery.operations.readInbox({})).items[0]
       ?.guidance;
-    expect(guidance?.subjects).toHaveLength(1);
-    expect(guidance?.subjects[0]?.sender).toBe(subject.remote.card.agentId);
+    expect(guidance).toMatchObject({
+      subjects: [{ sender: subject.remote.card.agentId }],
+    });
   });
 }

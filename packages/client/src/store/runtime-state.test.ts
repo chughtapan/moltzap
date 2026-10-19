@@ -14,6 +14,8 @@ import {
   type CertifiedRecord,
   DeliveryToken,
   type EndpointStore,
+  type FirewallHistoryEntry,
+  type FirewallLocalEntry,
   inspectEndpointStore,
 } from "./index.js";
 
@@ -177,13 +179,21 @@ function invalidatesInterruptedChecks() {
             .pendingOutgoing,
         ).toBe(true);
         expect(
-          yield* Effect.flip(store.finishFirewallAttempt(completion)),
+          yield* Effect.flip(
+            store.admitFirewallOperation(completion, bytes("draft")),
+          ),
         ).toMatchObject({ reason: "conflict" });
         expect((yield* store.recover()).postIntents).toHaveLength(1);
       }),
     );
   });
 }
+
+const local = bytes("local item");
+const historyDelivery = {
+  recipientAgentId: identity.agentId,
+  canonicalMessage: bytes("delivery"),
+};
 
 function historyRecord(ordinal: number): CertifiedRecord {
   const { record } = storedConversation("history-window");
@@ -209,15 +219,18 @@ function historyRecord(ordinal: number): CertifiedRecord {
   };
 }
 
+/** A window entry's bytes: a record's core, or a local entry's projection. */
+function entryBytes(entry: FirewallHistoryEntry | FirewallLocalEntry) {
+  return "canonicalRecordCore" in entry
+    ? entry.canonicalRecordCore
+    : entry.canonicalEntry;
+}
+
 function selectsRecentHistoryFromALongConversation() {
-  const path = stateDirectory();
   const { foundation } = storedConversation("history-window");
   const other = storedConversation("other-history");
-  const delivery = {
-    recipientAgentId: identity.agentId,
-    canonicalMessage: bytes("delivery"),
-  };
-  return withStore(path, (store) =>
+  const delivery = historyDelivery;
+  return withStore(stateDirectory(), (store) =>
     Effect.gen(function* () {
       yield* store.bindIdentity(identity);
       yield* store.putConversationFoundation(other.foundation);
@@ -232,12 +245,10 @@ function selectsRecentHistoryFromALongConversation() {
       const candidate = (yield* store.readPendingDeliveries()).find(
         (item) => item.recordHash === "rch_history:1002",
       );
-      if (candidate === undefined) {
-        return yield* Effect.dieMessage("missing candidate delivery");
-      }
-
       const incoming = yield* store.readFirewallEvidence({
-        beforeDelivery: candidate.deliveryToken,
+        beforeDelivery: yield* Effect.fromNullable(
+          candidate?.deliveryToken,
+        ).pipe(Effect.orDie),
         maximumRecords: 2,
       });
       const outgoing = yield* store.readFirewallEvidence({
@@ -245,21 +256,135 @@ function selectsRecentHistoryFromALongConversation() {
         maximumRecords: 2,
       });
 
-      expect(
-        incoming.history.map((entry) => entry.canonicalRecordCore),
-      ).toEqual([bytes("history:1000"), bytes("history:1001")]);
+      expect(incoming.history.map(entryBytes)).toEqual([
+        bytes("history:1000"),
+        bytes("history:1001"),
+      ]);
       expect(incoming.candidate?.canonicalRecordCore).toEqual(
         bytes("history:1002"),
       );
-      expect(
-        outgoing.history.map((entry) => entry.canonicalRecordCore),
-      ).toEqual([bytes("history:1002"), bytes("history:1003")]);
-      expect(incoming.earlierHistoryOmitted).toBe(true);
-      expect(outgoing.earlierHistoryOmitted).toBe(true);
-      expect(incoming.overflow).toBe(false);
-      expect(outgoing.overflow).toBe(false);
+      expect(outgoing.history.map(entryBytes)).toEqual([
+        bytes("history:1002"),
+        bytes("history:1003"),
+      ]);
+      expect([incoming, outgoing].map(windowBounds)).toEqual([
+        { earlierHistoryOmitted: true, overflow: false },
+        { earlierHistoryOmitted: true, overflow: false },
+      ]);
     }),
   );
+}
+
+/** Whether a window omitted older entries, and whether it hit the byte bound. */
+function windowBounds(window: {
+  readonly earlierHistoryOmitted: boolean;
+  readonly overflow: boolean;
+}) {
+  return {
+    earlierHistoryOmitted: window.earlierHistoryOmitted,
+    overflow: window.overflow,
+  };
+}
+
+/**
+ * A local item's evidence is kept under its conversation's address and
+ * follows the certified records that preceded its admission, so a window
+ * reads it in certification order and keeps the newest entries.
+ */
+function anchorsLocalEvidenceInItsConversation() {
+  const { foundation } = storedConversation("history-window");
+  return withStore(stateDirectory(), (store) =>
+    Effect.gen(function* () {
+      const later = yield* seedLocalEvidenceBetweenRecords(store);
+      const window = (maximumRecords: number, conversation = "agent:bob") =>
+        store.readFirewallEvidence({
+          conversationId: foundation.conversationId,
+          conversation,
+          maximumRecords,
+        });
+      const whole = yield* window(10);
+      const recent = yield* window(3);
+      const elsewhere = yield* window(10, "agent:carol");
+      const beforeLater = yield* store.readFirewallEvidence({
+        beforeDelivery: later,
+        conversation: "agent:bob",
+        maximumRecords: 10,
+      });
+
+      const records = [0, 1, 2, 3].map((ordinal) =>
+        bytes(`history:${ordinal}`),
+      );
+      const evidence = bytes("local evidence");
+      expect(whole.history.map(entryBytes)).toEqual([
+        ...records.slice(0, 2),
+        evidence,
+        ...records.slice(2),
+      ]);
+      expect(recent.history.map(entryBytes)).toEqual([
+        evidence,
+        ...records.slice(2),
+      ]);
+      expect(recent.earlierHistoryOmitted).toBe(true);
+      expect(beforeLater.history.map(entryBytes)).toEqual([
+        ...records.slice(0, 2),
+        evidence,
+      ]);
+      expect(elsewhere.history.map(entryBytes)).toEqual(records);
+      expect((yield* store.readInboxItem(token))?.canonicalItem).toEqual(
+        bytes("projection"),
+      );
+    }),
+  );
+}
+
+/**
+ * Two records, then a local item queued with evidence under `agent:bob`, a
+ * third record certified before the item is admitted, and a fourth after.
+ * The evidence belongs where the item was queued, before the third.
+ * @param store The store to seed.
+ * @returns The delivery of the first record after the local item.
+ */
+function seedLocalEvidenceBetweenRecords(store: EndpointStore) {
+  const { foundation } = storedConversation("history-window");
+  return Effect.gen(function* () {
+    yield* store.bindIdentity(identity);
+    yield* store.putConversationFoundation(foundation);
+    for (const ordinal of [0, 1]) {
+      yield* store.applyCertifiedRecord(
+        historyRecord(ordinal),
+        historyDelivery,
+      );
+    }
+    yield* store.queueFirewallItem({
+      deliveryToken: token,
+      conversation: "agent:bob",
+      canonicalItem: local,
+    });
+    yield* store.applyCertifiedRecord(historyRecord(2), historyDelivery);
+    expect(
+      yield* store.admitFirewallLocalItem({
+        queuedItem: local,
+        item: { deliveryToken: token, canonicalItem: bytes("projection") },
+        completions: [],
+        deterministic: {
+          checkId: "local-check",
+          direction: "incoming",
+          canonicalCandidate: local,
+          canonicalInput: bytes("fixed policy"),
+          canonicalResult: bytes("allow"),
+        },
+        answers: [],
+        evidence: {
+          conversation: "agent:bob",
+          canonicalEntry: bytes("local evidence"),
+        },
+      }),
+    ).toBe("admitted");
+    yield* store.applyCertifiedRecord(historyRecord(3), historyDelivery);
+    const pending = yield* store.readPendingDeliveries();
+    const later = pending.find((item) => item.recordHash === "rch_history:2");
+    return yield* Effect.fromNullable(later?.deliveryToken).pipe(Effect.orDie);
+  });
 }
 
 describe("endpoint runtime state", () => {
@@ -283,6 +408,10 @@ describe("endpoint runtime state", () => {
     "selects recent incoming and outgoing windows from a long conversation",
     selectsRecentHistoryFromALongConversation,
     { timeout: 30_000 },
+  );
+  it(
+    "orders a local item's evidence where it was queued, before records certified while it waited",
+    anchorsLocalEvidenceInItsConversation,
   );
 });
 

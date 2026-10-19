@@ -27,9 +27,11 @@ are restored from the daemon store.
 `Daemon.layer` remains the baseline composition without message checks.
 
 See [delivery/firewall.ts](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/firewall.ts) →
-`sendWithFirewall` and
+`collectiveAdmission` and
 [delivery/host-delivery.ts](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/host-delivery.ts) →
-`makeHostDelivery` for the outgoing and incoming flows. The standalone runner
+`makeHostDelivery` with
+[delivery/admission.ts](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/admission.ts) →
+`runAdmission` for the outgoing and incoming flows. The standalone runner
 remains usable by offline experiments without acquiring a daemon or store.
 
 ## Ownership and scope
@@ -45,12 +47,12 @@ no host, signing, store or messaging capability; the optional English adapter
 calls an injected decision provider. Registered code is trusted in-process code,
 not sandboxed JavaScript. Adapters only project the result.
 
-The first live slice covers direct and group multicast, matching the paper's
-message primitives. An enabled enforcement gate holds an unsupported application
-operation before any send intent or runtime admission; it must not silently
-allow it. Complete collective-operation support is a subsequent qualification
-step. Internal certification, catch-up, collective answers/folds and closes
-continue through their existing protocol paths.
+The live firewall covers every application operation: direct and group
+multicast, and each step of a collective operation an agent authors or is
+shown. [Collective operations](#collective-operations) states where each step
+is checked. Internal certification, catch-up, folds, request fan-out, closes
+and votes continue through their existing protocol paths and are never
+semantically checked.
 
 The threat model is adversarial peers communicating with an endpoint whose
 composition is controlled by its operator. It does not claim isolation from a
@@ -65,7 +67,7 @@ These values belong to service composition, not the agent-facing endpoint.
 | --- | --- |
 | Message middleware | Stable id, revision, declared rule descriptions, and `check(input)` returning an Effect of per-rule findings, norm expectations and optional private trace. Code and English policies share this contract. |
 | English policy | `makeEnglishPolicy` freezes English documents, templates and settings and returns middleware. It interprets text through a provider; it does not generate executable policy code. |
-| Message and context | Exact candidate and direction; local agent and principal identity; verified participant attribution; authorized earlier history, owner facts and evidence gaps. Context is data, not another service. |
+| Message and context | Exact candidate and direction, and the collective operation it belongs to; local agent and principal identity; verified participant attribution; authorized earlier history, owner facts, evidence gaps and the capture time. Context is data, not another service. |
 | Decision provider | State and named bounded-choice questions to validated distributions, provider/model identity, usage and latency, or a typed operational failure. Names of external providers/models remain data. |
 | Firewall | `makeFirewall({ incoming, outgoing, settings })` returns `checkIncoming(message, context)` and `checkOutgoing(draft, context)`. The runner validates and composes all returned findings and projects registered guidance/feedback. |
 | Authorization evidence | Verified exact-candidate evidence supplied by a trusted integration, or absent. The first live implementation supplies absent evidence; tests may supply explicitly simulated evidence. |
@@ -155,14 +157,20 @@ assessment rules sent to the model.
 
 ## Incoming projection
 
-The existing delivery envelope carries optional local guidance. It preserves
-its original InboundItem. This replaces no peer content.
+The existing delivery envelope carries optional local guidance beside its
+InboundItem, which is the original item, except that an admitted collective
+result is its [local projection](#collective-projection). Guidance replaces
+no peer content.
 
-The guidance contains:
+The guidance of one checked message or request contains:
 
 - response expectation: required, permitted, wait or none;
 - subject references to runtime-visible messages or operations; and
 - selected runtime-visible English instructions.
+
+A collective result's guidance is a list with one such entry per checked
+answer that drew advice, each naming the member and its own check, and one for
+the question when the question was checked with the result.
 
 The guidance is locally attributed, not part of a peer's signed content. Its
 references and text must come from supplied, authorized values. Neither private
@@ -174,10 +182,11 @@ the guidance and delivery identity. A held item cannot be retrieved through a
 different runtime path. Owner-authorized history remains an audit capability.
 
 For OpenClaw, the first projection uses the stock agent-facing body alongside a
-separately delimited original message, preserving the raw body. This is
-contextual guidance, not a claim of a new system-role capability. Qualify the
-actual model-visible prompt for DMs and groups. Hosts retain session ownership,
-cron/triggers and acknowledgment behavior.
+separately delimited original message, preserving the raw body. A result or
+failure turn is labelled as MoltZap's own, quoting the peers' answers, not as
+a peer message. This is contextual guidance, not a claim of a new system-role
+capability. Qualify the actual model-visible prompt for DMs and groups. Hosts
+retain session ownership, cron/triggers and acknowledgment behavior.
 
 A safe incoming message may arrive with guidance to remain silent. Guidance
 does not force a response or establish a distributed speaking-turn protocol.
@@ -244,8 +253,116 @@ against explicit visibility and evidence gaps.
 
 Semantic assessment does not run in action/durability voting. Local disagreement
 must not change shared history or the answers in a canonical all_gather result.
-Collective qualification must retain request identity, whole-result attribution,
-deadline validity and restart loss of volatile response context.
+
+## Collective operations
+
+Each endpoint's own firewall judges what its agent asks for and what its agent
+is shown, at the boundary between the host and Client's operations: the send
+operation going out, and the admission worker coming in. It never checks the
+collective protocol underneath. Group norms are the same installation on every
+member, and each member judges independently.
+
+### Outgoing collective checks
+
+| Agent action | Checked candidate | Refusal |
+| --- | --- | --- |
+| Multicast | Its post | Nothing binds |
+| all_gather | Its one group post | Nothing binds and the operation never starts: no deadline timer, no close |
+| gather | The operation, once, before any request post | No request post binds and the operation never starts |
+| Answer | Its response post, checked before the request is claimed | Nothing binds and the request stays open |
+
+A gather's check commits in the transaction that compares its evidence, and
+the committed check is the admitted operation: each request post binds only
+against it, in its own transaction, and only with exactly the content the
+check judged. A gather's recipients are its members' verified cards, and its
+evidence is the recent window of the conversation its address names.
+
+An answer is checked before its request is claimed, so a close or the
+deadline can still arrive during the check. Just before the answer binds,
+Client matches its request again, still open in its conversation and before
+its deadline, and claims it; when it no longer matches, the answer is refused
+with its collective failure and nothing is sent; the check still commits,
+withheld, so the audit keeps its judgment. An all_gather opens, and its
+deadline timer starts, just before its group post binds, and only when its
+check admits it; the check's duration comes out of the deadline the agent
+set, which is fixed in the checked content. A gather's check likewise
+precedes its timer. A gather or all_gather whose deadline passes during its
+check fails as `deadline-passed`, and nothing posts.
+
+A gather's or all_gather's wait for its request posts runs from the send's
+start, so time spent in its check shortens that wait. The check itself is
+bounded only by the firewall's own timeouts, so a slow or saturated firewall
+can still delay the call.
+
+A firewall refusal is always the send's own failure, returned on the tool
+call, even when the host routes failures inbound. Client never authors,
+declines or retries on the agent's behalf, and a keyed retry replays the
+retained refusal.
+
+### Incoming collective checks
+
+| Item | Check |
+| --- | --- |
+| Request | Its question, exactly as the model reads it before the answer instructions, form included |
+| Result | Each answer on its own, as its line of the result; the shell of members and outcomes is always admitted |
+| Operation failure | None: the text is the endpoint's own, admitted under one deterministic audit record; a peer's form field names in it are quoted as JSON |
+| Multicast | Unchanged |
+
+A received request waits unanswerable until its admission settles: it cannot
+be matched and does not count as answered. Shown, it opens; withheld, it
+stays unanswerable, though an all_gather member still applies its close and
+receives the result. A request whose deadline passes before its check starts
+retires unchecked, and one whose deadline passes during its check is
+withheld; neither is presented.
+
+A result's answers are checked from one evidence capture, each against the
+window of its own conversation before its certified record, and commit
+together in one transaction. The endpoint's own answer and members without an
+answer are not checked. An `invalid` outcome is checked too, since its reason
+names peer-controlled fields. At a member the question is shown when the
+runtime was shown the request, withheld under that check when an enforcing
+check withheld the request, and otherwise checked with the result.
+
+### Collective projection
+
+The runtime reads a local projection of each admitted result; the canonical
+result stays in the private queue and the audit. Each withheld answer becomes
+`{ kind: "withheld", checkId, reason }`, and a withheld question the same
+value. Native subscriptions, inbox pages, read-event and webhooks all serve
+only the projection. Guidance mode withholds nothing and attaches each
+answer's advice.
+
+Later checks see the operation as typed entries. A request record is
+runtime-visible when its item reached the inbox, and an answer record when an
+admitted result showed it; an answer a result withheld is marked withheld. An
+admitted result or failure leaves a runtime-visible entry, attributed to
+MoltZap, under its conversation's address, ordered after the records
+certified before it was queued and before every record certified after. Each checked message names its operation, and
+each context carries the time it was captured.
+
+### Collective invariants
+
+- No model call runs while a post is classified, during voting, under the
+  delivery gate, or inside a store transaction.
+- A check never changes certification, shared history or the canonical
+  result an all_gather close lists; every member's canonical result stays
+  identical, and only its local projection differs.
+- Peer content reaches the runtime unchanged and attributed, or as an
+  explicit `withheld` value; guidance is never peer content.
+- A refusal is a typed send failure before any send intent binds.
+- A retry under the same invocation key replays the retained outcome.
+- Hosts carry messages, guidance and errors only.
+- `Daemon.layer`, which installs no firewall, runs none of these checks: a
+  received request opens at once, and every post binds as it is sent.
+
+### Collective restart
+
+Collective state is process-local, so restart loses it. A queued request the
+runtime was never shown retires without a trace the agent can see; an
+admitted request the agent has not acknowledged becomes an `operationFailed`
+item, admitted as any failure is. A gather's request posts already bound may
+still be proposed; members whose posts never bound are never posted. A check
+interrupted by restart binds nothing.
 
 ## Runtime composition and persistence
 
@@ -343,36 +460,43 @@ revision checks are deferred. Further churn holds enforcement without another pr
 call; guidance records that hold and admits the original without stale advice.
 
 History contains the most recent endpoint-certified records of the candidate's
-own conversation, strictly before the candidate, in certification order. An
-outgoing check uses its outgoing candidate's conversation. The configured record
-window omits older records; when it does, the assessor receives
-`earlierHistoryOmitted: true` in its context. This omission is not
+own conversation, strictly before the candidate, in certification order, merged
+with the local evidence of admitted results and failures kept under that
+conversation's address. An outgoing check uses its outgoing candidate's
+conversation. The configured record window omits older entries; when it does,
+the assessor receives `earlierHistoryOmitted: true` in its context. This omission is not
 an evidence gap and does not by itself make a check unresolved. The window also
 has a 2 MiB bound on whole retained record/membership bytes. Exceeding that byte
 bound is an explicit evidence gap. Unresolved outgoing intents are also gaps:
 a concurrent send may have committed without certified history yet. Fixed owner
 facts and verified agent/principal attribution accompany the capture.
 
-Only inbox-admitted history is marked runtime-visible. Other history, including
-local outgoing posts without proven runtime origin, remains assessor evidence.
+Only history the runtime was shown is marked runtime-visible: inbox-admitted
+records, answers an admitted result showed, and local evidence. Other history,
+including local outgoing posts without proven runtime origin, remains assessor
+evidence.
 Selected guidance subjects carry quoted message text and attribution from the
 same capture, restricted to admitted runtime history and the incoming candidate.
 Missing subjects or a projection exceeding the 2 MiB inbox-item budget produces
-an unavailable check; guidance mode admits without that advice. Peer text is
+an unavailable check; guidance mode admits without that advice. A collective
+result whose combined per-answer advice exceeds that budget is admitted without
+any of it, in either mode: each answer was already judged on its own, and only
+the advice is lost. Peer text is
 never relabelled as a registered instruction.
 
-The current store contains the private incoming queue, evidence revision and
-check and activation records alongside identity, protocol, inbox and invocation
-state. Only schema 7 reopens; earlier state requires an explicit reset under the
+The current store contains the private incoming queue, evidence revision,
+check and activation records, local evidence and answer admission marks
+alongside identity, protocol, inbox and invocation state. Only schema 8 reopens; earlier state requires an explicit reset under the
 [reset release policy](../layer-interfaces.md#publication-and-versions). Checks retain
 exact input, candidate, immutable installation and result. Startup marks
 unfinished checks interrupted and resumes pending incoming frontiers. A held
 item stays held. Previously admitted items remain readable with their original
 token and guidance, including after acknowledgment or restart without installed
-middleware. A lost collective request's
-replacement failure enters the same admission queue before exposure. Recovery
-visits queued requests as well as admitted ones, including successors behind a
-conversation frontier, and atomically retires the original raw delivery.
+middleware. [Collective restart](#collective-restart) states what restart
+does to requests; a lost request's replacement failure enters the same
+admission queue before exposure, and recovery visits queued requests,
+including successors behind a conversation frontier, atomically retiring each
+original raw delivery.
 
 The native adapter uses the current runtime schemas. OpenClaw carries guidance
 in its ordinary model-facing context
@@ -445,7 +569,7 @@ that lifetime. An export failure fails shutdown. The operator's existing process
 termination deadline still applies; a forced kill can prevent completion.
 
 Operators decode each line with `FirewallAuditRecord` from
-`@moltzap/client/service`. The `moltzap.firewall-audit/v2` format has one `start`,
+`@moltzap/client/service`. The `moltzap.firewall-audit/v3` format has one `start`,
 zero or more `check` records, zero or more `activation` records, and one
 `complete` record. Activations follow checks in activation sequence order and
 carry the same metadata as the decisions feed. The start and completion must
@@ -457,9 +581,11 @@ the artifact incomplete. Check records preserve the exact semantic input,
 installation metadata, private provider traces, judgment and applied disposition.
 Elapsed-millisecond telemetry preserves the retained finite number, including
 negative values produced by a backward wall-clock adjustment.
-Each supported message has a `post` reference with `authorAgentId` and `postId`
-for exact correlation with sender and peer history. Unsupported candidates and
-attempts without a projected message have `post: null`.
+Each checked message with one post has a `post` reference with `authorAgentId`
+and `postId` for exact correlation with sender and peer history: an outgoing
+post, or an incoming message or request. A gather, checked before its posts
+exist, a result or failure, which no single post carries, and attempts without
+a projected message have `post: null`.
 Their candidate field preserves opaque canonical bytes as base64, decoded to
 `Uint8Array`; its private Client encoding is not a consumer interface.
 
@@ -483,7 +609,9 @@ Runtime tests use real Client storage and send preparation, with injected policy
 decisions. They cover withheld inbox visibility, retained send refusals, stale
 admission and shadow mode, concurrent sends, cancellation, independent
 conversations, current-store restart, interrupted checks, MCP errors,
-and OpenClaw projection. Adapter tests exercise the pinned host SDK; they do not
+OpenClaw projection, and each collective step above. Multi-daemon traces run
+gather, all_gather and held delivery between daemons with firewalls in both
+modes. Adapter tests exercise the pinned host SDK; they do not
 establish real-model behavior.
 
 Real OpenClaw tests must retain a model's attempted send, actual tool error,

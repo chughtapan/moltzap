@@ -8,7 +8,9 @@ The service enters through `index.ts`, which exports
 `operation.ts → makeCollectiveOperations`: it turns each send into posts and
 each certified post into an item or nothing. It also exports
 `CollectiveEmitError`, the failure the service's emit port returns when it
-cannot keep an item the layer emits. Hosts and other domains read the schema
+cannot keep an item the layer emits, and `CollectiveAdmission`, the ports an
+installed firewall supplies so the layer checks every post the agent authors
+and every gather before anything binds. Hosts and other domains read the schema
 entrypoints `forms.ts` (send forms and the errors sends return), `inbound.ts`
 (inbound items) and `message-text.ts` (the text parser) directly, so they never
 load the operation layer. The other modules are private: `part/` encodes and

@@ -55,11 +55,14 @@ function finalizerBarrierSend(fixture: HttpFixture) {
   const finalize = Effect.gen(function* () {
     yield* Deferred.succeed(fixture.finalizing, undefined);
     yield* Deferred.await(fixture.release);
-    yield* fixture.store.finishFirewallAttempt({
-      checkId: CHECK_ID,
-      admit: false,
-      canonicalResult: fixture.evidence.canonicalResult,
-    });
+    yield* fixture.store.admitFirewallOperation(
+      {
+        checkId: CHECK_ID,
+        admit: false,
+        canonicalResult: fixture.evidence.canonicalResult,
+      },
+      fixture.evidence.canonicalCandidate,
+    );
   }).pipe(Effect.orDie);
   return Effect.gen(function* () {
     yield* fixture.store.beginFirewallAttempt({

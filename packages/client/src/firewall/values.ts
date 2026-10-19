@@ -8,13 +8,57 @@ const visibility = Schema.Literal("runtime", "assessor");
 const probability = Schema.Number.pipe(Schema.between(0, 1));
 const nextAction = Schema.Literal("revise", "wait", "stop", "seek-approval");
 
-/** Attribution is supplied by Client, never inferred from names in the body. */
+const collectingOp = Schema.Literal("gather", "all_gather");
+
+/**
+ * The collective operation a message belongs to, so a policy can tell a
+ * question, an answer, a result or a failure from a plain message without
+ * reading its text. A request carries its absolute deadline in epoch
+ * milliseconds; an answer and a result name the operation they belong to.
+ */
+const messageOperation = Schema.Union(
+  Schema.Struct({
+    kind: Schema.Literal("request"),
+    op: collectingOp,
+    id: identifier,
+    deadlineAt: Schema.Int.pipe(Schema.positive()),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("answer", "result"),
+    op: collectingOp,
+    id: identifier,
+  }),
+  Schema.Struct({ kind: Schema.Literal("failure"), id: identifier }),
+);
+
+/**
+ * Attribution is supplied by Client, never inferred from names in the body.
+ * `operation` is absent for a plain message.
+ */
 export class Message extends Schema.Class<Message>("Message")({
   id: identifier,
   sender: identifier,
   recipients: Schema.NonEmptyArray(identifier),
   text: Schema.String,
+  operation: Schema.optional(messageOperation),
 }) {}
+
+/* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- The history entry Schema shares its domain name with the value it decodes. */
+
+/**
+ * One message of authorized earlier history: whether the runtime can see it,
+ * and whether the endpoint admitted it or withheld it.
+ */
+export const HistoryEntry = Schema.Struct({
+  ...Message.fields,
+  visibility,
+  admission: Schema.Literal("admitted", "withheld"),
+}).annotations({ identifier: "HistoryEntry" });
+
+/** One validated message of earlier history. */
+export type HistoryEntry = typeof HistoryEntry.Type;
+
+/* eslint-enable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Restore naming after the Schema/type pair. */
 
 const approval = Schema.Struct({
   kind: Schema.Literal("verified"),
@@ -38,15 +82,11 @@ export class MessageContext extends Schema.Class<MessageContext>(
       principal: identifier,
     }),
   ),
-  history: Schema.Array(
-    Schema.Struct({
-      ...Message.fields,
-      visibility,
-      admission: Schema.Literal("admitted", "withheld"),
-    }),
-  ),
+  history: Schema.Array(HistoryEntry),
   /** Older certified records outside the configured window are not an evidence gap. */
   earlierHistoryOmitted: Schema.optional(Schema.Boolean),
+  /** Epoch milliseconds when Client captured the context, so a deadline can be judged and a check replayed. */
+  now: Schema.optional(Schema.Int.pipe(Schema.nonNegative())),
   facts: Schema.Array(
     Schema.Struct({
       id: identifier,
@@ -480,7 +520,7 @@ export const firewallDecisionsSchema = exact({
       direction: Schema.Literal("incoming", "outgoing"),
       peerAgentId: Schema.NullOr(AgentId),
       outcome: Schema.Literal("allow", "block", "hold", "revise"),
-      disposition: Schema.Literal("stale", "admitted", "withheld", "observed"),
+      disposition: Schema.Literal("stale", "admitted", "withheld"),
       ruleIds: Schema.Array(Schema.NonEmptyString),
       activeRevision: Schema.NonEmptyString,
     }),

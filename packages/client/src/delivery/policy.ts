@@ -1,6 +1,7 @@
 /** @file Serialized owner edits replace immutable chains without replacing daemon resources. */
 
 import { Clock, Effect, Schema } from "effect";
+import type { InstalledFirewall } from "./firewall-checks.js";
 import {
   decodeFrozen,
   EnglishPolicySettings,
@@ -24,7 +25,6 @@ import { decodeFirewallAuditEntry } from "./firewall-values.js";
 import {
   captureRegistration,
   type FirewallOptions,
-  type InstalledFirewall,
   installFirewall,
 } from "./firewall.js";
 
@@ -332,9 +332,18 @@ function projectDecision(check: DecodedCheck, time: number) {
   }));
 }
 
+/**
+ * The agents a check's decision rows name: each recipient of an outgoing
+ * message, the verified author of an incoming one, and no agent for a result
+ * or failure, whose text is the endpoint's own.
+ */
 function decisionPeers(
-  message: { readonly sender: string; readonly recipients: readonly string[] },
+  message: NonNullable<DecodedCheck["input"]["message"]>,
   direction: "incoming" | "outgoing",
-) {
-  return direction === "incoming" ? [message.sender] : message.recipients;
+): ReadonlyArray<string | null> {
+  if (direction === "outgoing") {
+    return message.recipients;
+  }
+  const kind = message.operation?.kind;
+  return kind === "result" || kind === "failure" ? [null] : [message.sender];
 }

@@ -8,7 +8,7 @@ One service's delivery, for the service to compose.
 
 ## Public surface
 
-### [`FirewallAuditRecord`](./firewall-values.ts#L167)
+### [`FirewallAuditRecord`](./firewall-values.ts#L166)
 
 _TypeAlias_
 
@@ -41,7 +41,6 @@ export const FirewallAuditRecord = Schema.Union(
       "stale",
       "admitted",
       "withheld",
-      "observed",
     ),
     post: Schema.NullOr(firewallAuditPost),
     candidate: Schema.Uint8ArrayFromBase64,

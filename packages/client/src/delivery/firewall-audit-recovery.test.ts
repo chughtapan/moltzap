@@ -125,11 +125,14 @@ const preservesClockRollback = () =>
         })
         .pipe(
           Effect.zipRight(
-            store.finishFirewallAttempt({
-              checkId: "clock-rollback",
-              admit: false,
-              canonicalResult: fixture.canonicalResult,
-            }),
+            store.admitFirewallOperation(
+              {
+                checkId: "clock-rollback",
+                admit: false,
+                canonicalResult: fixture.canonicalResult,
+              },
+              fixture.canonicalCandidate,
+            ),
           ),
         ),
     );

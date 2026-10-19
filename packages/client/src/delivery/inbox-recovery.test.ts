@@ -1,4 +1,8 @@
-/** @file A pending collective request delivery stays answerable across a restart of a current store. */
+/**
+ * @file A pending collective request delivery stays answerable across a
+ * restart of a current store, and one still waiting for firewall admission
+ * retires unseen.
+ */
 
 import { live as it } from "@effect/vitest";
 import { Effect, Encoding, Option, Schema, Scope } from "effect";
@@ -15,7 +19,6 @@ import {
   type EndpointStore,
   openEndpointStore,
 } from "../store/index.js";
-import { InboundItem } from "../transport/collectives/inbound.js";
 import { makeCollectiveOperations } from "../transport/collectives/index.js";
 import { collectiveIdOf } from "../transport/collectives/part/index.js";
 import { InboundMessage } from "../transport/messaging/message.js";
@@ -148,7 +151,7 @@ it(
   preservesUnprojectedRequest,
 );
 
-it("retires a privately queued request and its raw delivery before resuming admission", () => {
+it("retires a request still waiting for admission, and its raw delivery, without a failure", () => {
   const path = stateDirectory();
   const counter = { count: 0 };
   return Effect.gen(function* () {
@@ -159,19 +162,9 @@ it("retires a privately queued request and its raw delivery before resuming admi
         yield* recoverRuntimeInbox(store, true);
         expect(yield* store.readPendingDeliveries()).toEqual([]);
         expect((yield* readRuntimeInbox(store, {})).items).toEqual([]);
-        const pending = yield* store.readFirewallFrontiers();
-        expect(pending).toHaveLength(1);
-        const replacement = pending[0];
-        if (replacement === undefined) {
-          return yield* Effect.dieMessage("missing restart failure");
-        }
-        const item = yield* decodeRuntimeValue(
-          InboundItem,
-          replacement.canonicalItem,
-        );
-        expect(item).toMatchObject({ kind: "operationFailed", id });
+        expect(yield* store.readFirewallFrontiers()).toEqual([]);
         yield* recoverRuntimeInbox(store, true);
-        expect(yield* store.readFirewallFrontiers()).toEqual(pending);
+        expect(yield* store.readFirewallFrontiers()).toEqual([]);
       }),
     );
   });

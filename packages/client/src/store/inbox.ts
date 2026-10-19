@@ -9,6 +9,7 @@ import {
   readText,
   requireBytes,
   requireSameBytes,
+  requireSameOptionalBytes,
   requireText,
   StoreSignal,
   transaction,
@@ -85,7 +86,7 @@ export function putInboxItem(
   if (retained !== undefined) {
     requireSameBytes(readBytes(retained, "canonical_item"), item.canonicalItem);
     const priorGuidance = readOptionalBytes(retained, "canonical_guidance");
-    requireSameGuidance(priorGuidance, item.canonicalGuidance);
+    requireSameOptionalBytes(priorGuidance, item.canonicalGuidance);
     return "existing";
   }
   database
@@ -250,28 +251,7 @@ export function replaceInboxItem(
     throw new StoreSignal("conflict");
   }
   transaction(database, () => {
-    const projected = database
-      .prepare(
-        "SELECT delivery_token FROM runtime_inbox WHERE delivery_token = ?",
-      )
-      .get(deliveryToken);
-    if (projected === undefined) {
-      const privateItem = database
-        .prepare(
-          "UPDATE firewall_incoming SET disposition = 'withheld' WHERE delivery_token = ? AND disposition = 'pending'",
-        )
-        .run(deliveryToken);
-      const retired = database
-        .prepare(
-          "UPDATE pending_deliveries SET acknowledged = 1 WHERE delivery_token = ? AND acknowledged = 0",
-        )
-        .run(deliveryToken);
-      if (retired.changes !== 1 && privateItem.changes !== 1) {
-        throw new StoreSignal("not-found");
-      }
-    } else {
-      retireItem(database, deliveryToken);
-    }
+    retireItem(database, deliveryToken);
     if (retain === undefined) {
       putInboxItem(database, replacement);
     } else {
@@ -389,6 +369,23 @@ export function writeEventState(
     .run(canonicalState);
 }
 
+/**
+ * Retire a delivery's raw pending row, so the delivery pass never offers it
+ * again.
+ * @param database The endpoint store.
+ * @param deliveryToken The delivery to retire.
+ */
+export function retirePendingDelivery(
+  database: DatabaseSync,
+  deliveryToken: DeliveryToken,
+): void {
+  database
+    .prepare(
+      "UPDATE pending_deliveries SET acknowledged = 1 WHERE delivery_token = ?",
+    )
+    .run(deliveryToken);
+}
+
 function retireItem(
   database: DatabaseSync,
   deliveryToken: DeliveryToken,
@@ -406,11 +403,7 @@ function retireItem(
       "UPDATE runtime_inbox SET acknowledged = 1 WHERE delivery_token = ?",
     )
     .run(deliveryToken);
-  database
-    .prepare(
-      "UPDATE pending_deliveries SET acknowledged = 1 WHERE delivery_token = ?",
-    )
-    .run(deliveryToken);
+  retirePendingDelivery(database, deliveryToken);
 }
 
 function guidanceBytes(
@@ -418,14 +411,4 @@ function guidanceBytes(
 ): Pick<InboxEntry, "canonicalGuidance"> {
   const value = readOptionalBytes(row, "canonical_guidance");
   return value === undefined ? {} : { canonicalGuidance: value };
-}
-
-function requireSameGuidance(prior?: Uint8Array, next?: Uint8Array): void {
-  if (prior === undefined || next === undefined) {
-    if (prior !== next) {
-      throw new StoreSignal("conflict");
-    }
-    return;
-  }
-  requireSameBytes(prior, next);
 }

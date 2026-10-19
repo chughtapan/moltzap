@@ -47,13 +47,17 @@ import {
   recoverCertifiedHistory,
 } from "./recovery/index.js";
 import {
+  type BindHold,
   type EngineSendInput,
   type EngineSentPost,
+  prepareAdmittedSend,
   prepareCheckedSend,
   type PreparedSendCheck,
   prepareSend,
   proposeIntent,
   resolveAddress,
+  resolveConversation,
+  type ResolvedConversation,
 } from "./send.js";
 import { recoverEngineState } from "./startup.js";
 
@@ -61,6 +65,10 @@ import { recoverEngineState } from "./startup.js";
 export type { EndpointEngineInput } from "./runtime/index.js";
 /** The send input and result the collective layer exchanges with the engine. */
 export type { EngineSendInput, EngineSentPost } from "./send.js";
+/** How a caller holds a precondition across a checked bind, and how a check is retried while stale. */
+export { type BindHold, untilFresh } from "./send.js";
+/** The prepared post a checked send hands its check, and the conversation an address resolves to. */
+export type { PreparedSend, ResolvedConversation } from "./send.js";
 /**
  * The one verifier of a stored membership row, and the stored-history reader
  * the owner tools page through, shared with the daemon.
@@ -96,11 +104,29 @@ export interface EnginePendingMessage {
 
 /** Stable private engine capability consumed by daemon composition. */
 export interface EndpointEngine {
-  /** Application inference completes outside protocol locks, before atomic intent binding. */
-  readonly sendChecked: (
+  /**
+   * Check and bind one application post. Inference completes outside
+   * protocol locks, then `hold` is taken, then the intent binds atomically
+   * with the check's evidence comparison. The returned effect completes once
+   * the post is certified, so a caller can bound that wait apart from the
+   * check.
+   */
+  readonly bindChecked: <E>(
     input: EngineSendInput,
     check: PreparedSendCheck,
-  ) => Effect.Effect<EngineSentPost, SendError | FirewallSendError>;
+    hold: BindHold<E>,
+  ) => Effect.Effect<
+    Effect.Effect<EngineSentPost, SendError>,
+    SendError | FirewallSendError | E
+  >;
+  /**
+   * Certify one gather request post against its operation's admitted check;
+   * a post whose content the check did not admit binds nothing.
+   */
+  readonly sendAdmitted: (
+    input: EngineSendInput,
+    checkId: string,
+  ) => Effect.Effect<EngineSentPost, SendError>;
   /** Completes once the minted post's certified record is stored locally. */
   readonly send: (
     input: EngineSendInput,
@@ -113,6 +139,14 @@ export interface EndpointEngine {
   readonly resolveAddress: (
     to: MessageAddressInput,
   ) => Effect.Effect<void, SendError>;
+  /**
+   * Resolve an address to the conversation a send to it posts in, with its
+   * members' verified cards, without sending; the firewall attributes a
+   * gather's recipients and reads its evidence through it.
+   */
+  readonly resolveConversation: (
+    to: MessageAddressInput,
+  ) => Effect.Effect<ResolvedConversation, SendError>;
   readonly readPendingMessages: () => Effect.Effect<
     readonly EnginePendingMessage[],
     ListenError
@@ -532,14 +566,25 @@ const abandonVolatileFolds = (
 
 const endpointEngine = (runtime: EngineRuntime): EndpointEngine =>
   Object.freeze({
-    sendChecked: (input: EngineSendInput, check: PreparedSendCheck) =>
-      prepareCheckedSend(runtime, input, check).pipe(
+    bindChecked: <E>(
+      input: EngineSendInput,
+      check: PreparedSendCheck,
+      hold: BindHold<E>,
+    ) =>
+      prepareCheckedSend(runtime, input, check, hold).pipe(
+        Effect.map((prepared) => finishPreparedSend(runtime, prepared)),
+      ),
+    sendAdmitted: (input: EngineSendInput, checkId: string) =>
+      prepareAdmittedSend(runtime, input, checkId).pipe(
         Effect.flatMap((prepared) => finishPreparedSend(runtime, prepared)),
       ),
     send: (sendInput: Parameters<EndpointEngine["send"]>[0]) =>
       send(runtime, sendInput),
     resolveAddress: (to: Parameters<EndpointEngine["resolveAddress"]>[0]) =>
       resolveAddress(runtime, to),
+    resolveConversation: (
+      to: Parameters<EndpointEngine["resolveConversation"]>[0],
+    ) => resolveConversation(runtime, to),
     readPendingMessages: () => readPendingMessages(runtime),
     acknowledgeMessage: (
       deliveryToken: Parameters<EndpointEngine["acknowledgeMessage"]>[0],

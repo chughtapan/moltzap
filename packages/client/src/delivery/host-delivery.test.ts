@@ -71,7 +71,10 @@ const makeFixture = (adjust: (store: EndpointStore) => EndpointStore) =>
             records.push(record);
           }),
       },
-      collectives: () => slot.collectives,
+      collectives: () =>
+        slot.collectives === undefined
+          ? undefined
+          : { ...slot.collectives, settleRequest: () => Effect.void },
       scope: yield* Scope.Scope,
     });
     return { delivery, records, slot };
