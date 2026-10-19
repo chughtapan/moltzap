@@ -8,6 +8,7 @@ import {
   type InboundDelivery,
   InboundItem,
   ListenError,
+  renderCollectiveResult,
   SendError,
 } from "@moltzap/client";
 import { Deferred, Effect, Queue, Schema, Stream } from "effect";
@@ -150,30 +151,53 @@ it("stays disabled without an MCP URL", async () => {
   expect(boundary.acquire).not.toHaveBeenCalled();
 });
 
-it("acquires one endpoint on setup and releases it on shutdown", async () => {
+it("refuses delivery before setup", async () => {
   const fake = makeEndpoint();
   const channel = await createAdapter();
   expect(channel.isConnected()).toBe(false);
   await expect(
     channel.deliver("agent:alice", null, { kind: "chat", content: "hi" }),
   ).rejects.toThrow("not connected");
+  expect(fake.send).not.toHaveBeenCalled();
+});
 
+it("acquires one endpoint across repeated setup", async () => {
+  makeEndpoint();
+  const channel = await createAdapter();
   await channel.setup(makeHost());
   await channel.setup(makeHost());
   expect(channel.isConnected()).toBe(true);
   expect(boundary.acquire).toHaveBeenCalledExactlyOnceWith(
     new URL("http://127.0.0.1:8321/mcp"),
   );
+});
 
+it("releases the endpoint once across repeated teardown", async () => {
+  const fake = makeEndpoint();
+  const channel = await createAdapter();
+  await channel.setup(makeHost());
   await channel.teardown();
   await channel.teardown();
   expect(channel.isConnected()).toBe(false);
   expect(fake.released).toHaveBeenCalledTimes(1);
+});
+
+it("refuses delivery after teardown", async () => {
+  const fake = makeEndpoint();
+  const channel = await createAdapter();
+  await channel.setup(makeHost());
+  await channel.teardown();
   await expect(
     channel.deliver("agent:alice", null, { kind: "chat", content: "hi" }),
   ).rejects.toThrow("not connected");
   expect(fake.send).not.toHaveBeenCalled();
+});
 
+it("reactivates after teardown with a new endpoint acquisition", async () => {
+  const fake = makeEndpoint();
+  const channel = await createAdapter();
+  await channel.setup(makeHost());
+  await channel.teardown();
   await channel.setup(makeHost());
   expect(channel.isConnected()).toBe(true);
   expect(boundary.acquire).toHaveBeenCalledTimes(2);
@@ -190,9 +214,15 @@ it("propagates acquisition failure without becoming connected", async () => {
   expect(channel.isConnected()).toBe(false);
 });
 
-it.each(["completion", "failure"] as const)(
-  "disconnects and releases the endpoint on stream %s",
-  async (ending) => {
+it.each([
+  { ending: "completion", messages: Stream.empty },
+  {
+    ending: "failure",
+    messages: Stream.fail(new ListenError({ reason: "transport-failed" })),
+  },
+])(
+  "disconnects and releases the endpoint on stream $ending",
+  async ({ messages }) => {
     const fake = makeEndpoint();
     const stop = Effect.runSync(Queue.unbounded<undefined>());
     boundary.acquire.mockReturnValue(
@@ -200,11 +230,7 @@ it.each(["completion", "failure"] as const)(
         Effect.succeed({
           send: fake.send,
           messages: Stream.fromEffect(Queue.take(stop)).pipe(
-            Stream.flatMap(() =>
-              ending === "completion"
-                ? Stream.empty
-                : Stream.fail(new ListenError({ reason: "transport-failed" })),
-            ),
+            Stream.flatMap(() => messages),
           ),
         }),
         () =>
@@ -381,23 +407,24 @@ it("attributes a result to MoltZap and lists every member outcome in the address
   const host = makeHost();
   const channel = await createAdapter();
   await channel.setup(host);
-  const acknowledged = enqueue(
-    fake,
-    Schema.decodeUnknownSync(InboundItem)({
-      kind: "collectiveResult",
-      op: "gather",
-      id: OPERATION_ID,
-      to: GROUP,
-      question: QUESTION,
-      outcomes: [
-        {
-          member: "agent:bob",
-          outcome: { kind: "answered", content: { slot: "mon" } },
-        },
-        { member: "agent:carol", outcome: { kind: "no-answer" } },
-      ],
-    }),
-  );
+  const item = Schema.decodeUnknownSync(InboundItem)({
+    kind: "collectiveResult",
+    op: "gather",
+    id: OPERATION_ID,
+    to: GROUP,
+    question: QUESTION,
+    outcomes: [
+      {
+        member: "agent:bob",
+        outcome: { kind: "answered", content: { slot: "mon" } },
+      },
+      { member: "agent:carol", outcome: { kind: "no-answer" } },
+    ],
+  });
+  if (item.kind !== "collectiveResult") {
+    throw new Error("Expected a result fixture");
+  }
+  const acknowledged = enqueue(fake, item);
   await vi.waitFor(() => {
     expect(acknowledged).toHaveBeenCalledTimes(1);
   });
@@ -406,15 +433,9 @@ it("attributes a result to MoltZap and lists every member outcome in the address
   if (event === undefined) {
     throw new Error("Host did not receive a turn");
   }
-  expect(eventContent(event)).toMatchObject({
-    sender: "MoltZap",
-    address: GROUP,
-    text: [
-      `gather result for the question sent to ${GROUP}: Which day?`,
-      '- agent:bob: answered {"slot":"mon"}',
-      "- agent:carol: no answer",
-    ].join("\n"),
-  });
+  const content = eventContent(event);
+  expect(content).toMatchObject({ sender: "MoltZap", address: GROUP });
+  expect(content.text).toBe(renderCollectiveResult(item));
 });
 
 it("delivers an operation failure as a MoltZap turn and acknowledges host acceptance", async () => {
@@ -492,8 +513,8 @@ it("reports parser refusals to the model without sending or failing the delivery
     sender: "MoltZap",
     address: "agent:alice",
   });
-  const refusedField = "deadline";
-  expect(eventContent(event).text).toContain(refusedField);
+  // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The parser refusal must identify the invalid input field; no public constant names JSON fields.
+  expect(eventContent(event).text).toContain("deadline");
 });
 
 it.each([
