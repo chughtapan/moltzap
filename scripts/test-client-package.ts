@@ -36,6 +36,7 @@ const workspaceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const hostModules: ReadonlySet<string> = new Set([
   "dist/delivery/history-export.js",
   "dist/delivery/operations.js",
+  "dist/endpoint/environment.js",
   "dist/endpoint/harness-endpoint/capability.js",
   "dist/endpoint/harness-endpoint/events.js",
   "dist/endpoint/harness-endpoint/index.js",
