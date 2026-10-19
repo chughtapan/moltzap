@@ -763,11 +763,18 @@ may cause another host turn; processing confirmation is outside this contract.
 
 ## Persistence and compatibility
 
-The endpoint store initializes an absent or empty database and reopens only
-its current schema. Other layouts fail with `EndpointStoreError("incompatible")`
-before mutation and require an explicit state-directory reset. There is no
-schema migration or automatic reset. The [daemon storage contract](./harness/daemon.md#persistence)
-defines preflight and startup behavior.
+The endpoint store initializes an absent or empty database, reopens its current
+schema, and supports numbered forward migrations from its migration baseline.
+A newer store fails with `EndpointStoreError("newer-schema")`; one below the
+baseline fails with `EndpointStoreError("pre-reset")`. Unrecognized nonempty
+layouts fail with `EndpointStoreError("incompatible")`. The
+[daemon storage contract](./harness/daemon.md#persistence) defines outbox
+admission before backup, atomic backups, transactional steps and startup
+verification. No production migration is registered yet; older stores still
+require an explicit reset, and the reset release policy remains in force.
+A migration backup may be restored immediately after that migration fails,
+before the daemon has signed. After a successful start, restoring it requires
+a new identity under the normal state-directory restore rule.
 
 Newly signed protocol values carry `WIRE_VERSION`. Only the outer envelope
 uses `SignedMessage.live` and the live set. Every nested artifact, including

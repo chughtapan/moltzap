@@ -1,4 +1,4 @@
-/** @file A store from an earlier schema is refused unchanged: a schema change is a reset release, never a migration. */
+/** @file A store from an earlier schema is refused unchanged: schemas below the migration baseline require an explicit reset. */
 
 import { live as it } from "@effect/vitest";
 import { Effect, Exit } from "effect";
@@ -31,7 +31,7 @@ function refusesAnEarlierSchemaUnchanged() {
     );
 
     expect(opened).toMatchObject(
-      Exit.fail({ _tag: "EndpointStoreError", reason: "incompatible" }),
+      Exit.fail({ _tag: "EndpointStoreError", reason: "pre-reset" }),
     );
     expect(readFileSync(path)).toEqual(original);
   });
