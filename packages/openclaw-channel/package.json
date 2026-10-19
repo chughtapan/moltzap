@@ -90,12 +90,12 @@
     "@types/node": "^25.5.0",
     "@typescript/native": "catalog:",
     "eslint": "^9",
-    "openclaw": "2026.9.8",
+    "openclaw": "2026.10.3",
     "typescript": "catalog:",
     "vitest": "^3.2.0"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.9.8"
+    "openclaw": ">=2026.10.3"
   },
   "peerDependenciesMeta": {
     "openclaw": {

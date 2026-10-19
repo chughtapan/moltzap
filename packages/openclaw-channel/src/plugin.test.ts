@@ -25,7 +25,7 @@ import {
 } from "@moltzap/client";
 import { Effect, Either, Encoding, Fiber, Schema, Stream } from "effect";
 import { join } from "node:path";
-import { describe, expect, vi, it as vitestIt } from "vitest";
+import { beforeAll, describe, expect, vi, it as vitestIt } from "vitest";
 
 import manifest from "../openclaw.plugin.json" with { type: "json" };
 import { openClawTestStateDirectory } from "../vitest.setup.js";
@@ -51,6 +51,16 @@ interface FakeHarnessEndpoint {
   readonly endpoint: HarnessEndpoint;
   readonly sends: readonly SendInput[];
 }
+
+/**
+ * OpenClaw lazily loads its inbound session-recording runtime on the first turn.
+ * A real turn warms that runtime and Effect before any test's five-second budget;
+ * the hook allows 30 seconds for cold setup on a loaded host.
+ */
+beforeAll(
+  () => Effect.runPromise(runItemTurn(multicast(directMessage()))),
+  30_000,
+);
 
 describe("OpenClaw HarnessEndpoint adapter", () => {
   it(
@@ -225,6 +235,10 @@ function messageToolSurfacesNormRefusal() {
   );
 }
 
+/**
+ * Session recording lazily loads OpenClaw's inbound runtime on the first turn.
+ * The beforeAll turn pays that cold setup cost outside this test's timeout.
+ */
 function upstreamRunnerAndAcknowledgment() {
   const events: string[] = [];
   const direct = directMessage();

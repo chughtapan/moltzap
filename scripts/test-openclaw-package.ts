@@ -7,8 +7,9 @@
  * package typechecks for a TypeScript consumer, OpenClaw loads it from its
  * install path and registers the `moltzap` channel, and OpenClaw serves the
  * packed group-messaging skill to the model. Every check goes through the
- * channel's public entry point or OpenClaw's CLI, so a new OpenClaw release
- * changes only the channel's `devDependencies.openclaw`.
+ * channel's public entry point or OpenClaw's CLI. The channel manifest
+ * selects the tested release through `devDependencies.openclaw`, including
+ * the host-owned Claude Code MCP tool-name guidance.
  */
 import { FileSystem } from "@effect/platform";
 import { Effect, Schema } from "effect";
