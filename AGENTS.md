@@ -148,6 +148,9 @@ State which checks and reviews actually ran.
   signature gives. Never issue/spec/phase numbers, change narration
   (formerly, no longer, renamed from), or design alternatives. Rewrite
   touched comments in the same PR; history lives in git, not code.
+- A new or touched user-facing error with a known fix, and a new or
+  touched CLI `--help`, ends with a `Docs:` URL to the heading that
+  matches its error text or command.
 - Fix every instance of a defect or wrong pattern, not the reported
   one: grep `packages/`, `scripts/`, `tools/`, `bin/`, `.github/`, and
   `docs/`, and fix all of it in the same change; one corrected call
