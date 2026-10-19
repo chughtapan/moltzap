@@ -295,6 +295,14 @@ const packageDefinitions: Readonly<Record<string, PackageDefinition>> = {
     beforeShared: {
       maxFolderCycles: 1,
       folderReadmeFileNames: ["README.md", "../README.md"],
+      folderChildCountOverrides: [
+        {
+          folder: "delivery",
+          maxChildren: 12,
+          reason:
+            "Firewall admission keeps outgoing checks, the shared projection, result checks and the admission worker as separate deep modules beside the inbox and delivery pass, each within the file-size limit; a delivery/firewall subfolder would need its own barrel waiver and still keep three boundary waivers",
+        },
+      ],
       facadeFiles: clientEntrypointFacades,
       compositionRoots: [
         {

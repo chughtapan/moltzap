@@ -14,6 +14,8 @@ import type { AgentAddress } from "../wire/values.js";
 import type { CollectiveMemberOutcome, InboundItem } from "./inbound.js";
 import type { CollectiveValue } from "./part/index.js";
 
+// safer-arch-ignore file-implicit-boundary-module: A received all_gather request keeps these answers and the operation layer selects them by its close; nothing outside transport/collectives reads them.
+
 /** The members a collecting operation asks, in member order. */
 export type Members = readonly [AgentAddress, ...AgentAddress[]];
 
@@ -47,7 +49,6 @@ export interface HeldClose {
  * record hash a close lists it by.
  */
 export interface SharedAnswers {
-  readonly question: string;
   readonly members: Members;
   readonly answers: Map<AgentAddress, CertifiedAnswer>;
   heldClose?: HeldClose;
@@ -78,7 +79,7 @@ export function keepFirstAnswer(
  * history.
  * @param shared The answers kept for one all_gather.
  * @param included The record hashes the close lists.
- * @returns The listed answers with their members, and whether the list is whole.
+ * @returns The listed answers with their members and records, and whether the list is whole.
  */
 export function listedAnswers(
   shared: SharedAnswers,
@@ -87,7 +88,7 @@ export function listedAnswers(
   const byHash = new Map(
     [...shared.answers].map(([member, answer]) => [
       answer.recordHash,
-      { member, response: answer.response },
+      { member, recordHash: answer.recordHash, response: answer.response },
     ]),
   );
   const answers = included.flatMap((hash) => {

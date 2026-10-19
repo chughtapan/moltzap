@@ -387,9 +387,13 @@ function makeEngine(
         postId: delivery.pending.message.postId,
         recordHash: delivery.pending.recordHash,
       }),
-    sendChecked: () =>
+    bindChecked: () =>
+      Effect.dieMessage("this lifecycle fixture installs no firewall"),
+    sendAdmitted: () =>
       Effect.dieMessage("this lifecycle fixture installs no firewall"),
     resolveAddress: () => Effect.void,
+    resolveConversation: () =>
+      Effect.dieMessage("this lifecycle fixture installs no firewall"),
     readPendingMessages: () => readPending(delivery),
     acknowledgeMessage: (deliveryToken) =>
       deliveryToken !== delivery.pending.deliveryToken

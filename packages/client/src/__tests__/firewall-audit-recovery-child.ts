@@ -20,12 +20,12 @@ const program = Effect.gen(function* () {
     direction: "outgoing",
     revision: 0,
   });
-  yield* store.finishFirewallAttempt({
-    checkId,
-    admit: false,
-    canonicalResult: fixture.canonicalResult,
-  });
+  yield* store.admitFirewallOperation(
+    { checkId, admit: false, canonicalResult: fixture.canonicalResult },
+    fixture.canonicalCandidate,
+  );
   const audit = yield* beginFirewallAudit(join(directory, "audit.ndjson"), {
+    readFirewallActivations: store.readFirewallActivations,
     readFirewallAuditPage: (after) =>
       block && after > 0
         ? Effect.sync(() => process.stdout.write("exporting\n")).pipe(
