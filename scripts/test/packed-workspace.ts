@@ -392,7 +392,7 @@ export function installPackedConsumer(
  * `packageRoots` must pack private.
  * @returns Package name to tarball path and to packed manifest.
  */
-function packWorkspaceClosure(
+export function packWorkspaceClosure(
   packageRoots: Readonly<Record<string, string>>,
   temporaryRoot: string,
   publishable: ReadonlySet<string>,
