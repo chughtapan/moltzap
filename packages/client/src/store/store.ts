@@ -298,6 +298,7 @@ function makeManagementOperations(state: StoreState, run: StoreRunner) {
       run(() => {
         releaseStoredContinuation(state, continuation);
       }),
-    recover: () => run(() => recoverStoredState(state.database)),
+    recover: (conversationId) =>
+      run(() => recoverStoredState(state.database, conversationId)),
   } satisfies Partial<EndpointStore>;
 }

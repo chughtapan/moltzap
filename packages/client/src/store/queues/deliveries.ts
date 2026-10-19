@@ -51,18 +51,20 @@ export function readPendingDeliveries(
  * Reads every retained delivery, including acknowledged tombstones.
  *
  * @param database Exclusively owned endpoint database.
+ * @param conversationId Restrict the read to this conversation when provided.
  * @returns Detached retained deliveries in durable insertion order.
  */
 export function readRetainedDeliveries(
   database: DatabaseSync,
+  conversationId?: string,
 ): readonly PendingDelivery[] {
   return Object.freeze(
     database
       .prepare(
-        `SELECT ${deliveryColumns} FROM pending_deliveries
+        `SELECT ${deliveryColumns} FROM pending_deliveries ${conversationId === undefined ? "" : "WHERE conversation_id = ?"}
          ORDER BY delivery_sequence`,
       )
-      .all()
+      .all(...(conversationId === undefined ? [] : [conversationId]))
       .map(readPendingDelivery),
   );
 }

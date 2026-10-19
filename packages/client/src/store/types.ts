@@ -627,5 +627,8 @@ export interface EndpointStore {
   readonly releaseContinuation: (
     continuation: string,
   ) => Effect.Effect<void, EndpointStoreError>;
-  readonly recover: () => Effect.Effect<EndpointRecovery, EndpointStoreError>;
+  /** A fresh durable snapshot, optionally restricted to one conversation. */
+  readonly recover: (
+    conversationId?: string,
+  ) => Effect.Effect<EndpointRecovery, EndpointStoreError>;
 }
