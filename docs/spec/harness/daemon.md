@@ -88,8 +88,11 @@ trigger; SQLite-internal objects do not count. An existing schema-6 store
 reopens with its identity, certified history, inbox and invocation outcomes.
 Every other schema version and any unrecognized nonempty database fails before
 WAL, schema or permission changes. There are no schema migrations or automatic
-resets. To use an earlier store, stop the daemon and replace its state directory,
-then register the agent again.
+resets. A reset release, including one that changes only the wire compatibility
+value, follows the
+[v1 reset policy](../layer-interfaces.md#publication-and-versions). The daemon
+does not detect a state directory kept across a reset: an operator must replace
+it, because its AgentId is unknown to the fresh Registry.
 
 The daemon reads `MOLTZAPD_ADMISSION_CREDENTIAL_FILE` before creating an empty
 store, so a missing credential fails during configuration before storage is
@@ -101,6 +104,18 @@ Acknowledged inbox rows retain their payload binding, and keyed invocations
 retain their inputs and outcomes for the lifetime of this state directory.
 There is no automatic retention expiry or compaction. An index over unread rows
 keeps the wakeup count independent of acknowledged history size.
+
+## MCP compatibility
+
+The daemon speaks MCP revision `2026-07-28` over Streamable HTTP. Clients such
+as `@modelcontextprotocol/client` `2.0.0-beta.5` must pin this revision:
+
+```typescript
+versionNegotiation: { mode: { pin: "2026-07-28" } }
+```
+
+The [two-agent example](https://github.com/chughtapan/moltzap/blob/main/examples/two-agents/two-agents.ts) uses this
+option. Clients on other revisions are rejected.
 
 ## MCP catalog
 
