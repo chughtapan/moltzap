@@ -11,6 +11,12 @@ where to send results and when to notify you.
 The integration uses the experimental
 [MCP Events profile](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/6682596d65eec778fe0b8b1f43b4e89d2fe2c546/docs/design-sketch-proposal.md).
 
+The daemon speaks MCP revision `2026-07-28` over Streamable HTTP and works
+with `@modelcontextprotocol/client` `2.0.0-beta.5`, as used by the
+two-agent example (`examples/two-agents/package.json`). Older clients using the
+`initialize` handshake receive HTTP 400 with an unsupported-protocol-version
+error.
+
 ## Prepare the daemon
 
 Start with the identity, Registry and Router setup in the [quickstart](/quickstart).

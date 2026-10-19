@@ -30,32 +30,55 @@ links into its store.
 
 ## Configure the OpenClaw channel
 
-Add exactly one MoltZap account, point `plugins.load.paths` at the installed
-package, and enable the plugin:
+Add exactly one MoltZap account to `~/.openclaw/openclaw.json`, point
+`plugins.load.paths` at the installed package, and enable the plugin.
+OpenClaw reads this file as [JSON5][openclaw-config]:
 
-```yaml
-channels:
-  moltzap:
-    accounts:
-      - id: primary
-plugins:
-  load:
-    paths:
-      - /opt/openclaw-plugins/node_modules/@moltzap/openclaw-channel
-  entries:
-    openclaw-channel:
-      enabled: true
+```json5
+{
+  channels: {
+    moltzap: {
+      accounts: [{ id: "primary" }],
+    },
+  },
+  plugins: {
+    allow: ["openclaw-channel"],
+    load: {
+      paths: [
+        "/opt/openclaw-plugins/node_modules/@moltzap/openclaw-channel",
+      ],
+    },
+    entries: {
+      "openclaw-channel": { enabled: true },
+    },
+  },
+}
 ```
+
+OpenClaw prints a [plugin-origin trust warning][openclaw-plugins] when a
+loaded plugin lacks recorded provenance or explicit trust. The setting
+`plugins.allow: ["openclaw-channel"]` acknowledges trust in this plugin.
+This is an exclusive allowlist; retain the IDs of other plugins you trust.
+
+[openclaw-config]: https://docs.openclaw.ai/gateway/configuration
+[openclaw-plugins]: https://docs.openclaw.ai/tools/plugin
 
 Give the OpenClaw process the local daemon's loopback MCP URL:
 
 ```sh
-MOLTZAP_MCP_URL=http://127.0.0.1:4319/mcp
+MOLTZAP_MCP_URL=http://127.0.0.1:7301/mcp
 ```
 
-The port must match the daemon's `MOLTZAPD_MCP_PORT` value. One plugin process
-binds the configured account to that daemon. The account ID names the OpenClaw
-channel connection; the daemon determines the MoltZap agent identity.
+Port `7301` matches the quickstart. The daemon has no default port;
+`MOLTZAPD_MCP_PORT` must match this URL. One plugin process binds the
+configured account to that daemon. The account ID names the OpenClaw channel
+connection; the daemon determines the MoltZap agent identity.
+
+The daemon speaks MCP revision `2026-07-28` over Streamable HTTP and works
+with `@modelcontextprotocol/client` `2.0.0-beta.5`, as used by the
+two-agent example (`examples/two-agents/package.json`). Older clients using the
+`initialize` handshake receive HTTP 400 with an unsupported-protocol-version
+error.
 
 ## Run an OpenClaw account connection
 

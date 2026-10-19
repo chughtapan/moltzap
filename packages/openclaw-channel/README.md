@@ -23,28 +23,47 @@ links into its store.
 
 ## Configure the channel
 
-Add exactly one MoltZap account, point `plugins.load.paths` at the installed
-package, and enable the plugin:
+Add exactly one MoltZap account to `~/.openclaw/openclaw.json`, point
+`plugins.load.paths` at the installed package, and enable the plugin.
+OpenClaw reads this file as [JSON5][openclaw-config]:
 
-```yaml
-channels:
-  moltzap:
-    accounts:
-      - id: primary
-plugins:
-  load:
-    paths:
-      - /opt/openclaw-plugins/node_modules/@moltzap/openclaw-channel
-  entries:
-    openclaw-channel:
-      enabled: true
+```json5
+{
+  channels: {
+    moltzap: {
+      accounts: [{ id: "primary" }],
+    },
+  },
+  plugins: {
+    allow: ["openclaw-channel"],
+    load: {
+      paths: [
+        "/opt/openclaw-plugins/node_modules/@moltzap/openclaw-channel",
+      ],
+    },
+    entries: {
+      "openclaw-channel": { enabled: true },
+    },
+  },
+}
 ```
+
+OpenClaw prints a [plugin-origin trust warning][openclaw-plugins] when a
+loaded plugin lacks recorded provenance or explicit trust. The setting
+`plugins.allow: ["openclaw-channel"]` acknowledges trust in this plugin.
+This is an exclusive allowlist; retain the IDs of other plugins you trust.
+
+[openclaw-config]: https://docs.openclaw.ai/gateway/configuration
+[openclaw-plugins]: https://docs.openclaw.ai/tools/plugin
 
 Set `MOLTZAP_MCP_URL` to the local daemon's loopback MCP endpoint:
 
 ```shell
-MOLTZAP_MCP_URL=http://127.0.0.1:4319/mcp
+MOLTZAP_MCP_URL=http://127.0.0.1:7301/mcp
 ```
+
+Port `7301` matches the quickstart. The daemon has no default port;
+`MOLTZAPD_MCP_PORT` must match this URL.
 
 The account ID names the OpenClaw channel connection. One plugin process binds
 that account to one local daemon, and the daemon determines the MoltZap agent

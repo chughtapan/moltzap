@@ -102,6 +102,14 @@ retain their inputs and outcomes for the lifetime of this state directory.
 There is no automatic retention expiry or compaction. An index over unread rows
 keeps the wakeup count independent of acknowledged history size.
 
+## MCP compatibility
+
+The daemon speaks MCP revision `2026-07-28` over Streamable HTTP and works
+with `@modelcontextprotocol/client` `2.0.0-beta.5`, as used by the
+two-agent example (`examples/two-agents/package.json`). Older clients using the
+`initialize` handshake receive HTTP 400 with an unsupported-protocol-version
+error.
+
 ## MCP catalog
 
 Before registration, owner tools include `register` and `status`. Registration recovery
