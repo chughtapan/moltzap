@@ -637,11 +637,11 @@ What a completed send returns: a collecting operation names its id.
 
 ### `@moltzap/client/service`
 
-#### [`Daemon`](./service/index.ts#L72)
+#### [`Daemon`](./service/index.ts#L76)
 
 _Namespace_
 
-#### [`Daemon.StartupError`](./service/index.ts#L83)
+#### [`Daemon.StartupError`](./service/index.ts#L90)
 
 _Class_
 
@@ -649,21 +649,23 @@ _Class_
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
     readonly reason?: "outbox-too-old" | "newer-schema" | "pre-reset";
+    readonly detail?: string;
   }> {
     /**
-     * Names the failed phase and any actionable compatibility refusal.
-     * @returns The startup failure message.
+     * Only closed refusal reasons and sanitized configuration details enter the process log.
+     * @returns The startup phase and any safe operator diagnostic.
      */
     override get message(): string {
-      const phase = `moltzapd startup failed in phase ${this.phase}`;
-      return this.reason === undefined ? phase : `${phase}: ${this.reason}`;
+      const reason = this.reason === undefined ? "" : ` (${this.reason})`;
+      const detail = this.detail === undefined ? "" : `: ${this.detail}`;
+      return `moltzapd startup failed in phase ${this.phase}${reason}${detail}`;
     }
   }
 ```
 
-Closed daemon startup phase without configuration or platform detail.
+Closed startup phase with sanitized configuration details.
 
-#### [`Daemon.FirewallOptions`](./service/index.ts#L74)
+#### [`Daemon.FirewallOptions`](./service/index.ts#L81)
 
 _TypeAlias_
 
@@ -679,7 +681,17 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-#### [`Daemon.layer`](./service/index.ts#L144)
+#### [`Daemon.help`](./service/index.ts#L78)
+
+_Variable_
+
+```ts
+  export const help = processHelp
+```
+
+Usage text listing the daemon process's environment variables.
+
+#### [`Daemon.layer`](./service/index.ts#L153)
 
 _Variable_
 
@@ -691,7 +703,7 @@ _Variable_
 
 Complete production process composition for `moltzapd`.
 
-#### [`Daemon.withFirewall`](./service/index.ts#L153)
+#### [`Daemon.withFirewall`](./service/index.ts#L162)
 
 _Function_
 

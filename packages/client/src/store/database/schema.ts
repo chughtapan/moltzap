@@ -8,7 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { CertifiedRecord } from "../types.js";
 import { migrateStore, migrations, RESET_SCHEMA } from "./migrations.js";
 import {
-  type EndpointStoreError,
+  EndpointStoreError,
   mapStoreFailure,
   OutboxTooOldError,
   readBytes,
@@ -117,7 +117,9 @@ export function runStoreOperation<Value>(
 }
 
 /**
- * Runs one non-yielding SQLite transaction and preserves its first failure.
+ * Runs one non-yielding SQLite transaction. Explicit or automatic rollback
+ * before a commit attempt excludes a commit. An active failed transaction
+ * and an unconfirmed commit require recovery on a fresh connection.
  * @param database Exclusively owned endpoint database.
  * @param operation Non-yielding transition to commit atomically.
  * @param mode SQLite write-lock mode.
@@ -128,17 +130,37 @@ export function transaction<Value>(
   operation: () => Value,
   mode: "IMMEDIATE" | "EXCLUSIVE" = "IMMEDIATE",
 ): Value {
-  database.exec(`BEGIN ${mode}`);
+  let commitAttempted = false;
   try {
+    database.exec(`BEGIN ${mode}`);
     const value = operation();
+    commitAttempted = true;
     database.exec("COMMIT");
     return value;
   } catch (failure) {
-    try {
-      database.exec("ROLLBACK");
-      // eslint-disable-next-line agent-code-guard/bare-catch, no-empty -- Rollback failure cannot replace or expose the original failure. #ignore-sloppy-code-next-line[bare-catch]: The original persistence failure remains authoritative.
-    } catch {}
-    throw failure;
+    const rolledBack = database.isTransaction && rollback(database);
+    const error = mapStoreFailure(failure, "persistence");
+    if (error.reason !== "persistence") {
+      throw error;
+    }
+    throw new EndpointStoreError({
+      reason: error.reason,
+      commitOutcome:
+        rolledBack || (!commitAttempted && !database.isTransaction)
+          ? "not-committed"
+          : undefined,
+    });
+  }
+}
+
+/** Rollback failure preserves the original error and forces conservative recovery. */
+function rollback(database: DatabaseSync): boolean {
+  try {
+    database.exec("ROLLBACK");
+    return true;
+    // eslint-disable-next-line agent-code-guard/bare-catch -- Rollback failure is outcome evidence, never a replacement diagnostic. #ignore-sloppy-code-next-line[bare-catch]: The transaction reports uncertainty after a failed rollback.
+  } catch {
+    return false;
   }
 }
 

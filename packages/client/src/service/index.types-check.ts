@@ -9,7 +9,10 @@ import type { Daemon } from "./index.js";
 type Expect<Value extends true> = Value;
 
 type NamespaceIsExact = Expect<
-  Types.Equals<keyof typeof Daemon, "StartupError" | "layer" | "withFirewall">
+  Types.Equals<
+    keyof typeof Daemon,
+    "StartupError" | "help" | "layer" | "withFirewall"
+  >
 >;
 type StartupValue = InstanceType<typeof Daemon.StartupError>;
 type StartupTagIsExact = Expect<
@@ -18,6 +21,16 @@ type StartupTagIsExact = Expect<
 type StartupPhaseIsExact = Expect<
   Types.Equals<StartupValue["phase"], "configuration" | "storage" | "listener">
 >;
+type StartupReasonIsExact = Expect<
+  Types.Equals<
+    StartupValue["reason"],
+    "outbox-too-old" | "newer-schema" | "pre-reset" | undefined
+  >
+>;
+type StartupDetailIsExact = Expect<
+  Types.Equals<StartupValue["detail"], string | undefined>
+>;
+type HelpIsExact = Expect<Types.Equals<typeof Daemon.help, string>>;
 type LayerIsExact = Expect<
   Types.Equals<typeof Daemon.layer, Layer.Layer<never, Daemon.StartupError>>
 >;
@@ -30,6 +43,9 @@ export type DaemonCanaries = [
   NamespaceIsExact,
   StartupTagIsExact,
   StartupPhaseIsExact,
+  StartupReasonIsExact,
+  StartupDetailIsExact,
+  HelpIsExact,
   LayerIsExact,
   AuditPathIsOptional,
 ];

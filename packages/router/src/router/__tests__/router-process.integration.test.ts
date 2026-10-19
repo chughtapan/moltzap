@@ -676,6 +676,12 @@ const routerBinaryBehavior = Effect.gen(function* () {
   yield* assertStreamingAdmissionBound(routerPort);
 
   yield* stopProcess(router);
+  expect(router.logs()).toContain(
+    `moltzap-router listening on ${origin.origin}`,
+  );
+  expect(router.logs()).toContain(`WIRE_VERSION ${WIRE_VERSION}`);
+  expect(router.logs()).toMatch(/\(package \S+;/u);
+  expect(router.logs().match(/moltzap-router listening on/gu)).toHaveLength(1);
   expect(
     router.child.exitCode !== null || router.child.signalCode !== null,
   ).toBe(true);

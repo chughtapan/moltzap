@@ -149,7 +149,7 @@ export const fixture = Effect.gen(function* () {
     },
     store,
     actionPolicy: () => Effect.succeed("sign"),
-    reportStorageFault: Effect.dieMessage("unexpected store fault"),
+    reportStorageFault: () => Effect.dieMessage("unexpected store fault"),
     routerWorker: {
       currentAnchor: Effect.succeed(anchor),
       awaitAnchor: Effect.succeed(anchor),

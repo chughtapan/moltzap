@@ -42,7 +42,7 @@ export const PollCursor = Schema.String.pipe(
 
 Opaque, authenticated continuation for one caller and Router instance.
 
-### [`Router`](./router.ts#L66)
+### [`Router`](./router.ts#L86)
 
 _Class_
 
@@ -299,11 +299,11 @@ Equality receipt for one complete retained SignedMessage.
 
 ### `@moltzap/router/server`
 
-#### [`RouterServer`](./server.ts#L28)
+#### [`RouterServer`](./server.ts#L33)
 
 _Namespace_
 
-#### [`RouterServer.StartupError`](./server.ts#L30)
+#### [`RouterServer.StartupError`](./server.ts#L38)
 
 _Class_
 
@@ -312,12 +312,29 @@ _Class_
     "RouterServerStartupError",
   )<{
     readonly phase: "configuration" | "listener";
-  }> {}
+    readonly detail?: string;
+  }> {
+    /** Rejected environment values never enter the operator message. */
+    override get message(): string {
+      const detail = this.detail === undefined ? "" : `: ${this.detail}`;
+      return `moltzap-router startup failed in phase ${this.phase}${detail}`;
+    }
+  }
 ```
 
 Closed Router startup phase.
 
-#### [`RouterServer.layer`](./server.ts#L67)
+#### [`RouterServer.help`](./server.ts#L35)
+
+_Variable_
+
+```ts
+  export const help = processHelp
+```
+
+Usage text listing the Router process's environment variables.
+
+#### [`RouterServer.layer`](./server.ts#L85)
 
 _Variable_
 

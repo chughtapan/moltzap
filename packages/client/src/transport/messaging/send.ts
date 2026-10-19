@@ -91,8 +91,8 @@ const sendReasonByStoreReason = {
 /**
  * Fail a send whose intent bind did not complete. A store refusal is raised
  * before the bind commits and rolls it back, so nothing was queued. A raw
- * persistence failure may come from the commit itself, so whether the intent
- * is durable is unknown; it is reported as a storage fault, since a durable
+ * persistence failure leaves durability unknown unless the store confirms
+ * no commit. An uncertain failure is reported as a storage fault, since a durable
  * intent outside `runtime.intents` waits for a restart.
  * @param runtime The engine whose daemon hears of the fault.
  * @param error The store's failure.
@@ -102,12 +102,20 @@ function failBind(
   runtime: EngineRuntime,
   error: EndpointStoreError,
 ): Effect.Effect<never, SendError> {
+  if (
+    error.reason === "persistence" &&
+    error.commitOutcome === "not-committed"
+  ) {
+    return Effect.fail(new SendError({ reason: "persistence-failed" }));
+  }
   return error.reason === "persistence"
-    ? runtime.input.reportStorageFault.pipe(
-        Effect.zipRight(
-          Effect.fail(new SendError({ reason: "outcome-unknown" })),
-        ),
-      )
+    ? runtime.input
+        .reportStorageFault(error)
+        .pipe(
+          Effect.zipRight(
+            Effect.fail(new SendError({ reason: "outcome-unknown" })),
+          ),
+        )
     : Effect.fail(storeFailure(error));
 }
 
@@ -344,9 +352,9 @@ function queueAuthorizedProposal(
       queueProposal(runtime, proposal).pipe(
         Effect.catchTags({
           EndpointStoreError: (error) =>
-            runtime.input.reportStorageFault.pipe(
-              Effect.zipRight(Effect.fail(storeFailure(error))),
-            ),
+            runtime.input
+              .reportStorageFault(error)
+              .pipe(Effect.zipRight(Effect.fail(storeFailure(error)))),
           ClientRepresentationError: () => Effect.fail(representationFailure()),
         }),
         Effect.zipRight(
@@ -433,8 +441,8 @@ function resendProposal(
           ).pipe(
             Effect.as(true),
             Effect.catchTags({
-              EndpointStoreError: () =>
-                runtime.input.reportStorageFault.pipe(Effect.as(false)),
+              EndpointStoreError: (error) =>
+                runtime.input.reportStorageFault(error).pipe(Effect.as(false)),
               ClientRepresentationError: () => Effect.succeed(false),
             }),
           );
