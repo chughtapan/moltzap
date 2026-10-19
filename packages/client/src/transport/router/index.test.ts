@@ -449,7 +449,12 @@ const batchVerificationIsAtomic = () =>
       recipient: fixture.localCard.agentId,
       id: 11,
       body: "invalid-signature",
-    }).pipe(Effect.flatMap(corruptSignature));
+    }).pipe(
+      Effect.flatMap(corruptSignature),
+      Effect.flatMap(Schema.encode(SignedMessage)),
+      Effect.flatMap(Schema.decodeUnknown(SignedMessage.live)),
+      Effect.orDie,
+    );
     const accepted = yield* Ref.make<string[]>([]);
     const firstInstance = routerInstanceId(10);
     const router = yield* makeScriptedRouter({

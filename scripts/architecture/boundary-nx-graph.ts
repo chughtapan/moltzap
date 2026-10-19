@@ -20,6 +20,7 @@ import {
   failOnSetDrift,
   isJsonObject,
   type JsonObject,
+  MalformedBoundaryInput,
   objectAt,
   readJsonObject,
   relativePath,
@@ -214,7 +215,12 @@ function nodeData(graph: NxGraph, project: string): JsonObject {
 }
 
 function dependencyTargets(graph: NxGraph, project: string): readonly string[] {
-  return arrayAt(graph.dependencies, project)
-    .filter((entry) => isJsonObject(entry))
-    .map((entry) => String(stringAt(entry, "target")));
+  return arrayAt(graph.dependencies, project).map((entry) => {
+    if (!isJsonObject(entry) || typeof entry.target !== "string") {
+      throw new MalformedBoundaryInput({
+        message: `Malformed Nx dependency entry for ${project}: expected an object with a string target`,
+      });
+    }
+    return entry.target;
+  });
 }

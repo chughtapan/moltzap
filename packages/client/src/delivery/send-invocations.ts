@@ -205,8 +205,9 @@ const reserve = (
  * The failure of a keyed send whose reservation failed in the store. A
  * conflict is a different input under the key. A refusal raised before the
  * store reads the key leaves nothing reserved, so the send was not sent. Any
- * other failure can come from reading an attempt the key already reserved,
- * which may have posted, so it is `outcome-unknown`.
+ * persistence failure with a confirmed rollback also reserved nothing. Other
+ * failures can come from reading an attempt the key already reserved, which
+ * may have posted, so they are `outcome-unknown`.
  */
 const reservationReasonByStoreReason = {
   closed: "persistence-failed",
@@ -232,7 +233,11 @@ const keyedSend = (
       Effect.catchTag("EndpointStoreError", (error) =>
         Effect.fail(
           new SendError({
-            reason: reservationReasonByStoreReason[error.reason],
+            reason:
+              error.reason === "persistence" &&
+              error.commitOutcome === "not-committed"
+                ? "persistence-failed"
+                : reservationReasonByStoreReason[error.reason],
           }),
         ),
       ),

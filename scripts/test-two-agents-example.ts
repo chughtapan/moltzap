@@ -18,7 +18,7 @@ import {
   type GateServices,
   installPackedConsumer,
   PackGateError,
-  packWorkspaceClosure,
+  packProductClosure,
   readJsonFile,
   requireCondition,
   runCommand,
@@ -27,11 +27,7 @@ import {
 
 const workspaceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const exampleRoot = join(workspaceRoot, "examples", "two-agents");
-const workspacePackageRoots = {
-  "@moltzap/client": join(workspaceRoot, "packages", "client"),
-  "@moltzap/identity": join(workspaceRoot, "packages", "identity"),
-  "@moltzap/router": join(workspaceRoot, "packages", "router"),
-};
+
 const exampleManifest = Schema.Struct({
   dependencies: Schema.Record({ key: Schema.String, value: Schema.String }),
 });
@@ -47,10 +43,10 @@ const receivedLine = "bob received: from agent:alice: Hi Bob, this is Alice.";
 
 runGate("moltzap-two-agents-example-", (temporaryRoot) =>
   Effect.gen(function* () {
-    const { archives, manifests } = yield* packWorkspaceClosure(
-      workspacePackageRoots,
+    const { archives, manifests } = yield* packProductClosure(
+      workspaceRoot,
+      "client",
       temporaryRoot,
-      new Set(Object.keys(workspacePackageRoots)),
     );
     const manifest = yield* readJsonFile(
       join(exampleRoot, "package.json"),

@@ -21,7 +21,7 @@ import { CollectiveEmitError } from "../../transport/collectives/index.js";
 import {
   activationFailure,
   type DaemonActivationError,
-  type DaemonRuntimeError,
+  DaemonRuntimeError,
   runtimeFailure,
 } from "../errors.js";
 import {
@@ -30,6 +30,7 @@ import {
   failFromBackgroundCause,
   type ProtocolEdges,
   type ProtocolEnvironment,
+  reportStorageFault,
 } from "./protocol.js";
 
 /** The Router worker and engine constructors the lifecycle supplies. */
@@ -112,8 +113,12 @@ interface DaemonAssembly {
 
 const activationRuntimeFailure = (
   error: DaemonActivationError,
-): DaemonRuntimeError =>
-  runtimeFailure(error.reason === "upstream" ? "listener" : "storage");
+): DaemonRuntimeError => {
+  if (error.reason === "outbox-too-old") {
+    return new DaemonRuntimeError({ phase: "storage", reason: error.reason });
+  }
+  return runtimeFailure(error.reason === "upstream" ? "listener" : "storage");
+};
 
 /**
  * Logs why an activation ended, other than by an interrupt, and gives the
@@ -165,9 +170,9 @@ const publishPendingMessages = (
       };
     })
     .pipe(
-      Effect.catchAll(() => {
+      Effect.catchAll((error) => {
         const failure = runtimeFailure("storage");
-        return Deferred.fail(environment.fatal, failure).pipe(
+        return reportStorageFault(environment, error).pipe(
           Effect.zipRight(Effect.fail(failure)),
         );
       }),
@@ -190,8 +195,8 @@ const emitLocalItem = (
   queued: Effect.Effect<void, EndpointStoreError>,
 ): Effect.Effect<void, CollectiveEmitError> =>
   queued.pipe(
-    Effect.catchAll(() =>
-      Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
+    Effect.catchAll((error) =>
+      reportStorageFault(environment, error).pipe(
         Effect.zipRight(Effect.fail(new CollectiveEmitError())),
       ),
     ),

@@ -3,9 +3,9 @@
 import {
   type AgentId as AgentIdValue,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
+  type LiveSignedMessage,
   MessageId,
   SignedMessage,
-  type SignedMessage as SignedMessageValue,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
 import {
@@ -143,7 +143,7 @@ export const makeFixture = makeIdentityFixture(1, "worker-local");
  */
 export const signMessage = (
   input: SignMessageInput,
-): Effect.Effect<SignedMessageValue> =>
+): Effect.Effect<LiveSignedMessage> =>
   SignedMessage.sign({
     agentCard: input.card,
     signingAuthority: input.authority,
@@ -168,8 +168,8 @@ const envelopeRepresentation = Schema.Struct({
  * @returns The same message under a signature its sender never made.
  */
 export const corruptSignature = (
-  message: SignedMessageValue,
-): Effect.Effect<SignedMessageValue> =>
+  message: SignedMessage,
+): Effect.Effect<SignedMessage> =>
   Effect.gen(function* () {
     const representation = yield* Schema.encode(SignedMessage)(message).pipe(
       Effect.flatMap(Schema.decodeUnknown(envelopeRepresentation)),
@@ -264,7 +264,7 @@ export const emptyBatch = (
 export const batch = (
   instance: ReturnType<typeof routerInstanceId>,
   cursor: ReturnType<typeof pollCursor>,
-  signedMessages: readonly SignedMessageValue[],
+  signedMessages: readonly LiveSignedMessage[],
 ): RouterPollResult => ({
   kind: "batch",
   routerInstanceId: instance,

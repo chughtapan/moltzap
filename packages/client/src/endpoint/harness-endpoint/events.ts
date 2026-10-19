@@ -7,15 +7,7 @@ import {
   StreamableHTTPClientTransport,
   SUBSCRIPTION_ID_META_KEY,
 } from "@modelcontextprotocol/client";
-import {
-  Deferred,
-  Effect,
-  type ParseResult,
-  Queue,
-  Schema,
-  Stream,
-  Take,
-} from "effect";
+import { Deferred, Effect, Queue, Schema, Stream, Take } from "effect";
 import { randomUUID } from "node:crypto";
 import { ListenError } from "../../transport/messaging/errors.js";
 import { INBOX_PENDING_EVENT } from "../mcp/names.js";
@@ -46,76 +38,66 @@ const errorSchema = Schema.Struct({
 });
 
 type FrameKind = "active" | "event" | "heartbeat" | "error" | "terminated";
-const decodeParams = (
-  method: string,
-  params: unknown,
-): Effect.Effect<
-  Pick<typeof positionSchema.Type, "_meta">,
-  ParseResult.ParseError
-> => {
-  switch (method) {
-    case "notifications/events/active":
-      return Schema.decodeUnknown(activeSchema)(params);
-    case "notifications/events/event":
-      return Schema.decodeUnknown(eventSchema)(params);
-    case "notifications/events/heartbeat":
-      return Schema.decodeUnknown(positionSchema)(params);
-    default:
-      return Schema.decodeUnknown(errorSchema)(params);
-  }
+/** Each method owns its decoder and the kind produced by a successful decode. */
+const frame =
+  <Value extends typeof positionSchema.Type, Encoded>(
+    kind: FrameKind,
+    schema: Schema.Schema<Value, Encoded>,
+  ) =>
+  (params: unknown) =>
+    Schema.decodeUnknown(schema)(params).pipe(
+      Effect.map((value) => ({
+        kind,
+        subscriptionId: value._meta[SUBSCRIPTION_ID_META_KEY],
+      })),
+    );
+const frames: Readonly<Record<string, ReturnType<typeof frame> | undefined>> = {
+  "notifications/events/active": frame("active", activeSchema),
+  "notifications/events/event": frame("event", eventSchema),
+  "notifications/events/heartbeat": frame("heartbeat", positionSchema),
+  "notifications/events/error": frame("error", errorSchema),
+  "notifications/events/terminated": frame("terminated", errorSchema),
 };
-const frameKind = (method: string): Effect.Effect<FrameKind, ListenError> => {
-  switch (method) {
-    case "notifications/events/active":
-      return Effect.succeed("active");
-    case "notifications/events/event":
-      return Effect.succeed("event");
-    case "notifications/events/heartbeat":
-      return Effect.succeed("heartbeat");
-    case "notifications/events/error":
-      return Effect.succeed("error");
-    case "notifications/events/terminated":
-      return Effect.succeed("terminated");
-    default:
-      return Effect.fail(new ListenError({ reason: "decode-failed" }));
+const decodeFrame = (method: string, params: unknown, id: string) => {
+  const decode = frames[method];
+  if (decode === undefined) {
+    return Effect.fail(new ListenError({ reason: "decode-failed" }));
   }
-};
-const decodeFrame = (method: string, params: unknown, id: string) =>
-  decodeParams(method, params).pipe(
+  return decode(params).pipe(
     Effect.catchTag("ParseError", () =>
       Effect.fail(new ListenError({ reason: "decode-failed" })),
     ),
     Effect.flatMap((value) =>
-      value._meta[SUBSCRIPTION_ID_META_KEY] === id
-        ? frameKind(method)
+      value.subscriptionId === id
+        ? Effect.succeed(value.kind)
         : Effect.fail(new ListenError({ reason: "decode-failed" })),
     ),
   );
+};
+type Phase = "opening" | "active" | "failed" | "stopped";
 interface Reception {
   readonly queue: Queue.Queue<Take.Take<boolean, ListenError>>;
   readonly active: Deferred.Deferred<undefined, ListenError>;
   readonly transport: StreamableHTTPClientTransport;
   readonly abort: AbortController;
   readonly id: string;
-  stopped: boolean;
-  failed: boolean;
-  confirmed: boolean;
+  phase: Phase;
   queued: boolean;
   lastSeen: number;
 }
 const fail = (state: Reception, error: ListenError) =>
   Effect.gen(function* () {
-    if (state.stopped || state.failed) {
+    if (state.phase === "stopped" || state.phase === "failed") {
       return;
     }
-    state.failed = true;
+    state.phase = "failed";
     yield* Deferred.fail(state.active, error);
     yield* Queue.offer(state.queue, Take.fail(error));
     state.abort.abort();
   });
 const wake = (state: Reception) =>
   Effect.suspend(() => {
-    if (state.queued || state.stopped || state.failed) {
+    if (state.queued || state.phase === "stopped" || state.phase === "failed") {
       return Effect.void;
     }
     state.queued = true;
@@ -123,12 +105,15 @@ const wake = (state: Reception) =>
   });
 const receiveFrame = (state: Reception, kind: FrameKind) =>
   Effect.gen(function* () {
+    if (state.phase === "stopped" || state.phase === "failed") {
+      return;
+    }
     state.lastSeen = Date.now();
     if (kind === "active") {
-      state.confirmed = true;
+      state.phase = "active";
       yield* Deferred.succeed(state.active, undefined);
       yield* wake(state);
-    } else if (!state.confirmed) {
+    } else if (state.phase === "opening") {
       yield* fail(state, new ListenError({ reason: "decode-failed" }));
     } else if (kind === "event") {
       yield* wake(state);
@@ -150,7 +135,7 @@ const protocolFailure = (data: unknown): ListenError => {
 const onMessage =
   (state: Reception): NonNullable<StreamableHTTPClientTransport["onmessage"]> =>
   (message) => {
-    if (state.stopped || state.failed) {
+    if (state.phase === "stopped" || state.phase === "failed") {
       return;
     }
     if ("error" in message) {
@@ -177,7 +162,7 @@ const onMessage =
   };
 const close = (state: Reception) =>
   Effect.sync(() => {
-    state.stopped = true;
+    state.phase = "stopped";
     state.abort.abort();
   }).pipe(
     Effect.zipRight(
@@ -267,9 +252,7 @@ export const inboxWakeups = (
         transport: new StreamableHTTPClientTransport(endpoint),
         abort: new AbortController(),
         id: randomUUID(),
-        stopped: false,
-        failed: false,
-        confirmed: false,
+        phase: "opening",
         queued: false,
         lastSeen: Date.now(),
       };

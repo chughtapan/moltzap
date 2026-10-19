@@ -637,31 +637,35 @@ What a completed send returns: a collecting operation names its id.
 
 ### `@moltzap/client/service`
 
-#### [`Daemon`](./service/index.ts#L61)
+#### [`Daemon`](./service/index.ts#L65)
 
 _Namespace_
 
-#### [`Daemon.StartupError`](./service/index.ts#L72)
+#### [`Daemon.StartupError`](./service/index.ts#L79)
 
 _Class_
 
 ```ts
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
+    readonly reason?: "outbox-too-old";
+    readonly detail?: string;
   }> {
     /**
-     * Names only the failed phase, so the process log says why startup stopped.
-     * @returns The startup failure message.
+     * Only closed refusal reasons and sanitized configuration details enter the process log.
+     * @returns The startup phase and any safe operator diagnostic.
      */
     override get message(): string {
-      return `moltzapd startup failed in phase ${this.phase}`;
+      const reason = this.reason === undefined ? "" : ` (${this.reason})`;
+      const detail = this.detail === undefined ? "" : `: ${this.detail}`;
+      return `moltzapd startup failed in phase ${this.phase}${reason}${detail}`;
     }
   }
 ```
 
-Closed daemon startup phase without configuration or platform detail.
+Closed startup phase with sanitized configuration details.
 
-#### [`Daemon.FirewallOptions`](./service/index.ts#L63)
+#### [`Daemon.FirewallOptions`](./service/index.ts#L70)
 
 _TypeAlias_
 
@@ -677,7 +681,17 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-#### [`Daemon.layer`](./service/index.ts#L132)
+#### [`Daemon.help`](./service/index.ts#L67)
+
+_Variable_
+
+```ts
+  export const help = processHelp
+```
+
+Usage text listing the daemon process's environment variables.
+
+#### [`Daemon.layer`](./service/index.ts#L142)
 
 _Variable_
 
@@ -689,7 +703,7 @@ _Variable_
 
 Complete production process composition for `moltzapd`.
 
-#### [`Daemon.withFirewall`](./service/index.ts#L141)
+#### [`Daemon.withFirewall`](./service/index.ts#L151)
 
 _Function_
 

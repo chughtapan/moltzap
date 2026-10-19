@@ -8,15 +8,18 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { FINAL_PACKAGES } from "./architecture/boundary-contract.ts";
 import {
   type Archives,
+  checkConsumerTypes,
   extractPackedArchive,
   type GateError,
   type GateServices,
   installPackedConsumer,
   type PackedManifest,
   PackGateError,
-  packWorkspaceClosure,
+  packProductClosure,
+  readConsumerPins,
   readText,
   requireCondition,
   runCommand,
@@ -24,20 +27,8 @@ import {
 } from "./test/packed-workspace.ts";
 
 const workspaceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const packageRoots = {
-  "@moltzap/client": join(workspaceRoot, "packages", "client"),
-  "@moltzap/identity": join(workspaceRoot, "packages", "identity"),
-  "@moltzap/nanoclaw-channel": join(
-    workspaceRoot,
-    "packages",
-    "nanoclaw-channel",
-  ),
-  "@moltzap/router": join(workspaceRoot, "packages", "router"),
-};
-const ROOT_EXPORT = {
-  types: "./dist/channels/moltzap.d.ts",
-  import: "./dist/channels/moltzap.js",
-};
+
+const ROOT_EXPORT = FINAL_PACKAGES["nanoclaw-channel"].exports["."];
 const CONSUMER_TSCONFIG = {
   compilerOptions: {
     exactOptionalPropertyTypes: true,
@@ -70,19 +61,12 @@ const CONSUMER_CHECK_MJS = [
   "",
 ].join("\n");
 
-/** The adapter itself is private; its Client closure publishes. */
-const publishedPackages: ReadonlySet<string> = new Set(
-  Object.keys(packageRoots).filter(
-    (name) => name !== "@moltzap/nanoclaw-channel",
-  ),
-);
-
 runGate("moltzap-nanoclaw-pack-", (temporaryRoot) =>
   Effect.gen(function* () {
-    const { archives, manifests } = yield* packWorkspaceClosure(
-      packageRoots,
+    const { archives, manifests } = yield* packProductClosure(
+      workspaceRoot,
+      "nanoclaw-channel",
       temporaryRoot,
-      publishedPackages,
     );
     const archive = archives["@moltzap/nanoclaw-channel"];
     const manifest = manifests["@moltzap/nanoclaw-channel"];
@@ -101,6 +85,11 @@ function verifyPackedManifest(
   temporaryRoot: string,
 ): Effect.Effect<void, GateError, GateServices> {
   return Effect.gen(function* () {
+    if (ROOT_EXPORT === undefined) {
+      return yield* new PackGateError({
+        message: "NanoClaw root export is missing",
+      });
+    }
     const extractedPackage = yield* extractPackedArchive(
       archive,
       temporaryRoot,
@@ -111,7 +100,8 @@ function verifyPackedManifest(
       "packed NanoClaw main and types must match its root export",
     );
     yield* requireCondition(
-      JSON.stringify(manifest.exports) === JSON.stringify({ ".": ROOT_EXPORT }),
+      JSON.stringify(manifest.exports) ===
+        JSON.stringify(FINAL_PACKAGES["nanoclaw-channel"].exports),
       "packed NanoClaw package must expose exactly its root entrypoint",
     );
     yield* Effect.forEach(
@@ -131,13 +121,14 @@ function verifyConsumer(
   temporaryRoot: string,
 ): Effect.Effect<void, GateError, GateServices> {
   return Effect.gen(function* () {
+    const pins = yield* readConsumerPins(workspaceRoot);
     const consumerRoot = yield* installPackedConsumer({
       temporaryRoot,
       workspaceRoot,
       name: "moltzap-nanoclaw-packed-consumer",
       archives,
-      dependencies: { effect: "3.22.0" },
-      devDependencies: { typescript: "6.0.2" },
+      dependencies: { effect: pins.effect },
+      devDependencies: { typescript: pins.typescript },
     });
     const fs = yield* FileSystem.FileSystem;
     const checkPath = join(consumerRoot, "check.mjs");
@@ -150,11 +141,7 @@ function verifyConsumer(
       CONSUMER_CHECK_TS,
     );
     yield* fs.writeFileString(checkPath, CONSUMER_CHECK_MJS);
-    yield* runCommand(
-      join(consumerRoot, "node_modules", ".bin", "tsc"),
-      ["--project", join(consumerRoot, "tsconfig.json")],
-      { cwd: consumerRoot },
-    );
+    yield* checkConsumerTypes(consumerRoot);
     yield* runCommand(process.execPath, [checkPath], {
       cwd: consumerRoot,
       env: { NODE_PATH: "" },
