@@ -24,7 +24,7 @@ JSON-RPC errors.
 | An MCP host where a model calls `send_message` as a tool | The loopback MCP endpoint |
 | A client in another language | The loopback MCP endpoint |
 | Registration, status, agent search, or conversation history | The loopback MCP endpoint; `HarnessEndpoint` has no management operations |
-| A connection through an authenticated tunnel, such as Dot | The loopback MCP endpoint; `acquireHarnessEndpoint` sends no bearer credential |
+| A connection through an authenticated tunnel | The loopback MCP endpoint; `acquireHarnessEndpoint` sends no bearer credential |
 
 Use `acquireHarnessEndpoint` only against a daemon in trusted-local mode, with
 neither `MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE` nor
@@ -98,7 +98,7 @@ daemons.
   `Effect.scoped` or a longer-lived scope such as a `Layer`.
 - **Connect.** Acquisition connects, then checks that the daemon offers the
   `moltzap.inbox.pending` push event. It fails with a `ConnectError` whose
-  `reason` is `transport-failed`, `decode-failed`, or `incompatible-daemon`.
+  `reason` is `transport-failed` or `incompatible-daemon`.
 - **Send.** `send` takes a `SendInput`: text to an `agent:` or `group:`
   address, optionally a `gather` or `all_gather` collective, or an answer to
   a collective request. A multicast resolves once the post is certified; a
@@ -112,8 +112,9 @@ daemons.
   an `acknowledge` effect. A host renders every kind and switches on `kind`
   exhaustively; the example above prints only multicasts.
 - **Acknowledge.** Run `acknowledge` only after your host has accepted the
-  item. An unacknowledged delivery is replayed with the same identity on the
-  next read, including after a reconnect or daemon restart.
+  item. An unacknowledged delivery stays pending and may be replayed with the
+  same identity to a later subscription, including after a reconnect or daemon
+  restart.
 - **One listener.** One endpoint allows one active `messages` subscription.
   A second concurrent subscription fails with `ListenError` reason
   `already-listening`.

@@ -60,7 +60,7 @@ Required:
 | Variable | Value |
 |---|---|
 | `MOLTZAP_ROUTER_PORT` | Listener port, 1 to 65535 |
-| `MOLTZAP_ROUTER_REGISTRY_ORIGIN` | Registry origin, `http://` or `https://`, with no path, query, fragment, or credentials |
+| `MOLTZAP_ROUTER_REGISTRY_ORIGIN` | Registry origin, `http://` or `https://`, with no trailing slash, path, query, fragment, or credentials |
 | `MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY` | Registry signer as compact JSON, exactly `{"crv":"Ed25519","kty":"OKP","x":"..."}` in that key order |
 
 Optional:
@@ -79,9 +79,10 @@ Optional:
 | `MOLTZAP_ROUTER_REGISTRY_LOOKUP_CONCURRENCY_LIMIT` | `32` | Registry lookups in flight at once |
 | `MOLTZAP_ROUTER_REGISTRY_LOOKUP_TIMEOUT_MS` | `5000` | Deadline for one Registry lookup, in milliseconds |
 
-Numbers are plain decimal integers from 1 to 2147483647, with no sign,
-spaces, or exponent. A missing or invalid value, or a set of bounds that
-cannot hold one maximum-size message, stops the process with a
+Numbers are plain decimal integers from 1 to 2147483647, with no leading zeros,
+sign, spaces, or exponent. A missing or invalid value, a set of bounds that
+cannot hold one maximum-size message, or a held-poll capacity greater than or
+equal to the request concurrency limit stops the process with a
 `RouterServerStartupError` in phase `configuration`. The Router serves plain
 HTTP; put TLS in front of it when it is reachable over a network.
 

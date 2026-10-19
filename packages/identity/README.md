@@ -56,8 +56,8 @@ unencrypted Ed25519 private key in PKCS#8 PEM, which signs every `AgentCard`.
    ```
 
 On first start the Registry migrates the database and records its signer and
-wire protocol version there. A later start with a different signing key or
-protocol version fails during startup.
+wire compatibility value there. A later start with a different signing key or
+wire compatibility value fails during startup.
 
 Routers and daemons pin the Registry's public key as a compact Ed25519 JWK,
 `{"crv":"Ed25519","kty":"OKP","x":"..."}`, with the keys in that order.
@@ -75,7 +75,7 @@ Required:
 |---|---|
 | `MOLTZAP_REGISTRY_PORT` | Listener port, 1 to 65535 |
 | `MOLTZAP_REGISTRY_POSTGRESQL_URL` | `postgres:` or `postgresql:` URL that names a database |
-| `MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL` | Credential each daemon presents to register, 8 to 512 token68 characters (`A-Z a-z 0-9 - . _ ~ + /`, optional trailing `=`) |
+| `MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL` | Credential each daemon presents to register, 8 to 512 token68 characters (`A-Z a-z 0-9 - . _ ~ + /`, any number of trailing `=` characters) |
 | `MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH` | Absolute path to the Ed25519 PKCS#8 PEM signing key |
 
 Optional:
@@ -89,8 +89,8 @@ Optional:
 | `MOLTZAP_REGISTRY_SQL_POOL_SIZE` | `10` | PostgreSQL connection pool size |
 | `MOLTZAP_REGISTRY_SQL_OPERATION_TIMEOUT_MS` | `5000` | Deadline for one storage operation, in milliseconds |
 
-Numbers are plain decimal integers from 1 to 2147483647, with no sign,
-spaces, or exponent. A missing or invalid value stops the process with a
+Numbers are plain decimal integers from 1 to 2147483647, with no leading zeros,
+sign, spaces, or exponent. A missing or invalid value stops the process with a
 `RegistryServerStartupError` in phase `configuration`. The Registry serves
 plain HTTP; put TLS in front of it when the admission credential crosses a
 network.
