@@ -45,6 +45,7 @@ import {
   isRecovering,
   rearmPausedCatchUp,
   recoverCertifiedHistory,
+  recoveryHeadAdvanced,
 } from "./recovery/index.js";
 import {
   type EngineSendInput,
@@ -416,6 +417,7 @@ const enginePhases: EnginePhases = {
   resumeFolds: resumeEngineFolds,
   resumeDissemination: resumeDisseminationObligations,
   rearmCatchUp: rearmPausedCatchUp,
+  headAdvanced: recoveryHeadAdvanced,
   isRecovering,
 };
 

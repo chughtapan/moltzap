@@ -452,7 +452,11 @@ function continueAfterPage(
   return Effect.sync(() => {
     run.state.acceptedSuccessors.set(key, successor);
   }).pipe(
-    Effect.zipRight(requestCertifiedHistory(run, page.request.conversationId)),
+    Effect.zipRight(
+      page.item.kind === "completed_reanchor"
+        ? requestCertifiedHistory(run, page.request.conversationId)
+        : Effect.void,
+    ),
   );
 }
 
@@ -531,7 +535,7 @@ function respondToCatchUp(
   const { request } = delivered;
   return Effect.gen(function* () {
     const recovery = yield* responder.runtime.input.store
-      .recover()
+      .recover(request.conversationId)
       .pipe(Effect.mapError(persistenceFailure));
     const successor = yield* decodeCatchUpSuccessor(
       membership,

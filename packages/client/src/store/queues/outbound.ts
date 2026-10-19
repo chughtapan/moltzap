@@ -214,10 +214,12 @@ export function discardOutbound(
  * Reads every pending current envelope in durable insertion order.
  *
  * @param database Exclusively owned endpoint database.
+ * @param conversations Empty for all conversations, or one identifier to restrict the read.
  * @returns Detached pending envelopes, excluding accepted and discarded rows.
  */
 export function readPendingOutbound(
   database: DatabaseSync,
+  conversations: readonly string[] = [],
 ): readonly StoredOutboundMessage[] {
   return Object.freeze(
     database
@@ -225,10 +227,10 @@ export function readPendingOutbound(
         `SELECT outbound_id, conversation_id, current_message_id,
                 canonical_initial_signed_message,
                 canonical_current_signed_message, attempted, disposition
-         FROM outbound_messages WHERE disposition = 'pending'
+         FROM outbound_messages WHERE disposition = 'pending' ${conversations.length === 0 ? "" : "AND conversation_id = ?"}
          ORDER BY outbound_sequence`,
       )
-      .all()
+      .all(...conversations)
       .map((row) => copyOutbound(readOutbound(row).outbound)),
   );
 }

@@ -6932,8 +6932,153 @@ const preservesResendAttemptsWhileFenced = () =>
     yield* Fiber.interrupt(sending);
   });
 
+/** Each conversation retains its own catch-up position and readiness threshold. */
+const recoversSeveralConversationsIndependently = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    yield* retainCertifiedRecord(fixture);
+    const n3 = yield* addGroupFoundation(fixture, 3);
+    const n4 = yield* addN4Foundation(fixture);
+    const { outbound } = yield* forkRecovery(
+      { engine: n4.engine, recoveryOutbound: fixture.recoveryOutbound },
+      "feed_gap",
+      oldRouterInstanceId,
+    );
+    const requests = yield* Effect.replicateEffect(
+      takeCatchUpRequest(outbound),
+      3,
+    );
+    const requestFor = (membership: VerifiedMembership) => {
+      const request = requests.find(
+        (candidate) =>
+          candidate.conversationId === membership.descriptor.conversationId,
+      );
+      return request === undefined
+        ? Effect.dieMessage("recovery omitted a conversation")
+        : Effect.succeed(request);
+    };
+    const direct = yield* requestFor(fixture.membership);
+    const group3 = yield* requestFor(n3.membership);
+    const group4 = yield* requestFor(n4.membership);
+    expect(direct.knownRecordHash).toBe(
+      fixture.certifiedRecord.actionCertifiedRecord.recordHash,
+    );
+    expect([group3.knownRecordHash, group4.knownRecordHash]).toEqual([
+      null,
+      null,
+    ]);
+
+    yield* Effect.forEach(
+      [fixture.remote, n4.third],
+      (responder) =>
+        deliverRecovery(
+          n4.engine,
+          catchUpIncompleteIngressFrom({
+            membership: n4.membership,
+            responder,
+            request: group4,
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        ),
+      { concurrency: 1, discard: true },
+    );
+    const sending = yield* forkSend(
+      n4.engine,
+      `agent:${fixture.remote.card.agentName}`,
+      "wait for this conversation",
+    );
+    expect(Option.isNone(yield* Fiber.poll(sending))).toBe(true);
+    yield* deliverRecovery(
+      n4.engine,
+      catchUpIncompleteIngress(fixture, direct),
+    );
+    const proposal = yield* takeActionProposalIn(
+      fixture.normalOutbound,
+      direct.conversationId,
+    );
+    expect(proposal.proposal.action.previousRecordHash).toBe(
+      direct.knownRecordHash,
+    );
+
+    yield* Effect.forEach(
+      n3.others,
+      (responder) =>
+        deliverRecovery(
+          n4.engine,
+          catchUpIncompleteIngressFrom({
+            membership: n3.membership,
+            responder,
+            request: group3,
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        ).pipe(
+          Effect.tap((disposition) => {
+            expect(disposition).toBe(acceptedDisposition);
+          }),
+        ),
+      { concurrency: 1, discard: true },
+    );
+    const recovered = yield* fixture.store.recover();
+    expect(
+      recovered.positions.find(
+        (position) => position.conversationId === direct.conversationId,
+      )?.headRecordHash,
+    ).toBe(direct.knownRecordHash);
+    expect(
+      recovered.positions
+        .filter((position) => position.conversationId !== direct.conversationId)
+        .map((position) => position.headRecordHash),
+    ).toEqual([undefined, undefined]);
+    yield* Fiber.interrupt(sending);
+  });
+
+/** A certified head delivered by the local Router echo must restart spent retries. */
+const retriesAnAdvancedHeadAfterItsScheduleRanOut = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const { outbound } = yield* forkRecovery(
+      fixture,
+      "feed_gap",
+      oldRouterInstanceId,
+      { clock: "caller" },
+    );
+    yield* takeCatchUpRequest(outbound);
+    yield* Effect.replicateEffect(
+      takeRetriedCatchUpRequest(outbound),
+      catchUpRetryAttempts,
+    );
+    yield* TestClock.adjust("100000 seconds");
+    const accepted = yield* deliverRecovery(
+      fixture.engine,
+      directPacketIngressFrom({
+        membership: fixture.membership,
+        sender: fixture.local,
+        packet: fixture.certifiedRecord,
+        routerInstanceId: oldRouterInstanceId,
+      }),
+    );
+    const advanced = yield* takeCatchUpRequest(outbound);
+    yield* TestClock.adjust(FIRST_RESEND_DUE);
+    const retried = yield* TestServices.provideLive(
+      takeCatchUpRequest(outbound).pipe(Effect.timeoutOption("5 seconds")),
+    );
+    expect(accepted).toBe(acceptedDisposition);
+    expect(advanced.knownRecordHash).toBe(
+      fixture.certifiedRecord.actionCertifiedRecord.recordHash,
+    );
+    expect(retried).toEqual(Option.some(advanced));
+  });
+
 // @agent-code-guard/regression-only: these traces pin the catch-up and re-anchor work a recovery run routes between its phases and its store.
 describe("catch-up and re-anchor inside a recovery run", () => {
+  it(
+    "recovers several conversations independently at their own durable positions",
+    recoversSeveralConversationsIndependently,
+  );
+  itOnTestClock(
+    "retries an advanced certified head after its previous schedule ran out",
+    retriesAnAdvancedHeadAfterItsScheduleRanOut,
+  );
   itOnTestClock(
     "preserves proposal resend attempts through a long fence without a re-anchor",
     preservesResendAttemptsWhileFenced,

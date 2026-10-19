@@ -158,9 +158,15 @@ export interface VerifiedEvidence {
   readonly statement: EvidenceStatementValue;
 }
 
+/**
+ * Verify the signature and stable identity of self-addressed evidence. Ingress
+ * may supply the statement it decoded from this same body so routing and
+ * verification share that decode; stored representations decode here instead.
+ */
 export const verifyStableEvidence = (input: {
   readonly representation: unknown;
   readonly membership: VerifiedMembership;
+  readonly statement?: EvidenceStatementValue;
 }): Effect.Effect<VerifiedEvidence, ClientRepresentationError> =>
   Effect.gen(function* () {
     const message = yield* Schema.decodeUnknown(SignedMessage)(
@@ -179,7 +185,9 @@ export const verifyStableEvidence = (input: {
       signedMessage: message,
       agentCard: card,
     }).pipe(Effect.mapError(representationFailure));
-    const statement = yield* decodeCanonical(EvidenceStatement, message.body);
+    const statement =
+      input.statement ??
+      (yield* decodeCanonical(EvidenceStatement, message.body));
     const expectedMessageId = yield* deriveEvidenceMessageId(statement);
     if (
       statement.signerAgentId !== message.senderAgentId ||
@@ -198,12 +206,14 @@ export const verifyStableEvidence = (input: {
  * @param input.outer The member's outer envelope.
  * @param input.evidence The evidence message the envelope carries.
  * @param input.membership Membership both must verify against.
+ * @param input.statement Statement already decoded from this evidence body by ingress.
  * @returns The verified evidence message and its statement.
  */
 export const verifyDeliveredEvidence = (input: {
   readonly outer: SignedMessageValue;
   readonly evidence: SignedMessageValue;
   readonly membership: VerifiedMembership;
+  readonly statement?: EvidenceStatementValue;
 }): Effect.Effect<VerifiedEvidence, ClientRepresentationError> =>
   verifyOuterMessage({
     message: input.outer,
@@ -215,7 +225,13 @@ export const verifyDeliveredEvidence = (input: {
       ),
     ),
     Effect.flatMap((representation) =>
-      verifyStableEvidence({ representation, membership: input.membership }),
+      verifyStableEvidence({
+        representation,
+        membership: input.membership,
+        ...(input.statement === undefined
+          ? {}
+          : { statement: input.statement }),
+      }),
     ),
     Effect.withSpan("verifyDeliveredEvidence"),
   );

@@ -109,33 +109,29 @@ export function releaseStoredContinuation(
  * Recovers all durable endpoint state needed to resume protocol work.
  *
  * @param database Exclusively owned endpoint database.
- * @returns A detached snapshot of all durable endpoint protocol state.
+ * @param conversationId Restrict protocol rows to one conversation when provided.
+ * @returns A detached snapshot of the selected durable endpoint protocol state.
  */
-export function recoverStoredState(database: DatabaseSync): EndpointRecovery {
+export function recoverStoredState(
+  database: DatabaseSync,
+  conversationId?: string,
+): EndpointRecovery {
+  const conversations = conversationId === undefined ? [] : [conversationId];
   const identity = readStoredIdentity(database);
   return Object.freeze({
     ...(identity === undefined ? {} : { identity }),
-    postIntents: readPostIntents(database),
-    memberships: readMemberships(database),
-    anchors: readAnchors(database),
-    positions: Object.freeze(
-      database
-        .prepare(
-          `SELECT conversation_id, membership_hash, current_anchor_hash,
-                  head_record_hash FROM conversation_state
-           ORDER BY conversation_id`,
-        )
-        .all()
-        .map(readConversationPosition),
-    ),
+    postIntents: readPostIntents(database, conversations),
+    memberships: readMemberships(database, conversations),
+    anchors: readAnchors(database, conversations),
+    positions: readPositions(database, conversations),
     proposalLocks: Object.freeze(
       database
         .prepare(
           `SELECT conversation_id, previous_record_hash, action_hash,
                   canonical_action_core
-           FROM proposal_locks ORDER BY conversation_id, predecessor_key`,
+           FROM proposal_locks ${conversations.length === 0 ? "" : "WHERE conversation_id = ?"} ORDER BY conversation_id, predecessor_key`,
         )
-        .all()
+        .all(...conversations)
         .map(readProposalLock),
     ),
     stagedRecords: Object.freeze(
@@ -144,18 +140,35 @@ export function recoverStoredState(database: DatabaseSync): EndpointRecovery {
           `SELECT conversation_id, record_hash, previous_record_hash,
                   membership_hash, anchor_hash, action_hash, author_agent_id,
                   post_id, canonical_record_core
-           FROM staged_records ORDER BY conversation_id, rowid`,
+           FROM staged_records ${conversations.length === 0 ? "" : "WHERE conversation_id = ?"} ORDER BY conversation_id, rowid`,
         )
-        .all()
+        .all(...conversations)
         .map(readStagedRecord),
     ),
-    evidence: readEvidence(database),
-    certifiedRecords: readAllCertifiedRecords(database),
-    stagedReanchors: readReanchors(database),
-    pendingDeliveries: readRetainedDeliveries(database),
-    disseminationObligations: readPendingDissemination(database),
-    outboundMessages: readPendingOutbound(database),
+    evidence: readEvidence(database, conversations),
+    certifiedRecords: readAllCertifiedRecords(database, conversations),
+    stagedReanchors: readReanchors(database, conversations),
+    pendingDeliveries: readRetainedDeliveries(database, conversations),
+    disseminationObligations: readPendingDissemination(database, conversations),
+    outboundMessages: readPendingOutbound(database, conversations),
   });
+}
+
+function readPositions(
+  database: DatabaseSync,
+  conversations: readonly string[],
+) {
+  return Object.freeze(
+    database
+      .prepare(
+        `SELECT conversation_id, membership_hash, current_anchor_hash,
+                  head_record_hash FROM conversation_state
+           ${conversations.length === 0 ? "" : "WHERE conversation_id = ?"}
+           ORDER BY conversation_id`,
+      )
+      .all(...conversations)
+      .map(readConversationPosition),
+  );
 }
 
 function readConversationIdRows(
@@ -301,15 +314,18 @@ function copyEvidence(
   );
 }
 
-function readPostIntents(database: DatabaseSync): readonly PostIntent[] {
+function readPostIntents(
+  database: DatabaseSync,
+  conversations: readonly string[],
+): readonly PostIntent[] {
   return Object.freeze(
     database
       .prepare(
         `SELECT conversation_id, membership_hash, author_agent_id, post_id,
                 canonical_intent, completed_record_hash
-         FROM post_intents ORDER BY author_agent_id, post_id`,
+         FROM post_intents ${conversations.length === 0 ? "" : "WHERE conversation_id = ?"} ORDER BY author_agent_id, post_id`,
       )
-      .all()
+      .all(...conversations)
       .map((row) => {
         const completedRecordHash = readOptionalText(
           row,
@@ -327,14 +343,17 @@ function readPostIntents(database: DatabaseSync): readonly PostIntent[] {
   );
 }
 
-function readMemberships(database: DatabaseSync): readonly StoredMembership[] {
+function readMemberships(
+  database: DatabaseSync,
+  conversations: readonly string[],
+): readonly StoredMembership[] {
   return Object.freeze(
     database
       .prepare(
         `SELECT conversation_id, membership_hash, canonical_membership
-         FROM memberships ORDER BY conversation_id`,
+         FROM memberships ${conversations.length === 0 ? "" : "WHERE conversation_id = ?"} ORDER BY conversation_id`,
       )
-      .all()
+      .all(...conversations)
       .map((row) =>
         Object.freeze({
           conversationId: readText(row, "conversation_id"),
@@ -345,15 +364,18 @@ function readMemberships(database: DatabaseSync): readonly StoredMembership[] {
   );
 }
 
-function readAnchors(database: DatabaseSync): readonly StoredAnchor[] {
+function readAnchors(
+  database: DatabaseSync,
+  conversations: readonly string[],
+): readonly StoredAnchor[] {
   return Object.freeze(
     database
       .prepare(
         `SELECT conversation_id, anchor_hash, previous_anchor_hash,
                 selected_record_hash, canonical_anchor
-         FROM anchors ORDER BY conversation_id, rowid`,
+         FROM anchors ${conversations.length === 0 ? "" : "WHERE conversation_id = ?"} ORDER BY conversation_id, rowid`,
       )
-      .all()
+      .all(...conversations)
       .map((row) => {
         const previousAnchorHash = readOptionalText(
           row,
@@ -374,22 +396,27 @@ function readAnchors(database: DatabaseSync): readonly StoredAnchor[] {
   );
 }
 
-function readEvidence(database: DatabaseSync) {
+function readEvidence(
+  database: DatabaseSync,
+  conversations: readonly string[],
+) {
   return Object.freeze(
     database
       .prepare(
         `SELECT conversation_id, evidence_kind, subject_id,
                 evidence_key, canonical_evidence
          FROM protocol_evidence
+         ${conversations.length === 0 ? "" : "WHERE conversation_id = ?"}
          ORDER BY conversation_id, evidence_kind, subject_id, evidence_key`,
       )
-      .all()
+      .all(...conversations)
       .map(readProtocolEvidence),
   );
 }
 
 function readAllCertifiedRecords(
   database: DatabaseSync,
+  conversations: readonly string[],
 ): readonly CertifiedRecord[] {
   return Object.freeze(
     database
@@ -397,28 +424,33 @@ function readAllCertifiedRecords(
         historyQuery
           .replace(
             "WHERE certified.conversation_id = ? AND certified.ordinal > ?",
-            "",
+            conversations.length === 0
+              ? ""
+              : "WHERE certified.conversation_id = ?",
           )
           .replace(
             "ORDER BY certified.ordinal",
             "ORDER BY certified.conversation_id, certified.ordinal",
           ),
       )
-      .all()
+      .all(...conversations)
       .map((row) => readCertifiedRecord(database, row)),
   );
 }
 
-function readReanchors(database: DatabaseSync) {
+function readReanchors(
+  database: DatabaseSync,
+  conversations: readonly string[],
+) {
   return Object.freeze(
     database
       .prepare(
         `SELECT conversation_id, anchor_hash, previous_anchor_hash,
                 router_instance_id, selected_record_hash, canonical_body,
                 canonical_completed_reanchor
-         FROM reanchors ORDER BY conversation_id, rowid`,
+         FROM reanchors ${conversations.length === 0 ? "" : "WHERE conversation_id = ?"} ORDER BY conversation_id, rowid`,
       )
-      .all()
+      .all(...conversations)
       .map(readRecoveredReanchor),
   );
 }

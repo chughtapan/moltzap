@@ -37,10 +37,6 @@ import {
   verifyStableEvidence,
 } from "../wire/index.js";
 import {
-  evidenceMatchesFold,
-  type EvidenceRoute,
-} from "./certification/index.js";
-import {
   decodeStoredAnchor,
   recordFromStore,
   type StoredRowError,
@@ -52,6 +48,8 @@ import {
   type EndpointEngineInput,
   type EngineActionFold,
   type EngineConversation,
+  evidenceMatchesFold,
+  type EvidenceRoute,
   makeActionFold,
 } from "./runtime/index.js";
 
