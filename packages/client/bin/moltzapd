@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { NodeRuntime } from "@effect/platform-node";
 import { ConfigProvider, Effect, Layer } from "effect";
-import { HarnessService } from "../dist/service/index.js";
+import { Daemon } from "../dist/service/index.js";
 
-Layer.launch(HarnessService.layer).pipe(
+Layer.launch(Daemon.layer).pipe(
   Effect.withConfigProvider(ConfigProvider.fromEnv()),
   NodeRuntime.runMain,
 );

@@ -6,7 +6,7 @@ import { scopedLive as it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { join } from "node:path";
 import { describe, expect } from "vitest";
-import type { HarnessService } from "../service/index.js";
+import type { Daemon } from "../service/index.js";
 import { digest } from "../__tests__/agent-card-fixtures.js";
 import {
   decodeAudit,
@@ -315,7 +315,7 @@ const corruptAttemptLeavesIncomplete = (
 const auditPathDoesNotChangePolicy = () =>
   Effect.gen(function* () {
     const fixture = yield* makeAuditFixture;
-    const options: HarnessService.FirewallOptions = {
+    const options: Daemon.FirewallOptions = {
       ...fixture.options,
       auditExport: "/operator/audit.ndjson",
     };
