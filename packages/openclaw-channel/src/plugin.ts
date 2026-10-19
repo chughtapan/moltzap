@@ -388,8 +388,10 @@ function createConfigSection() {
  * every model `send` and `reply` here because the adapter defines no prepared
  * payload or gateway execution mode. Both read the text with the Client's one
  * parser, so a message's text states its operation; a `reply` with no
- * target gets the current turn's conversation from OpenClaw.
- * `message.send.text` remains for the sends OpenClaw's core makes itself.
+ * target gets the current turn's conversation from OpenClaw. The tool result
+ * carries the local firewall's guidance on an admitted send, so the model
+ * reads it with the result. `message.send.text` remains for the sends
+ * OpenClaw's core makes itself.
  * @param connectedAccount The account whose endpoint performs the operation.
  * @returns The action adapter registered on the channel plugin.
  */
@@ -422,7 +424,13 @@ function handleMessageAction(
         text: ctx.params.message,
       }),
     ),
-    Effect.map(({ input }) => jsonResult({ ok: true, to: input.to })),
+    Effect.map(({ input, result }) =>
+      jsonResult({
+        ok: true,
+        to: input.to,
+        ...(result.guidance === undefined ? {} : { guidance: result.guidance }),
+      }),
+    ),
   );
 }
 

@@ -8,7 +8,7 @@ One service's delivery, for the service to compose.
 
 ## Public surface
 
-### [`FirewallAuditRecord`](./firewall-values.ts#L166)
+### [`FirewallAuditRecord`](./firewall-values.ts#L170)
 
 _TypeAlias_
 
@@ -18,7 +18,7 @@ export type FirewallAuditRecord = typeof FirewallAuditRecord.Type;
 
 Completion verifies the snapshot, not completion or delivery of each attempt.
 
-### [`FirewallAuditRecord`](./firewall-values.ts#L127)
+### [`FirewallAuditRecord`](./firewall-values.ts#L131)
 
 _Variable_
 

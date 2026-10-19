@@ -46,20 +46,17 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CheckedGuidance`](./firewall/runtime.ts#L60)
+### [`CheckedGuidance`](./firewall/runtime.ts#L55)
 
 _TypeAlias_
 
 ```ts
-export type CheckedGuidance = Extract<
-  LocalGuidance,
-  { readonly checkId: string }
->;
+export type CheckedGuidance = typeof checkedGuidanceSchema.Type;
 ```
 
-The guidance of one checked text: a message, a request, an answer or a question.
+The guidance of one checked text: a message, a request, an answer, a question or a send.
 
-### [`CollectiveError`](./transport/collectives/forms.ts#L351)
+### [`CollectiveError`](./transport/collectives/forms.ts#L357)
 
 _Class_
 
@@ -169,7 +166,7 @@ export type DirectMessage = typeof directMessage.Type;
 
 One certified remote-authored direct message.
 
-### [`FirewallSendError`](./firewall/runtime.ts#L109)
+### [`FirewallSendError`](./firewall/runtime.ts#L125)
 
 _Class_
 
@@ -439,7 +436,7 @@ export class ListenError extends Data.TaggedError("ListenError")<{
 
 The endpoint's sole inbound subscription failed.
 
-### [`LocalGuidance`](./firewall/runtime.ts#L57)
+### [`LocalGuidance`](./firewall/runtime.ts#L79)
 
 _TypeAlias_
 
@@ -600,7 +597,7 @@ names the specific cause when the failing step knows it, such as which
 agent is unknown; the message is what a host hands its model.
 Validation issues expose only field paths and schema expectations.
 
-### [`SendInput (type)`](./transport/collectives/forms.ts#L164)
+### [`SendInput (type)`](./transport/collectives/forms.ts#L165)
 
 _TypeAlias_
 
@@ -610,7 +607,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput (value)`](./transport/collectives/forms.ts#L152)
+### [`SendInput (value)`](./transport/collectives/forms.ts#L153)
 
 _Variable_
 
@@ -633,17 +630,20 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./transport/collectives/forms.ts#L183)
+### [`SendResult`](./transport/collectives/forms.ts#L188)
 
 _Interface_
 
 ```ts
 export interface SendResult {
   readonly operationId?: CollectiveId;
+  readonly guidance?: CheckedGuidance;
 }
 ```
 
-What a completed send returns: a collecting operation names its id.
+What a completed send returns: a collecting operation names its id, and
+`guidance` carries the local firewall's advice on the admitted send, such
+as a norm judgment the judge left unsettled.
 
 ## Package subpaths
 
@@ -742,7 +742,7 @@ Fixed middleware and persisted English rules are installed before the daemon acc
 
 **Returns:** The complete daemon layer with both message boundaries checked.
 
-#### [`CheckInputError`](./firewall/values.ts#L241)
+#### [`CheckInputError`](./firewall/values.ts#L254)
 
 _Class_
 
@@ -754,7 +754,7 @@ export class CheckInputError extends Data.TaggedError("CheckInputError")<{
 
 Invalid construction or evidence is a typed failure, never permission.
 
-#### [`DecisionProviderError`](./firewall/values.ts#L350)
+#### [`DecisionProviderError`](./firewall/values.ts#L378)
 
 _Class_
 
@@ -772,12 +772,18 @@ export class DecisionProviderError extends Data.TaggedError(
     | "defect";
   readonly status?: number;
   readonly response?: string;
+  /**
+   * The usage a response body reported before the call failed, named as an
+   * answered response names it, so the call's cost stays accountable. A
+   * failure without a parsed body has none.
+   */
+  readonly accounting?: Pick<DecisionResponse, "provider" | "model" | "usage">;
 }> {}
 ```
 
 The adapter scrubs credentials before retaining optional private diagnostics.
 
-#### [`FirewallPolicyError`](./firewall/values.ts#L531)
+#### [`FirewallPolicyError`](./firewall/values.ts#L565)
 
 _Class_
 
@@ -796,7 +802,7 @@ export class FirewallPolicyError extends Data.TaggedError(
 
 A failed edit never replaces the active installation or retained editable document.
 
-#### [`MiddlewareError`](./firewall/values.ts#L185)
+#### [`MiddlewareError`](./firewall/values.ts#L198)
 
 _Class_
 
@@ -813,7 +819,7 @@ export class MiddlewareError extends Data.TaggedError("MiddlewareError")<{
 
 Operational failures carry closed reasons, never arbitrary exception text.
 
-#### [`DecisionProvider`](./firewall/values.ts#L366)
+#### [`DecisionProvider`](./firewall/values.ts#L400)
 
 _Interface_
 
@@ -829,7 +835,7 @@ export interface DecisionProvider {
 
 Entirely code-based chains have no dependency on this optional capability.
 
-#### [`DecisionRequest`](./firewall/values.ts#L314)
+#### [`DecisionRequest`](./firewall/values.ts#L342)
 
 _Interface_
 
@@ -854,7 +860,7 @@ export interface DecisionRequest {
 
 Provider input contains explicit questions and state, never execution authority.
 
-#### [`DecisionResponse`](./firewall/values.ts#L332)
+#### [`DecisionResponse`](./firewall/values.ts#L360)
 
 _Interface_
 
@@ -879,7 +885,7 @@ export class DecisionResponse extends Schema.Class<DecisionResponse>(
 
 Raw distributions and provider confidence survive routing unchanged.
 
-#### [`EnglishPolicySettings`](./firewall/values.ts#L297)
+#### [`EnglishPolicySettings`](./firewall/values.ts#L325)
 
 _Interface_
 
@@ -908,7 +914,7 @@ export class EnglishRule extends Schema.Class<EnglishRule>("EnglishRule")({
 
 Text is interpreted by the provider; it is never compiled into executable code.
 
-#### [`Firewall`](./firewall/values.ts#L285)
+#### [`Firewall`](./firewall/values.ts#L313)
 
 _Interface_
 
@@ -927,7 +933,7 @@ export interface Firewall {
 
 Checking returns data; Client separately owns fresh, atomic send/delivery admission.
 
-#### [`FirewallSettings`](./firewall/values.ts#L231)
+#### [`FirewallSettings`](./firewall/values.ts#L244)
 
 _Interface_
 
@@ -1002,7 +1008,7 @@ Trusted composition supplies authorized earlier evidence and candidate-specific
 approval. Agent identity and principal identity have different meanings.
 The first live composition supplies absent approval.
 
-#### [`MessageMiddleware`](./firewall/values.ts#L219)
+#### [`MessageMiddleware`](./firewall/values.ts#L232)
 
 _Interface_
 
@@ -1023,7 +1029,7 @@ Code and English policies have the same contract. Registered code is trusted;
 it receives no messaging/store capability and must not retain conversation
 state or perform messaging side effects.
 
-#### [`MiddlewareInput`](./firewall/values.ts#L206)
+#### [`MiddlewareInput`](./firewall/values.ts#L219)
 
 _Interface_
 
@@ -1039,7 +1045,7 @@ export class MiddlewareInput extends Schema.Class<MiddlewareInput>(
 
 Each invocation gets immutable evidence and previously validated observations.
 
-#### [`MiddlewareResult`](./firewall/values.ts#L176)
+#### [`MiddlewareResult`](./firewall/values.ts#L189)
 
 _Interface_
 
@@ -1078,7 +1084,7 @@ export class RuleDescription extends Schema.Class<RuleDescription>(
 
 Runtime advice can only select templates registered by trusted composition.
 
-#### [`FirewallAuditRecord (type)`](./delivery/firewall-values.ts#L166)
+#### [`FirewallAuditRecord (type)`](./delivery/firewall-values.ts#L170)
 
 _TypeAlias_
 
@@ -1088,7 +1094,7 @@ export type FirewallAuditRecord = typeof FirewallAuditRecord.Type;
 
 Completion verifies the snapshot, not completion or delivery of each attempt.
 
-#### [`FirewallAuditRecord (value)`](./delivery/firewall-values.ts#L127)
+#### [`FirewallAuditRecord (value)`](./delivery/firewall-values.ts#L131)
 
 _Variable_
 
@@ -1139,7 +1145,7 @@ Candidate bytes are opaque canonical Client data, encoded as base64. A null
 result or checking/interrupted disposition never represents permission.
 The nullable post reference identifies supported messages without decoding candidate bytes.
 
-#### [`makeEnglishPolicy`](./firewall/english.ts#L237)
+#### [`makeEnglishPolicy`](./firewall/english.ts#L270)
 
 _Variable_
 
@@ -1199,11 +1205,11 @@ flowchart TD
   A --> S[Personal trust]
   S --> U[Autonomy]
   U --> N[Norm expectations from permitted evidence]
-  N --> C[Outgoing conformance when expectations are available]
+  N --> C[Outgoing conformance against the settled expectations]
   C --> R[Return all findings and private stage trace]
 ```
 
-#### [`makeFirewall`](./firewall/index.ts#L64)
+#### [`makeFirewall`](./firewall/index.ts#L65)
 
 _Variable_
 
@@ -1248,7 +1254,7 @@ flowchart TD
   D --> R[Return to Client for enforcement]
 ```
 
-#### [`makeJevDecisionProvider`](./firewall/jev.ts#L169)
+#### [`makeJevDecisionProvider`](./firewall/jev.ts#L182)
 
 _Function_
 

@@ -3,8 +3,9 @@
  * install firewalls, in guidance and enforcement modes side by side.
  *
  * Every daemon runs `firewall-daemon.ts`, whose policy withholds an incoming
- * text carrying `[in]`, refuses an outgoing text carrying `[out]`, and asks
- * for a response to an incoming text carrying `[guide]`. Each endpoint
+ * text carrying `[in]`, refuses an outgoing text carrying `[out]`, asks for
+ * a response to an incoming text carrying `[guide]`, and leaves its norm
+ * judgment of a text carrying `[unsure]` unsettled. Each endpoint
  * judges with its own firewall: a requester checks the question it sends and
  * the answers it receives, a member checks the question it is asked.
  */
@@ -198,6 +199,46 @@ const gatherBehavior = Effect.gen(function* () {
         instructions: [{ instruction: "Respond to the marked message." }],
       },
     ],
+  });
+
+  const uncertainAdvice = {
+    middlewareId: "integration-markers",
+    ruleId: "marked",
+    uncertain: { choice: "none", probability: 0.33 },
+    instruction: "Respond to the marked message.",
+  };
+  /** An unsettled norm judgment admits under enforcement and returns only that advice, without the settled expectation. */
+  const unsettled = yield* collecting(
+    requester,
+    "gather",
+    members,
+    "[unsure] Which day works for the demo?",
+    ANSWERED_DEADLINE_SECONDS,
+  );
+  expect(unsettled.guidance?.instructions).toEqual([uncertainAdvice]);
+  expect(yield* nextItem(guided)).toMatchObject({ id: unsettled.operationId });
+  expect(yield* nextItem(strict)).toMatchObject({ id: unsettled.operationId });
+  yield* accept(guided, requester.address, { slot: "mon" });
+  const unsure = yield* accept(strict, requester.address, {
+    slot: "tue",
+    note: "[unsure] maybe",
+  });
+  expect(unsure.guidance?.instructions).toEqual([uncertainAdvice]);
+  const unsureResult = yield* Queue.take(requester.inbox);
+  yield* unsureResult.acknowledge;
+  expect(unsureResult.item).toMatchObject({
+    kind: "collectiveResult",
+    id: unsettled.operationId,
+    outcomes: [
+      { member: guided.address, outcome: { kind: "answered" } },
+      {
+        member: strict.address,
+        outcome: { kind: "answered", content: { note: "[unsure] maybe" } },
+      },
+    ],
+  });
+  expect(unsureResult.guidance).toMatchObject({
+    answers: [{ member: strict.address, instructions: [uncertainAdvice] }],
   });
 }).pipe(Effect.scoped);
 

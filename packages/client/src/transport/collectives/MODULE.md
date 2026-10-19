@@ -8,7 +8,7 @@ The collective operations the daemon service composes.
 
 ## Public surface
 
-### [`CollectiveError`](./forms.ts#L351)
+### [`CollectiveError`](./forms.ts#L357)
 
 _Class_
 
@@ -152,7 +152,7 @@ each data part as JSON, one part per line.
 
 **Returns:** The text a host puts in the model's turn.
 
-### [`SendInput`](./forms.ts#L164)
+### [`SendInput`](./forms.ts#L165)
 
 _TypeAlias_
 
@@ -162,7 +162,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput`](./forms.ts#L152)
+### [`SendInput`](./forms.ts#L153)
 
 _Variable_
 
@@ -185,17 +185,20 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./forms.ts#L183)
+### [`SendResult`](./forms.ts#L188)
 
 _Interface_
 
 ```ts
 export interface SendResult {
   readonly operationId?: CollectiveId;
+  readonly guidance?: CheckedGuidance;
 }
 ```
 
-What a completed send returns: a collecting operation names its id.
+What a completed send returns: a collecting operation names its id, and
+`guidance` carries the local firewall's advice on the admitted send, such
+as a norm judgment the judge left unsettled.
 
 ## Files
 

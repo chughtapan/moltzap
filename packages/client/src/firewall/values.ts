@@ -133,8 +133,21 @@ export class EnglishRule extends Schema.Class<EnglishRule>("EnglishRule")({
   text: Schema.NonEmptyString,
 }) {}
 
-/** Pass is local to one rule; only the complete firewall may return allow. */
+/**
+ * Pass is local to one rule; only the complete firewall may return allow. An
+ * uncertain pass is a norm judgment the judge could not settle: it admits,
+ * and keeps the judge's choice and probability so the agent is advised and
+ * the audit can count it. It precedes plain pass, which would otherwise
+ * decode it without those fields.
+ */
 const policyFinding = Schema.Union(
+  Schema.Struct({
+    ruleId: identifier,
+    outcome: Schema.Literal("pass"),
+    reason: Schema.Literal("uncertain"),
+    choice: identifier,
+    probability,
+  }),
   Schema.Struct({
     ruleId: identifier,
     outcome: Schema.Literal(
@@ -255,6 +268,21 @@ export interface NormGuidance extends NormExpectation {
   readonly instruction: string;
 }
 
+/* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- The guidance Schema shares its domain name with the value it decodes. */
+
+/** A rule's registered guidance beside the judge's unsettled choice and probability. */
+export const UncertainNormGuidance = Schema.Struct({
+  middlewareId: identifier,
+  ruleId: identifier,
+  uncertain: Schema.Struct({ choice: identifier, probability }),
+  instruction: Schema.NonEmptyString,
+}).annotations({ identifier: "UncertainNormGuidance" });
+
+/** One uncertain norm judgment as composition projects it. */
+export type UncertainNormGuidance = typeof UncertainNormGuidance.Type;
+
+/* eslint-enable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Restore naming after the Schema/type pair. */
+
 /** Private audit is separate from the only fields intended for a runtime. */
 export interface FirewallCheck {
   readonly judgment: "allow" | "block" | "hold" | "revise";
@@ -269,7 +297,7 @@ export interface FirewallCheck {
     readonly nextAction: typeof nextAction.Type;
     readonly text: string;
   }>;
-  readonly guidance: readonly NormGuidance[];
+  readonly guidance: ReadonlyArray<NormGuidance | UncertainNormGuidance>;
   readonly checks: readonly MiddlewareCheck[];
 }
 
@@ -360,6 +388,12 @@ export class DecisionProviderError extends Data.TaggedError(
     | "defect";
   readonly status?: number;
   readonly response?: string;
+  /**
+   * The usage a response body reported before the call failed, named as an
+   * answered response names it, so the call's cost stays accountable. A
+   * failure without a parsed body has none.
+   */
+  readonly accounting?: Pick<DecisionResponse, "provider" | "model" | "usage">;
 }> {}
 
 /** Entirely code-based chains have no dependency on this optional capability. */

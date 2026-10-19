@@ -8,6 +8,7 @@ import type {
   MiddlewareCheck,
   NormGuidance,
   PolicyFinding,
+  UncertainNormGuidance,
 } from "./values.js";
 
 type Reason = FirewallCheck["reason"];
@@ -207,18 +208,23 @@ function matchesReason(finding: PolicyFinding, reason: Reason): boolean {
     : findingReasons[finding.outcome] === reason;
 }
 
+/**
+ * Each settled expectation and each uncertain pass whose rule registers
+ * guidance becomes one entry; an uncertain one carries the judge's choice
+ * and probability.
+ */
 function projectGuidance(
   middleware: readonly MessageMiddleware[],
   checks: readonly MiddlewareCheck[],
-): readonly NormGuidance[] {
+): FirewallCheck["guidance"] {
   return checks.flatMap((check) => {
     const entry = middleware.find(
       (candidate) => candidate.id === check.middlewareId,
     );
-    return check.expectations.flatMap((norm) => {
-      const instruction = entry?.rules.find(
-        (rule) => rule.id === norm.ruleId,
-      )?.guidance;
+    const instructionFor = (ruleId: string) =>
+      entry?.rules.find((rule) => rule.id === ruleId)?.guidance;
+    const expected = check.expectations.flatMap((norm): NormGuidance[] => {
+      const instruction = instructionFor(norm.ruleId);
       return instruction === undefined
         ? []
         : [
@@ -231,6 +237,28 @@ function projectGuidance(
             },
           ];
     });
+    const uncertain = check.findings.flatMap(
+      (finding): UncertainNormGuidance[] => {
+        if (!("choice" in finding)) {
+          return [];
+        }
+        const instruction = instructionFor(finding.ruleId);
+        return instruction === undefined
+          ? []
+          : [
+              {
+                middlewareId: check.middlewareId,
+                ruleId: finding.ruleId,
+                uncertain: {
+                  choice: finding.choice,
+                  probability: finding.probability,
+                },
+                instruction,
+              },
+            ];
+      },
+    );
+    return [...expected, ...uncertain];
   });
 }
 

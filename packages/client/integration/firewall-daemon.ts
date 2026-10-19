@@ -5,14 +5,21 @@
  * The daemon runs `Daemon.withFirewall` with one deterministic code policy in
  * the mode `SHARNESS_TEST_FIREWALL_MODE` names, so a trace decides each check
  * by the text it sends: the policy blocks an incoming text that carries
- * `[in]` and an outgoing text that carries `[out]`, and asks the agent to
- * respond to an incoming text that carries `[guide]`. Every other
- * `SHARNESS_*` setting is read as `sharnessd` reads it.
+ * `[in]` and an outgoing text that carries `[out]`, asks the agent to
+ * respond to an incoming text that carries `[guide]`, and leaves its norm
+ * judgment of a text that carries `[unsure]` unsettled in either direction,
+ * beside a settled `none` expectation for an outgoing one.
+ * Every other `SHARNESS_*` setting is read as `sharnessd` reads it.
  */
 
 import { NodeRuntime } from "@effect/platform-node";
 import { Config, ConfigProvider, Effect, Layer } from "effect";
-import { Daemon, type MessageMiddleware } from "../src/service/index.js";
+import {
+  Daemon,
+  type MessageMiddleware,
+  type MiddlewareInput,
+  type MiddlewareResult,
+} from "../src/service/index.js";
 
 /** The marker an incoming text carries to be withheld. */
 const INCOMING_HOLD = "[in]";
@@ -20,6 +27,8 @@ const INCOMING_HOLD = "[in]";
 const OUTGOING_HOLD = "[out]";
 /** The marker an incoming text carries to draw guidance. */
 const GUIDE = "[guide]";
+/** The marker a text carries for its norm judgment to be left unsettled. */
+const UNSURE = "[unsure]";
 
 const markers: MessageMiddleware = {
   id: "integration-markers",
@@ -32,30 +41,46 @@ const markers: MessageMiddleware = {
       feedback: { nextAction: "revise", text: "Remove the marked text." },
     },
   ],
-  check: ({ event }) =>
-    Effect.succeed({
+  check: ({ event }) => {
+    const { text } = event.message;
+    const held = text.includes(
+      event.direction === "incoming" ? INCOMING_HOLD : OUTGOING_HOLD,
+    );
+    return Effect.succeed({
       findings: [
-        {
-          ruleId: "marked",
-          outcome: event.message.text.includes(
-            event.direction === "incoming" ? INCOMING_HOLD : OUTGOING_HOLD,
-          )
-            ? "block"
-            : "pass",
-        },
+        text.includes(UNSURE)
+          ? {
+              ruleId: "marked",
+              outcome: "pass",
+              reason: "uncertain",
+              choice: "none",
+              probability: 0.33,
+            }
+          : { ruleId: "marked", outcome: held ? "block" : "pass" },
       ],
-      expectations:
-        event.direction === "incoming" && event.message.text.includes(GUIDE)
-          ? [
-              {
-                ruleId: "marked",
-                expectation: "required",
-                subjects: [event.message.id],
-              },
-            ]
-          : [],
-    }),
+      expectations: markedExpectations(event),
+    });
+  },
 };
+
+/** A required response to an incoming `[guide]` text, and no response for an outgoing `[unsure]` one. */
+function markedExpectations(
+  event: MiddlewareInput["event"],
+): MiddlewareResult["expectations"] {
+  const { text } = event.message;
+  if (event.direction === "incoming" && text.includes(GUIDE)) {
+    return [
+      {
+        ruleId: "marked",
+        expectation: "required",
+        subjects: [event.message.id],
+      },
+    ];
+  }
+  return event.direction === "outgoing" && text.includes(UNSURE)
+    ? [{ ruleId: "marked", expectation: "none", subjects: [] }]
+    : [];
+}
 
 const program = Config.literal(
   "guidance",

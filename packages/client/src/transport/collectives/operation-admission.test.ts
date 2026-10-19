@@ -41,7 +41,11 @@ import {
   send,
   slotSchema,
 } from "../../__tests__/collective-operation-fixtures.js";
-import { FirewallSendError } from "../../firewall/runtime.js";
+import { localGuidance } from "../../__tests__/message-policy-fixtures.js";
+import {
+  type CheckedGuidance,
+  FirewallSendError,
+} from "../../firewall/runtime.js";
 import { InboundMessage } from "../messaging/message.js";
 import { collectiveIdOf } from "./part/index.js";
 
@@ -67,8 +71,9 @@ interface CheckGate {
 
 /**
  * How a firewall double decides: which posts it refuses, whether it refuses
- * gathers, a gate on its post checks and one on its gather checks, and
- * whether a gather's request posts never certify.
+ * gathers, a gate on its post checks and one on its gather checks, whether
+ * a gather's request posts never certify, and the advice an admitting check
+ * gives.
  */
 interface DoubleOptions {
   readonly refusePost?: (input: EngineSendInput) => boolean;
@@ -76,6 +81,7 @@ interface DoubleOptions {
   readonly gate?: CheckGate;
   readonly gatherGate?: CheckGate;
   readonly requestsHang?: boolean;
+  readonly guidance?: CheckedGuidance;
 }
 
 /** What a firewall double saw. */
@@ -127,7 +133,13 @@ function checkPost<E>(
       return yield* refusal;
     }
     yield* post.hold;
-    return certifyNext(observed, post.input);
+    return certifyNext(observed, post.input).pipe(
+      Effect.map((sent) =>
+        options.guidance === undefined
+          ? sent
+          : { ...sent, guidance: options.guidance },
+      ),
+    );
   });
 }
 
@@ -154,7 +166,12 @@ function admitGather(
     Effect.zipRight(
       options.refuseGather === true
         ? Effect.fail(refusal)
-        : Effect.succeed(sender),
+        : Effect.succeed({
+            sendRequest: sender,
+            ...(options.guidance === undefined
+              ? {}
+              : { guidance: options.guidance }),
+          }),
     ),
   );
 }
@@ -269,6 +286,31 @@ function sendsGatherPostsThroughTheAdmittedSender() {
       { to: "agent:carol", content: admitted?.content },
     ]);
     expect(firewall.checked).toEqual([]);
+  });
+}
+
+function returnsTheAdmittingChecksAdvice() {
+  return Effect.gen(function* () {
+    const advice = localGuidance(5);
+    const observed = newObserved();
+    const firewall = firewallDouble(observed, { guidance: advice });
+    const layer = yield* makeLayer(observed, {
+      admission: firewall.admission,
+    });
+    yield* receiveGatherRequest(layer, true);
+
+    const answered = yield* send(layer, {
+      to: "agent:bob",
+      collectiveResponse: answer,
+    });
+    const gathered = yield* send(layer, gatherInput());
+    const posted = yield* send(layer, { to: "agent:bob", text: "Tuesday." });
+    const allGathered = yield* send(layer, allGatherInput);
+
+    expect(answered).toMatchObject({ guidance: advice });
+    expect(gathered).toMatchObject({ guidance: advice });
+    expect(posted).toMatchObject({ guidance: advice });
+    expect(allGathered).toMatchObject({ guidance: advice });
   });
 }
 
@@ -628,6 +670,10 @@ describe("collective sends under a firewall", () => {
   it(
     "returns a refused answer on the tool call and leaves its request open",
     keepsARequestOpenAfterARefusedAnswer,
+  );
+  it(
+    "returns each admitted send's advice with it: an answer, a gather, a multicast and an all_gather",
+    returnsTheAdmittingChecksAdvice,
   );
 });
 

@@ -668,14 +668,19 @@ export interface PreparedSend {
   readonly canonicalIntent: EnginePostIntent["canonicalIntent"];
 }
 
-/** The application boundary supplies checking without gaining engine capabilities. */
-export type PreparedSendCheck = (
+/**
+ * The application boundary supplies checking without gaining engine
+ * capabilities. `admitted` is opaque to the engine: the value of the check
+ * that admits the post returns with it.
+ */
+export type PreparedSendCheck<A> = (
   prepared: PreparedSend,
   terminal: boolean,
 ) => Effect.Effect<
   {
     readonly completion: FirewallCompletion;
     readonly refusal: FirewallSendError;
+    readonly admitted: A;
   },
   EndpointStoreError
 >;
@@ -720,12 +725,15 @@ export const untilFresh = <A, E>(
  * and held only across the bind. One stale capture gets one fresh recheck,
  * and a second a terminal attempt.
  */
-export const prepareCheckedSend = <E>(
+export const prepareCheckedSend = <E, A>(
   runtime: EngineRuntime,
   input: EngineSendInput,
-  check: PreparedSendCheck,
+  check: PreparedSendCheck<A>,
   hold: BindHold<E>,
-): Effect.Effect<PreparedSendHandle, SendError | FirewallSendError | E> =>
+): Effect.Effect<
+  PreparedSendHandle & { readonly admitted: A },
+  SendError | FirewallSendError | E
+> =>
   Effect.gen(function* () {
     yield* awaitRouterAttachment(runtime);
     const prepared = yield* prepareIntent(runtime, input);
@@ -748,13 +756,13 @@ export const prepareCheckedSend = <E>(
  * binds; when the hold refuses, the check commits withheld, so its judgment
  * is retained, and the send fails with the hold's refusal.
  */
-function commitCheck<E>(
+function commitCheck<E, A>(
   runtime: EngineRuntime,
   prepared: PreparedSend,
-  checked: Effect.Effect.Success<ReturnType<PreparedSendCheck>>,
+  checked: Effect.Effect.Success<ReturnType<PreparedSendCheck<A>>>,
   hold: BindHold<E>,
 ): Effect.Effect<
-  PreparedSendHandle | "stale",
+  (PreparedSendHandle & { readonly admitted: A }) | "stale",
   SendError | FirewallSendError | E
 > {
   return Effect.gen(function* () {
@@ -776,6 +784,7 @@ function commitCheck<E>(
       return {
         postId: prepared.intent.postId,
         completion: activation.completion,
+        admitted: checked.admitted,
       };
     }
     return activation.disposition === "withheld"

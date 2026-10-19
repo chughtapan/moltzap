@@ -84,6 +84,9 @@ const rules: readonly EnglishRule[] = [
     feedback: { text: repair, nextAction: "revise" },
   },
 ];
+/** One answer exactly as a provider reports it. */
+type Answer = DecisionResponse["answers"][string];
+
 const settings: typeof EnglishPolicySettings.Encoded = {
   minimumProbability: 0.5,
   maximumRequestBytes: 60_000,
@@ -98,45 +101,14 @@ const firewallSettings = {
 /** Each generated example runs two full chains alongside other CI workers. */
 const propertyTimeoutMilliseconds = 15_000;
 
-function uncertainResponseFor(
-  request: DecisionRequest,
-): typeof DecisionResponse.Encoded {
-  if (request.stage !== "expectations") {
-    return responseFor(request);
-  }
-  return {
-    ...responseFor(request),
-    answers: Object.fromEntries(
-      Object.entries(request.questions).map(
-        ([id, question]): readonly [
-          string,
-          DecisionResponse["answers"][string],
-        ] => [
-          id,
-          question.purpose === "assessment"
-            ? {
-                choice: "required",
-                probabilities: {
-                  required: 0.4,
-                  permitted: 0.3,
-                  wait: 0.1,
-                  none: 0.1,
-                  unresolved: 0.1,
-                },
-              }
-            : {
-                choice: "irrelevant",
-                probabilities: { relevant: 0, irrelevant: 1, unresolved: 0 },
-              },
-        ],
-      ),
-    ),
-  };
-}
-
+/**
+ * A provider's answers: each question keyed in `choices` by
+ * `stage:ruleId:purpose[:subject]` takes that choice with certainty, or the
+ * full answer given there, and every other question its default choice.
+ */
 function responseFor(
   request: DecisionRequest,
-  choices: Readonly<Record<string, string>> = {},
+  choices: Readonly<Record<string, string | Answer>> = {},
 ): typeof DecisionResponse.Encoded {
   return {
     provider: "test-decisions",
@@ -155,6 +127,9 @@ function responseFor(
           ] ??
           choices[`${request.stage}:${question.ruleId}:${question.purpose}`] ??
           fallback;
+        if (typeof selected !== "string") {
+          return [id, selected];
+        }
         return [
           id,
           {
@@ -173,7 +148,7 @@ function responseFor(
 }
 
 function provider(
-  choices: Readonly<Record<string, string>> = {},
+  choices: Readonly<Record<string, string | Answer>> = {},
   requests: DecisionRequest[] = [],
 ): DecisionProvider {
   return {
@@ -186,6 +161,13 @@ function provider(
 }
 
 const defaultProvider = provider();
+
+/** The norms a request's state hands the judge. */
+const statedNorms = Schema.parseJson(
+  Schema.Struct({
+    norms: Schema.Array(Schema.Struct({ ruleId: Schema.String })),
+  }),
+);
 
 const check = (
   decisions: DecisionProvider = defaultProvider,
@@ -370,45 +352,257 @@ const malformedAnswers: ReadonlyArray<{
     choice: "compliant",
     probabilities: { compliant: 0.1, prohibited: 0.8, unresolved: 0.1 },
   },
+  {
+    name: "selection below the maximum by more than rounding",
+    choice: "compliant",
+    probabilities: { compliant: 0.48, prohibited: 0.5, unresolved: 0.02 },
+  },
+  {
+    name: "unrounded nonmaximal selection",
+    choice: "compliant",
+    probabilities: { compliant: 0.4999, prohibited: 0.5001, unresolved: 0 },
+  },
 ];
 
-it.each(malformedAnswers)("holds malformed provider answers: $name", (answer) =>
-  Effect.gen(function* () {
-    const result = yield* check({
-      decide: (request) =>
-        Effect.succeed(
-          request.stage === "safety"
-            ? {
-                ...responseFor(request),
-                answers: Object.fromEntries(
-                  Object.keys(request.questions).map((id) => [
-                    id,
-                    {
-                      choice: answer.choice,
-                      probabilities: answer.probabilities,
-                    },
-                  ]),
-                ),
-              }
-            : responseFor(request),
+it.each(malformedAnswers)(
+  "holds malformed provider answers: $name",
+  ({ choice, probabilities }) =>
+    Effect.gen(function* () {
+      const result = yield* check(
+        provider({ "safety:privacy:assessment": { choice, probabilities } }),
+      );
+      expect(result.reason).toBe("check-unavailable");
+      expect(result.guidance).toEqual([]);
+    }),
+);
+
+/** The failure each stage of a check's trace records, if any. */
+const stageFailures = Schema.parseJson(
+  Schema.Struct({
+    stages: Schema.Array(
+      Schema.Struct({
+        stage: Schema.String,
+        failure: Schema.optional(
+          Schema.Struct({ reason: Schema.String, accounting: Schema.Unknown }),
         ),
-    });
-    expect(result.reason).toBe("check-unavailable");
-    expect(result.guidance).toEqual([]);
+      }),
+    ),
   }),
 );
 
-it("holds uncertain expectations and withholds dependent conformance", () =>
+it("keeps an invalid answer's usage in the trace", () =>
+  Effect.gen(function* () {
+    const usage = { input_tokens: 10, output_tokens: 2 };
+    const result = yield* check({
+      decide: (request) =>
+        Effect.succeed({
+          ...responseFor(request, { "safety:privacy:assessment": "unknown" }),
+          usage,
+        }),
+    });
+
+    const { stages } = Schema.decodeUnknownSync(stageFailures)(
+      result.checks[0]?.trace?.data,
+    );
+    expect(stages.find((entry) => entry.stage === "safety")?.failure).toEqual({
+      reason: "invalid-response",
+      accounting: { provider: "test-decisions", model: "test-model", usage },
+    });
+  }));
+
+/** A rounded near-tie, as Jev reports one: the stated choice trails the maximum by one hundredth. */
+const nearTie = {
+  choice: "relevant",
+  confidence: 0.25,
+  probabilities: { relevant: 0.49, irrelevant: 0.5, unresolved: 0.01 },
+};
+
+it("accepts Jev's rounded near-tie and holds a safety rule whose applicability it leaves uncertain", () =>
+  Effect.gen(function* () {
+    const result = yield* check(
+      provider({ "applicability:privacy:assessment": nearTie }),
+    );
+    expect(result.reason).toBe("unresolved-evidence");
+    expect(result.checks[0]?.trace?.data).toContain(
+      JSON.stringify(nearTie.probabilities),
+    );
+  }));
+
+it("admits a group message whose norm applicability is uncertain, advising that judgment", () =>
+  Effect.gen(function* () {
+    const requests: DecisionRequest[] = [];
+    const result = yield* check(
+      provider(
+        { "applicability:proposal-acceptance:assessment": nearTie },
+        requests,
+      ),
+      {
+        message: { ...draft, recipients: ["participant-agent", "third-agent"] },
+        context: {
+          ...context,
+          participants: [
+            ...context.participants,
+            { agentId: "third-agent", principal: "third" },
+          ],
+        },
+      },
+    );
+    expect(result.judgment).toBe("allow");
+    expect(result.guidance).toContainEqual({
+      middlewareId: "owner",
+      ruleId: "proposal-acceptance",
+      uncertain: { choice: "relevant", probability: 0.49 },
+      instruction: reminder,
+    });
+    expect(result.checks[0]?.findings).toContainEqual({
+      ruleId: "proposal-acceptance",
+      outcome: "pass",
+      reason: "uncertain",
+      choice: "relevant",
+      probability: 0.49,
+    });
+    expect(requests.map((entry) => entry.stage)).toContain("conformance");
+  }));
+
+it.each([
+  {
+    name: "a restrictive choice",
+    choice: "prohibited",
+    probabilities: { compliant: 0.51, prohibited: 0.5, unresolved: 0 },
+  },
+  {
+    name: "a permissive choice",
+    choice: "compliant",
+    probabilities: { compliant: 0.5, prohibited: 0.51, unresolved: 0 },
+  },
+])(
+  "holds a safety rule whose stated choice trails another option within rounding: $name",
+  ({ choice, probabilities }) =>
+    Effect.gen(function* () {
+      const result = yield* check(
+        provider({ "safety:privacy:assessment": { choice, probabilities } }),
+      );
+      expect(result.reason).toBe("unresolved-evidence");
+    }),
+);
+
+it("admits a norm whose stated conformance trails a violation within rounding, advising that judgment", () =>
+  Effect.gen(function* () {
+    const result = yield* check(
+      provider({
+        "conformance:proposal-acceptance:assessment": {
+          choice: "compliant",
+          probabilities: { compliant: 0.5, violation: 0.51, unresolved: 0 },
+        },
+      }),
+    );
+    expect(result.judgment).toBe("allow");
+    expect(result.guidance).toContainEqual({
+      middlewareId: "owner",
+      ruleId: "proposal-acceptance",
+      uncertain: { choice: "compliant", probability: 0.5 },
+      instruction: reminder,
+    });
+  }));
+
+it("admits a confidently unresolved norm expectation as guidance", () =>
+  Effect.gen(function* () {
+    const result = yield* check(
+      provider({ "expectations:proposal-acceptance:assessment": "unresolved" }),
+    );
+    expect(result.judgment).toBe("allow");
+    expect(result.guidance).toContainEqual({
+      middlewareId: "owner",
+      ruleId: "proposal-acceptance",
+      uncertain: { choice: "unresolved", probability: 1 },
+      instruction: reminder,
+    });
+  }));
+
+const replyRule: EnglishRule = {
+  id: "reply-once",
+  kind: "norm",
+  text: "Reply once to a direct question.",
+  guidance: "Reply once.",
+};
+
+it("admits an unsettled expectation as guidance and judges conformance against the settled ones", () =>
+  Effect.gen(function* () {
+    const requests: DecisionRequest[] = [];
+    const result = yield* check(
+      provider(
+        {
+          "expectations:proposal-acceptance:assessment": {
+            choice: "required",
+            probabilities: {
+              required: 0.4,
+              permitted: 0.3,
+              wait: 0.1,
+              none: 0.1,
+              unresolved: 0.1,
+            },
+          },
+          "expectations:reply-once:assessment": "required",
+        },
+        requests,
+      ),
+      { rules: [...rules, replyRule] },
+    );
+    const conformance = requests.find((entry) => entry.stage === "conformance");
+
+    expect(result.judgment).toBe("allow");
+    expect(result.guidance).toContainEqual({
+      middlewareId: "owner",
+      ruleId: "proposal-acceptance",
+      uncertain: { choice: "required", probability: 0.4 },
+      instruction: reminder,
+    });
+    expect(result.checks[0]?.findings).toContainEqual({
+      ruleId: "proposal-acceptance",
+      outcome: "pass",
+      reason: "uncertain",
+      choice: "required",
+      probability: 0.4,
+    });
+    expect(
+      Schema.decodeUnknownSync(statedNorms)(conformance?.state).norms,
+    ).toEqual([{ ruleId: "reply-once" }]);
+  }));
+
+it("admits an unsettled conformance answer as guidance", () =>
+  Effect.gen(function* () {
+    const result = yield* check(
+      provider({
+        "conformance:proposal-acceptance:assessment": {
+          choice: "violation",
+          probabilities: { compliant: 0.3, violation: 0.4, unresolved: 0.3 },
+        },
+      }),
+    );
+
+    expect(result.judgment).toBe("allow");
+    expect(result.guidance).toContainEqual({
+      middlewareId: "owner",
+      ruleId: "proposal-acceptance",
+      uncertain: { choice: "violation", probability: 0.4 },
+      instruction: reminder,
+    });
+  }));
+
+it("holds a failed expectations judge as check-unavailable", () =>
   Effect.gen(function* () {
     const requests: DecisionRequest[] = [];
     const result = yield* check({
       decide: (request) =>
-        Effect.sync(() => {
+        Effect.suspend(() => {
           requests.push(request);
-          return uncertainResponseFor(request);
+          return request.stage === "expectations"
+            ? Effect.fail(new DecisionProviderError({ reason: "http" }))
+            : Effect.succeed(responseFor(request));
         }),
     });
-    expect(result.reason).toBe("unresolved-evidence");
+
+    expect(result.reason).toBe("check-unavailable");
     expect(requests.some((entry) => entry.stage === "conformance")).toBe(false);
   }));
 
@@ -554,35 +748,37 @@ it("does not prune a safety rule labeled irrelevant", () =>
     expect(result.judgment).toBe("block");
   }));
 
-it("preserves rounded distributions and routes by selected probability independently of confidence", () =>
-  Effect.gen(function* () {
-    const probabilities = { compliant: 0.71, prohibited: 0.2, unresolved: 0.1 };
-    const decisions: DecisionProvider = {
-      decide: (request) =>
-        Effect.succeed(
-          request.stage === "safety"
-            ? {
-                ...responseFor(request),
-                answers: Object.fromEntries(
-                  Object.keys(request.questions).map((id) => [
-                    id,
-                    { choice: "compliant", probabilities, confidence: 0.01 },
-                  ]),
-                ),
-              }
-            : responseFor(request),
-        ),
-    };
-    const allowed = yield* check(decisions);
-    const held = yield* check(decisions, {
-      settings: { ...settings, minimumProbability: 0.8 },
-    });
-    expect(allowed.judgment).toBe("allow");
-    expect(allowed.checks[0]?.trace?.data).toContain(
-      JSON.stringify(probabilities),
-    );
-    expect(held.reason).toBe("unresolved-evidence");
-  }));
+it.each([
+  {
+    name: "rounded",
+    probabilities: { compliant: 0.71, prohibited: 0.2, unresolved: 0.1 },
+  },
+  {
+    name: "unrounded",
+    probabilities: { compliant: 0.7125, prohibited: 0.1875, unresolved: 0.1 },
+  },
+])(
+  "preserves $name distributions and routes by selected probability independently of confidence",
+  ({ probabilities }) =>
+    Effect.gen(function* () {
+      const decisions = provider({
+        "safety:privacy:assessment": {
+          choice: "compliant",
+          probabilities,
+          confidence: 0.01,
+        },
+      });
+      const allowed = yield* check(decisions);
+      const held = yield* check(decisions, {
+        settings: { ...settings, minimumProbability: 0.8 },
+      });
+      expect(allowed.judgment).toBe("allow");
+      expect(allowed.checks[0]?.trace?.data).toContain(
+        JSON.stringify(probabilities),
+      );
+      expect(held.reason).toBe("unresolved-evidence");
+    }),
+);
 
 it("holds confidently unresolved evidence while running independent stages", () =>
   Effect.gen(function* () {
@@ -655,6 +851,33 @@ it("projects incoming advice using only admitted visible subjects", () =>
     ]);
     expect(requests.some((entry) => entry.stage === "conformance")).toBe(false);
     expect(JSON.stringify(result.guidance)).not.toContain(privateEvidence);
+  }));
+
+it("leaves an unsettled reference out of an incoming expectation", () =>
+  Effect.gen(function* () {
+    const message: typeof Message.Encoded = {
+      id: "proposal",
+      sender: "participant-agent",
+      recipients: [context.agentId],
+      text: "Can we meet Tuesday?",
+    };
+    const result = yield* check(
+      provider({
+        "expectations:proposal-acceptance:assessment": "required",
+        "expectations:proposal-acceptance:subject:availability": "unresolved",
+      }),
+      { incoming: true, message },
+    );
+    expect(result.judgment).toBe("allow");
+    expect(result.guidance).toEqual([
+      {
+        middlewareId: "owner",
+        ruleId: "proposal-acceptance",
+        expectation: "required",
+        subjects: ["proposal"],
+        instruction: reminder,
+      },
+    ]);
   }));
 
 it("holds a model-selected private subject instead of projecting it", () =>

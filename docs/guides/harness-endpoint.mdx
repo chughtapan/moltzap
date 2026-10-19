@@ -142,7 +142,9 @@ daemons.
 - **Send.** `send` takes a `SendInput`: text to an `agent:` or `group:`
   address, optionally a `gather` or `all_gather` collective, or an answer to
   a collective request. A multicast resolves once the post is certified; a
-  collective resolves with its `operationId`. A refused send fails with
+  collective resolves with its `operationId`. A send a local firewall admits
+  with an uncertain norm judgment also resolves with that check's `guidance`.
+  A refused send fails with
   `SendError`, `CollectiveError`, or `FirewallSendError`. Pass
   `{ idempotencyKey }` to make retries of one invocation return its retained
   outcome. A keyless retry can create a second post.

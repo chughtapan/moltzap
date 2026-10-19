@@ -6,6 +6,7 @@ import { expect } from "vitest";
 import type { FirewallOptions } from "./firewall.js";
 import { digest } from "../__tests__/agent-card-fixtures.js";
 import { appendCertifiedPost } from "../__tests__/certified-history-fixtures.js";
+import { group, sendInput } from "../__tests__/firewall-collective-fixtures.js";
 import {
   addConversation,
   auditChecks,
@@ -24,8 +25,12 @@ import {
   seedIncoming,
   waitAction,
 } from "../__tests__/firewall-runtime-fixtures.js";
+import { makeEnglishPolicy } from "../firewall/index.js";
 import { FirewallSendError } from "../firewall/runtime.js";
 import {
+  type DecisionProvider,
+  type DecisionRequest,
+  type EnglishRule,
   type MessageMiddleware,
   MiddlewareError,
   type MiddlewareInput,
@@ -139,6 +144,174 @@ function guidanceIncoming() {
       })).guidance,
     ).toEqual(page.items[0]?.guidance);
   });
+}
+
+it(
+  "admits an incoming message whose norm judgment is unsettled, advising that judgment",
+  unsettledIncoming,
+);
+
+function unsettledIncoming() {
+  return Effect.gen(function* () {
+    const subject = yield* fixture;
+    const runtime = yield* incomingFixture(
+      subject,
+      policy(() =>
+        Effect.succeed({
+          findings: [
+            {
+              ruleId: rule.id,
+              outcome: "pass",
+              reason: "uncertain",
+              choice: "required",
+              probability: 0.4,
+            },
+          ],
+          expectations: [],
+        }),
+      ),
+    );
+    yield* runtime.runPass;
+    yield* Queue.take(runtime.completed);
+    expect(runtime.published).toMatchObject([
+      {
+        guidance: {
+          subjects: [],
+          instructions: [
+            {
+              middlewareId: "communication",
+              ruleId: rule.id,
+              uncertain: { choice: "required", probability: 0.4 },
+              instruction: rule.guidance,
+            },
+          ],
+        },
+      },
+    ]);
+  });
+}
+
+/** A rounded near-tie, as Jev reports one: the stated choice trails the maximum by one hundredth. */
+const nearTie = {
+  choice: "relevant",
+  confidence: 0.25,
+  probabilities: { relevant: 0.49, irrelevant: 0.5, unresolved: 0.01 },
+};
+
+const announceOnce: EnglishRule = {
+  id: "announce-once",
+  kind: "norm",
+  text: "Announce the final meeting time once.",
+  guidance: "Announce the final time once.",
+};
+
+it(
+  "admits a group message under enforcement when a norm's applicability is uncertain, advising that judgment",
+  uncertainNormApplicability,
+);
+
+function uncertainNormApplicability() {
+  return Effect.gen(function* () {
+    const subject = yield* fixture;
+    const delivery = yield* outgoingFixture(
+      subject,
+      yield* nearTiePolicy(announceOnce),
+    );
+    const sending = yield* delivery.operations
+      .send({
+        input: sendInput({ to: group, text: "The meeting is Tuesday." }),
+      })
+      .pipe(Effect.forkScoped);
+    yield* Deferred.await(subject.outbound);
+    const [checked] = yield* auditChecks(subject);
+    expect(checked).toMatchObject({
+      direction: "outgoing",
+      disposition: "admitted",
+      result: { judgment: "allow" },
+    });
+    expect(checked?.result?.guidance).toContainEqual({
+      middlewareId: "owner",
+      ruleId: announceOnce.id,
+      uncertain: { choice: "relevant", probability: 0.49 },
+      instruction: announceOnce.guidance,
+    });
+    yield* Fiber.interrupt(sending);
+  });
+}
+
+it(
+  "holds a group message under enforcement when a safety rule's applicability is uncertain",
+  uncertainSafetyApplicability,
+);
+
+function uncertainSafetyApplicability() {
+  return Effect.gen(function* () {
+    const subject = yield* fixture;
+    const delivery = yield* outgoingFixture(
+      subject,
+      yield* nearTiePolicy({
+        id: "privacy",
+        kind: "safety",
+        text: "Do not disclose private appointments.",
+      }),
+    );
+    const refusal = yield* Effect.flip(
+      delivery.operations.send({
+        input: sendInput({ to: group, text: "The meeting is Tuesday." }),
+      }),
+    );
+    expect(refusal).toMatchObject({ refusal: "unresolved-evidence" });
+  });
+}
+
+/** An English policy of one rule, judged by `nearTieJudge`. */
+function nearTiePolicy(rule: EnglishRule) {
+  return makeEnglishPolicy({
+    id: "owner",
+    rules: [rule],
+    provider: nearTieJudge(rule),
+    settings: {
+      minimumProbability: 0.5,
+      maximumRequestBytes: 60_000,
+      timeoutMilliseconds: 5_000,
+    },
+  });
+}
+
+/** A judge certain of everything but `rule`'s applicability, which it answers with a near-tie. */
+function nearTieJudge(rule: EnglishRule): DecisionProvider {
+  return {
+    decide: (request) =>
+      Effect.succeed({
+        provider: "test-judge",
+        model: "test-model",
+        usage: {},
+        raw: "",
+        answers: Object.fromEntries(
+          Object.entries(request.questions).map(([id, question]) => [
+            id,
+            request.stage === "applicability" && question.ruleId === rule.id
+              ? nearTie
+              : certainAnswer(question),
+          ]),
+        ),
+      }),
+  };
+}
+
+/** A question's first permitting choice, answered with certainty. */
+function certainAnswer(question: DecisionRequest["questions"][string]) {
+  const choices = Object.keys(question.criteria);
+  const choice =
+    ["compliant", "autonomous", "none", "relevant"].find((candidate) =>
+      choices.includes(candidate),
+    ) ?? "unresolved";
+  return {
+    choice,
+    probabilities: Object.fromEntries(
+      choices.map((option) => [option, option === choice ? 1 : 0]),
+    ),
+  };
 }
 
 it(

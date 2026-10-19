@@ -116,20 +116,42 @@ The English middleware runs this fixed internal chain:
 4. Assess autonomy: autonomous, approval-required, prohibited or unresolved.
 5. Assess norm expectations: required response, permitted response, wait or no
    response, with selected rule and subject references.
-6. For outgoing messages, assess the candidate's conformance to those norms.
+6. For outgoing messages, assess the candidate's conformance to the
+   expectations the judge settled.
 7. Return all stage findings and a private trace to the common runner for
    validation, composition and permitted feedback projection. Client then commits
    the result and applies the configured admission mode.
 
 All configured stages run even after a semantic rejection, except that a
 dependent stage with invalid input is explicitly unavailable. Diagnostics never
-override a rejection. Missing required evidence, invalid output and provider
-failure cannot produce admission. They remain distinct in the audit.
+override a rejection. Missing required evidence in the context, invalid output
+and provider failure cannot produce admission; an uncertain norm judgment admits
+as described below. They remain distinct in the audit.
 
-In the first conservative chain, uncertainty or failure in applicability and
-subject-reference selection also holds the candidate. Their labels never prune
-active rules. Making these stages optional is a later experiment; increasing
-history length can increase holds even when the central safety answer is clear.
+An answer is uncertain when its choice is `unresolved`, its probability is
+below `minimumProbability`, or another option is more probable, as in a rounded
+near-tie the policy accepts as valid. An uncertain answer about a safety or autonomy rule
+holds the candidate, its applicability included, and a failed judge holds it
+in every stage. Applicability labels never prune active rules. Making
+applicability optional is a later experiment; increasing history length can
+increase holds even when the central safety answer is clear.
+
+An uncertain answer about a norm rule never holds the candidate, in
+applicability, expectations or conformance:
+
+- a norm whose applicability is uncertain is still judged by expectations and
+  conformance;
+- an uncertain expectation is left out of the norms conformance judges, and an
+  uncertain subject reference is left out of its expectation;
+- an uncertain applicability, expectation or conformance answer is a `pass`
+  finding with reason `uncertain`, the judge's choice and its probability,
+  which the audit retains; and
+- each uncertain finding whose rule registers guidance reaches the agent as an
+  instruction carrying the rule, that choice and probability, and the rule's
+  guidance.
+
+A settled judgment keeps its effect: a conformance violation still asks for
+revision, and a settled expectation still becomes guidance.
 
 No model call runs inside a database transaction, the delivery semaphore or
 Router consumption. A stale result is reassessed within a bounded refresh
@@ -165,8 +187,10 @@ no peer content.
 The guidance of one checked message or request contains:
 
 - response expectation: required, permitted, wait or none;
-- subject references to runtime-visible messages or operations; and
-- selected runtime-visible English instructions.
+- subject references to runtime-visible messages or operations;
+- selected runtime-visible English instructions; and
+- for each norm judgment the judge left uncertain, its rule, the judge's
+  choice and probability, and the rule's instruction.
 
 A collective result's guidance is a list with one such entry per checked
 answer that drew advice, each naming the member and its own check, and one for
@@ -217,6 +241,13 @@ Compose decisions in this order: known safety/autonomy prohibition; required
 operational/evidence hold; norm repair; missing approval; otherwise admission.
 Approval satisfies an approval-required condition only and cannot override a
 prohibition or an independent norm violation.
+
+An admitted send returns its check's guidance in its result when the check
+left a norm judgment uncertain: the same instructions as incoming guidance,
+without subjects. Settled outgoing expectations are not returned, since
+conformance judged the draft against them. The native and MCP send results
+carry the same `guidance` field, a keyed retry returns it with the retained
+outcome, and OpenClaw returns it in the message tool's result.
 
 An error before admission means the candidate created no send intent. The agent
 can revise and issue a new invocation, which runs the full chain. Client does

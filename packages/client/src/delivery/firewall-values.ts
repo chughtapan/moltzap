@@ -12,6 +12,7 @@ import {
   NormExpectation,
   PrivateCheckTrace,
   RuleDescription,
+  UncertainNormGuidance,
 } from "../firewall/index.js";
 import {
   decodeRuntimeValue,
@@ -97,11 +98,14 @@ const firewallAuditResult = exactStruct({
     }),
   ),
   guidance: Schema.Array(
-    Schema.Struct({
-      ...NormExpectation.fields,
-      middlewareId: Schema.String,
-      instruction: Schema.String,
-    }),
+    Schema.Union(
+      Schema.Struct({
+        ...NormExpectation.fields,
+        middlewareId: Schema.String,
+        instruction: Schema.String,
+      }),
+      UncertainNormGuidance,
+    ),
   ),
   checks: Schema.Array(
     Schema.Struct({

@@ -10,7 +10,12 @@ const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
 /** An opaque local assessment reference conveys no approval or lookup authority. */
 const checkIdSchema = Schema.String.pipe(Schema.pattern(/^chk_[a-f0-9]{64}$/u));
 
-/** Only registered instructions and runtime-visible subjects cross into a host. */
+/**
+ * Only registered instructions and runtime-visible subjects cross into a
+ * host. An instruction names either the expectation the judge settled and
+ * the messages it refers to, or the choice and probability of a norm
+ * judgment the judge left unsettled.
+ */
 const checkedGuidance = {
   checkId: checkIdSchema,
   subjects: Schema.Array(
@@ -22,15 +27,32 @@ const checkedGuidance = {
     }),
   ),
   instructions: Schema.Array(
-    exactStruct({
-      middlewareId: Schema.NonEmptyTrimmedString,
-      ruleId: Schema.NonEmptyTrimmedString,
-      expectation: Schema.Literal("required", "permitted", "wait", "none"),
-      subjects: Schema.Array(Schema.NonEmptyTrimmedString),
-      instruction: Schema.NonEmptyString,
-    }),
+    Schema.Union(
+      exactStruct({
+        middlewareId: Schema.NonEmptyTrimmedString,
+        ruleId: Schema.NonEmptyTrimmedString,
+        expectation: Schema.Literal("required", "permitted", "wait", "none"),
+        subjects: Schema.Array(Schema.NonEmptyTrimmedString),
+        instruction: Schema.NonEmptyString,
+      }),
+      exactStruct({
+        middlewareId: Schema.NonEmptyTrimmedString,
+        ruleId: Schema.NonEmptyTrimmedString,
+        uncertain: exactStruct({
+          choice: Schema.NonEmptyTrimmedString,
+          probability: Schema.Number.pipe(Schema.between(0, 1)),
+        }),
+        instruction: Schema.NonEmptyString,
+      }),
+    ),
   ),
 };
+
+/** Exact decoding of one check's guidance, wherever a host receives it. */
+export const checkedGuidanceSchema = exactStruct(checkedGuidance);
+
+/** The guidance of one checked text: a message, a request, an answer, a question or a send. */
+export type CheckedGuidance = typeof checkedGuidanceSchema.Type;
 
 /**
  * A result's guidance: one entry per answer whose check produced advice,
@@ -38,7 +60,7 @@ const checkedGuidance = {
  * question was checked with the result. Each entry carries its own check.
  */
 const resultGuidance = exactStruct({
-  question: Schema.optionalWith(exactStruct(checkedGuidance), { exact: true }),
+  question: Schema.optionalWith(checkedGuidanceSchema, { exact: true }),
   answers: Schema.Array(
     exactStruct({ member: Schema.NonEmptyTrimmedString, ...checkedGuidance }),
   ),
@@ -49,18 +71,12 @@ const resultGuidance = exactStruct({
  * collective result.
  */
 export const localGuidanceSchema = Schema.Union(
-  exactStruct(checkedGuidance),
+  checkedGuidanceSchema,
   resultGuidance,
 ).annotations({ identifier: "LocalGuidance" });
 
 /** Local advice accompanies the envelope and never changes a certified item. */
 export type LocalGuidance = typeof localGuidanceSchema.Type;
-
-/** The guidance of one checked text: a message, a request, an answer or a question. */
-export type CheckedGuidance = Extract<
-  LocalGuidance,
-  { readonly checkId: string }
->;
 
 /** Why a local check holds a text: the same closed set for a refused send and a withheld incoming text. */
 const firewallRefusal = Schema.Literal(

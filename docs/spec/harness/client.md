@@ -84,6 +84,8 @@ type SendInput =
 
 interface SendResult {
   readonly operationId?: CollectiveId
+  /** The local firewall's advice on the admitted send. */
+  readonly guidance?: CheckedGuidance
 }
 
 interface DirectMessage {
@@ -511,8 +513,9 @@ and private state do not cross the boundary.
 ## Host ownership
 
 The experimental [message firewall](./message-policy.md) adds optional
-`LocalGuidance` to the delivery envelope, separately attributed to local policy.
-Its check reference, rule references, expectations and permitted instructions
+`LocalGuidance` to the delivery envelope and `CheckedGuidance` to a send's
+result, separately attributed to local policy. Its check reference, rule
+references, expectations, uncertain judgments and permitted instructions
 contain no private check trace. A certified `InboundItem` is unchanged; a
 result's projection replaces only withheld text.
 `FirewallSendError` means the invocation created no message intent. Its closed
@@ -571,14 +574,17 @@ methods and cannot create a delivery or authorize output.
 
 An admitted delivery may carry `LocalGuidance` beside its `InboundItem`. For a
 message or request it contains a local `checkId`, registered instructions with
-middleware/rule IDs, response expectations and subject references, and the
-selected runtime-visible subject messages (`id`, verified `sender`,
-`recipients`, `text`). For a collective result it is a list, `answers`, with
+middleware/rule IDs, and the selected runtime-visible subject messages (`id`,
+verified `sender`, `recipients`, `text`). Each instruction carries either a
+response expectation and subject references, or, for a norm judgment the
+judge left uncertain, the judge's `choice` and `probability`; an uncertain
+judgment admits rather than holds. For a collective result it is a list, `answers`, with
 one such entry per checked answer that drew advice, each naming its `member`,
 and an optional `question` entry. Subject text is peer evidence; it is quoted
 separately from local instructions. The check ID conveys no approval or
 management authority. Private traces and owner-only facts are never part of
-this projection.
+this projection. An admitted send's result carries the `CheckedGuidance` of its
+check when that check left a norm judgment uncertain.
 
 ```ts
 interface CheckedGuidance {
@@ -589,13 +595,24 @@ interface CheckedGuidance {
     readonly recipients: readonly string[]
     readonly text: string
   }[]
-  readonly instructions: readonly {
-    readonly middlewareId: string
-    readonly ruleId: string
-    readonly expectation: "required" | "permitted" | "wait" | "none"
-    readonly subjects: readonly string[]
-    readonly instruction: string
-  }[]
+  readonly instructions: readonly (
+    | {
+        readonly middlewareId: string
+        readonly ruleId: string
+        readonly expectation: "required" | "permitted" | "wait" | "none"
+        readonly subjects: readonly string[]
+        readonly instruction: string
+      }
+    | {
+        readonly middlewareId: string
+        readonly ruleId: string
+        readonly uncertain: {
+          readonly choice: string
+          readonly probability: number
+        }
+        readonly instruction: string
+      }
+  )[]
 }
 
 type LocalGuidance =

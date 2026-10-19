@@ -48,12 +48,23 @@ const decideWithinBudget = Effect.fn("EnglishPolicy.decideWithinBudget")(
       return yield* new DecisionProviderError({
         reason: "invalid-response",
         response: response.raw,
+        accounting: {
+          provider: response.provider,
+          model: response.model,
+          usage: response.usage,
+        },
       });
     }
     return response;
   },
 );
 
+/**
+ * Each answer must give a probability to exactly its question's choices, sum
+ * to one, and state a choice that no other option exceeds, within
+ * {@link roundingTolerance}. The policy routes by the stated choice, and a
+ * stated choice that trails another option is unsettled.
+ */
 function validAnswers(
   request: DecisionRequest,
   response: DecisionResponse,
@@ -77,24 +88,33 @@ function validAnswers(
     ) {
       return false;
     }
+    const tolerance = roundingTolerance(probabilities);
     return (
       choices.every((choice) => Object.hasOwn(answer.probabilities, choice)) &&
-      probabilities.every((value) => value <= selected) &&
+      probabilities.every((value) => value - selected <= tolerance.choice) &&
       Math.abs(probabilities.reduce((sum, value) => sum + value, 0) - 1) <=
-        roundingTolerance(probabilities)
+        tolerance.sum
     );
   });
 }
 
-/** Jev rounds to hundredths; retain its distribution without normalization. */
-function roundingTolerance(probabilities: readonly number[]): number {
+/**
+ * Jev reports probabilities in hundredths, and in a near-tie its stated choice
+ * can trail another option by one hundredth. A distribution in hundredths may
+ * miss a sum of one, and its choice may trail the maximum, by the same
+ * allowance. Any other distribution states a maximum and sums to one within
+ * 0.001. Distributions are retained without normalization.
+ */
+function roundingTolerance(probabilities: readonly number[]) {
+  const floatingPoint = Number.EPSILON * probabilities.length;
   const rounded = probabilities.every(
     (value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-8,
   );
-  return (
-    (rounded ? Math.min(probabilities.length * 0.005, 0.02) : 0.001) +
-    Number.EPSILON * probabilities.length
-  );
+  if (!rounded) {
+    return { choice: 0, sum: 0.001 + floatingPoint };
+  }
+  const rounding = Math.min(probabilities.length * 0.005, 0.02) + floatingPoint;
+  return { choice: rounding, sum: rounding };
 }
 
 const runStage = Effect.fn("EnglishPolicy.runStage")(function* (
@@ -132,27 +152,40 @@ const runStage = Effect.fn("EnglishPolicy.runStage")(function* (
       response: value,
       uncertainQuestions: Object.entries(value.answers).flatMap(
         ([id, answer]) =>
-          answer.choice === "unresolved" ||
-          (answer.probabilities[answer.choice] ?? 0) <
-            settings.minimumProbability
-            ? [id]
-            : [],
+          unsettled(answer, settings.minimumProbability) ? [id] : [],
       ),
     }),
   });
 });
 
+/**
+ * The judge did not settle an answer that is `unresolved`, below the routing
+ * threshold, or a rounded near-tie whose stated choice trails another option.
+ */
+function unsettled(
+  answer: DecisionResponse["answers"][string],
+  minimumProbability: number,
+): boolean {
+  const selected = answer.probabilities[answer.choice] ?? 0;
+  return (
+    answer.choice === "unresolved" ||
+    selected < minimumProbability ||
+    Object.values(answer.probabilities).some((value) => value > selected)
+  );
+}
+
+/**
+ * Conformance judges the draft against the expectations the judge settled;
+ * the unsettled ones reach the agent as guidance instead. Only a failed
+ * expectations stage leaves conformance unavailable.
+ */
 const evaluateConformance = Effect.fn("EnglishPolicy.conformance")(function* (
   snapshot: EnglishCheck,
   expectations: PolicyStageTrace,
   provider: DecisionProvider,
   settings: EnglishPolicySettings,
 ): Effect.fn.Return<PolicyStageTrace> {
-  const ready =
-    expectations.status === "empty" ||
-    (expectations.status === "answered" &&
-      expectations.uncertainQuestions.length === 0);
-  if (!ready) {
+  if (expectations.status !== "empty" && expectations.status !== "answered") {
     return {
       stage: "conformance",
       status: "unavailable",
@@ -230,7 +263,7 @@ const checkEnglish = Effect.fn("EnglishPolicy.check")(function* (
  *   A --> S[Personal trust]
  *   S --> U[Autonomy]
  *   U --> N[Norm expectations from permitted evidence]
- *   N --> C[Outgoing conformance when expectations are available]
+ *   N --> C[Outgoing conformance against the settled expectations]
  *   C --> R[Return all findings and private stage trace]
  * ```
  */
@@ -315,15 +348,23 @@ function englishRevision(
     .digest("hex");
 }
 
+/**
+ * The expectations the judge settled, each with the references it settled
+ * as relevant. An unsettled expectation reaches the agent as guidance
+ * instead, and an unsettled reference is left out.
+ */
 function readNorms(trace: PolicyStageTrace): readonly NormExpectation[] {
-  if (trace.status !== "answered" || trace.uncertainQuestions.length !== 0) {
+  if (trace.status !== "answered") {
     return [];
   }
+  const uncertain = new Set(trace.uncertainQuestions);
+  const settled = (id: string) => !uncertain.has(id);
   const subjects = new Map<string, string[]>();
   Object.entries(trace.request.questions).forEach(([id, question]) => {
     if (
       question.purpose === "subject" &&
       question.subject !== undefined &&
+      settled(id) &&
       trace.response.answers[id]?.choice === "relevant"
     ) {
       const references = subjects.get(question.ruleId) ?? [];
@@ -335,6 +376,7 @@ function readNorms(trace: PolicyStageTrace): readonly NormExpectation[] {
     const expectation = trace.response.answers[id]?.choice;
     if (
       question.purpose !== "assessment" ||
+      !settled(id) ||
       !Schema.is(NormExpectation.fields.expectation)(expectation)
     ) {
       return [];
@@ -362,23 +404,6 @@ function stageIncludes(
   );
 }
 
-function answerOutcome(
-  choice?: string,
-): Exclude<PolicyFinding["outcome"], "hold"> {
-  switch (choice) {
-    case undefined:
-      return "pass";
-    case "prohibited":
-      return "block";
-    case "violation":
-      return "revise";
-    case "approval-required":
-      return "approval-required";
-    default:
-      return "pass";
-  }
-}
-
 function stageFindings(
   trace: PolicyStageTrace,
   rules: readonly EnglishRule[],
@@ -398,20 +423,70 @@ function stageFindings(
               ? "check-unavailable"
               : "unresolved-evidence",
         }));
-    case "answered":
-      return Object.entries(trace.request.questions).map(([id, question]) => {
-        if (trace.uncertainQuestions.includes(id)) {
-          return {
-            ruleId: question.ruleId,
-            outcome: "hold",
-            reason: "unresolved-evidence",
-          };
-        }
-        const choice = trace.response.answers[id]?.choice;
-        const outcome = answerOutcome(choice);
-        return { ruleId: question.ruleId, outcome };
-      });
+    case "answered": {
+      const uncertain = new Set(trace.uncertainQuestions);
+      const norms = new Set(
+        rules.filter((rule) => rule.kind === "norm").map((rule) => rule.id),
+      );
+      return Object.entries(trace.request.questions).map(([id, question]) =>
+        questionFinding(
+          question,
+          norms.has(question.ruleId),
+          uncertain.has(id),
+          trace.response.answers[id],
+        ),
+      );
+    }
     default:
       return trace satisfies never;
+  }
+}
+
+/**
+ * One answered question's finding. An unsettled answer about a safety or
+ * autonomy rule holds. One about a norm never holds: its applicability,
+ * expectation or conformance passes with the judge's choice and probability,
+ * so the norm is still judged and the agent advised, and an unsettled
+ * reference only drops out of its expectation.
+ */
+function questionFinding(
+  question: DecisionRequest["questions"][string],
+  norm: boolean,
+  uncertain: boolean,
+  answer?: DecisionResponse["answers"][string],
+): PolicyFinding {
+  const { ruleId } = question;
+  if (!uncertain) {
+    return { ruleId, outcome: answerOutcome(answer?.choice) };
+  }
+  if (!norm) {
+    return { ruleId, outcome: "hold", reason: "unresolved-evidence" };
+  }
+  if (question.purpose === "subject" || answer === undefined) {
+    return { ruleId, outcome: "pass" };
+  }
+  return {
+    ruleId,
+    outcome: "pass",
+    reason: "uncertain",
+    choice: answer.choice,
+    probability: answer.probabilities[answer.choice] ?? 0,
+  };
+}
+
+function answerOutcome(
+  choice?: string,
+): Exclude<PolicyFinding["outcome"], "hold"> {
+  switch (choice) {
+    case undefined:
+      return "pass";
+    case "prohibited":
+      return "block";
+    case "violation":
+      return "revise";
+    case "approval-required":
+      return "approval-required";
+    default:
+      return "pass";
   }
 }

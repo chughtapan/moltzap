@@ -4,7 +4,10 @@
  */
 
 import { type Effect, type Option, Schema, type Scope } from "effect";
-import type { FirewallSendError } from "../../firewall/runtime.js";
+import type {
+  CheckedGuidance,
+  FirewallSendError,
+} from "../../firewall/runtime.js";
 import type { SendError } from "../messaging/errors.js";
 import type {
   BindHold,
@@ -31,11 +34,7 @@ import {
 // safer-arch-ignore file-implicit-boundary-module: The operation layer and its received-request state run on these ports; transport/collectives/index.ts is the one boundary that exposes them.
 
 /** The engine's post vocabulary the ports exchange. */
-export type {
-  BindHold,
-  EngineSendInput,
-  EngineSentPost,
-} from "../messaging/index.js";
+export type { BindHold, EngineSendInput } from "../messaging/index.js";
 
 /** How binding an authored post fails: before it binds, or by its caller's hold. */
 export type AuthoredPostError<E> = SendError | FirewallSendError | E;
@@ -73,6 +72,17 @@ export type PostSender = (
   input: EngineSendInput,
 ) => Effect.Effect<EngineSentPost, SendError>;
 
+/** A certified post the agent authored, with the advice its admitting check gave the agent. */
+export interface AuthoredPost extends EngineSentPost {
+  readonly guidance?: CheckedGuidance;
+}
+
+/** The only sender an admitted gather's request posts bind through, with the advice its check gave. */
+export interface AdmittedGather {
+  readonly sendRequest: PostSender;
+  readonly guidance?: CheckedGuidance;
+}
+
 /**
  * What an installed firewall adds to the layer: every post the agent
  * authors is checked before it binds, and a gather once before its request
@@ -89,16 +99,17 @@ export interface CollectiveAdmission {
     input: EngineSendInput,
     hold: BindHold<E>,
   ) => Effect.Effect<
-    Effect.Effect<EngineSentPost, SendError>,
+    Effect.Effect<AuthoredPost, SendError>,
     AuthoredPostError<E>
   >;
   /**
    * Check a gather, then return the only sender its request posts bind
-   * through: each binds against the admitted check of exactly this content.
+   * through, each against the admitted check of exactly this content, with
+   * the advice that check gave.
    */
   readonly admitGather: (
     gather: GatherCandidate,
-  ) => Effect.Effect<PostSender, SendError | FirewallSendError>;
+  ) => Effect.Effect<AdmittedGather, SendError | FirewallSendError>;
 }
 
 /** What the collective layer needs from the daemon around it. */

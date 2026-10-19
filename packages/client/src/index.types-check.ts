@@ -11,8 +11,10 @@
  * naming the conversation it arrived in, a collective result, each naming
  * its operation, or an operation failure. A result's question or a member's
  * answer can be `withheld` by the local firewall, and local guidance is
- * either one check's or one per checked text of a result. A send returns a
- * collecting operation's id and fails with a closed send reason or a
+ * either one check's or one per checked text of a result; each of its
+ * instructions names a settled expectation or an unsettled norm judgment's
+ * choice and probability. A send returns a collecting operation's id and
+ * its check's guidance, and fails with a closed send reason or a
  * collective failure. Optional invocation identity preserves a retried send without
  * executing a new collective operation. Adapters compile against this surface,
  * so any change these canaries catch is a breaking release.
@@ -80,7 +82,10 @@ type ExpectedSendInput =
       to: MessageAddressInput;
       collectiveResponse: ExpectedCollectiveResponse;
     }>;
-type ExpectedSendResult = Readonly<{ operationId?: CollectiveId }>;
+type ExpectedSendResult = Readonly<{
+  operationId?: CollectiveId;
+  guidance?: ExpectedCheckedGuidance;
+}>;
 type ExpectedDirectMessage = Readonly<{
   kind: "direct";
   postId: PostId;
@@ -149,13 +154,20 @@ type ExpectedGuidanceSubject = Readonly<{
   recipients: readonly string[];
   text: string;
 }>;
-type ExpectedGuidanceInstruction = Readonly<{
-  middlewareId: string;
-  ruleId: string;
-  expectation: "required" | "permitted" | "wait" | "none";
-  subjects: readonly string[];
-  instruction: string;
-}>;
+type ExpectedGuidanceInstruction =
+  | Readonly<{
+      middlewareId: string;
+      ruleId: string;
+      expectation: "required" | "permitted" | "wait" | "none";
+      subjects: readonly string[];
+      instruction: string;
+    }>
+  | Readonly<{
+      middlewareId: string;
+      ruleId: string;
+      uncertain: Readonly<{ choice: string; probability: number }>;
+      instruction: string;
+    }>;
 type ExpectedCheckedGuidance = Readonly<{
   checkId: string;
   subjects: readonly ExpectedGuidanceSubject[];

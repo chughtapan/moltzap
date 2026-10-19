@@ -403,6 +403,28 @@ it("rejects missing or unknown rule findings and unregistered advice", () =>
     }
   }));
 
+it("lets only a norm pass with its judgment unsettled", () =>
+  Effect.gen(function* () {
+    const unsettled: PolicyFinding = {
+      ruleId: rule.id,
+      outcome: "pass",
+      reason: "uncertain",
+      choice: "none",
+      probability: 0.3,
+    };
+    const norm = yield* firewallFor([policy("norm", [unsettled])]);
+    const safety = yield* firewallFor([
+      {
+        ...policy("safety", [unsettled]),
+        rules: [{ ...rule, kind: "safety" }],
+      },
+    ]);
+    expect((yield* norm.checkOutgoing(draft, context)).judgment).toBe("allow");
+    expect((yield* safety.checkOutgoing(draft, context)).reason).toBe(
+      "check-unavailable",
+    );
+  }));
+
 it("does not ask an incoming sender to revise or accept non-autonomy approval", () =>
   Effect.gen(function* () {
     const repair = yield* firewallFor([
