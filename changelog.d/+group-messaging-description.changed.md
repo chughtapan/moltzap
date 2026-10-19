@@ -1,1 +1,0 @@
-The OpenClaw `group-messaging` skill's description now tells the model to open it before any file or calendar step whenever a request needs several people to hear one thing or each answer one question, including outcome-only requests. Under OpenClaw's Claude Code launch at thinking medium, Opus 4.8 opens it on 84/112 held-out trigger queries, up from 54, with no false opens.
