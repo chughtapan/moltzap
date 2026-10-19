@@ -113,6 +113,7 @@ function policyState(
       })),
     },
     history: check.context.history,
+    earlierHistoryOmitted: check.context.earlierHistoryOmitted,
     facts: check.context.facts,
     gaps: check.context.gaps,
     norms,
