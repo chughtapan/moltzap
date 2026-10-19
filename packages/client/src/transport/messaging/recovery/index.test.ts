@@ -508,7 +508,7 @@ const makeFixtureWithRouter = (
       registry,
       store,
       actionPolicy: () => Effect.succeed("sign"),
-      reportStorageFault: Effect.void,
+      reportStorageFault: () => Effect.void,
       routerWorker: makeRouter({
         store,
         local,
@@ -701,7 +701,7 @@ const addGroupFoundation = (
       registry,
       store: fixture.store,
       actionPolicy: () => Effect.succeed("sign"),
-      reportStorageFault: Effect.void,
+      reportStorageFault: () => Effect.void,
       routerWorker: {
         currentAnchor: Effect.succeed({
           routerInstanceId: newRouterInstanceId,
