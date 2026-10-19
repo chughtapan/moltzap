@@ -17,6 +17,11 @@ import {
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Cause, Data, Effect, type ParseResult, Schema, Stream } from "effect";
 import { join, relative, resolve } from "node:path";
+import { parse } from "yaml";
+import {
+  FINAL_PACKAGES,
+  type PackageDir,
+} from "../architecture/boundary-contract.ts";
 
 /** Services every pack gate step runs against. */
 export type GateServices =
@@ -208,59 +213,106 @@ export function runGate(
 }
 
 /**
- * Pack every package in `packageRoots` under `temporaryRoot/tarballs` and
- * prove the packed manifests form an installable closure: each keeps its
- * source name and version, carries the publishability the caller declares,
- * ships the Apache `LICENSE` and `NOTICE` files, ships every executable its
- * `bin` map names, and pins every packed sibling to that sibling's exact
- * packed version.
- *
- * `publishable` is passed in rather than read off the packed manifest,
- * because a manifest compared against itself cannot fail. The boundary check
- * enforces the same rule on the source manifests; this one enforces it on
- * what `pnpm pack` actually produced, and those are different artifacts.
- * @param packageRoots Package name to source root.
+ * Derive the packed closure and publishability from the source contract,
+ * independently of the tarballs being verified.
+ * @param workspaceRoot Source workspace root.
+ * @param entry Product whose transitive closure is packed.
  * @param temporaryRoot Scratch directory owned by the caller.
- * @param publishable Names that must pack publishable; every other name in
- * `packageRoots` must pack private.
- * @returns Package name to tarball path and to packed manifest.
+ * @returns Package name to tarball path and packed manifest.
  */
-export function packWorkspaceClosure(
-  packageRoots: Readonly<Record<string, string>>,
+export function packProductClosure(
+  workspaceRoot: string,
+  entry: PackageDir,
   temporaryRoot: string,
-  publishable: ReadonlySet<string>,
-): Effect.Effect<
-  {
-    readonly archives: Archives;
-    readonly manifests: Readonly<Record<string, PackedManifest>>;
-  },
-  GateError,
-  GateServices
-> {
+) {
+  const closure = new Set<PackageDir>();
+  function visit(dir: PackageDir): void {
+    if (closure.has(dir)) {
+      return;
+    }
+    closure.add(dir);
+    for (const dependency of FINAL_PACKAGES[dir].deps) {
+      visit(dependency);
+    }
+  }
+  visit(entry);
+  return packWorkspaceClosure(
+    Object.fromEntries(
+      [...closure].map((dir) => [
+        FINAL_PACKAGES[dir].npmName,
+        join(workspaceRoot, "packages", dir),
+      ]),
+    ),
+    temporaryRoot,
+    new Set(
+      [...closure]
+        .filter((dir) => FINAL_PACKAGES[dir].published)
+        .map((dir) => FINAL_PACKAGES[dir].npmName),
+    ),
+  );
+}
+
+/**
+ * Consumer installs use the workspace's Effect override and TypeScript catalog,
+ * including npm aliases, so they exercise the versions the workspace builds.
+ * @param workspaceRoot Source workspace root.
+ * @returns Dependency specifiers for the isolated consumer.
+ */
+export function readConsumerPins(workspaceRoot: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const destination = join(temporaryRoot, "tarballs");
-    yield* fs.makeDirectory(destination);
-    const packed = yield* Effect.forEach(
-      Object.entries(packageRoots),
-      ([name, root]) => packOne(name, root, destination),
-      { concurrency: 4 },
+    const text = yield* fs.readFileString(
+      join(workspaceRoot, "pnpm-workspace.yaml"),
     );
-    const manifests = Object.fromEntries(
-      packed.map(({ name, manifest }) => [name, manifest]),
-    );
-    yield* Effect.forEach(
-      packed,
-      (entry) => verifyPacked(entry, manifests, publishable),
-      { concurrency: 1, discard: true },
-    );
+    const value = yield* Effect.try({
+      try: (): unknown => parse(text),
+      catch: (cause) => new PackGateError({ message: String(cause) }),
+    });
+    const workspace = yield* Schema.decodeUnknown(
+      Schema.Struct({
+        catalog: Schema.Struct({ typescript: Schema.String }),
+        overrides: Schema.Struct({ effect: Schema.String }),
+      }),
+    )(value);
     return {
-      archives: Object.fromEntries(
-        packed.map(({ name, archive }) => [name, archive]),
-      ),
-      manifests,
+      effect: workspace.overrides.effect,
+      typescript: workspace.catalog.typescript,
     };
-  }).pipe(Effect.withSpan("packedWorkspace.packWorkspaceClosure"));
+  }).pipe(Effect.withSpan("packedWorkspace.readConsumerPins"));
+}
+
+/**
+ * Invoke the installed compiler through its declared executable; catalog aliases
+ * may expose a versioned command name.
+ * @param consumerRoot Isolated consumer with TypeScript installed.
+ */
+export function checkConsumerTypes(consumerRoot: string) {
+  return Effect.gen(function* () {
+    const compilerRoot = join(consumerRoot, "node_modules", "typescript");
+    const compiler = yield* readJsonFile(
+      join(compilerRoot, "package.json"),
+      Schema.Struct({
+        bin: Schema.Record({ key: Schema.String, value: Schema.String }),
+      }),
+    );
+    const target = Object.entries(compiler.bin).find(([name]) =>
+      /^tsc\d*$/u.test(name),
+    )?.[1];
+    if (target === undefined) {
+      return yield* new PackGateError({
+        message: "TypeScript declares no compiler executable",
+      });
+    }
+    yield* runCommand(
+      process.execPath,
+      [
+        join(compilerRoot, target),
+        "--project",
+        join(consumerRoot, "tsconfig.json"),
+      ],
+      { cwd: consumerRoot },
+    );
+  }).pipe(Effect.withSpan("packedWorkspace.checkConsumerTypes"));
 }
 
 /**
@@ -320,6 +372,62 @@ export function installPackedConsumer(
     );
     return consumerRoot;
   }).pipe(Effect.withSpan("packedWorkspace.installPackedConsumer"));
+}
+
+/**
+ * Pack every package in `packageRoots` under `temporaryRoot/tarballs` and
+ * prove the packed manifests form an installable closure: each keeps its
+ * source name and version, carries the publishability the caller declares,
+ * ships the Apache `LICENSE` and `NOTICE` files, ships every executable its
+ * `bin` map names, and pins every packed sibling to that sibling's exact
+ * packed version.
+ *
+ * `publishable` is passed in rather than read off the packed manifest,
+ * because a manifest compared against itself cannot fail. The boundary check
+ * enforces the same rule on the source manifests; this one enforces it on
+ * what `pnpm pack` actually produced, and those are different artifacts.
+ * @param packageRoots Package name to source root.
+ * @param temporaryRoot Scratch directory owned by the caller.
+ * @param publishable Names that must pack publishable; every other name in
+ * `packageRoots` must pack private.
+ * @returns Package name to tarball path and to packed manifest.
+ */
+function packWorkspaceClosure(
+  packageRoots: Readonly<Record<string, string>>,
+  temporaryRoot: string,
+  publishable: ReadonlySet<string>,
+): Effect.Effect<
+  {
+    readonly archives: Archives;
+    readonly manifests: Readonly<Record<string, PackedManifest>>;
+  },
+  GateError,
+  GateServices
+> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const destination = join(temporaryRoot, "tarballs");
+    yield* fs.makeDirectory(destination);
+    const packed = yield* Effect.forEach(
+      Object.entries(packageRoots),
+      ([name, root]) => packOne(name, root, destination),
+      { concurrency: 4 },
+    );
+    const manifests = Object.fromEntries(
+      packed.map(({ name, manifest }) => [name, manifest]),
+    );
+    yield* Effect.forEach(
+      packed,
+      (entry) => verifyPacked(entry, manifests, publishable),
+      { concurrency: 1, discard: true },
+    );
+    return {
+      archives: Object.fromEntries(
+        packed.map(({ name, archive }) => [name, archive]),
+      ),
+      manifests,
+    };
+  }).pipe(Effect.withSpan("packedWorkspace.packWorkspaceClosure"));
 }
 
 interface PackedEntry {

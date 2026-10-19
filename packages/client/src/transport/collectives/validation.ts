@@ -10,7 +10,7 @@
  * value of that type, while `type`, `enum` and `oneOf` apply to any value.
  */
 
-import { Effect, Predicate } from "effect";
+import { Effect } from "effect";
 import type { CollectiveMemberOutcome } from "./inbound.js";
 import type { FormField, FormModeSchema } from "./part/index.js";
 import { matchesFormat } from "./answer-formats.js";
@@ -28,27 +28,8 @@ type MultiSelectItems = Extract<
   { readonly items: unknown }
 >["items"];
 
-type LimitKeywordName =
-  | "minLength"
-  | "maxLength"
-  | "minimum"
-  | "maximum"
-  | "minItems"
-  | "maxItems";
-
 /** One keyword's check: each failure it finds, as `keyword: requirement`. */
 type KeywordCheck = (field: FormField, value: AnswerValue) => readonly string[];
-
-/**
- * A numeric limit keyword: what of a value it measures, when it fails, and
- * what it requires. A value it cannot measure is outside its JSON type.
- */
-interface LimitKeyword {
-  readonly keyword: LimitKeywordName;
-  readonly measure: (value: AnswerValue) => number | undefined;
-  readonly fails: (measured: number, limit: number) => boolean;
-  readonly requires: (limit: number) => string;
-}
 
 const ALLOWED_VALUES = "must be one of the allowed values";
 
@@ -60,46 +41,6 @@ const keywordChecks: readonly KeywordCheck[] = [
   enumIssues,
   oneOfIssues,
   itemIssues,
-];
-
-/** The limit keywords, each applying to one JSON type. */
-const limitKeywords: readonly LimitKeyword[] = [
-  {
-    keyword: "minLength",
-    measure: codePointLength,
-    fails: below,
-    requires: (limit) => `must have at least ${limit} characters`,
-  },
-  {
-    keyword: "maxLength",
-    measure: codePointLength,
-    fails: above,
-    requires: (limit) => `must have at most ${limit} characters`,
-  },
-  {
-    keyword: "minimum",
-    measure: numericValue,
-    fails: below,
-    requires: (limit) => `must be >= ${limit}`,
-  },
-  {
-    keyword: "maximum",
-    measure: numericValue,
-    fails: above,
-    requires: (limit) => `must be <= ${limit}`,
-  },
-  {
-    keyword: "minItems",
-    measure: itemCount,
-    fails: below,
-    requires: (limit) => `must have at least ${limit} items`,
-  },
-  {
-    keyword: "maxItems",
-    measure: itemCount,
-    fails: above,
-    requires: (limit) => `must have at most ${limit} items`,
-  },
 ];
 
 /**
@@ -231,26 +172,78 @@ function hasType(field: FormField, value: AnswerValue): boolean {
   }
 }
 
+/**
+ * Report every failed bound without skipping later diagnostics. String bounds
+ * count Unicode code points, so an astral character counts once.
+ */
 function limitIssues(field: FormField, value: AnswerValue): readonly string[] {
-  return limitKeywords.flatMap(({ keyword, measure, fails, requires }) => {
-    const limit = limitOf(field, keyword);
-    const measured = measure(value);
-    return limit === undefined ||
-      measured === undefined ||
-      !fails(measured, limit)
-      ? []
-      : [`${keyword}: ${requires(limit)}`];
-  });
+  switch (field.type) {
+    case "string":
+      return stringLimitIssues(field, value);
+    case "number":
+    case "integer":
+      return numberLimitIssues(field, value);
+    case "array":
+      return arrayLimitIssues(field, value);
+    case "boolean":
+      return [];
+    default: {
+      const exhaustive: never = field;
+      return exhaustive;
+    }
+  }
 }
 
-function limitOf(
-  field: FormField,
-  keyword: LimitKeywordName,
-): number | undefined {
-  const limit = Predicate.hasProperty(field, keyword)
-    ? field[keyword]
-    : undefined;
-  return typeof limit === "number" ? limit : undefined;
+function stringLimitIssues(
+  field: Extract<FormField, { readonly type: "string" }>,
+  value: AnswerValue,
+): readonly string[] {
+  if (typeof value !== "string" || "enum" in field || "oneOf" in field) {
+    return [];
+  }
+  const length = Array.from(value).length;
+  return [
+    ...(field.minLength !== undefined && length < field.minLength
+      ? [`minLength: must have at least ${field.minLength} characters`]
+      : []),
+    ...(field.maxLength !== undefined && length > field.maxLength
+      ? [`maxLength: must have at most ${field.maxLength} characters`]
+      : []),
+  ];
+}
+
+function numberLimitIssues(
+  field: Extract<FormField, { readonly type: "number" | "integer" }>,
+  value: AnswerValue,
+): readonly string[] {
+  if (typeof value !== "number") {
+    return [];
+  }
+  return [
+    ...(field.minimum !== undefined && value < field.minimum
+      ? [`minimum: must be >= ${field.minimum}`]
+      : []),
+    ...(field.maximum !== undefined && value > field.maximum
+      ? [`maximum: must be <= ${field.maximum}`]
+      : []),
+  ];
+}
+
+function arrayLimitIssues(
+  field: Extract<FormField, { readonly type: "array" }>,
+  value: AnswerValue,
+): readonly string[] {
+  if (typeof value !== "object") {
+    return [];
+  }
+  return [
+    ...(field.minItems !== undefined && value.length < field.minItems
+      ? [`minItems: must have at least ${field.minItems} items`]
+      : []),
+    ...(field.maxItems !== undefined && value.length > field.maxItems
+      ? [`maxItems: must have at most ${field.maxItems} items`]
+      : []),
+  ];
 }
 
 function formatIssues(field: FormField, value: AnswerValue): readonly string[] {
@@ -300,28 +293,4 @@ function selectedItemIssues(
   return items.anyOf.some((option) => option.const === item)
     ? []
     : [`items[${index}].anyOf: must equal some option's const`];
-}
-
-/**
- * A string's length in Unicode code points, as JSON Schema counts it, so an
- * astral character such as an emoji counts once.
- */
-function codePointLength(value: AnswerValue): number | undefined {
-  return typeof value === "string" ? Array.from(value).length : undefined;
-}
-
-function numericValue(value: AnswerValue): number | undefined {
-  return typeof value === "number" ? value : undefined;
-}
-
-function itemCount(value: AnswerValue): number | undefined {
-  return Array.isArray(value) ? value.length : undefined;
-}
-
-function below(measured: number, limit: number): boolean {
-  return measured < limit;
-}
-
-function above(measured: number, limit: number): boolean {
-  return measured > limit;
 }
