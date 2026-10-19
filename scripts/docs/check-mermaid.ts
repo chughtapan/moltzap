@@ -5,22 +5,21 @@
  * could not be read in the first place.
  * Collection and command execution live in `scripts/docs/mermaid-lint.ts`.
  */
-import { FileSystem, Path, type CommandExecutor } from "@effect/platform";
+import { type CommandExecutor, FileSystem, Path } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Effect } from "effect";
-import { resolve, dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   collectBlocks,
   collectMarkdownFiles,
   lintBlock,
   MERMAID_ROOTS,
-  requireRoots,
   type MermaidBlock,
   type MermaidFailure,
   type MermaidGateError,
-} from "./mermaid-lint.js";
-
+  requireRoots,
+} from "./mermaid-lint.ts";
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const WORKSPACE_ROOT = resolve(SCRIPT_DIR, "..", "..");
 const TEMP_DIR = resolve(
@@ -87,8 +86,6 @@ function report(failures: readonly MermaidFailure[]): Effect.Effect<void> {
  * An input the run could not inspect is reported as its own outcome, never
  * folded into the block tally: "0 failures" would claim the input was
  * checked and clean.
- * @param error Error to inspect.
- * @returns The report uninspectable result.
  */
 function reportUninspectable(error: MermaidGateError): Effect.Effect<never> {
   return Effect.sync(() => {

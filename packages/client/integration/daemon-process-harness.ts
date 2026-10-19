@@ -24,6 +24,7 @@ import {
   Schema,
   Scope,
 } from "effect";
+import { createRequire } from "node:module";
 import { type ChildProcess, spawn } from "node:child_process";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 // This black-box fixture owns exact temporary process files at the Node process boundary.
@@ -45,6 +46,9 @@ import {
   type ManagementSearchConversationsResult,
   type ManagementStatusResult,
 } from "../src/endpoint/mcp/owner-tools.js";
+
+/** Loader resolution follows Client dependencies even when child processes run from the workspace root. */
+const require = createRequire(import.meta.url);
 
 const LOOPBACK_HOST = "127.0.0.1";
 const ADMISSION_CREDENTIAL = "client-process-admission";
@@ -513,7 +517,7 @@ const daemonCommand = (
 ): readonly [string, readonly string[]] =>
   fixture.firewall === undefined
     ? [DAEMON_BINARY, []]
-    : [process.execPath, ["--import", "tsx", FIREWALL_DAEMON]];
+    : [process.execPath, ["--import", require.resolve("tsx"), FIREWALL_DAEMON]];
 
 /** Starts one moltzapd and returns only after its guarded loopback port listens. */
 export const acquireDaemonProcess = (

@@ -1,9 +1,9 @@
 /** @file Unit tests for workspace behavioral-flow coverage. */
 
-import { describe, expect, it } from "vitest";
 import { ReflectionKind } from "typedoc";
-import { computeFlowCoverage, isBehavioralExport } from "../flow-coverage.js";
-import type { TypeDocCache, TypeDocExport } from "../typedoc-load.js";
+import { describe, expect, it } from "vitest";
+import type { TypeDocCache, TypeDocExport } from "../typedoc-load.ts";
+import { computeFlowCoverage, isBehavioralExport } from "../flow-coverage.ts";
 
 function makeExport(overrides: Partial<TypeDocExport>): TypeDocExport {
   return {
@@ -20,7 +20,7 @@ function makeExport(overrides: Partial<TypeDocExport>): TypeDocExport {
   };
 }
 
-function makeCache(exports: ReadonlyArray<TypeDocExport>): TypeDocCache {
+function makeCache(exports: readonly TypeDocExport[]): TypeDocCache {
   return {
     all: exports,
     byPackage: new Map(),
@@ -29,7 +29,9 @@ function makeCache(exports: ReadonlyArray<TypeDocExport>): TypeDocCache {
   };
 }
 
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- This declarative test group keeps its related regression cases and source fixtures together.
 describe("isBehavioralExport", () => {
+  // @agent-code-guard/regression-only: fixed syntax and gate failure fixtures exercise distinct regressions.
   it("returns true for Function reflections", () => {
     expect(
       isBehavioralExport(makeExport({ kind: ReflectionKind.Function })),
@@ -98,7 +100,9 @@ describe("isBehavioralExport", () => {
   });
 });
 
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- This declarative test group keeps its related regression cases and source fixtures together.
 describe("computeFlowCoverage", () => {
+  // @agent-code-guard/regression-only: fixed syntax and gate failure fixtures exercise distinct regressions.
   it("returns empty list when every behavioral export has both summary and mermaid", () => {
     const ex = makeExport({
       kind: ReflectionKind.Function,
@@ -119,7 +123,9 @@ describe("computeFlowCoverage", () => {
     });
     const gaps = computeFlowCoverage(makeCache([ex]));
     expect(gaps).toHaveLength(1);
+    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
     expect(gaps[0]?.symbol).toBe("naked");
+    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
     expect(gaps[0]?.reason).toBe("no-summary-or-flow");
   });
 
@@ -130,6 +136,7 @@ describe("computeFlowCoverage", () => {
       comment: { summary: "Just prose, no diagram.", tags: [] },
     });
     const gaps = computeFlowCoverage(makeCache([ex]));
+    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
     expect(gaps[0]?.reason).toBe("no-flow");
   });
 

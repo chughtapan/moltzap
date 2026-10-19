@@ -124,6 +124,7 @@
     "@effect/vitest": "^0.30.0",
     "@typescript/native": "catalog:",
     "eslint": "^9",
+    "tsx": "^4.19.0",
     "typescript": "catalog:",
     "undici": "7.29.0",
     "vitest": "^3.2.0"

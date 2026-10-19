@@ -8,8 +8,9 @@
  * an `Effect` so callers compose with the rest of the Effect-based
  * pipeline.
  */
-import { FileSystem } from "@effect/platform";
 import type { PlatformError } from "@effect/platform/Error";
+
+import { FileSystem } from "@effect/platform";
 import { Data, Effect } from "effect";
 import { dirname } from "node:path";
 import { ReflectionKind } from "typedoc";
@@ -63,12 +64,17 @@ export interface TypeDocLoadOptions {
 /** Reports type doc cache missing failures. */
 export class TypeDocCacheMissingError extends Data.TaggedError(
   "TypeDocCacheMissingError",
-)<{ readonly path: string }> {}
+)<{
+  readonly path: string;
+}> {}
 
 /** Reports type doc cache malformed failures. */
 export class TypeDocCacheMalformedError extends Data.TaggedError(
   "TypeDocCacheMalformedError",
-)<{ readonly path: string; readonly reason: string }> {}
+)<{
+  readonly path: string;
+  readonly reason: string;
+}> {}
 
 interface RawComment {
   readonly summary?: ReadonlyArray<{
@@ -87,7 +93,9 @@ interface RawComment {
 interface RawTypeRef {
   readonly type?: string;
   readonly name?: string;
-  readonly target?: { readonly name?: string };
+  readonly target?: {
+    readonly name?: string;
+  };
 }
 
 interface RawReflection {
@@ -111,25 +119,29 @@ interface RawReflection {
   readonly comment?: RawComment;
 }
 
+const STRUCTURAL_LEAF_KINDS = new Set<number>([
+  ReflectionKind.Class,
+  ReflectionKind.Interface,
+  ReflectionKind.Enum,
+  ReflectionKind.TypeLiteral,
+]);
+
 /**
  * Load the TypeDoc JSON dump from disk and build lookup indices.
  *
  * Fails with `TypeDocCacheMissingError` when the cache file is absent
  * (caller forgot to run TypeDoc first) and
  * `TypeDocCacheMalformedError` when the JSON cannot be parsed.
- * @param cachePath Value supplied to the operation.
- * @param options Package subpaths admitted to the documentation cache.
- * @returns The load type doc result.
  */
-export const loadTypeDoc = (
+export function loadTypeDoc(
   cachePath: string,
   options: TypeDocLoadOptions = {},
 ): Effect.Effect<
   TypeDocCache,
   TypeDocCacheMissingError | TypeDocCacheMalformedError | PlatformError,
   FileSystem.FileSystem
-> =>
-  Effect.gen(function* () {
+> {
+  return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const exists = yield* fs
       .exists(cachePath)
@@ -163,13 +175,12 @@ export const loadTypeDoc = (
       byFolder: indexBy(all, (e) => folderOf(e)),
     };
   }).pipe(Effect.withSpan("loadTypeDoc"));
+}
 
 /**
  * Workspace-relative folder of an export's primary declaration.
  * Returns empty string for exports without a source location (rare —
  * mostly synthesized re-exports).
- * @param e Value supplied to the operation.
- * @returns The folder of result.
  */
 export function folderOf(e: TypeDocExport): string {
   const first = e.sources[0];
@@ -195,9 +206,6 @@ function collectExports(root: RawReflection): readonly TypeDocExport[] {
  * Normalize `index` to the package root and retain only package subpaths that
  * the caller identified from the package's public contract. Expanded TypeDoc
  * projects also represent private source files as modules.
- * @param root Value supplied to the operation.
- * @param packageSubpaths Package import paths approved for publication.
- * @returns The collect package entrypoint exports result.
  */
 function collectPackageEntrypointExports(
   root: RawReflection,
@@ -206,39 +214,71 @@ function collectPackageEntrypointExports(
   const reflectionsById = indexReflectionsById(root);
   const entries = new Map<string, readonly TypeDocExport[]>();
   for (const pkg of root.children ?? []) {
-    const packageName = pkg.name ?? "<unknown>";
-    const children = pkg.children ?? [];
-    const indexModule = children.find(
-      (child) => child.kind === ReflectionKind.Module && child.name === "index",
-    );
-    const owned = indexModule
-      ? (indexModule.children ?? [])
-      : children.filter((child) => child.kind !== ReflectionKind.Module);
-    entries.set(
-      packageName,
-      collectOwnedExports(owned, packageName, reflectionsById, false),
-    );
-    for (const entrypoint of children) {
-      const importPath = `${packageName}/${entrypoint.name ?? "<unknown>"}`;
-      if (
-        entrypoint.kind !== ReflectionKind.Module ||
-        entrypoint.name === "index" ||
-        !packageSubpaths.has(importPath)
-      ) {
-        continue;
-      }
-      entries.set(
-        importPath,
-        collectOwnedExports(
-          entrypoint.children ?? [],
-          packageName,
-          reflectionsById,
-          true,
-        ),
-      );
-    }
+    collectPackageEntrypoints(pkg, packageSubpaths, reflectionsById, entries);
   }
   return entries;
+}
+
+function indexReflectionsById(
+  root: RawReflection,
+): ReadonlyMap<number, RawReflection> {
+  const reflections = new Map<number, RawReflection>();
+  const pending = [root];
+  while (pending.length > 0) {
+    const reflection = pending.pop();
+    if (reflection === undefined) {
+      continue;
+    }
+    if (reflection.id !== undefined) {
+      reflections.set(reflection.id, reflection);
+    }
+    pending.push(...(reflection.children ?? []));
+  }
+  return reflections;
+}
+
+function indexBy<T, K>(
+  items: readonly T[],
+  key: (item: T) => K,
+): ReadonlyMap<K, readonly T[]> {
+  const map = new Map<K, T[]>();
+  for (const item of items) {
+    const k = key(item);
+    const list = map.get(k) ?? [];
+    list.push(item);
+    map.set(k, list);
+  }
+  return map;
+}
+
+function collectPackageEntrypoints(
+  pkg: RawReflection,
+  packageSubpaths: ReadonlySet<string>,
+  reflectionsById: ReadonlyMap<number, RawReflection>,
+  entries: Map<string, readonly TypeDocExport[]>,
+): void {
+  const packageName = pkg.name ?? "<unknown>";
+  const children = pkg.children ?? [];
+  const owned = rootDeclarations(children);
+  entries.set(
+    packageName,
+    collectOwnedExports(owned, packageName, reflectionsById, false),
+  );
+  for (const entrypoint of children) {
+    const importPath = `${packageName}/${entrypoint.name ?? "<unknown>"}`;
+    if (!isAdmittedEntrypoint(entrypoint, importPath, packageSubpaths)) {
+      continue;
+    }
+    entries.set(
+      importPath,
+      collectOwnedExports(
+        entrypoint.children ?? [],
+        packageName,
+        reflectionsById,
+        true,
+      ),
+    );
+  }
 }
 
 function collectOwnedExports(
@@ -261,24 +301,6 @@ function collectOwnedExports(
     walk(declaration, packageName, exports, null);
     return exports;
   });
-}
-
-function indexReflectionsById(
-  root: RawReflection,
-): ReadonlyMap<number, RawReflection> {
-  const reflections = new Map<number, RawReflection>();
-  const pending = [root];
-  while (pending.length > 0) {
-    const reflection = pending.pop();
-    if (reflection === undefined) {
-      continue;
-    }
-    if (reflection.id !== undefined) {
-      reflections.set(reflection.id, reflection);
-    }
-    pending.push(...(reflection.children ?? []));
-  }
-  return reflections;
 }
 
 function resolveReference(
@@ -308,6 +330,7 @@ function walk(
   node: RawReflection,
   packageName: string,
   out: TypeDocExport[],
+  // eslint-disable-next-line agent-code-guard/no-conditional-chaining -- Null is the explicit module-scope namespace, preserved as a domain value in recursive traversal.
   namespace: string | null,
 ): void {
   if (shouldEmit(node)) {
@@ -318,9 +341,7 @@ function walk(
   }
   const childNamespace =
     node.kind === ReflectionKind.Namespace && node.name
-      ? namespace === null
-        ? node.name
-        : `${namespace}.${node.name}`
+      ? qualifiedNamespace(node.name, namespace)
       : namespace;
   for (const child of node.children ?? []) {
     walk(child, packageName, out, childNamespace);
@@ -342,13 +363,6 @@ function shouldEmit(node: RawReflection): boolean {
   }
   return true;
 }
-
-const STRUCTURAL_LEAF_KINDS = new Set<number>([
-  ReflectionKind.Class,
-  ReflectionKind.Interface,
-  ReflectionKind.Enum,
-  ReflectionKind.TypeLiteral,
-]);
 
 function isStructuralLeaf(node: RawReflection): boolean {
   return node.kind !== undefined && STRUCTURAL_LEAF_KINDS.has(node.kind);
@@ -391,9 +405,6 @@ function extractReturnTypeName(node: RawReflection): string | null {
 
 /**
  * Normalize a TypeDoc source path to a workspace source or declaration root.
- * @param sourcePath TypeDoc's reported source path.
- * @param sourceUrl Optional source permalink emitted by TypeDoc.
- * @returns A workspace-relative source path when one can be recovered.
  */
 function normalizeSourcePath(sourcePath: string, sourceUrl?: string): string {
   const normalizedPath = sourcePath.replaceAll("\\", "/");
@@ -401,7 +412,6 @@ function normalizeSourcePath(sourcePath: string, sourceUrl?: string): string {
   if (workspacePath !== null) {
     return workspacePath;
   }
-
   if (sourceUrl !== undefined) {
     const urlMatch = /\/blob\/[^/]+\/([^#?]+)/.exec(sourceUrl);
     if (urlMatch?.[1] !== undefined) {
@@ -422,12 +432,11 @@ function findWorkspacePath(sourcePath: string): string | null {
 }
 
 function extractComment(node: RawReflection): TypeDocComment | null {
-  // Functions/Methods carry JSDoc on the first call-signature.
-  const c = node.signatures?.[0]?.comment ?? node.comment;
+  const c = primaryComment(node);
   if (!c) {
     return null;
   }
-  const summary = joinParts(c.summary);
+  const summary = joinParts(c.summary ?? []);
   const tags = (c.blockTags ?? []).map(toTag);
   if (summary === "" && tags.length === 0) {
     return null;
@@ -436,15 +445,24 @@ function extractComment(node: RawReflection): TypeDocComment | null {
   return { summary, remarks, tags };
 }
 
-function joinParts(parts?: ReadonlyArray<{ readonly text?: string }>): string {
-  return (parts ?? []).map(renderInline).join("").trim();
-}
-
 function toTag(t: {
   readonly tag?: string;
-  readonly content?: ReadonlyArray<{ readonly text?: string }>;
-}): { readonly tag: string; readonly content: string } {
-  return { tag: t.tag ?? "", content: joinParts(t.content) };
+  readonly content?: ReadonlyArray<{
+    readonly text?: string;
+  }>;
+}): {
+  readonly tag: string;
+  readonly content: string;
+} {
+  return { tag: t.tag ?? "", content: joinParts(t.content ?? []) };
+}
+
+function joinParts(
+  parts?: ReadonlyArray<{
+    readonly text?: string;
+  }>,
+): string {
+  return (parts ?? []).map(renderInline).join("").trim();
 }
 
 function renderInline(part: {
@@ -464,16 +482,34 @@ function kindToString(kind: number): string {
   return `Unknown(${kind})`;
 }
 
-function indexBy<T, K>(
-  items: readonly T[],
-  key: (item: T) => K,
-): ReadonlyMap<K, readonly T[]> {
-  const map = new Map<K, T[]>();
-  for (const item of items) {
-    const k = key(item);
-    const list = map.get(k) ?? [];
-    list.push(item);
-    map.set(k, list);
-  }
-  return map;
+function qualifiedNamespace(name: string, parent: string | null): string {
+  return parent === null ? name : `${parent}.${name}`;
+}
+
+function isAdmittedEntrypoint(
+  entrypoint: RawReflection,
+  importPath: string,
+  packageSubpaths: ReadonlySet<string>,
+): boolean {
+  return (
+    entrypoint.kind === ReflectionKind.Module &&
+    entrypoint.name !== "index" &&
+    packageSubpaths.has(importPath)
+  );
+}
+
+/** Functions and methods keep their prose on the first call signature. */
+function primaryComment(node: RawReflection): RawComment | undefined {
+  return node.signatures?.[0]?.comment ?? node.comment;
+}
+
+function rootDeclarations(
+  children: readonly RawReflection[],
+): readonly RawReflection[] {
+  const indexModule = children.find(
+    (child) => child.kind === ReflectionKind.Module && child.name === "index",
+  );
+  return indexModule
+    ? (indexModule.children ?? [])
+    : children.filter((child) => child.kind !== ReflectionKind.Module);
 }
