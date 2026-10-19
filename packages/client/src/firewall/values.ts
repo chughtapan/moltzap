@@ -384,6 +384,16 @@ export class DecisionProviderError extends Data.TaggedError(
     | "defect";
   readonly status?: number;
   readonly response?: string;
+  /**
+   * The usage a response body reported before the call failed, named as an
+   * answered response names it, so the call's cost stays accountable. A
+   * failure without a parsed body has none.
+   */
+  readonly accounting?: {
+    readonly provider: string;
+    readonly model: string;
+    readonly usage: Readonly<Record<string, number>>;
+  };
 }> {}
 
 /** Entirely code-based chains have no dependency on this optional capability. */

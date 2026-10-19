@@ -48,6 +48,11 @@ const decideWithinBudget = Effect.fn("EnglishPolicy.decideWithinBudget")(
       return yield* new DecisionProviderError({
         reason: "invalid-response",
         response: response.raw,
+        accounting: {
+          provider: response.provider,
+          model: response.model,
+          usage: response.usage,
+        },
       });
     }
     return response;

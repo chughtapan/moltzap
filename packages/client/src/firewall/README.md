@@ -157,6 +157,9 @@ runner enforces the same rule for code policies.
 The adapter records a revision from the English documents, question edition and
 settings. Provider/model identity and distributions remain in the private stage
 trace; experiment manifests must also pin the provider implementation and model.
+A failed call whose response body reported usage keeps it in its stage's
+`failure.accounting`, with the provider and model, as an answered stage keeps
+it in its response. A timeout or transport failure has no body and no usage.
 The current question edition is `firewall-english-v1`. It is separate from the
 historical offline spike editions; their reports are not rewritten.
 

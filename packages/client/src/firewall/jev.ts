@@ -6,7 +6,7 @@ import {
   HttpClientRequest,
   type HttpClientResponse,
 } from "@effect/platform";
-import { Effect, Redacted, Schema, Stream } from "effect";
+import { Effect, Option, Redacted, Schema, Stream } from "effect";
 import {
   type DecisionProvider,
   DecisionProviderError,
@@ -15,6 +15,7 @@ import {
 } from "./values.js";
 
 const origin = "https://api.typesafe.ai/v1/systemone";
+const providerName = "typesafe";
 const maximumChoices = 255;
 /** Bounded choice answers need little space; large bodies must not enter audits. */
 const maximumResponseBytes = 1_048_576;
@@ -37,6 +38,16 @@ const wireResponse = Schema.Struct({
     value: Schema.NonNegativeInt,
   }),
 });
+
+/** The model and usage of a body that parses that far, whatever else it carries. */
+const reportedUsage = Schema.decodeUnknownOption(
+  Schema.parseJson(
+    Schema.Struct({
+      model: wireResponse.fields.model,
+      usage: wireResponse.fields.usage,
+    }),
+  ),
+);
 
 const prepareJevRequest = Effect.fn("MessagePolicy.Jev.prepareRequest")(
   function* (
@@ -103,6 +114,7 @@ const parseJevResponse = Effect.fn("MessagePolicy.Jev.parseResponse")(
         reason: "http",
         status: response.status,
         response: raw,
+        ...accountingOf(raw),
       });
     }
     const value = yield* Schema.decodeUnknown(Schema.parseJson(wireResponse), {
@@ -113,12 +125,13 @@ const parseJevResponse = Effect.fn("MessagePolicy.Jev.parseResponse")(
           new DecisionProviderError({
             reason: "invalid-response",
             response: raw,
+            ...accountingOf(raw),
           }),
         ),
       ),
     );
     return new DecisionResponse({
-      provider: "typesafe",
+      provider: providerName,
       model: value.model,
       answers: value.answers,
       usage: value.usage,
@@ -184,6 +197,19 @@ export function makeJevDecisionProvider(options: {
         }),
       ),
   };
+}
+
+/**
+ * The accounting of a failed call whose redacted body still reports its
+ * model and usage, so the call's cost is not lost with its answers.
+ */
+function accountingOf(raw: string) {
+  return Option.match(reportedUsage(raw), {
+    onNone: () => ({}),
+    onSome: ({ model, usage }) => ({
+      accounting: { provider: providerName, model, usage },
+    }),
+  });
 }
 
 /** Decode JSON escapes before scrubbing so encoded credential echoes stay private. */

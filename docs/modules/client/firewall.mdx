@@ -35,7 +35,7 @@ export class CheckInputError extends Data.TaggedError("CheckInputError")<{
 
 Invalid construction or evidence is a typed failure, never permission.
 
-### [`DecisionProvider`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L390)
+### [`DecisionProvider`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L400)
 
 _Interface_
 
@@ -69,6 +69,16 @@ export class DecisionProviderError extends Data.TaggedError(
     | "defect";
   readonly status?: number;
   readonly response?: string;
+  /**
+   * The usage a response body reported before the call failed, named as an
+   * answered response names it, so the call's cost stays accountable. A
+   * failure without a parsed body has none.
+   */
+  readonly accounting?: {
+    readonly provider: string;
+    readonly model: string;
+    readonly usage: Readonly<Record<string, number>>;
+  };
 }> {}
 ```
 
@@ -172,7 +182,7 @@ export interface Firewall {
 
 Checking returns data; Client separately owns fresh, atomic send/delivery admission.
 
-### [`FirewallPolicyError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L555)
+### [`FirewallPolicyError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/values.ts#L565)
 
 _Class_
 
@@ -239,7 +249,7 @@ export type LocalGuidance = typeof localGuidanceSchema.Type;
 
 Local advice accompanies the envelope and never changes a certified item.
 
-### [`makeEnglishPolicy`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/english.ts#L252)
+### [`makeEnglishPolicy`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/english.ts#L257)
 
 _Variable_
 
@@ -348,7 +358,7 @@ flowchart TD
   D --> R[Return to Client for enforcement]
 ```
 
-### [`makeJevDecisionProvider`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/jev.ts#L169)
+### [`makeJevDecisionProvider`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/jev.ts#L182)
 
 _Function_
 

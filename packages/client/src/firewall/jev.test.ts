@@ -247,6 +247,31 @@ it.each([
   }),
 );
 
+it("keeps the usage a failed call's body reported, and none for a body without it", () =>
+  Effect.gen(function* () {
+    const decideWith = (body: string, status = 200) =>
+      provider.decide(request).pipe(
+        Effect.provideService(FetchHttpClient.Fetch, () =>
+          Promise.resolve(new Response(body, { status })),
+        ),
+        Effect.flip,
+      );
+    const accounting = { provider: "typesafe", model, usage: wire.usage };
+
+    const malformed = yield* decideWith(
+      JSON.stringify({ ...wire, answers: { safety: { type: "noul" } } }),
+    );
+    const unavailable = yield* decideWith(
+      JSON.stringify({ model, usage: wire.usage }),
+      503,
+    );
+    const unparsed = yield* decideWith("not-json");
+
+    expect(malformed).toMatchObject({ reason: "invalid-response", accounting });
+    expect(unavailable).toMatchObject({ reason: "http", accounting });
+    expect(unparsed.accounting).toBeUndefined();
+  }));
+
 it("retains transport failure separately from an HTTP or semantic answer", () =>
   Effect.gen(function* () {
     const fetch: typeof globalThis.fetch = () =>
@@ -255,6 +280,7 @@ it("retains transport failure separately from an HTTP or semantic answer", () =>
       .decide(request)
       .pipe(Effect.provideService(FetchHttpClient.Fetch, fetch), Effect.flip);
     expect(error.reason).toBe("transport");
+    expect(error.accounting).toBeUndefined();
     expect(JSON.stringify(error)).not.toContain(secret);
   }));
 

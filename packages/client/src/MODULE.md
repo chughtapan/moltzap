@@ -747,12 +747,22 @@ export class DecisionProviderError extends Data.TaggedError(
     | "defect";
   readonly status?: number;
   readonly response?: string;
+  /**
+   * The usage a response body reported before the call failed, named as an
+   * answered response names it, so the call's cost stays accountable. A
+   * failure without a parsed body has none.
+   */
+  readonly accounting?: {
+    readonly provider: string;
+    readonly model: string;
+    readonly usage: Readonly<Record<string, number>>;
+  };
 }> {}
 ```
 
 The adapter scrubs credentials before retaining optional private diagnostics.
 
-#### [`FirewallPolicyError`](./firewall/values.ts#L555)
+#### [`FirewallPolicyError`](./firewall/values.ts#L565)
 
 _Class_
 
@@ -788,7 +798,7 @@ export class MiddlewareError extends Data.TaggedError("MiddlewareError")<{
 
 Operational failures carry closed reasons, never arbitrary exception text.
 
-#### [`DecisionProvider`](./firewall/values.ts#L390)
+#### [`DecisionProvider`](./firewall/values.ts#L400)
 
 _Interface_
 
@@ -1114,7 +1124,7 @@ Candidate bytes are opaque canonical Client data, encoded as base64. A null
 result or checking/interrupted disposition never represents permission.
 The nullable post reference identifies supported messages without decoding candidate bytes.
 
-#### [`makeEnglishPolicy`](./firewall/english.ts#L252)
+#### [`makeEnglishPolicy`](./firewall/english.ts#L257)
 
 _Variable_
 
@@ -1223,7 +1233,7 @@ flowchart TD
   D --> R[Return to Client for enforcement]
 ```
 
-#### [`makeJevDecisionProvider`](./firewall/jev.ts#L169)
+#### [`makeJevDecisionProvider`](./firewall/jev.ts#L182)
 
 _Function_
 

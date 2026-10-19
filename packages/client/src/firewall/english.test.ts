@@ -403,6 +403,40 @@ it.each(malformedAnswers)(
     }),
 );
 
+/** The failure each stage of a check's trace records, if any. */
+const stageFailures = Schema.parseJson(
+  Schema.Struct({
+    stages: Schema.Array(
+      Schema.Struct({
+        stage: Schema.String,
+        failure: Schema.optional(
+          Schema.Struct({ reason: Schema.String, accounting: Schema.Unknown }),
+        ),
+      }),
+    ),
+  }),
+);
+
+it("keeps an invalid answer's usage in the trace", () =>
+  Effect.gen(function* () {
+    const usage = { input_tokens: 10, output_tokens: 2 };
+    const result = yield* check({
+      decide: (request) =>
+        Effect.succeed({
+          ...responseFor(request, { "safety:privacy:assessment": "unknown" }),
+          usage,
+        }),
+    });
+
+    const { stages } = Schema.decodeUnknownSync(stageFailures)(
+      result.checks[0]?.trace?.data,
+    );
+    expect(stages.find((entry) => entry.stage === "safety")?.failure).toEqual({
+      reason: "invalid-response",
+      accounting: { provider: "test-decisions", model: "test-model", usage },
+    });
+  }));
+
 /** Jev's answer to a relevance question in a collective-norms pilot. */
 const nearTie = {
   choice: "relevant",
