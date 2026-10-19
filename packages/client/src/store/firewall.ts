@@ -16,6 +16,7 @@ import {
 import { putInboxItem } from "./inbox.js";
 import {
   DeliveryToken,
+  type FirewallActivation,
   type FirewallAttempt,
   type FirewallAuditEntry,
   type FirewallCommit,
@@ -302,16 +303,70 @@ export function readFirewallPolicy(
   return row === undefined ? undefined : readBytes(row, "canonical_rules");
 }
 
-/** One atomic write preserves the last successfully built editable document. */
+/** The editable document and its activation either both commit or neither does. */
 export function writeFirewallPolicy(
   database: DatabaseSync,
   rules: Uint8Array,
+  activation?: FirewallActivation,
 ): void {
   requireBytes(rules);
-  database
-    .prepare(`INSERT INTO firewall_policy (singleton, canonical_rules) VALUES (1, ?)
-    ON CONFLICT(singleton) DO UPDATE SET canonical_rules = excluded.canonical_rules`)
-    .run(rules);
+  transaction(database, () => {
+    database
+      .prepare(`INSERT INTO firewall_policy (singleton, canonical_rules) VALUES (1, ?)
+      ON CONFLICT(singleton) DO UPDATE SET canonical_rules = excluded.canonical_rules`)
+      .run(rules);
+    if (activation !== undefined) {
+      database
+        .prepare(`INSERT INTO firewall_activations
+        (activated_at, active_revision, added_rule_ids, removed_rule_ids)
+        VALUES (?, ?, ?, ?)`)
+        .run(
+          activation.time,
+          activation.activeRevision,
+          JSON.stringify(activation.addedRuleIds),
+          JSON.stringify(activation.removedRuleIds),
+        );
+    }
+  });
+}
+
+/** A sequence cursor preserves every edit in bounded exports, including identical revisions. */
+export function readFirewallActivations(
+  database: DatabaseSync,
+  request: { readonly since?: number; readonly after?: number },
+) {
+  const since = request.since ?? 0;
+  const after = request.after ?? 0;
+  if (
+    !Number.isSafeInteger(since) ||
+    since < 0 ||
+    !Number.isSafeInteger(after) ||
+    after < 0
+  ) {
+    throw new StoreSignal("invalid-input");
+  }
+  const order =
+    request.after === undefined
+      ? "activated_at DESC, sequence DESC"
+      : "sequence";
+  return database
+    .prepare(`SELECT sequence, activated_at, active_revision,
+    added_rule_ids, removed_rule_ids FROM firewall_activations
+    WHERE activated_at >= ? AND sequence > ? ORDER BY ${order} LIMIT 100`)
+    .all(since, after)
+    .map((row) => ({
+      sequence: readInteger(row, "sequence"),
+      activation: {
+        time: readInteger(row, "activated_at"),
+        activeRevision: readText(row, "active_revision"),
+        addedRuleIds: Schema.decodeUnknownSync(
+          Schema.parseJson(Schema.Array(Schema.NonEmptyString)),
+        )(readText(row, "added_rule_ids")),
+        removedRuleIds: Schema.decodeUnknownSync(
+          Schema.parseJson(Schema.Array(Schema.NonEmptyString)),
+        )(readText(row, "removed_rule_ids")),
+      },
+    }));
 }
 
 /** Completion time includes checks that started before a caller's previous poll. */

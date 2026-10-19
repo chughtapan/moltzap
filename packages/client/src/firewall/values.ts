@@ -460,8 +460,17 @@ export const firewallDecisionsRequestSchema = exact({
   since: Schema.optional(Schema.NonNegativeInt),
 });
 
+/** Activation metadata contains rule ids only, never their text or templates. */
+export const firewallActivationSchema = exact({
+  time: Schema.NonNegativeInt,
+  activeRevision: Schema.NonEmptyString,
+  addedRuleIds: Schema.Array(Schema.NonEmptyString),
+  removedRuleIds: Schema.Array(Schema.NonEmptyString),
+});
+
 /** One row per peer contains no content, templates, feedback or provider traces. */
 export const firewallDecisionsSchema = exact({
+  activations: Schema.Array(firewallActivationSchema),
   decisions: Schema.Array(
     exact({
       checkId: Schema.NonEmptyString,

@@ -64,6 +64,7 @@ function unusedFirewallOperations(unused: () => Effect.Effect<never>) {
     readFirewallPolicy: unused,
     writeFirewallPolicy: unused,
     readFirewallDecisions: unused,
+    readFirewallActivations: unused,
     readFirewallEvidence: unused,
     beginFirewallAttempt: unused,
     finishFirewallAttempt: unused,

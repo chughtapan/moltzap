@@ -290,8 +290,9 @@ installed by trusted composition and cannot be read, removed or replaced through
 policy editing tools; `policy_read` exposes only its ids.
 
 The owner-only [MCP policy tools](./daemon.md#mcp-catalog) validate an edit, build
-both replacement chains, persist the editable document and activate it before
-returning `activeRevision`. Each chain consists of its fixed code middleware,
+both replacement chains, atomically persist the editable document and an
+activation record, and activate it before returning `activeRevision`. Each chain
+consists of its fixed code middleware,
 then one English middleware (`moltzap.english`) over fixed plus editable English
 rules. That middleware id is reserved when English rules are present. With no
 English rules, it is omitted; an entirely empty chain still validates input and
@@ -303,7 +304,13 @@ or leaving duplicate editable rule ids fails. A no-op edit may return the same r
 `activeRevision` is the SHA-256 digest of the complete immutable installation,
 including mode, fixed rules, editable rules, settings and provenance. Identical
 installations across restarts have the same revision; it is not an increasing
-counter.
+counter. Every successful update, including a no-op, retains its activation time
+in Unix milliseconds, `activeRevision`, `addedRuleIds` and `removedRuleIds`.
+Replacing an id lists it in both arrays. Activation records add no rule text,
+guidance, feedback or provider traces. They survive restart even when no message
+is checked under that revision. Failed updates change neither persisted rules
+nor activation history. The owner decisions feed exposes them in a parallel `activations`
+array, as specified by the [daemon](./daemon.md#mcp-catalog).
 
 Each check captures one active installation before constructing context and
 running middleware. Checks already in flight finish on that installation;
@@ -349,9 +356,9 @@ an unavailable check; guidance mode admits without that advice. Peer text is
 never relabelled as a registered instruction.
 
 The current store contains the private incoming queue, evidence revision and
-check records alongside identity, protocol, inbox and invocation state. It
-upgrades schema 6 to 7 atomically to add the editable policy and decision times;
-other earlier state requires a reset. Checks retain
+check and activation records alongside identity, protocol, inbox and invocation
+state. Only schema 7 reopens; earlier state requires an explicit reset under the
+[reset release policy](../layer-interfaces.md#publication-and-versions). Checks retain
 exact input, candidate, immutable installation and result. Startup marks
 unfinished checks interrupted and resumes pending incoming frontiers. A held
 item stays held. Previously admitted items remain readable with their original
@@ -388,8 +395,8 @@ leave at most this one staging file, which the next successful startup reclaims.
 Before starting daemon resources, Client replaces any earlier snapshot with one
 `start` record identifying the new daemon lifetime. Failure prevents startup.
 On graceful shutdown, Client stops and joins its workers and MCP request
-operations, including their finalizers, then reads every retained check in bounded
-pages while the endpoint store remains open and publishes the snapshot. There is
+operations, including their finalizers, then reads every retained check and
+activation in bounded pages while the endpoint store remains open and publishes the snapshot. There is
 no periodic export or live-tail guarantee. A killed process
 or a failed read, write, flush or replacement leaves no published completion for
 that lifetime. An export failure fails shutdown. The operator's existing process
@@ -397,9 +404,12 @@ termination deadline still applies; a forced kill can prevent completion.
 
 Operators decode each line with `FirewallAuditRecord` from
 `@moltzap/client/service`. The `moltzap.firewall-audit/v1` format has one `start`,
-zero or more `check` records, and one `complete` record. The start and completion
-must have the same `snapshotId`; the completion's `checkCount` and `sha256` must
-match all emitted check lines, including each trailing newline, in file order.
+zero or more `check` records, zero or more `activation` records, and one
+`complete` record. Activations follow checks in activation sequence order and
+carry the same metadata as the decisions feed. The start and completion must
+have the same `snapshotId`; the completion's `checkCount` and `activationCount`
+must match their respective records. Its `sha256` covers every check and
+activation line, including each trailing newline, in file order.
 Missing or malformed records, truncation, or a mismatched count or digest make
 the artifact incomplete. Check records preserve the exact semantic input,
 installation metadata, private provider traces, judgment and applied disposition.

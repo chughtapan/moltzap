@@ -75,8 +75,8 @@ durability votes, certified heads, catch-up/re-anchor state, and pending
 delivery acknowledgment, classified runtime inbox items and tombstones, keyed
 send invocation outcomes, and the webhook subscription and pending callback.
 Message-policy installations also use a private incoming queue, evidence revision,
-retained check inputs/results, editable English rules and optional local guidance beside the original
-inbox payload. These are local admission state, not protocol records.
+retained check inputs/results, editable English rules, activation records and
+optional local guidance beside the original inbox payload. These are local admission state, not protocol records.
 
 Every retained action signature and durability vote includes signer AgentId
 and signature bytes. Hash identity excludes evidence maps; the store merges
@@ -84,14 +84,10 @@ verified maps without rewriting record identity.
 
 An absent or empty database initializes at schema 7. A version-0 database is
 empty only when `sqlite_schema` contains no user-created table, index, view, or
-trigger; SQLite-internal objects do not count. An existing schema-7 store reopens. Schema 6 upgrades to 7 in one transaction,
-adding an editable policy document and nullable check completion times without
-rewriting identity, certified history, inbox, invocation outcomes or prior checks.
-A failed migration rolls back its schema and version changes. Pre-migration
-checks retain their installation digests in the audit but have no invented time
-in the live decisions feed. Every other schema version and any unrecognized
-nonempty database fails before WAL, schema or permission changes. There are no
-automatic resets. A reset release, including one that changes only the wire compatibility
+trigger; SQLite-internal objects do not count. Only an existing schema-7 store
+reopens. Every other schema version and any unrecognized nonempty database fails
+before WAL, schema or permission changes. There are no migrations or automatic
+resets. A reset release, including one that changes only the wire compatibility
 value, follows the
 [v1 reset policy](../layer-interfaces.md#publication-and-versions). The daemon
 does not detect a state directory kept across a reset: an operator must replace
@@ -143,7 +139,7 @@ discover or call them; the baseline daemon does not list them.
 | --- | --- | --- |
 | `policy_read` | `{}` | `{rules, fixedRuleIds, activeRevision}`; editable English documents and fixed code/English ids |
 | `policy_update` | `{add?: Rule[], remove?: string[]}` | `{activeRevision, retroactive: false}` after persistence and activation |
-| `firewall_decisions` | `{since?: number}` | `{decisions: [{checkId, time, direction, peerAgentId, outcome, disposition, ruleIds, activeRevision}]}` |
+| `firewall_decisions` | `{since?: number}` | `{decisions: [{checkId, time, direction, peerAgentId, outcome, disposition, ruleIds, activeRevision}], activations: [{time, activeRevision, addedRuleIds, removedRuleIds}]}` |
 
 `Rule` and the atomic edit/failure contract are defined by
 [editable English policy](./message-policy.md#editable-english-policy).
@@ -161,8 +157,12 @@ author. An unsupported candidate without projected attribution has
 observation or staleness. Rule ids identify findings in the completed chain.
 The feed contains no message text, guidance, feedback, owner facts or provider
 traces. Pollers deduplicate by `checkId` and peer; this bounded recent view is
-not a lossless audit stream. The shutdown audit remains the complete retained
-snapshot.
+not a lossless audit stream. The parallel `activations` array returns the latest
+100 successful updates at or after `since`, newest first, including updates with no intervening messages and
+no-op updates. Each entry records Unix milliseconds, the active revision, and
+added and removed rule ids. Replacing a rule lists its id in both arrays; no
+rule text is included. Failed updates produce no activation. The shutdown audit
+remains the complete retained snapshot, including activations.
 
 Receive uses one [draft MCP Events consumer](./ingress.md#mcp-events-and-inbox).
 Owner-authorized history reads include canonical record cores and verified

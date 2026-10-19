@@ -16,7 +16,6 @@ import {
   Schema,
 } from "effect";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
   Daemon,
@@ -277,7 +276,7 @@ const swapDuringCheck = Effect.gen(function* () {
     yield* call(client, "firewall_decisions", {
       since: Number.MAX_SAFE_INTEGER,
     }),
-  ).toEqual({ decisions: [] });
+  ).toEqual({ decisions: [], activations: [] });
   yield* Fiber.interrupt(runtime);
   const fs = yield* FileSystem.FileSystem;
   const records = yield* Effect.forEach(
@@ -433,39 +432,54 @@ const concurrentEdits = Effect.gen(function* () {
   expect(yield* read(fresh)).toEqual(before);
 });
 
-/** Reconstruct the supported predecessor layout as a migration fixture, never an assertion target. */
-function predecessorStore(directory: string) {
-  return Effect.sync(() => {
-    const database = new DatabaseSync(join(directory, "moltzapd.sqlite3"));
-    try {
-      database.exec(
-        "DROP TABLE firewall_policy; DROP INDEX firewall_decisions_time; ALTER TABLE firewall_checks DROP COLUMN decided_at; PRAGMA user_version = 6;",
-      );
-    } finally {
-      database.close();
-    }
-  });
-}
-
-const migratePolicy = Effect.gen(function* () {
+const consecutiveActivations = Effect.gen(function* () {
   const { alice } = yield* pair;
-  const runtime = yield* start(alice, options);
+  const auditExport = join(alice.stateDirectory, "audit.ndjson");
+  const runtime = yield* start(alice, { ...options, auditExport });
   const client = yield* connect(alice.endpoint);
   yield* register(client, alice);
-  yield* send(client);
-  const history = yield* call(client, "read_conversation", {
-    address: "agent:bob",
+  const before = yield* read(client);
+  const first = yield* update(client, { add: [blockedRule] });
+  const second = yield* update(client, {
+    remove: [blockedRule.id],
+    add: [fixedRule],
   });
+  expect(first.activeRevision).not.toBe(before.activeRevision);
+  expect(second.activeRevision).not.toBe(first.activeRevision);
+  const feed = yield* call(client, "firewall_decisions");
+  const expected = [
+    {
+      time: expect.any(Number),
+      activeRevision: second.activeRevision,
+      addedRuleIds: [fixedRule.id],
+      removedRuleIds: [blockedRule.id],
+    },
+    {
+      time: expect.any(Number),
+      activeRevision: first.activeRevision,
+      addedRuleIds: [blockedRule.id],
+      removedRuleIds: [],
+    },
+  ];
+  expect(feed).toEqual({ decisions: [], activations: expected });
   yield* Fiber.interrupt(runtime);
-  yield* predecessorStore(alice.stateDirectory);
+  const fs = yield* FileSystem.FileSystem;
+  const records = yield* Effect.forEach(
+    (yield* fs.readFileString(auditExport)).trim().split("\n"),
+    (line) => Schema.decodeUnknown(Schema.parseJson(FirewallAuditRecord))(line),
+  );
+  expect(records.filter((record) => record.kind === "activation")).toEqual([
+    { kind: "activation", ...expected[1] },
+    { kind: "activation", ...expected[0] },
+  ]);
+  expect(records.at(-1)).toMatchObject({
+    kind: "complete",
+    checkCount: 0,
+    activationCount: 2,
+  });
   yield* start(alice, options);
   const fresh = yield* connect(alice.endpoint);
-  expect(
-    yield* call(fresh, "read_conversation", { address: "agent:bob" }),
-  ).toEqual(history);
-  expect((yield* read(fresh)).rules).toEqual([]);
-  yield* update(fresh, { add: [blockedRule] });
-  expect(yield* send(fresh).pipe(Effect.isFailure)).toBe(true);
+  expect(yield* call(fresh, "firewall_decisions")).toEqual(feed);
 });
 
 const tunnelAuthority = Effect.gen(function* () {
@@ -540,9 +554,11 @@ describe("editable firewall through the daemon public API", () => {
     60000,
   );
   it(
-    "migrates a predecessor store without losing registration or history",
+    "retains consecutive activations with no intervening messages in the feed and audit",
     processTrace(
-      Effect.scoped(migratePolicy).pipe(Effect.provide(NodeContext.layer)),
+      Effect.scoped(consecutiveActivations).pipe(
+        Effect.provide(NodeContext.layer),
+      ),
     ),
     60000,
   );

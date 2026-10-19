@@ -29,7 +29,7 @@ export interface StoreState {
 }
 
 const DATABASE_NAME = "moltzapd.sqlite3";
-/** The preceding layout upgrades atomically without changing retained protocol state. */
+/** Only this layout can reopen; incompatible endpoint state requires an explicit reset. */
 const SCHEMA_VERSION = 7;
 
 /** An absent or empty database is created; the current schema reopens. */
@@ -152,8 +152,6 @@ function initializeStoreState(stateDirectory: string): StoreState {
     configureDatabase(database);
     if (disposition === "create") {
       createStore(database);
-    } else {
-      migrateStore(database);
     }
     database.exec(
       "UPDATE firewall_checks SET disposition = 'interrupted' WHERE disposition = 'checking'",
@@ -200,7 +198,6 @@ function preflightDatabase(database: DatabaseSync): StoreOpening {
   const version = readInteger(versionRow, "user_version");
   if (
     version !== SCHEMA_VERSION &&
-    version !== 6 &&
     (version !== 0 || hasUserSchemaObjects(database))
   ) {
     throw new StoreSignal("incompatible");
@@ -474,6 +471,14 @@ const editablePolicySql = `
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     canonical_rules BLOB NOT NULL
   ) STRICT;
+  CREATE TABLE firewall_activations (
+    sequence INTEGER PRIMARY KEY,
+    activated_at INTEGER NOT NULL,
+    active_revision TEXT NOT NULL,
+    added_rule_ids TEXT NOT NULL,
+    removed_rule_ids TEXT NOT NULL
+  ) STRICT;
+  CREATE INDEX firewall_activations_time ON firewall_activations(activated_at);
   ALTER TABLE firewall_checks ADD COLUMN decided_at INTEGER;
   CREATE INDEX firewall_decisions_time ON firewall_checks(decided_at)
     WHERE decided_at IS NOT NULL;
@@ -492,19 +497,4 @@ function createStore(database: DatabaseSync): void {
     },
     "EXCLUSIVE",
   );
-}
-
-/** Schema and version commit together; old attempts have no invented decision time. */
-function migrateStore(database: DatabaseSync): void {
-  const row = database.prepare("PRAGMA user_version").get();
-  if (row !== undefined && readInteger(row, "user_version") === 6) {
-    transaction(
-      database,
-      () => {
-        database.exec(editablePolicySql);
-        database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-      },
-      "EXCLUSIVE",
-    );
-  }
 }

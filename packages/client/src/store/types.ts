@@ -115,6 +115,14 @@ export interface FirewallAuditEntry extends FirewallAttempt {
   readonly canonicalResult?: Uint8Array;
 }
 
+/** Successful owner edits retain metadata even when no check uses the installation. */
+export interface FirewallActivation {
+  readonly time: number;
+  readonly activeRevision: string;
+  readonly addedRuleIds: readonly string[];
+  readonly removedRuleIds: readonly string[];
+}
+
 /** The store records applied disposition separately from the policy judgment. */
 export interface FirewallCompletion {
   readonly checkId: string;
@@ -355,7 +363,19 @@ export interface EndpointStore {
   >;
   readonly writeFirewallPolicy: (
     rules: Uint8Array,
+    activation?: FirewallActivation,
   ) => Effect.Effect<void, EndpointStoreError>;
+  /** Recent edits, or ascending bounded pages for a complete shutdown snapshot. */
+  readonly readFirewallActivations: (request: {
+    readonly since?: number;
+    readonly after?: number;
+  }) => Effect.Effect<
+    ReadonlyArray<{
+      readonly sequence: number;
+      readonly activation: FirewallActivation;
+    }>,
+    EndpointStoreError
+  >;
   /** Bounded recent completed checks, ordered by completion time. */
   readonly readFirewallDecisions: (
     since?: number,

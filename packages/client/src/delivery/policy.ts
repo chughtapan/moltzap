@@ -1,6 +1,6 @@
 /** @file Serialized owner edits replace immutable chains without replacing daemon resources. */
 
-import { Effect, Schema } from "effect";
+import { Clock, Effect, Schema } from "effect";
 import {
   decodeFrozen,
   EnglishPolicySettings,
@@ -17,6 +17,7 @@ import {
   decodeRuntimeValue,
   encodeRuntimeValue,
   type EndpointStore,
+  type FirewallActivation,
   type FirewallAuditEntry,
 } from "../store/index.js";
 import { decodeFirewallAuditEntry } from "./firewall-values.js";
@@ -204,9 +205,13 @@ export const installEditableFirewall = Effect.fn("installEditableFirewall")(
   },
 );
 
-function persistRules(store: EndpointStore, rules: readonly EnglishRule[]) {
+function persistRules(
+  store: EndpointStore,
+  rules: readonly EnglishRule[],
+  activation?: FirewallActivation,
+) {
   return encodeRuntimeValue(rules).pipe(
-    Effect.flatMap((bytes) => store.writeFirewallPolicy(bytes)),
+    Effect.flatMap((bytes) => store.writeFirewallPolicy(bytes, activation)),
     Effect.mapError(persistenceFailure),
   );
 }
@@ -217,10 +222,7 @@ function editedRules(
   request: typeof policyUpdateSchema.Type,
 ) {
   return Effect.gen(function* () {
-    const change = yield* decodeFrozen(policyUpdateSchema, request).pipe(
-      Effect.mapError(invalidRule),
-    );
-    const remove = change.remove ?? [];
+    const remove = request.remove ?? [];
     if (remove.some((id) => fixedRuleIds.includes(id))) {
       return yield* new FirewallPolicyError({ reason: "fixed-rule" });
     }
@@ -229,7 +231,7 @@ function editedRules(
     }
     const next = yield* decodeFrozen(editableRules, [
       ...rules.filter((rule) => !remove.includes(rule.id)),
-      ...(change.add ?? []),
+      ...(request.add ?? []),
     ]).pipe(Effect.mapError(invalidRule));
     yield* validateIds(next, fixedRuleIds);
     return next;
@@ -243,10 +245,18 @@ function updatePolicy(
   request: typeof policyUpdateSchema.Type,
 ) {
   return Effect.gen(function* () {
-    const next = yield* editedRules(state.rules, state.fixedRuleIds, request);
+    const change = yield* decodeFrozen(policyUpdateSchema, request).pipe(
+      Effect.mapError(invalidRule),
+    );
+    const next = yield* editedRules(state.rules, state.fixedRuleIds, change);
     const replacement = yield* buildPolicy(captured, next);
     return yield* Effect.uninterruptible(
-      persistRules(store, next).pipe(
+      persistRules(store, next, {
+        time: yield* Clock.currentTimeMillis,
+        activeRevision: replacement.configurationDigest,
+        addedRuleIds: (change.add ?? []).map((rule) => rule.id),
+        removedRuleIds: change.remove ?? [],
+      }).pipe(
         Effect.zipRight(
           Effect.sync(() => {
             state.active = replacement;
@@ -274,6 +284,9 @@ function readDecisions(
     });
     return yield* Schema.decodeUnknown(firewallDecisionsSchema)({
       decisions: rows.flat(),
+      activations: (yield* store.readFirewallActivations(request)).map(
+        (entry) => entry.activation,
+      ),
     });
   }).pipe(Effect.mapError(persistenceFailure));
 }

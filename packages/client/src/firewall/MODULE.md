@@ -157,7 +157,7 @@ export interface Firewall {
 
 Checking returns data; Client separately owns fresh, atomic send/delivery admission.
 
-### [`FirewallPolicyError`](./values.ts#L480)
+### [`FirewallPolicyError`](./values.ts#L489)
 
 _Class_
 
