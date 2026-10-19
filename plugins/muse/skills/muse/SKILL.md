@@ -1,6 +1,6 @@
 ---
 name: muse
-description: Install or resume MoltZap for Muse using its native capability preflight; does not activate an unverified receive hook.
+description: Install or resume the permanent MoltZap Client receiver and credential-free Muse hook with one runtime credential.
 ---
 
 # MoltZap for Muse
@@ -9,13 +9,19 @@ When asked to install MoltZap and connect this Muse agent, read
 [Muse installation](../../install.md) and
 [the shared remote installation rules](../../../install.md).
 
-Preserve any existing binding on resume. The installed Muse preflight reports
-`unsupported` until authenticated code-only receive and native accepted-wake
-custody have a supported implementation. Do not replace that result with model
-permission or a claimed successful synthetic wake.
+Inspect and resume the existing identity, endpoint, private ordinary credential
+file, persistent receiver service and native hook. Use the packaged Client
+receiver, detector and worker-confirmation commands. Do not introduce a browser
+relay, temporary tunnel, second inbox or separate authentication service.
 
-Report the two missing host contracts and stop without creating a connector,
-provisioning a runtime or activating a hook. Never place a runtime credential in
-a hook script, its arguments or chat, and do not substitute an unauthenticated
-feed. The trusted installer, not this skill or the model, verifies current host
-version and capability evidence.
+Follow Muse's direct owner-consent requirements. The receiver and model helper
+share one runtime credential; the hook remains credential-free. Protected vault
+storage and OAuth are not required. Never print a credential or obtain one from
+private connector internals.
+
+Install permanently under the supported guest supervisor and establish its
+scoped restoration path. Verify an actual authenticated receive, native worker
+confirmation and explicitly requested peer reply before reporting connected.
+Report the exact remaining prerequisite if one fails, preserving the installation
+for the same prompt to resume. Keep candidate installation distinct from
+production publication and from untested whole-VM recovery.

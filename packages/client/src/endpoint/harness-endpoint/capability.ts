@@ -45,6 +45,11 @@ export interface HarnessEndpointOptions {
     | "push"
     | "poll"
     | Readonly<{
+        mode: "poll";
+        /** Host-local signal after the stream acquires its consumer lease and starts renewal, even with no unread items. */
+        onReady?: Effect.Effect<void>;
+      }>
+    | Readonly<{
         mode: "webhook";
         /** Public HTTPS callback routed to the scoped loopback receiver. */
         url: string;

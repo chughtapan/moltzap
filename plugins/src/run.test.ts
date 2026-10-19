@@ -45,22 +45,36 @@ beforeEach(() => {
   vi.mocked(acquireHarnessEndpoint).mockReset();
 });
 
+const nativeCases = (["instinct", "grokbot"] as const).flatMap((platform) =>
+  (["default", "webhook", "poll"] as const).map((mode) => ({ platform, mode })),
+);
+type NativeCase = (typeof nativeCases)[number];
+
 describe("remote native receive composition", () => {
-  it.each(["instinct", "grokbot"] as const)(
-    "acknowledges %s only after the provider accepts, without sending a peer message",
+  it.each(nativeCases)(
+    "acknowledges $platform via $mode only after provider acceptance, without sending a peer message",
     acceptsBeforeAcknowledging,
   );
-  it.each(["instinct", "grokbot"] as const)(
-    "delegates %s readiness to Client's opened webhook before work acceptance",
+  it.each(nativeCases)(
+    "delegates $platform via $mode readiness to Client before work acceptance",
     signalsAuthenticatedReadiness,
   );
-  it.each(["instinct", "grokbot"] as const)(
-    "retains %s unread work if the provider refuses",
+  it.each(nativeCases)(
+    "retains $platform via $mode unread work if the provider refuses",
     retainsRefusedWork,
   );
   it.each([
     { change: { MOLTZAP_MCP_CREDENTIAL_FILE: undefined } },
     { change: { MOLTZAP_NATIVE_PLATFORM: "unknown" } },
+    { change: { MOLTZAP_NATIVE_DELIVERY: "push" } },
+    { change: { MOLTZAP_NATIVE_DELIVERY: "" } },
+    { change: { MOLTZAP_NATIVE_WEBHOOK_URL: undefined } },
+    {
+      change: {
+        MOLTZAP_NATIVE_PLATFORM: "muse",
+        MOLTZAP_NATIVE_DELIVERY: "webhook",
+      },
+    },
   ])(
     "refuses incomplete native configuration before Client acquisition",
     refusesConfiguration,
@@ -75,7 +89,7 @@ describe("remote native receive composition", () => {
   );
 });
 
-function signalsAuthenticatedReadiness(platform: "instinct" | "grokbot") {
+function signalsAuthenticatedReadiness(input: NativeCase) {
   const phases: string[] = [];
   const endpoint = configuredEndpoint(phases);
   vi.mocked(acquireHarnessEndpoint).mockImplementation((url, options) =>
@@ -94,7 +108,7 @@ function signalsAuthenticatedReadiness(platform: "instinct" | "grokbot") {
   );
   return configuredRun(
     providerClient(phases, 200),
-    { ...settings, MOLTZAP_NATIVE_PLATFORM: platform },
+    nativeSettings(input),
     secretFiles(),
     runNativePlugin(
       Effect.sync(() => {
@@ -117,12 +131,20 @@ function signalsAuthenticatedReadiness(platform: "instinct" | "grokbot") {
   );
 }
 
-function acceptsBeforeAcknowledging(platform: "instinct" | "grokbot") {
+function acceptsBeforeAcknowledging(input: NativeCase) {
   const phases: string[] = [];
   const endpoint = configuredEndpoint(phases);
+  const expectedDelivery =
+    input.mode === "poll"
+      ? { mode: "poll" }
+      : {
+          mode: "webhook",
+          url: settings.MOLTZAP_NATIVE_WEBHOOK_URL,
+          port: 4318,
+        };
   return configuredRun(
     providerClient(phases, 200),
-    { ...settings, MOLTZAP_NATIVE_PLATFORM: platform },
+    nativeSettings(input),
     secretFiles(),
     runNativePlugin(),
   ).pipe(
@@ -132,11 +154,7 @@ function acceptsBeforeAcknowledging(platform: "instinct" | "grokbot") {
         expect(endpoint.send).not.toHaveBeenCalled();
         const call = vi.mocked(acquireHarnessEndpoint).mock.calls[0];
         expect(call?.[0]).toEqual(new URL(settings.MOLTZAP_MCP_URL));
-        expect(call?.[1]?.delivery).toEqual({
-          mode: "webhook",
-          url: settings.MOLTZAP_NATIVE_WEBHOOK_URL,
-          port: 4318,
-        });
+        expect(call?.[1]?.delivery).toEqual(expectedDelivery);
         expect(
           call?.[1]?.credential && Redacted.value(call[1].credential),
         ).toBe(runtimeGrant);
@@ -148,12 +166,12 @@ function acceptsBeforeAcknowledging(platform: "instinct" | "grokbot") {
   );
 }
 
-function retainsRefusedWork(platform: "instinct" | "grokbot") {
+function retainsRefusedWork(input: NativeCase) {
   const phases: string[] = [];
   const endpoint = configuredEndpoint(phases);
   return configuredRun(
     providerClient(phases, 503),
-    { ...settings, MOLTZAP_NATIVE_PLATFORM: platform },
+    nativeSettings(input),
     secretFiles(),
     runNativePlugin(),
   ).pipe(
@@ -171,6 +189,20 @@ function retainsRefusedWork(platform: "instinct" | "grokbot") {
     Effect.asVoid,
     Effect.runPromise,
   );
+}
+
+function nativeSettings({ platform, mode }: NativeCase) {
+  return {
+    ...settings,
+    MOLTZAP_NATIVE_PLATFORM: platform,
+    MOLTZAP_NATIVE_DELIVERY: mode === "default" ? undefined : mode,
+    ...(mode === "poll"
+      ? {
+          MOLTZAP_NATIVE_WEBHOOK_URL: undefined,
+          MOLTZAP_NATIVE_WEBHOOK_PORT: undefined,
+        }
+      : {}),
+  };
 }
 
 function refusesConfiguration({

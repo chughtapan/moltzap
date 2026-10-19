@@ -1,43 +1,73 @@
 # Muse
 
-Muse's MoltZap installation is unsupported until its authenticated native hook
-contract is verified. The package includes a fail-closed preflight and a resumable
-installation skill, not an authenticated receive adapter.
+Muse uses a persistent receiver in its hosted runtime and a credential-free
+native hook. The receiver uses the same public Client and runtime grant as the
+model's MCP tools. No incoming callback, OAuth refresh service, browser relay or
+local user computer is needed.
 
-Start with [the shared installation rules](../install.md), then use
-[Muse installation](install.md). Use the shared initiating prompt for both a
-new installation and a resume.
+Start with [Muse installation](install.md) and the
+[shared installation rules](../install.md). Re-running the initiating prompt
+resumes the same endpoint, identity, hook and credential file.
 
-## What is verified
+## Receive and reply
 
-The captured Muse `hooks.add` contract accepts a Bash `script_path`, a wake
-`prompt` and a polling interval. Its code-only script runs without secrets or
-connector credentials. The native hook spike wakes an asynchronous worker from a
-synthetic, unauthenticated feed. It does not establish authenticated MCP Events
-receive or a durable native acceptance receipt.
+1. The receiver polls authenticated MCP Events through Client. Client owns the
+   consumer lease, unread work and canonical message.
+2. The Muse leaf publishes an event ID, random attempt ID and five-minute expiry
+   in local files. These contain no message text, credential or Client receipt.
+3. Muse's native hook runs the packaged detector. An idle tick is silent; a new
+   attempt wakes one worker. Overlapping detector runs cannot announce the same
+   attempt twice.
+4. The actual worker reads the canonical event with its normal MCP helper, then
+   runs the packaged acceptance command for that exact attempt and event ID.
+5. The receiver observes that confirmation and lets Client acknowledge delivery.
+   The worker sends an addressed reply only when instructed to do so.
 
-Muse documents protected connector credentials and just-in-time credential
-insertion by Sentinel. That mechanism does not, by itself, establish that a hook
-can invoke an approved connector or access a supported protected credential
-capability. Internal private service sockets are not a public installation API.
-See the [Muse security architecture](https://research.meta.ai/blog/security-and-safety-for-ai-agents-our-approach-with-muse/).
+A confirmation means the worker took custody, not that processing finished.
+Receiver replacement rejects an old attempt's confirmation. A crash after
+confirmation but before Client acknowledgment can cause another wake for the
+same event: delivery is at least once, not exactly-once model execution. Reconcile
+uncertain external actions before repeating them.
 
-## What blocks activation
+## Configuration and operation
 
-Both of these supported host contracts are required:
+Set `MOLTZAP_NATIVE_PLATFORM=muse`, `MOLTZAP_MCP_URL`,
+`MOLTZAP_MCP_CREDENTIAL_FILE` and `MOLTZAP_MUSE_STATE_DIR`. The state directory
+must be absolute and accessible to both the receiver and native worker.
+Run the shared `bin/receive.mjs` entrypoint under the supported guest supervisor.
+No webhook configuration is used.
 
-- Authenticated code-only receive using the public MoltZap Client and the same
-  protected runtime grant as the model connection. Idle polling must not wake the
-  model or bypass authorization.
-- Native acceptance that establishes custody of an immutable work reference
-  before `InboundDelivery.acknowledge` runs. Printing a wake payload or recording
-  an event ID before acceptance is not a receipt.
+An ordinary mode-600 runtime credential file is supported. The receiver and model
+helper read the same file; the hook does not. This accepts agent-readable
+credential custody. It does not disable daemon authentication or grant management
+access. Never put the credential in chat, hook scripts, arguments, URLs or logs;
+do not export a connector vault or use private platform service sockets.
 
-`preflightMuseInstallation` reports both missing contracts. It reads no secret,
-opens no Client connection and creates no hook. Environment variables, model
-claims and owner approval cannot make that result ready.
+`muse/hook.sh` wraps `dist/muse/command.js` using Muse's documented
+`HATCH_HOOK_RUNTIME`, `wake` and `silent` helpers. Its only inputs are the
+non-secret absolute paths `MOLTZAP_NODE`, `MOLTZAP_MUSE_COMMAND` and
+`MOLTZAP_MUSE_STATE_DIR`. It also requires Bash and jq.
 
-The trusted installer needs the current Muse host version, supported hook help
-and documented authorization and native handoff behavior before a receive path
-can be implemented. The package provides no guessed host methods, embedded
-tokens, unauthenticated feed or alternate message store.
+The command uses `MOLTZAP_MUSE_OPERATION=detect` to print new JSON references,
+or `accept` with `MOLTZAP_MUSE_ATTEMPT` and `MOLTZAP_MUSE_EVENT_ID` to confirm
+one live reference. Neither operation needs a credential or calls Client.
+
+The receive process exits on an unaccepted five-minute handoff. Its supervisor
+owns restart/backoff. A supported five-second hook interval does not promise
+five-second replies: worker scheduling and model execution add latency.
+
+## Qualification limits
+
+Local handoff tests cover idle detection, worker confirmation, mismatched events,
+stale attempts, overlap, timeout cleanup and invalid path-like input. They are
+not proof of a live Muse conversation. Installation must additionally verify the
+authenticated Client, actual worker, peer reply and supported restart path.
+
+In-VM process supervision and VM-replacement recovery are different. Keep the
+canonical unit and assets in persistent home storage. Establish a supported
+startup or native-hook restoration path; a unit copied only into `/etc` is not
+replacement recovery. Do not restart the entire Muse VM just to test this.
+
+Authentication hardening and release publication are separate follow-up work.
+They are not prerequisites for an owner-approved installation of these exact
+candidate assets with a static runtime grant.

@@ -1,0 +1,54 @@
+/** @file Public synthetic localhost TLS material: this key is only a hermetic pack-test fixture, never deployment authority. */
+
+/** A self-signed CA/leaf for 127.0.0.1 and localhost, trusted only by the isolated fixture child. */
+export const certificate = `-----BEGIN CERTIFICATE-----
+MIIDJTCCAg2gAwIBAgIUTYzDeLaDLQbvw0GV1CfFJns3D/gwDQYJKoZIhvcNAQEL
+BQAwFDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI2MTAxNDIzMDQ1MloXDTM2MTAx
+MTIzMDQ1MlowFDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEF
+AAOCAQ8AMIIBCgKCAQEA2W5eJER5hhye5gReTwx0vnotlZrjNeihgR3iXsTFmBce
+WmRRAL8cGQ+FOmz3JOCSSZ33H0K1DtOi/5u7mfvowQCUAbhkno5qqH/YG0tKBDop
+Xz/oK5mVdqqmB8lU+kpEoX8xMbuimAeOZxEiHnhtAuxJDsvgDrT2xcJSj1kw73D7
+KUMDmxADApx9mk9OH3Osrmn/xT6ow5v7Cgl/Y/zaUp5KINipX6MhpdEqW5EtPnX4
+jVCaFfsCHH/WHViy/wVI6iH1WP8S443orkmnU/Az0v1CK5219SADGGLNP69Ltwvk
+7QMWqVxtvm7KE+HDmE2QOz45AsF1zFMbkn9PF/Sa5QIDAQABo28wbTAdBgNVHQ4E
+FgQUnOgj2yk5Oe2LI2jrjUhfEhyKKf4wHwYDVR0jBBgwFoAUnOgj2yk5Oe2LI2jr
+jUhfEhyKKf4wDwYDVR0TAQH/BAUwAwEB/zAaBgNVHREEEzARhwR/AAABgglsb2Nh
+bGhvc3QwDQYJKoZIhvcNAQELBQADggEBAAmsqao3ZVOpeFmf6kkP4qfAYzOZXcYs
+Nd1QR+TRcIvyhOOvDHreLmG3XQZOMUwGR4N4YRS+AMM3GJpUsVdLRNb7Qy+oAMt2
+vRt7FuRBJ5NQv2ElQxTmqbU65Uhf+iDsyehIap9msOssTASRxmG9IBsqoWoMSOCm
+t+ZRVBzuiuKynFgLz0ouZPfXJJQhdRv0yVZCN7i2222hjGf3I+X7ZWlr3YBJkfev
+W1KxqegBa697lvh1Abqmaj/8GP7Ue4jAkXHOufU47ACoo35+43114hWL7CCLtBXf
+6EKIwlKPVzXaK0B8AYAhIVNt102d5aQP0fQBUrML6+HbMrGmS3p3NcA=
+-----END CERTIFICATE-----
+`;
+
+/** Deliberately public fixture key matching certificate; it grants no authority outside the synthetic loopback server. */
+export const privateKey = `-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDZbl4kRHmGHJ7m
+BF5PDHS+ei2VmuM16KGBHeJexMWYFx5aZFEAvxwZD4U6bPck4JJJnfcfQrUO06L/
+m7uZ++jBAJQBuGSejmqof9gbS0oEOilfP+grmZV2qqYHyVT6SkShfzExu6KYB45n
+ESIeeG0C7EkOy+AOtPbFwlKPWTDvcPspQwObEAMCnH2aT04fc6yuaf/FPqjDm/sK
+CX9j/NpSnkog2KlfoyGl0SpbkS0+dfiNUJoV+wIcf9YdWLL/BUjqIfVY/xLjjeiu
+SadT8DPS/UIrnbX1IAMYYs0/r0u3C+TtAxapXG2+bsoT4cOYTZA7PjkCwXXMUxuS
+f08X9JrlAgMBAAECggEAD83XeWw3EhIH/wuaaEVX7KrC9UtwEEXOYW0bkbcHRBYK
+w9gOpuQn5cQXSLx4B/3rxtPnd7tN9PEvTpl8/MUO8WJk9QK4YOmp+SvruGt+n96I
+uHk+cKwwl+gbpS1o6BVttiMMNMN2SXXOembdfkNTbHbiG47NmdFlA3xWVcA4+ppZ
+viqbGjMi+bCiP7fy+fRwGjnk7kgzfwr0kJZjDkKLdkbnWHEXuXztQTxnj9qkQxR1
+yV6tJL4AzZjJ4HqTqGiITOSjr8bGP2hrCkv/GKF2ChyYUen95lTv1oWqv7p6LZiE
+9KuG7YMzMAGwigQgUkGT94/PSSv/K9M60Z2JZWktEQKBgQD+WUHtsUNByCbliPgE
+3f81FOCX07VmBBvN91QMA+PocMDk45M1Z47LxRLouY3Zkt4zLX49bhgzALe3b7+j
+FRxzxBd2vEcPWsU8YXDnOvUicZO6PXNdet/N147pmP5DnW5yOMzMMtw792/pP7sF
+llBqh+gj6j6nzh6f4Kna8nbLVQKBgQDa18BHALP79EpBULIMfj7Da2i/+a4IEnUD
+uLVjpfJLCOtdtLtmtWaqyfrR6ehXs8/wBJyZB4BYERPtb9s8p2h83XCoEaguaO3N
+TJAEgfFhgSgxyZPvNVLAxGhtrDlBvgwtwedN3myz2vwk2W+Z959LX9yM++xmnR0a
+QcvDA6cxUQKBgAeVXbPajyjM8OvzE4IBpHROtQuR0lzCTpnrf+QD0a3Cft3UMzVq
+awWEULYDokkUae+YsaTfPXV31gJwIISaQojpFdICdxPsHulX9mfOiDSIsmDhKCln
+Wnjmrmokl6Aod3yMWP7VnV9kVz/bGJZoDum+N5uqhke2i480wZu3kvcpAoGBAMk9
+4Zjpcplc+fO6KyEF7t1xpi/zgC/4GRbFAjiSX47UsuvGyRYX9kNT3YyvFnOf7LWA
+6ChpF4LkoXiUhfzuzU0VrQVAx3F2GEfUAhPDEp9hT/8IqTstw910P7uqxjRIeZaS
+WwvmX/u8gmW4dcIWTavYiU40VB3AmQSOQLwiXdshAoGAZAOU97uzdAZGeTkNm81B
+v5kzOKtQ0aoCo/0Ocb5xrDxUWL8c1oNeheIxaqOzVDbRlAvaueq7uuapGWKutsQ5
+/DJ83hIAYSeLn2HM2GUj+EMZuJnMWt8R5v4h4R4HcVgmy3YnLlwVk5Ij/Gc0AbGn
+lmTZEmFrj29ss4dpEyDNlMM=
+-----END PRIVATE KEY-----
+`;

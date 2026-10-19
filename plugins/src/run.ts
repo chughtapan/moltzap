@@ -5,6 +5,7 @@ import { acquireHarnessEndpoint } from "@moltzap/client";
 import { Config, Effect, Redacted, Schema, Stream } from "effect";
 import { makeGrokWakeup } from "./grokbot/index.js";
 import { makeInstinctWakeup } from "./instinct/index.js";
+import { makeMuseWakeup } from "./muse/index.js";
 import { NativeWakeError } from "./native/index.js";
 
 const secretText = Schema.NonEmptyString.pipe(
@@ -14,8 +15,9 @@ const secretText = Schema.NonEmptyString.pipe(
 
 /**
  * Runs inside the existing remote host, with one runtime grant shared with
- * the model connection. HTTPS ingress forwards only its exact callback route
- * to the private Client listener; it never forwards management MCP.
+ * the model connection. Muse polls outbound and confirms a local worker;
+ * other leaves choose outbound polling or an exact HTTPS callback to Client.
+ * Neither path exposes management MCP.
  *
  * A failed or uncertain handoff closes this process without acknowledging.
  * The host controls restart backoff; this program never retries a provider call.
@@ -30,23 +32,18 @@ const secretText = Schema.NonEmptyString.pipe(
  *   Accepted -->|No or uncertain| Stop[Close scope and retain unread work]
  * ```
  *
- * @param onReady A host-local signal after Client's authenticated webhook is accepted, never native work acceptance.
+ * @param onReady A host-local signal after Client acquires its poll lease or webhook subscription, never native work acceptance.
  * @returns A scoped receive loop; the remote host owns its process lifetime.
  */
 export function runNativePlugin(onReady?: Effect.Effect<void>) {
   return Effect.gen(function* () {
     const platform = yield* readConfig(
-      Config.literal("instinct", "grokbot")("MOLTZAP_NATIVE_PLATFORM"),
+      Config.literal("instinct", "grokbot", "muse")("MOLTZAP_NATIVE_PLATFORM"),
     );
     const endpoint = yield* readConfig(Config.url("MOLTZAP_MCP_URL"));
     const credential = yield* readSecret("MOLTZAP_MCP_CREDENTIAL_FILE");
+    const delivery = yield* configuredDelivery(platform, onReady);
     const wake = yield* configuredWakeup(platform);
-    const delivery = {
-      mode: "webhook" as const,
-      url: yield* readConfig(Config.string("MOLTZAP_NATIVE_WEBHOOK_URL")),
-      port: yield* readConfig(Config.integer("MOLTZAP_NATIVE_WEBHOOK_PORT")),
-      ...(onReady === undefined ? {} : { onReady }),
-    };
     const client = yield* acquireHarnessEndpoint(endpoint, {
       credential,
       delivery,
@@ -57,7 +54,42 @@ export function runNativePlugin(onReady?: Effect.Effect<void>) {
   }).pipe(Effect.scoped, Effect.withSpan("Native.runPlugin"));
 }
 
-function configuredWakeup(platform: "instinct" | "grokbot") {
+function configuredDelivery(
+  platform: "instinct" | "grokbot" | "muse",
+  onReady?: Effect.Effect<void>,
+) {
+  return Effect.gen(function* () {
+    const mode = yield* readConfig(
+      Config.literal(
+        "poll",
+        "webhook",
+      )("MOLTZAP_NATIVE_DELIVERY").pipe(
+        Config.withDefault(platform === "muse" ? "poll" : "webhook"),
+      ),
+    );
+    if (mode === "poll") {
+      return { mode, ...(onReady === undefined ? {} : { onReady }) };
+    }
+    if (platform === "muse") {
+      return yield* Effect.fail(
+        new NativeWakeError({ reason: "invalid-configuration" }),
+      );
+    }
+    return {
+      mode,
+      url: yield* readConfig(Config.string("MOLTZAP_NATIVE_WEBHOOK_URL")),
+      port: yield* readConfig(Config.integer("MOLTZAP_NATIVE_WEBHOOK_PORT")),
+      ...(onReady === undefined ? {} : { onReady }),
+    };
+  });
+}
+
+function configuredWakeup(platform: "instinct" | "grokbot" | "muse") {
+  if (platform === "muse") {
+    return readConfig(Config.string("MOLTZAP_MUSE_STATE_DIR")).pipe(
+      Effect.flatMap(makeMuseWakeup),
+    );
+  }
   return platform === "instinct"
     ? Effect.gen(function* () {
         return makeInstinctWakeup({

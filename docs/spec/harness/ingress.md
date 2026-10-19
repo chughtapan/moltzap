@@ -112,6 +112,17 @@ a consumer generation.
 The ephemeral generation has a 60-second lease renewed by valid polls. Client
 polls independently of host callbacks, so a slow callback does not stop renewal.
 The first poll's failed persistence work releases an unreported reservation.
+The optional `delivery: {mode: "poll", onReady}` Client option signals host
+readiness only when consumption of `messages` acquires this generation and
+starts its scoped renewal, even with no unread items. Acquiring the endpoint
+alone does not signal readiness. The callback runs once per stream acquisition;
+its failure or interruption releases the consumer without acknowledging work.
+Renewal continues while that callback waits. The existing `"poll"` option has
+the same receive behavior without a readiness callback. Readiness is not model
+acceptance or a promise that a later poll will succeed; hosts must monitor the
+stream's lifetime too. Quiet polling normally adds up to about one second of
+detection delay, plus transport and processing time, before native handoff.
+
 A second acquisition while a consumer is active fails with `already-listening`.
 Expired, revoked or pre-restart generations cannot reacquire implicitly or
 perform a native inbox read or receipt; they fail with `consumer-revoked`.
@@ -244,7 +255,8 @@ bodies to 256 KiB and processing to four seconds, within the daemon's five-secon
 callback deadline. Only native acceptance allows HTTP 2xx. A refusal, disconnect,
 timeout or released consumer leaves the item pending and fences the old receipt.
 The receiver refreshes its lease and releases only a successfully acquired
-subscription. Instinct email and Grok routines consume this same capability;
+subscription. Instinct email and Grok routines can consume this capability or
+the same Client's polling delivery without per-installation callback routing;
 Dot's supported Events connection receives callbacks directly.
 
 Native webhook acquisition starts when its message stream is consumed, not

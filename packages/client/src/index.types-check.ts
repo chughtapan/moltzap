@@ -280,6 +280,10 @@ type EndpointOptionsAreExact = Expect<
         | "push"
         | "poll"
         | Readonly<{
+            mode: "poll";
+            onReady?: Effect.Effect<void>;
+          }>
+        | Readonly<{
             mode: "webhook";
             url: string;
             port: number;

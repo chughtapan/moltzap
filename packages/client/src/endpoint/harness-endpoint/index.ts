@@ -100,10 +100,7 @@ export function acquireHarnessEndpoint(
   if (!safeCredentialEndpoint(address, options.credential)) {
     return Effect.fail(new ConnectError({ reason: "transport-failed" }));
   }
-  if (
-    typeof options.delivery === "object" &&
-    options.credential === undefined
-  ) {
+  if (isWebhook(options.delivery) && options.credential === undefined) {
     return Effect.fail(new ConnectError({ reason: "incompatible-daemon" }));
   }
   return acquireEndpoint(address, {
@@ -136,6 +133,12 @@ function safeCredentialEndpoint(
   const plainAddress =
     !endpoint.username && !endpoint.password && !endpoint.hash;
   return (secure || loopback) && plainAddress;
+}
+
+function isWebhook(
+  delivery: HarnessEndpointOptions["delivery"],
+): delivery is Extract<ConnectionOptions["delivery"], { mode: "webhook" }> {
+  return typeof delivery === "object" && delivery.mode === "webhook";
 }
 
 function closeClient(client: Client): Effect.Effect<void> {
@@ -509,7 +512,7 @@ function messages(
   return Stream.unwrapScoped(
     Effect.gen(function* () {
       yield* acquireListenerSlot(listenerActive);
-      if (typeof delivery === "object") {
+      if (isWebhook(delivery)) {
         return webhookMessages(client, delivery);
       }
       const revoked = yield* Deferred.make<never, DeliveryAcknowledgeError>();
@@ -519,17 +522,19 @@ function messages(
       ).pipe(Effect.asVoid);
       yield* Effect.addFinalizer(() => fence);
       const seen = new Set<DeliveryToken>();
+      const onReady =
+        typeof delivery === "object" ? delivery.onReady : undefined;
       const wakeups: Stream.Stream<
         Readonly<Record<string, unknown>>,
         ListenError
       > =
-        delivery === "poll"
-          ? pollWakeups(client, fence).pipe(
+        delivery === "push"
+          ? inboxWakeups(endpoint).pipe(Stream.as({}))
+          : pollWakeups(client, fence, onReady).pipe(
               Stream.map((generation) => ({
                 [HARNESS_CONSUMER_META_KEY]: { generation },
               })),
-            )
-          : inboxWakeups(endpoint).pipe(Stream.as({}));
+            );
       return wakeups.pipe(
         Stream.flatMap((metadata) =>
           pendingInbox(client, seen, { metadata, revoked }),

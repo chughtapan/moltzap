@@ -109,6 +109,8 @@ const close = (state: Reception, fence: Effect.Effect<void>) =>
  * Polling continues while host callbacks run, so slow acceptance cannot expire
  * the lease. The bounded queue coalesces wakeups, never inbox content or receipts.
  * Local receipt revocation precedes the bounded release even when transport fails.
+ * The optional host signal runs once per stream acquisition after renewal starts,
+ * including an idle inbox; a failed or interrupted signal releases the consumer.
  *
  * ```mermaid
  * sequenceDiagram
@@ -117,6 +119,8 @@ const close = (state: Reception, fence: Effect.Effect<void>) =>
  *   participant Daemon
  *   Client->>Daemon: First poll at now
  *   Daemon-->>Client: Cursor and non-secret generation
+ *   Client->>Client: Start scope-owned lease renewal
+ *   Client-->>Host: Optional receiver readiness
  *   Client-->>Host: Read retained unread inbox
  *   loop While subscription is scoped
  *     Client->>Daemon: Poll with cursor and generation
@@ -130,6 +134,7 @@ const close = (state: Reception, fence: Effect.Effect<void>) =>
 export const pollWakeups = (
   client: Client,
   fence?: Effect.Effect<void>,
+  onReady?: Effect.Effect<void>,
 ): Stream.Stream<string, ListenError> =>
   Stream.unwrapScoped(
     Effect.gen(function* () {
@@ -142,6 +147,7 @@ export const pollWakeups = (
         Effect.catchAll((error) => Queue.offer(state.queue, Take.fail(error))),
         Effect.forkScoped,
       );
+      yield* onReady ?? Effect.void;
       return Stream.fromQueue(state.queue).pipe(Stream.flattenTake);
     }).pipe(Effect.withSpan("pollWakeups")),
   );

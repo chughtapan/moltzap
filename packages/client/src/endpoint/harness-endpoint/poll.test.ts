@@ -8,13 +8,19 @@ import {
 import { AgentCard } from "@moltzap/identity";
 import {
   Chunk,
+  type Clock,
   Deferred,
   Effect,
+  Exit,
   Fiber,
   Option,
+  Queue,
   Redacted,
   Schema,
   Stream,
+  TestClock,
+  TestContext,
+  TestServices,
 } from "effect";
 import { describe, expect, it } from "vitest";
 import type { HarnessSendRequest } from "../../delivery/operations.js";
@@ -232,6 +238,79 @@ const receivesAndAcknowledges = () =>
     ),
   );
 
+/** Records completed real poll requests without replacing the SDK or daemon. */
+function observePolls(
+  handler: Effect.Effect.Success<typeof acquireServer>["handler"],
+  clock: Clock.Clock,
+  completed: Queue.Queue<number>,
+): Effect.Effect.Success<typeof acquireServer>["handler"] {
+  return {
+    ...handler,
+    fetch: (request, options) =>
+      Effect.gen(function* () {
+        const startedAt = clock.unsafeCurrentTimeMillis();
+        const response = yield* Effect.tryPromise(() =>
+          handler.fetch(request, options),
+        );
+        if (request.headers.get("mcp-method") === "events/poll") {
+          yield* Queue.offer(completed, startedAt);
+        }
+        return response;
+      }).pipe(Effect.runPromise),
+  };
+}
+
+/** Only the daemon lease clock moves; a real Client poll must renew before it moves again. */
+function advancePollClock(completed: Queue.Queue<number>) {
+  return Effect.gen(function* () {
+    yield* TestClock.adjust("45 seconds");
+    const now = yield* Effect.clockWith((clock) =>
+      Effect.succeed(clock.unsafeCurrentTimeMillis()),
+    );
+    yield* Queue.take(completed).pipe(
+      Effect.repeat({ until: (startedAt) => startedAt >= now }),
+    );
+  });
+}
+
+const renewsDuringNativeAcceptance = () =>
+  Effect.gen(function* () {
+    const server = yield* acquireServer;
+    const completed = yield* Queue.unbounded<number>();
+    const address = yield* loopbackMcpEndpoint(
+      observePolls(server.handler, yield* Effect.clock, completed),
+    );
+    yield* server.add;
+    const endpoint = yield* acquireHarnessEndpoint(address, { credential });
+    const offered = yield* Deferred.make<InboundDelivery>();
+    const accepted = yield* Deferred.make<undefined>();
+    const listener = yield* endpoint.messages.pipe(
+      Stream.mapEffect((delivery) =>
+        Deferred.succeed(offered, delivery).pipe(
+          Effect.andThen(Deferred.await(accepted)),
+          Effect.andThen(delivery.acknowledge),
+        ),
+      ),
+      Stream.take(1),
+      Stream.runDrain,
+      TestServices.provideLive,
+      Effect.forkScoped,
+    );
+    yield* Deferred.await(offered);
+    yield* advancePollClock(completed);
+    yield* advancePollClock(completed);
+    expect(server.handler.hasActiveSubscription()).toBe(true);
+    expect((yield* server.store.readInboxSummary()).pendingCount).toBe(1);
+    yield* Deferred.succeed(accepted, undefined);
+    yield* Fiber.join(listener);
+    expect((yield* server.store.readInboxSummary()).pendingCount).toBe(0);
+    expect(server.handler.hasActiveSubscription()).toBe(false);
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(TestContext.TestContext),
+    Effect.runPromise,
+  );
+
 const preservesSendSemantics = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -359,8 +438,15 @@ const rejectsConcurrentConsumer = () =>
         const first = yield* acquireHarnessEndpoint(server.endpoint, {
           credential,
         });
+        let ready = 0;
         const second = yield* acquireHarnessEndpoint(server.endpoint, {
           credential,
+          delivery: {
+            mode: "poll",
+            onReady: Effect.sync(() => {
+              ready++;
+            }),
+          },
         });
         const listening = yield* first.messages.pipe(
           Stream.runDrain,
@@ -372,6 +458,7 @@ const rejectsConcurrentConsumer = () =>
           Effect.flip,
         );
         expect(refused.reason).toBe("already-listening");
+        expect(ready).toBe(0);
         yield* Fiber.interrupt(listening);
         expect(server.handler.hasActiveSubscription()).toBe(false);
         yield* server.add;
@@ -381,6 +468,7 @@ const rejectsConcurrentConsumer = () =>
           Stream.runDrain,
         );
         expect((yield* server.store.readInboxSummary()).pendingCount).toBe(0);
+        expect(ready).toBe(1);
       }),
     ),
   );
@@ -504,8 +592,135 @@ const waitsForCanceledReceiptCommit = () =>
     ),
   );
 
+const signalsIdleReadiness = () =>
+  Effect.gen(function* () {
+    const server = yield* acquireServer;
+    const signals = yield* Queue.unbounded<undefined>();
+    const endpoint = yield* acquireHarnessEndpoint(server.endpoint, {
+      credential,
+      delivery: {
+        mode: "poll",
+        onReady: Effect.sync(() => {
+          expect(server.handler.hasActiveSubscription()).toBe(true);
+        }).pipe(Effect.andThen(Queue.offer(signals, undefined)), Effect.asVoid),
+      },
+    });
+    expect(server.handler.hasActiveSubscription()).toBe(false);
+    expect(yield* Queue.size(signals)).toBe(0);
+    for (let acquisition = 0; acquisition < 2; acquisition++) {
+      const listener = yield* endpoint.messages.pipe(
+        Stream.runDrain,
+        Effect.forkScoped,
+      );
+      yield* Queue.take(signals);
+      yield* Deferred.await(server.unreadRead);
+      expect((yield* server.store.readInboxSummary()).pendingCount).toBe(0);
+      yield* Fiber.interrupt(listener);
+      expect(server.handler.hasActiveSubscription()).toBe(false);
+      expect(yield* Queue.size(signals)).toBe(0);
+    }
+  }).pipe(Effect.scoped, Effect.runPromise);
+
+const releasesFailedReadiness = (termination: "defect" | "interruption") =>
+  Effect.gen(function* () {
+    const server = yield* acquireServer;
+    yield* server.add;
+    const entered = yield* Deferred.make<undefined>();
+    const endpoint = yield* acquireHarnessEndpoint(server.endpoint, {
+      credential,
+      delivery: {
+        mode: "poll",
+        onReady: Deferred.succeed(entered, undefined).pipe(
+          Effect.andThen(
+            termination === "defect"
+              ? Effect.dieMessage("host readiness failed")
+              : Effect.never,
+          ),
+        ),
+      },
+    });
+    const listener = yield* endpoint.messages.pipe(
+      Stream.runDrain,
+      Effect.forkScoped,
+    );
+    yield* Deferred.await(entered);
+    const exit = yield* termination === "defect"
+      ? Fiber.await(listener)
+      : Fiber.interrupt(listener);
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(server.handler.hasActiveSubscription()).toBe(false);
+    expect(yield* Deferred.isDone(server.unreadRead)).toBe(false);
+    expect((yield* server.store.readInboxSummary()).pendingCount).toBe(1);
+    const replacement = yield* acquireHarnessEndpoint(server.endpoint, {
+      credential,
+      delivery: "poll",
+    });
+    yield* replacement.messages.pipe(
+      Stream.mapEffect((delivery) => delivery.acknowledge),
+      Stream.take(1),
+      Stream.runDrain,
+    );
+    expect((yield* server.store.readInboxSummary()).pendingCount).toBe(0);
+  }).pipe(Effect.scoped, Effect.runPromise);
+
+const renewsDuringReadiness = () =>
+  Effect.gen(function* () {
+    const server = yield* acquireServer;
+    const completed = yield* Queue.unbounded<number>();
+    const address = yield* loopbackMcpEndpoint(
+      observePolls(server.handler, yield* Effect.clock, completed),
+    );
+    const entered = yield* Deferred.make<undefined>();
+    let signals = 0;
+    const endpoint = yield* acquireHarnessEndpoint(address, {
+      credential,
+      delivery: {
+        mode: "poll",
+        onReady: Effect.sync(() => {
+          signals++;
+        }).pipe(
+          Effect.andThen(Deferred.succeed(entered, undefined)),
+          Effect.andThen(Effect.never),
+        ),
+      },
+    });
+    const listener = yield* endpoint.messages.pipe(
+      Stream.runDrain,
+      TestServices.provideLive,
+      Effect.forkScoped,
+    );
+    yield* Deferred.await(entered);
+    yield* advancePollClock(completed);
+    yield* advancePollClock(completed);
+    expect(server.handler.hasActiveSubscription()).toBe(true);
+    expect(signals).toBe(1);
+    expect(yield* Deferred.isDone(server.unreadRead)).toBe(false);
+    yield* Fiber.interrupt(listener);
+    expect(server.handler.hasActiveSubscription()).toBe(false);
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(TestContext.TestContext),
+    Effect.runPromise,
+  );
+
 // @agent-code-guard/regression-only: real HTTP authentication and scoped handoff are fixed interoperability scenarios; pagination invariants are generated at the poll owner.
+describe("polling receiver readiness", () => {
+  it(
+    "signals idle readiness only when the message stream acquires a consumer",
+    signalsIdleReadiness,
+  );
+  it.each(["defect", "interruption"] as const)(
+    "releases a consumer after host readiness %s without reading or acknowledging work",
+    releasesFailedReadiness,
+  );
+  it("renews the lease while host readiness waits", renewsDuringReadiness);
+});
+
 describe("authenticated semantic native endpoint", () => {
+  it(
+    "renews ownership while native acceptance waits longer than the consumer lease",
+    renewsDuringNativeAcceptance,
+  );
   it(
     "retires only accepted items and recovers a partially accepted batch",
     recoversPartiallyAcceptedBatch,

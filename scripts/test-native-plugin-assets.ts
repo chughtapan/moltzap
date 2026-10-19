@@ -1,10 +1,12 @@
 /** @file Built native commands run with an isolated packed Client closure, without a source checkout or another npm product. */
 
+import { FileSystem } from "@effect/platform";
 import { Effect, Schema } from "effect";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { packageNativePlugins } from "./package-native-plugins.ts";
+import { verifyInstalledInstaller } from "./test/native-installer.ts";
 import {
   installPackedConsumer,
   packWorkspaceClosure,
@@ -58,8 +60,11 @@ runGate("moltzap-native-assets-", (temporaryRoot) =>
       ),
     });
     yield* verifyEntrypoint(consumerRoot);
+    yield* verifyMuseCommands(consumerRoot);
+    yield* verifyMuseIdleHook(consumerRoot);
     yield* verifyInstallPrompts(consumerRoot);
-    return "native assets: reproducible archive, isolated receive command and install prompts passed; native installation and publication remain unqualified";
+    yield* verifyInstalledInstaller(consumerRoot);
+    return "native assets: reproducible archive, isolated receive/Muse commands, idle hook, install prompts and resumable HTTPS installer passed; native installation and publication remain unqualified";
   }),
 );
 
@@ -111,6 +116,73 @@ function verifyInstallPrompts(consumerRoot: string) {
         `install prompt must refuse unknown, extra or path-like arguments:\n${describeChild(result, performance.now() - started)}`,
       );
     }
+  });
+}
+
+/** Packaged detector/confirmation commands need no network or ambient credential. */
+function verifyMuseCommands(consumerRoot: string) {
+  return Effect.gen(function* () {
+    for (const operation of ["detect", "accept", "unknown"]) {
+      const started = performance.now();
+      const result = spawnSync(
+        process.execPath,
+        ["node_modules/@moltzap/native-plugins/dist/muse/command.js"],
+        {
+          cwd: consumerRoot,
+          env: {
+            MOLTZAP_MUSE_OPERATION: operation,
+            MOLTZAP_MUSE_STATE_DIR: join(consumerRoot, "absent-native-state"),
+            MOLTZAP_MUSE_ATTEMPT: "../credentials",
+            MOLTZAP_MUSE_EVENT_ID: "synthetic-event",
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+      const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+      const expected =
+        operation === "accept" ? "refused" : "invalid-configuration";
+      yield* requireCondition(
+        operation === "detect"
+          ? result.status === 0 && result.stdout === ""
+          : result.status === 1 && output.includes(expected),
+        `isolated Muse command failed (${operation}):\n${describeChild(result, performance.now() - started)}`,
+      );
+    }
+  });
+}
+
+/** A packed hook runs through Bash without relying on archive executable bits. */
+function verifyMuseIdleHook(consumerRoot: string) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const runtime = join(consumerRoot, "fixture-hook-runtime.sh");
+    yield* fs.writeFileString(
+      runtime,
+      'silent() { printf "%s\\n" "$1"; }\nwake() { exit 1; }\n',
+    );
+    const nativeRoot = join(
+      consumerRoot,
+      "node_modules/@moltzap/native-plugins",
+    );
+    const started = performance.now();
+    const result = spawnSync("/bin/bash", [join(nativeRoot, "muse/hook.sh")], {
+      cwd: consumerRoot,
+      env: {
+        HATCH_HOOK_RUNTIME: runtime,
+        MOLTZAP_NODE: process.execPath,
+        MOLTZAP_MUSE_COMMAND: join(nativeRoot, "dist/muse/command.js"),
+        MOLTZAP_MUSE_STATE_DIR: join(consumerRoot, "absent-native-state"),
+      },
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    yield* requireCondition(
+      result.status === 0 &&
+        result.stdout === "MoltZap idle\n" &&
+        result.stderr === "",
+      `isolated Muse hook did not stay idle:\n${describeChild(result, performance.now() - started)}`,
+    );
   });
 }
 

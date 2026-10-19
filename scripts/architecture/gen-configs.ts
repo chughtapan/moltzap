@@ -374,6 +374,13 @@ const architectureConfigDefinitions: ReadonlyArray<{
         allowedTestPublicSubpaths: [],
         domains: [
           {
+            name: "install",
+            roots: ["src/install"],
+            entrypoints: ["src/install/command.ts"],
+            reason:
+              "Resumable enrollment command owns private receipt custody and bounded calls to the existing deployment HTTP interface, without Client or native platform semantics",
+          },
+          {
             name: "native",
             roots: ["src/native"],
             entrypoints: ["src/native/index.ts"],

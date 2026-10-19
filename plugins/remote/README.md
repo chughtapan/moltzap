@@ -2,8 +2,9 @@
 
 These shared host assets supervise the same Client-based receiver for Instinct
 and Grok. They are not another adapter, inbox or protocol implementation. Dot
-uses the remote native MCP endpoint directly; OpenClaw uses its channel. Muse
-activation remains unsupported by its capability preflight.
+uses the remote native MCP endpoint directly; OpenClaw uses its channel. Muse's
+receiver and credential-free hook run in its own remote guest; see the
+[Muse install instructions](../muse/install.md).
 
 An authorized host administrator first installs a compatible reviewed Client
 release and the digest-verified private native archive under
@@ -22,13 +23,18 @@ its provider key. Keep the daemon's private management directory inaccessible
 to any separate runtime user. Same-user/host-admin isolation is not guaranteed.
 
 The MCP URL in the example is the daemon on this VM's actual loopback address.
-Do not substitute deployment's OAuth endpoint and send the raw runtime token
-there: that endpoint verifies OAuth and injects the grant inside its target
-container. Receivers using a separately hosted daemon require an explicitly
-supported authenticated transport and credential lifecycle, not a public port
-forward or an assumed token interchange.
+Receivers using a separately hosted daemon require its explicitly supported
+authenticated runtime path. Use ordinary runtime-grant authentication only when
+that gateway is configured for it; an OAuth-only endpoint requires its native
+authorization flow. Never assume the two token types are interchangeable or
+expose a public port forward to bypass the gateway.
 
-Install `callback.conf.example` only inside an existing verified TLS server,
+For outbound-only reception, set `MOLTZAP_NATIVE_DELIVERY=poll` and omit the two
+webhook settings. No callback proxy or ingress is needed. Omitting the delivery
+setting preserves the existing webhook behavior for Instinct and Grok. Release
+the current consumer before an authorized mode change; do not run both receivers.
+
+In webhook mode, install `callback.conf.example` only inside an existing verified TLS server,
 with its hostname matching `MOLTZAP_NATIVE_WEBHOOK_URL`. It forwards just the
 exact callback path to private loopback port `4318`, retaining the URI/query.
 It must not proxy the daemon MCP port or management socket. The Client receiver

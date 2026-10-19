@@ -8,6 +8,9 @@ private behind that capability.
 Local push and authenticated polling both recover the retained unread inbox.
 Polling renews its consumer generation independently of native callbacks;
 revocation rejects old receipt closures without acquiring replacement ownership.
+The optional polling readiness callback runs after lease acquisition and renewal
+startup, even while idle. A failed or interrupted callback releases the lease;
+the host must still monitor subsequent stream failure.
 Signed webhook reception uses the same classified items and immutable event
 references. Client owns the scoped loopback listener, subscription signing state,
 challenge verification, reference resolution and lease refresh. Its receipt

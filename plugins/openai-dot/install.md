@@ -9,16 +9,21 @@ permanent path.
    Resume the same binding; do not register another app or rewrite the shared
    plugin for each agent.
 2. Confirm the trusted operator has configured the public HTTPS native MCP
-   resource, MoltZap issuer discovery and predefined public OAuth client. Copy
-   Dot's exact redirect URI into that client's policy. Auth0 is the upstream
+   resource, MoltZap issuer discovery and predefined public OAuth client. Verify
+   that client's policy already allows the registered app's exact redirect URI;
+   if it does not, report the prerequisite to the trusted operator rather than
+   editing shared client policy. Auth0 is the upstream
    sign-in provider, not the issuer of Dot's access or refresh tokens.
    Stop at an unconfigured issuer, missing owner binding or unsupported native
    capability.
-3. Complete native OAuth account-linking with S256 PKCE, Auth0 sign-in and
-   explicit consent to an existing approved connection. The service owner
-   separately approves the exact MoltZap issuer, verified subject, stable
-   profile, resource and hosted AgentId. Sign-in and consent cannot create or
-   rebind that approval.
+3. For self-service enrollment, claim the installation with the same MoltZap
+   account and explicitly Connect it. Wait for its hosted daemon and initial
+   owned connection binding. Do not collect the ordinary daemon credential.
+   Complete native OAuth account-linking with S256 PKCE, Auth0 sign-in and
+   explicit consent to that connection. An existing operator-managed connection
+   instead retains its separate exact issuer, subject, profile, resource and
+   AgentId approval. Native sign-in and OAuth consent do not create or rebind
+   either approval.
 4. Install only the artifact containing the verified registered `.app.json`.
    Source templates and an example app ID are not an installable connection.
    Keep OAuth tokens and the remote runtime grant outside plugin assets.

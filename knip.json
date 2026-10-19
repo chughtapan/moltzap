@@ -92,8 +92,10 @@
     },
     "plugins": {
       "entry": [
+        "bin/install.mjs",
         "bin/install-prompt.mjs",
         "bin/receive.mjs",
+        "src/muse/command.ts",
         "src/instinct/index.ts",
         "src/grokbot/index.ts",
         "**/*.test.ts"
