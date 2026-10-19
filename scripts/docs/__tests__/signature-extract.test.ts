@@ -18,6 +18,7 @@ const mergedExport = (
   sources,
   comment: null,
   signatureReturnTypeName: null,
+  namespace: null,
 });
 
 describe("extractSignatureText", () => {

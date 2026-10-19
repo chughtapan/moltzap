@@ -15,6 +15,7 @@ function makeExport(overrides: Partial<TypeDocExport>): TypeDocExport {
     sources: [{ fileName: "src/x.ts", line: 1, character: 0 }],
     comment: null,
     signatureReturnTypeName: null,
+    namespace: null,
     ...overrides,
   };
 }
