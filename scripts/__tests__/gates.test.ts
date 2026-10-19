@@ -643,6 +643,60 @@ const testPublicationGuards = (): void => {
   restoreAllPlants();
 };
 
+/** Malformed additions must fail even when every valid entry remains present. */
+const testMalformedBoundaryInputs = (): void => {
+  console.log("\n# check-boundaries malformed inputs");
+  const cases = [
+    {
+      path: "tsconfig.json",
+      before: '"references": [',
+      after: '"references": [null,',
+    },
+    {
+      path: "tsconfig.json",
+      before: '"references": [',
+      after: '"references": [{"path": 7},',
+    },
+    {
+      path: "tsconfig.json",
+      before: '"references": [',
+      after: '"references": [{},',
+    },
+    {
+      path: "knip.json",
+      before: '"@electric-sql/pglite",',
+      after: '7, "@electric-sql/pglite",',
+    },
+    {
+      path: "packages/identity/tsconfig.json",
+      before: '"references": []',
+      after: '"references": {}',
+    },
+    { path: "packages/identity/tsconfig.json", before: "", after: "" },
+  ];
+  for (const [index, input] of cases.entries()) {
+    try {
+      plantFile(input.path, (source) => {
+        if (input.before === "") {
+          return "[]";
+        }
+        if (!source.includes(input.before)) {
+          throw new Error(`Mutation target missing in ${input.path}`);
+        }
+        return source.replace(input.before, input.after);
+      });
+      const malformed = runBoundaries();
+      assert(
+        `rejects malformed boundary input ${index + 1}: ${input.path}`,
+        malformed.code === 1 && /Malformed/.test(malformed.stderr),
+        `expected malformed-input failure. exit=${malformed.code}, stderr=${malformed.stderr.slice(0, 300)}`,
+      );
+    } finally {
+      restoreAllPlants();
+    }
+  }
+};
+
 const testNodeVersionFloorConsistency = (): void => {
   console.log("\n# Node version floor consistency");
   const workspaceManifest = JSON.parse(
@@ -740,6 +794,7 @@ const main = (): void => {
     testBakeFailureFailClosed();
     testNodeVersionFloorConsistency();
     testPublicationGuards();
+    testMalformedBoundaryInputs();
   } finally {
     restoreAllPlants();
   }
