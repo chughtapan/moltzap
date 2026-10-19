@@ -26,7 +26,7 @@ export class MethodNotAllowedError extends Schema.TaggedError<MethodNotAllowedEr
   {},
 ) {}
 
-/** The request carries a different MoltZap compatibility value. */
+/** The request carries a different wire compatibility value. */
 export class VersionMismatchError extends Schema.TaggedError<VersionMismatchError>()(
   "VersionMismatchError",
   {},

@@ -342,7 +342,7 @@ _Variable_
 export const MOLTZAP_VERSION = "2026.1006.1"
 ```
 
-Sole compatibility value for MoltZap-owned network boundaries.
+Sole compatibility value for Social Harness network boundaries.
 
 ### [`OverloadedError`](./http-errors.ts#L48)
 
@@ -582,7 +582,7 @@ export class VersionMismatchError extends Schema.TaggedError<VersionMismatchErro
 ) {}
 ```
 
-The request carries a different MoltZap compatibility value.
+The request carries a different wire compatibility value.
 
 ## Package subpaths
 
