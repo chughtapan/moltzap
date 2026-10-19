@@ -405,14 +405,15 @@ Four packages publish to npm as one version set: `@moltzap/identity`,
 `@moltzap/router`, `@moltzap/client`, and `@moltzap/openclaw-channel`.
 `@moltzap/nanoclaw-channel` stays private. The simulator is not published.
 
-In v1, a release that changes the wire compatibility value
-(`MOLTZAP_VERSION` / `moltzapVersion`), endpoint store schema, or Registry
+Until the planned reset release (migration plan PR 4), the v1 policy holds:
+a release that changes the wire compatibility value
+(`WIRE_VERSION` / `moltzapVersion`), endpoint store schema, or Registry
 database schema is a reset release. Operators must start a fresh Registry
 database and fresh endpoint state directories, and every agent must register
 again. Certified history from before the reset is not carried forward.
 Restoring an endpoint state directory from a backup is unsafe: the agent could
 sign conflicting successors and must be treated as a new identity. The
-[daemon format rules](./harness/daemon.md#current-formats-and-failures) and
+[daemon format rules](./harness/daemon.md#current-formats) and
 [Registry persistence rules](./identity.md#registry-persistence) govern version
 mismatches. Release notes mark each reset release with the phrase
 "Reset release"; the
@@ -423,7 +424,7 @@ mismatches. Release notes mark each reset release with the phrase
   `v<version>` release tags, and writes it into every published manifest.
 - `pnpm pack` pins each workspace sibling to that exact version, so an
   installed closure resolves the packages one release built, never a mix.
-- The package version is independent of `MOLTZAP_VERSION`, the MCP revision,
+- The package version is independent of `WIRE_VERSION`, the MCP revision,
   and every persisted-schema version. Advancing one never advances another.
 - Releases run from `main` through `.github/workflows/publish.yml` with npm
   provenance and publish npm packages only. The private
@@ -448,3 +449,31 @@ checks and release pins. Publication does not establish that every consumer
 has migrated. Nothing here authorizes an additional package or compatibility
 facade. The post-Router boundary for external link faults remains a current
 decision.
+
+## Wire compatibility window
+
+For releases after that reset, the wire-version window below replaces the
+v1 wire reset policy. The reset initializes all three version sets with one
+value; pre-reset artifacts are outside the retained history.
+
+Each release emits exactly `WIRE_VERSION`. A release first adds a successor
+version to `LIVE_WIRE_VERSIONS`; a later release may emit it. A version stays
+live for at least six months after the first release that emits its successor.
+It then remains in `HISTORY_WIRE_VERSIONS` until the next protocol reset.
+Endpoints that miss the live window require a reset.
+
+The mixed-release CI gate runs the previous published release and the oldest
+published release whose wire version remains live against the current build,
+using the current Registry and Router. Candidate selection reads the published
+Identity `moltzapWireVersion` npm metadata without installing candidates.
+Absent metadata denotes a pre-reset release until `FIRST_POST_RESET_RELEASE`
+is recorded when the reset release ships. Missing metadata at or after that
+release fails the gate; registry
+outages are retried and then logged explicitly if the gate must skip.
+Certified posts must flow in both
+directions. If both selections name the same release, it runs once. Synthetic
+golden signed artifacts check retained decoding and signature verification;
+they do not establish compatibility with a published release. Fixtures from a
+real release follow the first post-reset release. The gate starts with the first release after the
+reset; before that, it skips with the reason that no post-reset release is
+published. Main is not released between the four reset-preparation PRs.

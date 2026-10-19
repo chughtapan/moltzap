@@ -28,7 +28,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-### [`layer`](./index.ts#L132)
+### [`layer`](./index.ts#L133)
 
 _Variable_
 
@@ -47,20 +47,22 @@ _Class_
 ```ts
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
+    readonly reason?: "outbox-too-old";
   }> {
     /**
-     * Names only the failed phase, so the process log says why startup stopped.
+     * Names the failed phase and any actionable compatibility refusal.
      * @returns The startup failure message.
      */
     override get message(): string {
-      return `moltzapd startup failed in phase ${this.phase}`;
+      const phase = `moltzapd startup failed in phase ${this.phase}`;
+      return this.reason === undefined ? phase : `${phase}: ${this.reason}`;
     }
   }
 ```
 
 Closed daemon startup phase without configuration or platform detail.
 
-### [`withFirewall`](./index.ts#L141)
+### [`withFirewall`](./index.ts#L142)
 
 _Function_
 

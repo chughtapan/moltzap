@@ -4,11 +4,11 @@ import {
   AgentCardDigest,
   AgentId,
   type AgentId as AgentIdValue,
+  type LiveSignedMessage,
   MessageId,
   type MessageId as MessageIdValue,
-  MOLTZAP_VERSION,
   SignedMessage,
-  type SignedMessage as SignedMessageValue,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import canonicalize from "canonicalize";
 import { Effect, Either, Encoding, Fiber, Schema } from "effect";
@@ -76,14 +76,14 @@ const makeSignedMessage = (input: {
   readonly recipientAgentIds: readonly AgentIdValue[];
   readonly messageId: MessageIdValue;
   readonly body: string;
-}): SignedMessageValue => {
+}): LiveSignedMessage => {
   const agentCardDigest = Schema.decodeUnknownSync(AgentCardDigest)(
     `acd_${Encoding.encodeBase64Url(new Uint8Array(32).fill(9))}`,
   );
-  return Schema.decodeUnknownSync(SignedMessage)({
+  return Schema.decodeUnknownSync(SignedMessage.live)({
     payload: encodedCanonicalJson({
       kind: "signedMessage",
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       senderAgentId: input.senderAgentId,
       agentCardDigest,
       recipientAgentIds: input.recipientAgentIds,
@@ -103,11 +103,11 @@ const makeSignedMessage = (input: {
   });
 };
 
-const makeMaximumSignedMessage = (): SignedMessageValue =>
-  Schema.decodeUnknownSync(SignedMessage)({
+const makeMaximumSignedMessage = (): LiveSignedMessage =>
+  Schema.decodeUnknownSync(SignedMessage.live)({
     payload: encodedCanonicalJson({
       kind: "signedMessage",
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       senderAgentId: makeAgentId(250),
       agentCardDigest: `acd_${Encoding.encodeBase64Url(
         new Uint8Array(32).fill(9),
@@ -130,12 +130,12 @@ const makeMaximumSignedMessage = (): SignedMessageValue =>
     ],
   });
 
-const encodedMessage = (message: SignedMessageValue): string =>
+const encodedMessage = (message: LiveSignedMessage): string =>
   canonicalText(Schema.encodeSync(SignedMessage)(message));
 
 const acceptMessage = (
   feed: RouterFeed,
-  message: SignedMessageValue,
+  message: LiveSignedMessage,
   mode: "initial" | "retry" = "initial",
 ) =>
   feed.accept({

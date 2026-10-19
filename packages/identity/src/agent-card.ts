@@ -31,7 +31,7 @@ import {
   PrincipalId,
   type PrincipalId as PrincipalIdValue,
 } from "./identifiers.js";
-import { MOLTZAP_VERSION } from "./version.js";
+import { WIRE_VERSION, WireVersions } from "./version.js";
 
 const DIGEST_BYTE_LENGTH = 32;
 const WHOLE_SECOND_UTC =
@@ -134,7 +134,7 @@ const protectedHeader = exactStruct({
 
 const payload = exactStruct({
   kind: Schema.Literal("agentCard"),
-  moltzapVersion: Schema.Literal(MOLTZAP_VERSION),
+  moltzapVersion: WireVersions.history,
   agentId: AgentId,
   principalId: PrincipalId,
   agentName: AgentName,
@@ -365,7 +365,7 @@ export const issueAgentCard = (
   Effect.gen(function* () {
     const payloadBytes = yield* encodeCanonicalJson({
       kind: "agentCard",
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       agentId: input.agentId,
       principalId: input.principalId,
       agentName: input.agentName,

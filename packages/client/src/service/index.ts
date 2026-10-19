@@ -14,7 +14,7 @@ import {
   loadDaemonBootstrap,
   loadDaemonProcessConfiguration,
 } from "./configuration.js";
-import { runDaemonRuntime } from "./lifecycle.js";
+import { type DaemonRuntimeError, runDaemonRuntime } from "./lifecycle.js";
 import {
   readDaemonRegistrationState,
   requireAdmission,
@@ -71,13 +71,15 @@ export namespace Daemon {
   /** Closed daemon startup phase without configuration or platform detail. */
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
+    readonly reason?: "outbox-too-old";
   }> {
     /**
-     * Names only the failed phase, so the process log says why startup stopped.
+     * Names the failed phase and any actionable compatibility refusal.
      * @returns The startup failure message.
      */
     override get message(): string {
-      return `moltzapd startup failed in phase ${this.phase}`;
+      const phase = `moltzapd startup failed in phase ${this.phase}`;
+      return this.reason === undefined ? phase : `${phase}: ${this.reason}`;
     }
   }
 
@@ -123,8 +125,7 @@ export namespace Daemon {
         ...(auditExport === undefined ? {} : { auditExport }),
       }).pipe(
         Effect.provide(networkContext),
-        // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- The public process layer deliberately projects private runtime failures onto its closed startup phase.
-        Effect.mapError((error) => new StartupError({ phase: error.phase })),
+        Effect.mapError(runtimeStartupFailure),
       );
     }).pipe(Effect.withSpan("Daemon.layer"));
 
@@ -144,6 +145,18 @@ export namespace Daemon {
     const { auditExport, ...policyOptions } = options;
     return Layer.scopedDiscard(runDaemon(policyOptions, auditExport));
   };
+
+  /**
+   * Public startup failures retain the phase and actionable compatibility refusal.
+   * @param error Private runtime failure to project onto the process boundary.
+   * @returns The closed startup error without private runtime detail.
+   */
+  function runtimeStartupFailure(error: DaemonRuntimeError): StartupError {
+    return new StartupError({
+      phase: error.phase,
+      ...(error.reason === undefined ? {} : { reason: error.reason }),
+    });
+  }
 
   function configurationFailure(): StartupError {
     return new StartupError({ phase: "configuration" });

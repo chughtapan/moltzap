@@ -88,10 +88,11 @@ verified maps without rewriting record identity.
 An absent or empty database initializes at schema 8. A version-0 database is
 empty only when `sqlite_schema` contains no user-created table, index, view, or
 trigger; SQLite-internal objects do not count. Only an existing schema-8 store
-reopens. Every other schema version and any unrecognized nonempty database fails
-before WAL, schema or permission changes. There are no migrations or automatic
-resets. A reset release, including one that changes only the wire compatibility
-value, follows the
+reopens.
+Every other schema version and any unrecognized nonempty database fails before
+WAL, schema or permission changes. There are no schema migrations or automatic
+resets. Until the planned reset release (migration plan PR 4), a change to
+the wire compatibility value also requires a reset under the
 [v1 reset policy](../layer-interfaces.md#publication-and-versions). The daemon
 does not detect a state directory kept across a reset: an operator must replace
 it, because its AgentId is unknown to the fresh Registry.
@@ -193,11 +194,15 @@ preserve the row for replay. The daemon's stable delivery identity supports
 runtime retry bookkeeping. Handoff completes at native callback success or
 webhook HTTP 2xx receipt; ambiguous retries may duplicate delivery.
 
-## Current formats and failures
+## Current formats
 
-The daemon speaks only `V2_PROTOCOL_VERSION` `2026.1006.1`, hash domain v2,
-database schema 8, and the pinned draft MCP Events profile. Wire peers must use
-the current format. Native adapters and the daemon upgrade together. Runtime
+The daemon emits `WIRE_VERSION`, uses hash domain v2, database schema 8,
+and the pinned draft MCP Events profile. Until the planned reset release,
+the v1 reset policy above applies. For releases after that reset, the
+[wire-version window](../layer-interfaces.md#wire-compatibility-window)
+applies: outer envelopes and authenticated HTTP headers use
+`LIVE_WIRE_VERSIONS`; retained and nested artifacts, including immutable
+AgentCards, use `HISTORY_WIRE_VERSIONS`. Native adapters and the daemon upgrade together. Runtime
 MCP calls use the current message, guidance and refusal schemas directly;
 there is no separate message-policy capability or revision-header handshake.
 
@@ -237,3 +242,10 @@ logged.
 Acceptance covers single-process store ownership, explicit configuration,
 registration recovery, address-based management, signer-evidence audit,
 pending-delivery replay, exact catalog, and old-format rejection.
+
+A pending outbound envelope is replayed byte for byte with its original
+MessageId while its signed version remains live. Startup refuses an expired
+outbox with `OutboxTooOldError`. `Daemon.StartupError.reason` carries the
+closed reason `outbox-too-old` to the process log, alongside the storage
+phase. Operators drain that outbox using an earlier release before upgrading.
+No schema or backup changes accompany this refusal.

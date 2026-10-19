@@ -201,7 +201,7 @@ export class AuthenticatedHttp extends Context.Tag(
 
 Registered-agent request signing and verification.
 
-### [`AuthenticationFailedError`](./http-errors.ts#L12)
+### [`AuthenticationFailedError`](./http-errors.ts#L13)
 
 _Class_
 
@@ -261,7 +261,17 @@ export const Ed25519PublicKey = Schema.transform(
 
 Exact immutable Ed25519 public JWK.
 
-### [`InternalServerError`](./http-errors.ts#L60)
+### [`HISTORY_WIRE_VERSIONS`](./version.ts#L12)
+
+_Variable_
+
+```ts
+export const HISTORY_WIRE_VERSIONS = [WIRE_VERSION] as const
+```
+
+Retained artifacts remain readable until the next protocol reset.
+
+### [`InternalServerError`](./http-errors.ts#L65)
 
 _Class_
 
@@ -288,7 +298,28 @@ The supplied private-key material cannot act as an Ed25519 signer or yield
 its X25519 opening key. The public contract represents every such cause with
 this one empty error.
 
-### [`MalformedRequestError`](./http-errors.ts#L6)
+### [`LIVE_WIRE_VERSIONS`](./version.ts#L9)
+
+_Variable_
+
+```ts
+export const LIVE_WIRE_VERSIONS = [WIRE_VERSION] as const
+```
+
+Versions accepted at outer-envelope and authenticated HTTP admission.
+
+### [`LiveSignedMessage`](./signed-message.ts#L327)
+
+_TypeAlias_
+
+```ts
+export type LiveSignedMessage = SignedMessage &
+  Brand.Brand<"LiveSignedMessage">;
+```
+
+A decoded outer envelope whose version is admitted by the live window.
+
+### [`MalformedRequestError`](./http-errors.ts#L7)
 
 _Class_
 
@@ -321,7 +352,7 @@ export const MessageId = canonicalIdentifier("MessageId", "msg_", 16)
 
 Sender-scoped identity of one attributed message.
 
-### [`MethodNotAllowedError`](./http-errors.ts#L24)
+### [`MethodNotAllowedError`](./http-errors.ts#L25)
 
 _Class_
 
@@ -334,17 +365,7 @@ export class MethodNotAllowedError extends Schema.TaggedError<MethodNotAllowedEr
 
 The selected route does not accept the request method.
 
-### [`MOLTZAP_VERSION`](./version.ts#L4)
-
-_Variable_
-
-```ts
-export const MOLTZAP_VERSION = "2026.1006.1"
-```
-
-Sole compatibility value for Social Harness network boundaries.
-
-### [`OverloadedError`](./http-errors.ts#L48)
+### [`OverloadedError`](./http-errors.ts#L53)
 
 _Class_
 
@@ -357,7 +378,7 @@ export class OverloadedError extends Schema.TaggedError<OverloadedError>()(
 
 A finite immediate resource permit is unavailable.
 
-### [`PayloadTooLargeError`](./http-errors.ts#L36)
+### [`PayloadTooLargeError`](./http-errors.ts#L41)
 
 _Class_
 
@@ -394,7 +415,7 @@ export const PrincipalId = canonicalIdentifier(
 
 Opaque identity of the principal represented by an agent.
 
-### [`RouteNotFoundError`](./http-errors.ts#L18)
+### [`RouteNotFoundError`](./http-errors.ts#L19)
 
 _Class_
 
@@ -464,18 +485,20 @@ export interface SignedMessage {
 
 Immutable attributed-message fields exposed to Router consumers.
 
-### [`SignedMessage (value)`](./signed-message.ts#L490)
+### [`SignedMessage (value)`](./signed-message.ts#L510)
 
 _Variable_
 
 ```ts
 export const SignedMessage = Object.assign(signedMessageSchema, {
+  live: live as Schema.Schema<LiveSignedMessage, unknown>,
   sign,
   verify,
   encodedByteLength,
   maximumEncodedByteLength: MAXIMUM_ENCODED_BYTES,
 }) as Schema.Schema<SignedMessage, unknown> &
   Readonly<{
+    readonly live: Schema.Schema<LiveSignedMessage, unknown>;
     readonly sign: typeof sign;
     readonly verify: typeof verify;
     readonly encodedByteLength: typeof encodedByteLength;
@@ -485,7 +508,7 @@ export const SignedMessage = Object.assign(signedMessageSchema, {
 
 Opaque attributed message operations and exact representation Schema.
 
-### [`SignedMessageSigningError`](./signed-message.ts#L315)
+### [`SignedMessageSigningError`](./signed-message.ts#L317)
 
 _Class_
 
@@ -497,7 +520,7 @@ export class SignedMessageSigningError extends Data.TaggedError(
 
 A message cannot be signed under the supplied immutable identity.
 
-### [`SignedMessageVerificationError`](./signed-message.ts#L320)
+### [`SignedMessageVerificationError`](./signed-message.ts#L322)
 
 _Class_
 
@@ -509,7 +532,7 @@ export class SignedMessageVerificationError extends Data.TaggedError(
 
 A SignedMessage does not bind to the supplied verified AgentCard.
 
-### [`UnavailableError`](./http-errors.ts#L54)
+### [`UnavailableError`](./http-errors.ts#L59)
 
 _Class_
 
@@ -522,7 +545,7 @@ export class UnavailableError extends Schema.TaggedError<UnavailableError>()(
 
 A required service or durable operation cannot currently complete.
 
-### [`UnsupportedMediaTypeError`](./http-errors.ts#L42)
+### [`UnsupportedMediaTypeError`](./http-errors.ts#L47)
 
 _Class_
 
@@ -560,7 +583,7 @@ export type VerifiedAgentRequest = Readonly<{
 
 Request body and caller identity established by AuthenticatedHttp.
 
-### [`VerifiedSignedMessage`](./signed-message.ts#L309)
+### [`VerifiedSignedMessage`](./signed-message.ts#L311)
 
 _TypeAlias_
 
@@ -571,18 +594,86 @@ export type VerifiedSignedMessage = SignedMessage &
 
 SignedMessage whose sender attribution and signature are verified.
 
-### [`VersionMismatchError`](./http-errors.ts#L30)
+### [`VersionMismatchError`](./http-errors.ts#L31)
 
 _Class_
 
 ```ts
 export class VersionMismatchError extends Schema.TaggedError<VersionMismatchError>()(
   "VersionMismatchError",
-  {},
+  {
+    supported: Schema.optionalWith(Schema.Array(Schema.String), {
+      default: () => LIVE_WIRE_VERSIONS,
+    }),
+  },
 ) {}
 ```
 
 The request carries a different wire compatibility value.
+
+### [`WIRE_VERSION`](./version.ts#L6)
+
+_Variable_
+
+```ts
+export const WIRE_VERSION = "2026.1006.1"
+```
+
+Every newly signed artifact carries this version.
+
+### [`WireVersion`](./version.ts#L15)
+
+_TypeAlias_
+
+```ts
+export type WireVersion = (typeof HISTORY_WIRE_VERSIONS)[number];
+```
+
+A version represented by retained protocol artifacts.
+
+### [`WireVersions`](./version.ts#L21)
+
+_Class_
+
+```ts
+export class WireVersions extends Context.Tag("@moltzap/identity/WireVersions")<
+  WireVersions,
+  { readonly live: readonly string[]; readonly history: readonly string[] }
+>() {
+  /** Retained values share a window throughout nested artifact decoding. */
+  static readonly history = Schema.String.pipe(
+    Schema.filterEffect((version) =>
+      Effect.serviceOption(WireVersions).pipe(
+        Effect.map((configuration) =>
+          Option.match(configuration, {
+            onNone: () =>
+              HISTORY_WIRE_VERSIONS.some((item) => item === version),
+            onSome: (sets) =>
+              HISTORY_WIRE_VERSIONS.some((item) => item === version) ||
+              sets.history.includes(version),
+          }),
+        ),
+      ),
+    ),
+  );
+
+  /** Outer admission is independent from retained readability. */
+  static readonly live = (version: string) =>
+    Effect.serviceOption(WireVersions).pipe(
+      Effect.map((configuration) =>
+        Option.match(configuration, {
+          onNone: () => LIVE_WIRE_VERSIONS.some((item) => item === version),
+          onSome: (sets) =>
+            LIVE_WIRE_VERSIONS.some((item) => item === version) &&
+            sets.live.includes(version),
+        }),
+      ),
+    );
+}
+```
+
+Optional decoder policy can narrow live admission and extend retained history.
+The binary's live set remains the admission ceiling for every composition.
 
 ## Package subpaths
 

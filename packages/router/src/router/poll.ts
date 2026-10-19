@@ -2,8 +2,8 @@
 import {
   type AgentId,
   InternalServerError,
+  type LiveSignedMessage,
   OverloadedError,
-  type SignedMessage,
 } from "@moltzap/identity";
 import canonicalize from "canonicalize";
 import { Duration, Effect, Option, Schema } from "effect";
@@ -69,7 +69,7 @@ interface ScanResult {
 }
 
 interface ScanState {
-  readonly selected: readonly SignedMessage[];
+  readonly selected: readonly LiveSignedMessage[];
   readonly lastScannedOrder: bigint;
 }
 
@@ -104,7 +104,7 @@ const addressedDataIsReady = (
 const makeBatch = (
   input: PollDependencies,
   callerAgentId: AgentId,
-  signedMessages: readonly SignedMessage[],
+  signedMessages: readonly LiveSignedMessage[],
   lastScannedOrder: bigint,
 ): Effect.Effect<RouterPollResultValue, InternalServerError> =>
   input.cursorCodec.encrypt({ agentId: callerAgentId, lastScannedOrder }).pipe(
