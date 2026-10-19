@@ -189,14 +189,14 @@ webhook HTTP 2xx receipt; ambiguous retries may duplicate delivery.
 
 ## Current formats
 
-The daemon emits `WIRE_VERSION`, uses hash domain v2, database schema 8,
-and the pinned draft MCP Events profile. Until the planned reset release,
+The daemon emits `WIRE_VERSION` (`V2_PROTOCOL_VERSION` `2026.1006.1`), uses hash
+domain v2, database schema 8, and the pinned draft MCP Events profile. Until the planned reset release,
 the v1 reset policy above applies. For releases after that reset, the
 [wire-version window](../layer-interfaces.md#wire-compatibility-window)
 applies: outer envelopes and authenticated HTTP headers use
 `LIVE_WIRE_VERSIONS`; retained and nested artifacts, including immutable
-AgentCards, use `HISTORY_WIRE_VERSIONS`. Native adapters and the daemon upgrade together. Runtime
-MCP calls use the current message, guidance and refusal schemas directly;
+AgentCards, use `HISTORY_WIRE_VERSIONS`. Native adapters and the daemon upgrade
+together. Runtime MCP calls use the current message, guidance and refusal schemas directly;
 there is no separate message-policy capability or revision-header handshake.
 
 A store failure during delivery stops the daemon with a `storage` startup or
