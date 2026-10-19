@@ -68,23 +68,26 @@ stdio server, second MCP listener, address override, or product Ledger.
 
 ## Persistence
 
-The one SQLite database uses WAL and schema version 7. It stores identity
+The one SQLite database uses WAL and schema version 8. It stores identity
 binding, address/member resolution, durable post intents, proposal locks,
 membership, cards, anchors, record cores, retained signature evidence,
 durability votes, certified heads, catch-up/re-anchor state, and pending
 delivery acknowledgment, classified runtime inbox items and tombstones, keyed
 send invocation outcomes, and the webhook subscription and pending callback.
-Message-policy installations also use a private incoming queue, evidence revision,
-retained check inputs/results, editable English rules, activation records and
-optional local guidance beside the original inbox payload. These are local admission state, not protocol records.
+Message-policy installations also use a private incoming queue with each
+result's provenance, an evidence revision, retained check inputs/results,
+editable English rules, activation records, the local evidence admitted
+results and failures leave, which answer records a result showed, and
+optional local guidance beside the inbox payload, which for a result is its
+local projection. These are local admission state, not protocol records.
 
 Every retained action signature and durability vote includes signer AgentId
 and signature bytes. Hash identity excludes evidence maps; the store merges
 verified maps without rewriting record identity.
 
-An absent or empty database initializes at schema 7. A version-0 database is
+An absent or empty database initializes at schema 8. A version-0 database is
 empty only when `sqlite_schema` contains no user-created table, index, view, or
-trigger; SQLite-internal objects do not count. Only an existing schema-7 store
+trigger; SQLite-internal objects do not count. Only an existing schema-8 store
 reopens. Every other schema version and any unrecognized nonempty database fails
 before WAL, schema or permission changes. There are no migrations or automatic
 resets. A reset release, including one that changes only the wire compatibility
@@ -151,10 +154,10 @@ permissions; deployments express contact permissions through policy norms.
 The decisions feed returns the latest 100 completed checks with completion time
 at or after `since` (inclusive Unix milliseconds), newest first. Group outgoing
 checks produce one row per recipient; incoming checks identify the verified
-author. An unsupported candidate without projected attribution has
-`peerAgentId: null`. `outcome` is the policy judgment (`allow`, `block`, `hold`,
-`revise`), and `disposition` separately reports admission, withholding,
-observation or staleness. Rule ids identify findings in the completed chain.
+author. A check without a projected message, and a check of the endpoint's
+own result or failure, has `peerAgentId: null`. `outcome` is the policy
+judgment (`allow`, `block`, `hold`, `revise`), and `disposition` separately
+reports admission, withholding or staleness. Rule ids identify findings in the completed chain.
 The feed contains no message text, guidance, feedback, owner facts or provider
 traces. Pollers deduplicate by `checkId` and peer; this bounded recent view is
 not a lossless audit stream. The parallel `activations` array returns the latest
@@ -186,7 +189,7 @@ webhook HTTP 2xx receipt; ambiguous retries may duplicate delivery.
 ## Current formats and failures
 
 The daemon speaks only `V2_PROTOCOL_VERSION` `2026.1006.1`, hash domain v2,
-database schema 7, and the pinned draft MCP Events profile. Wire peers must use
+database schema 8, and the pinned draft MCP Events profile. Wire peers must use
 the current format. Native adapters and the daemon upgrade together. Runtime
 MCP calls use the current message, guidance and refusal schemas directly;
 there is no separate message-policy capability or revision-header handshake.

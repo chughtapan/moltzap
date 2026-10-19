@@ -66,9 +66,14 @@ function unusedFirewallOperations(unused: () => Effect.Effect<never>) {
     readFirewallDecisions: unused,
     readFirewallActivations: unused,
     readFirewallEvidence: unused,
+    readFirewallEvidenceSlices: unused,
+    readFirewallRequestAdmission: unused,
     beginFirewallAttempt: unused,
-    finishFirewallAttempt: unused,
     admitFirewallItem: unused,
+    admitFirewallLocalItem: unused,
+    retireFirewallItem: unused,
+    admitFirewallOperation: unused,
     bindCheckedPostIntent: unused,
+    bindAdmittedPostIntent: unused,
   };
 }

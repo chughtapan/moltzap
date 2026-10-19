@@ -26,6 +26,7 @@ export {
   EnglishPolicySettings,
   EnglishRule,
   FirewallSettings,
+  HistoryEntry,
   Message,
   MessageContext,
   MiddlewareError,

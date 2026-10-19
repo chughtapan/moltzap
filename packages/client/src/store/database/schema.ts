@@ -30,7 +30,7 @@ export interface StoreState {
 
 const DATABASE_NAME = "moltzapd.sqlite3";
 /** Only this layout can reopen; incompatible endpoint state requires an explicit reset. */
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 /** An absent or empty database is created; the current schema reopens. */
 export type StoreOpening = "create" | "reopen";
@@ -302,6 +302,9 @@ const firewallSchemaSql = `
     delivery_token TEXT NOT NULL UNIQUE,
     conversation TEXT NOT NULL,
     canonical_item BLOB NOT NULL,
+    canonical_provenance BLOB,
+    anchor INTEGER NOT NULL CHECK (anchor >= 0),
+    check_id TEXT,
     disposition TEXT NOT NULL DEFAULT 'pending'
       CHECK (disposition IN ('pending', 'admitted', 'withheld'))
   ) STRICT;
@@ -317,8 +320,30 @@ const firewallSchemaSql = `
     canonical_input BLOB NOT NULL,
     canonical_result BLOB,
     disposition TEXT NOT NULL DEFAULT 'checking'
-      CHECK (disposition IN ('checking', 'interrupted', 'stale', 'admitted', 'withheld', 'observed'))
+      CHECK (disposition IN ('checking', 'interrupted', 'stale', 'admitted', 'withheld'))
   ) STRICT;
+  CREATE TABLE firewall_local_evidence (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation TEXT NOT NULL,
+    anchor INTEGER NOT NULL CHECK (anchor >= 0),
+    canonical_entry BLOB NOT NULL
+  ) STRICT;
+  CREATE INDEX firewall_local_evidence_window
+    ON firewall_local_evidence(conversation, anchor);
+  CREATE TABLE firewall_answers (
+    conversation_id TEXT NOT NULL,
+    record_hash TEXT NOT NULL,
+    admitted INTEGER NOT NULL CHECK (admitted IN (0, 1)),
+    PRIMARY KEY (conversation_id, record_hash),
+    FOREIGN KEY (conversation_id, record_hash)
+      REFERENCES certified_records(conversation_id, record_hash)
+  ) STRICT;
+  CREATE TRIGGER firewall_local_evidence_changed AFTER INSERT ON firewall_local_evidence BEGIN
+    UPDATE firewall_evidence SET revision = revision + 1 WHERE singleton = 1;
+  END;
+  CREATE TRIGGER firewall_answers_changed AFTER INSERT ON firewall_answers BEGIN
+    UPDATE firewall_evidence SET revision = revision + 1 WHERE singleton = 1;
+  END;
   CREATE TRIGGER firewall_history_changed AFTER INSERT ON certified_records BEGIN
     UPDATE firewall_evidence SET revision = revision + 1 WHERE singleton = 1;
   END;
@@ -415,6 +440,7 @@ const schemaSql = `
     FOREIGN KEY (conversation_id, record_hash)
       REFERENCES staged_records(conversation_id, record_hash)
   ) STRICT;
+  CREATE INDEX certified_records_by_hash ON certified_records(record_hash);
   CREATE TABLE reanchors (
     conversation_id TEXT NOT NULL REFERENCES memberships(conversation_id),
     anchor_hash TEXT NOT NULL,
@@ -442,6 +468,7 @@ const schemaSql = `
     FOREIGN KEY (conversation_id, record_hash)
       REFERENCES certified_records(conversation_id, record_hash)
   ) STRICT;
+  CREATE INDEX pending_deliveries_by_record ON pending_deliveries(record_hash);
   CREATE TABLE outbound_messages (
     outbound_sequence INTEGER PRIMARY KEY,
     outbound_id TEXT NOT NULL UNIQUE,

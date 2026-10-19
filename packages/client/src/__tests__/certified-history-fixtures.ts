@@ -141,11 +141,14 @@ export interface HistoryEndpoint {
   readonly membership: VerifiedMembership;
 }
 
-/** Extend a two-member certified history with a signed remote or local post. */
+/**
+ * Extend a two-member certified history with a signed remote or local post
+ * carrying `text` as its one part, or exactly the given content.
+ */
 export function appendCertifiedPost(
   endpoint: HistoryEndpoint,
   previous: CertifiedRecord,
-  text: string,
+  text: string | PostIntent["content"],
   authoredLocally = false,
 ): Effect.Effect<CertifiedRecord> {
   const { local, remote, membership } = endpoint;
@@ -294,14 +297,14 @@ function postRecordCore(
   membership: VerifiedMembership,
   predecessor: CertifiedRecord["actionCertifiedRecord"],
   author: SigningIdentity,
-  text: string,
+  text: string | PostIntent["content"],
 ) {
   return Effect.gen(function* () {
     const postIntent: PostIntent = {
       ...predecessor.recordCore.action.postIntent,
       authorAgentId: author.card.agentId,
       postId: yield* mintPostId(),
-      content: [{ type: "text", text }],
+      content: typeof text === "string" ? [{ type: "text", text }] : text,
     };
     const action: PostActionCore = {
       moltzapVersion: MOLTZAP_VERSION,

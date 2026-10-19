@@ -9,6 +9,7 @@ import {
   Exit,
   FastCheck as fc,
   Fiber,
+  Schema,
   TestClock,
 } from "effect";
 import { expect } from "vitest";
@@ -255,6 +256,40 @@ it("reports earlier history omissions to the provider without holding or collidi
       requests.every((request) =>
         request.state.includes('"earlierHistoryOmitted":true'),
       ),
+    ).toBe(true);
+  }));
+
+/** The parts of a request's state that say when it was captured and which operation it checks. */
+const statedTimeAndCandidate = Schema.parseJson(
+  Schema.Struct({
+    now: Schema.optional(Schema.Number),
+    candidate: Schema.Struct({
+      operation: Schema.optional(Schema.Struct({ id: Schema.String })),
+    }),
+  }),
+);
+
+it("states the capture time and each message's collective operation to the provider", () =>
+  Effect.gen(function* () {
+    const requests: DecisionRequest[] = [];
+    const operation = {
+      kind: "request",
+      op: "gather",
+      id: "col_question",
+      deadlineAt: 2_000,
+    } as const;
+    yield* check(provider({}, requests), {
+      message: { ...draft, operation },
+      context: { ...context, now: 1_000 },
+    });
+
+    const states = requests.map((request) =>
+      Schema.decodeUnknownSync(statedTimeAndCandidate)(request.state),
+    );
+    expect(states.length).toBeGreaterThan(0);
+    expect(states.every((state) => state.now === 1_000)).toBe(true);
+    expect(
+      states.some((state) => state.candidate.operation?.id === operation.id),
     ).toBe(true);
   }));
 

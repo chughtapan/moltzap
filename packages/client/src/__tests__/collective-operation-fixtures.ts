@@ -1,7 +1,13 @@
 /** @file Recording ports, post builders and send helpers shared by the collective operation tests. */
 
 import { Duration, Effect, Schema, type Scope } from "effect";
+import type { FirewallSendError } from "../firewall/runtime.js";
 import type { InboundItem } from "../transport/collectives/inbound.js";
+import type {
+  CollectiveAdmission,
+  CollectiveOperations,
+  CollectivePorts,
+} from "../transport/collectives/ports.js";
 import type { EngineSendInput } from "../transport/messaging/index.js";
 import {
   CollectiveEmitError,
@@ -10,11 +16,7 @@ import {
   type FailureDelivery,
   SendInput,
 } from "../transport/collectives/forms.js";
-import {
-  type CollectiveOperations,
-  type CollectivePorts,
-  makeCollectiveOperations,
-} from "../transport/collectives/operation.js";
+import { makeCollectiveOperations } from "../transport/collectives/operation.js";
 import {
   collectiveIdOf,
   readCollectiveValue,
@@ -138,6 +140,8 @@ interface LayerOptions {
   readonly sendPost?: CollectivePorts["sendPost"];
   /** Keeps each item the layer emits; by default it records the item. */
   readonly emit?: CollectivePorts["emit"];
+  /** An installed firewall's checks; none by default. */
+  readonly admission?: CollectiveAdmission;
 }
 
 /**
@@ -151,6 +155,7 @@ interface LayerOptions {
  * @param options.unknown Members whose lookup fails as an unknown agent.
  * @param options.sendPost Certifies each post `refused` lets through.
  * @param options.emit Keeps each item the layer emits.
+ * @param options.admission An installed firewall's checks.
  * @returns The layer, scoped to the caller.
  */
 export const makeLayer = (
@@ -164,10 +169,12 @@ export const makeLayer = (
       Effect.sync(() => {
         observed.emitted.push(item);
       }),
+    admission,
   }: LayerOptions = {},
 ): Effect.Effect<CollectiveOperations, never, Scope.Scope> =>
   Effect.map(Effect.scope, (scope) =>
     makeCollectiveOperations({
+      ...(admission === undefined ? {} : { admission }),
       self: Schema.decodeUnknownSync(AgentAddress)(self),
       lookupMember: (member) =>
         unknown.includes(member)
@@ -293,7 +300,7 @@ export const gatherInput = (
  * @returns A collective failure's own value, or the send error itself.
  */
 export const collectiveFailureOf = <A>(
-  effect: Effect.Effect<A, SendError | CollectiveError>,
+  effect: Effect.Effect<A, SendError | CollectiveError | FirewallSendError>,
 ) =>
   Effect.flip(effect).pipe(
     Effect.map((error) =>

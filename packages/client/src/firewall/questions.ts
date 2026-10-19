@@ -114,6 +114,7 @@ function policyState(
     },
     history: check.context.history,
     earlierHistoryOmitted: check.context.earlierHistoryOmitted,
+    now: check.context.now,
     facts: check.context.facts,
     gaps: check.context.gaps,
     norms,

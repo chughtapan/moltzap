@@ -31,6 +31,7 @@ import {
 import { describe, expect } from "vitest";
 import type { EngineSentPost } from "../messaging/index.js";
 import type { CollectiveMemberOutcome, InboundItem } from "./inbound.js";
+import type { CollectiveOperations } from "./ports.js";
 import {
   alice,
   collectiveKey,
@@ -44,10 +45,7 @@ import { InboundMessage } from "../messaging/message.js";
 import { Content, type RecordHash } from "../wire/index.js";
 import { AgentAddress } from "../wire/values.js";
 import { SendInput } from "./forms.js";
-import {
-  type CollectiveOperations,
-  makeCollectiveOperations,
-} from "./operation.js";
+import { makeCollectiveOperations } from "./operation.js";
 import { type CollectiveValue, readCollectiveValue } from "./part/index.js";
 
 const group = "group:alice,bob,carol,dave";

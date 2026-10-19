@@ -3,7 +3,7 @@
 import { scoped as it } from "@effect/vitest";
 import { Duration, Effect, Fiber, Option, Supervisor, TestClock } from "effect";
 import { describe, expect } from "vitest";
-import type { CollectivePorts } from "./operation.js";
+import type { CollectivePorts } from "./ports.js";
 import {
   answerPost,
   certifyNext,

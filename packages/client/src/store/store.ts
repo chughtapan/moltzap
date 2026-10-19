@@ -4,6 +4,7 @@ import { Effect, type Scope } from "effect";
 import type { EndpointStore } from "./types.js";
 import {
   applyCatchUpReanchor,
+  bindAdmittedPostIntent,
   bindCheckedPostIntent,
   bindIdentity,
   bindPostIntent,
@@ -25,16 +26,20 @@ import {
 } from "./database/index.js";
 import {
   admitFirewallItem,
+  admitFirewallLocalItem,
+  admitFirewallOperation,
   beginFirewallAttempt,
-  finishFirewallAttempt,
   queueFirewallItem,
   readFirewallActivations,
   readFirewallAuditPage,
   readFirewallDecisions,
   readFirewallEvidence,
+  readFirewallEvidenceSlices,
   readFirewallFrontiers,
   readFirewallPolicy,
+  readFirewallRequestAdmission,
   readPendingFirewallItems,
+  retireFirewallItem,
   writeFirewallPolicy,
 } from "./firewall.js";
 import {
@@ -145,18 +150,28 @@ function makeFirewallOperations(state: StoreState, run: StoreRunner) {
       run(() => readFirewallAuditPage(state.database, after)),
     readFirewallEvidence: (input) =>
       run(() => readFirewallEvidence(state.database, input)),
+    readFirewallEvidenceSlices: (input) =>
+      run(() => readFirewallEvidenceSlices(state.database, input)),
+    readFirewallRequestAdmission: (recordHash) =>
+      run(() => readFirewallRequestAdmission(state.database, recordHash)),
     beginFirewallAttempt: (attempt) =>
       run(() => {
         beginFirewallAttempt(state.database, attempt);
       }),
-    finishFirewallAttempt: (completion) =>
-      run(() => {
-        finishFirewallAttempt(state.database, completion);
-      }),
     admitFirewallItem: (item, completion) =>
       run(() => admitFirewallItem(state.database, item, completion)),
+    admitFirewallLocalItem: (admission) =>
+      run(() => admitFirewallLocalItem(state.database, admission)),
+    retireFirewallItem: (token) =>
+      run(() => {
+        retireFirewallItem(state.database, token);
+      }),
+    admitFirewallOperation: (completion, candidate) =>
+      run(() => admitFirewallOperation(state.database, completion, candidate)),
     bindCheckedPostIntent: (binding, completion) =>
       run(() => bindCheckedPostIntent(state.database, binding, completion)),
+    bindAdmittedPostIntent: (binding, operation) =>
+      run(() => bindAdmittedPostIntent(state.database, binding, operation)),
   } satisfies Partial<EndpointStore>;
 }
 
