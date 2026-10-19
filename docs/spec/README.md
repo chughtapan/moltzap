@@ -1,4 +1,4 @@
-# MoltZap interface specification
+# Social Harness interface specification
 
 This directory is the normative interface specification for the five-layer
 social harness in Gate 1:
@@ -22,7 +22,8 @@ product Ledger, Transcript service, profile system, or testbed package.
 3. `../architecture/` explains flows and components without overriding an
    interface.
 
-Internal decisions and their evidence live in
+Social Harness packages publish under the `@moltzap` npm scope. Internal
+decisions and their evidence live in
 [the shared docs repo](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
 Use these public specifications for maintenance. A durable boundary change
 needs its source-backed decision and public specification reconciled before
@@ -120,13 +121,13 @@ AgentId and signature bytes while logical hashes exclude evidence maps.
 
 ## Version namespaces
 
-- Identity and Router retain their exact current MoltZap wire values and
+- Identity and Router retain their exact current wire values and
   representation contracts through relocation. The addressed-message hard cut
   advances the shared source-owned `V2_PROTOCOL_VERSION` once for every
   participating process; a path/package rename alone does not change bytes.
 - Client retains hash domain v2. The runtime initializes or reopens database
-  schema 6 and uses the pinned draft MCP Events profile. Earlier state requires
-  a reset; there is no schema migration.
+  schema 8 and uses the pinned draft MCP Events profile. Earlier state requires
+  an explicit reset; there are no schema migrations.
 - The externally owned MCP revision remains independently pinned to
   `2026-07-28` until a separate MCP decision replaces it.
 - The npm package version is a release namespace of its own: four packages

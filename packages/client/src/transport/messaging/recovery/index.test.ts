@@ -32,6 +32,7 @@ import {
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, vi } from "vitest";
 import type { AddressRegistryPort } from "../address.js";
+import type { EngineRuntime } from "../runtime/index.js";
 import {
   digest,
   identifier,
@@ -109,6 +110,7 @@ import {
   verifyMembershipDescriptor,
 } from "../../wire/index.js";
 import { MessageAddressInput } from "../../wire/values.js";
+import { acceptEngineRecoveryIngress } from "../certification/index.js";
 import {
   type EndpointEngine,
   type EndpointEngineInput,
@@ -116,7 +118,16 @@ import {
   EngineOutboundError,
   makeEndpointEngine,
 } from "../index.js";
-import { makeCatchUpState, waitBehindEarlierReanchor } from "./catch-up.js";
+import { makeOutbox } from "../outbox.js";
+import { recoverEngineState } from "../startup.js";
+import {
+  acceptCatchUpPage,
+  type CatchUpRun,
+  makeCatchUpState,
+  requestCertifiedHistory,
+  resendCertifiedHistoryRequest,
+  waitBehindEarlierReanchor,
+} from "./catch-up.js";
 import { catchUpRetryAttempts } from "./index.js";
 
 /* eslint-disable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- One exact cryptographic trace keeps protocol order and assertions together. */
@@ -1258,6 +1269,57 @@ function takeBodiesThroughActionProposal(
       body.kind === "direct" && body.packet.kind === "action_proposal"
         ? Effect.succeed([...taken, body])
         : takeBodiesThroughActionProposal(outbound, [...taken, body]),
+    ),
+    Effect.orDie,
+  );
+}
+
+/**
+ * The next action proposal a fixture Router forwarded for one conversation.
+ * Proposals of other conversations, such as an author's resends of a proposal
+ * whose action certificate is incomplete, are skipped.
+ * @param outbound Fixture Router queue.
+ * @param conversationId Conversation whose proposal is awaited.
+ * @returns The proposal and the envelope that carried it.
+ */
+function takeActionProposalIn(
+  outbound: Queue.Queue<SignedMessage>,
+  conversationId: string,
+): Effect.Effect<QueuedActionProposal> {
+  return takeActionProposalAfterEvidence(outbound).pipe(
+    Effect.flatMap((taken) =>
+      taken.proposal.action.conversationId === conversationId
+        ? Effect.succeed(taken)
+        : takeActionProposalIn(outbound, conversationId),
+    ),
+  );
+}
+
+/**
+ * Drain a fixture Router queue and count the action proposals it held for one
+ * conversation.
+ * @param outbound Fixture Router queue.
+ * @param conversationId Conversation whose proposals are counted.
+ * @returns How many of the drained envelopes propose in that conversation.
+ */
+function directProposalsIn(
+  outbound: Queue.Queue<SignedMessage>,
+  conversationId: string,
+): Effect.Effect<number> {
+  return Queue.takeAll(outbound).pipe(
+    Effect.flatMap((messages) =>
+      Effect.forEach(messages, (message) => openForwarded(message), {
+        concurrency: 1,
+      }),
+    ),
+    Effect.map(
+      (bodies) =>
+        bodies.filter(
+          (body) =>
+            body.kind !== "evidence" &&
+            body.packet.kind === "action_proposal" &&
+            body.packet.action.conversationId === conversationId,
+        ).length,
     ),
     Effect.orDie,
   );
@@ -3947,7 +4009,7 @@ describe("endpoint restart recovery", () => {
       expect(restarted).toStrictEqual(restart);
     }),
   );
-  it(
+  itOnTestClock(
     "waits for the complete N4 successor before re-anchoring its latest head",
     recoversN4PartiallyDisseminatedSuccessor,
   );
@@ -6198,7 +6260,10 @@ const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
       fixture.normalOutbound,
     );
     yield* settle;
-    const reachedRouterWhileFenced = yield* Queue.size(fixture.normalOutbound);
+    const reachedRouterWhileFenced = yield* directProposalsIn(
+      fixture.normalOutbound,
+      fixture.membership.descriptor.conversationId,
+    );
     const heldSend = yield* Fiber.poll(directSend);
     const ordered = yield* directPacketIngressFrom({
       membership: n4.membership,
@@ -6225,8 +6290,9 @@ const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
       n4.engine,
       catchUpIncompleteIngress(fixture, directRequest),
     );
-    const released = yield* takeActionProposalAfterEvidence(
+    const released = yield* takeActionProposalIn(
       fixture.normalOutbound,
+      fixture.membership.descriptor.conversationId,
     );
 
     expect(Option.isNone(sentBelowQuorum)).toBe(true);
@@ -6710,8 +6776,328 @@ const rearmsEveryPausedConversationOnReattach = () =>
     );
   });
 
+/**
+ * Latest the first proposal resend can fire: the catch-up retry base of one
+ * second with its jitter, and earlier than the second resend can.
+ */
+const FIRST_RESEND_DUE = "1300 millis";
+
+/**
+ * Live time a trace waits for the resent envelopes once the clock passes
+ * their delay; sealing and signing them settles on real promises.
+ */
+const RESEND_WAIT = "20 seconds";
+
+/**
+ * The author re-anchors at a Router restart, recovers, and posts while the
+ * other member still catches up from the new anchor, so that member ignores
+ * the proposal as traffic for a fenced conversation and never signs it. After
+ * the catch-up retry delay the author sends its head's certified record and
+ * the identical proposal again, in new outer messages; the member signs that
+ * copy, and the post certifies. Fails when the author sends an unchanged
+ * proposal only once, so the post waits for a signature that never comes.
+ */
+const resendsAProposalAMemberDroppedWhileRecovering = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    yield* retainCertifiedRecord(fixture);
+    yield* reanchorUntilCompletionSend(fixture);
+    const sending = yield* forkSend(
+      fixture.engine,
+      `agent:${fixture.remote.card.agentName}`,
+      "sent while the member recovers",
+    );
+    const first = yield* takeActionProposalAfterEvidence(
+      fixture.normalOutbound,
+    );
+    const actionHash = yield* hashAction(first.proposal.action);
+    yield* directPacketIngressFrom({
+      membership: fixture.membership,
+      sender: fixture.local,
+      packet: first.proposal,
+      routerInstanceId: newRouterInstanceId,
+    }).pipe(
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
+    );
+    const authorEvidence = yield* Queue.take(fixture.normalOutbound).pipe(
+      Effect.flatMap(decodeEvidenceKind),
+    );
+
+    yield* settle;
+    yield* TestClock.adjust(FIRST_RESEND_DUE);
+    const resent = yield* TestServices.provideLive(
+      Queue.takeN(fixture.normalOutbound, 2).pipe(
+        Effect.timeoutOption(RESEND_WAIT),
+      ),
+    ).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () =>
+            Effect.dieMessage("the author did not send its proposal again"),
+          onSome: (messages) => Effect.succeed(Chunk.toReadonlyArray(messages)),
+        }),
+      ),
+    );
+    const resentBodies = yield* Effect.forEach(
+      resent,
+      (message) => openForwarded(message),
+      { concurrency: 1 },
+    ).pipe(Effect.orDie);
+    yield* peerEvidenceIngress(fixture, {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "action_signature",
+      signerAgentId: fixture.remote.card.agentId,
+      actionHash,
+    }).pipe(
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
+    );
+    const staged = (yield* fixture.store.recover()).stagedRecords.find(
+      (record) => record.actionHash === actionHash,
+    );
+    if (staged === undefined) {
+      return yield* Effect.dieMessage("the author staged no record");
+    }
+    const recordHash = yield* Schema.decodeUnknown(RecordHash)(
+      staged.recordHash,
+    );
+    yield* peerEvidenceIngress(fixture, {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "durability_vote",
+      signerAgentId: fixture.remote.card.agentId,
+      conversationId: fixture.membership.descriptor.conversationId,
+      membershipHash: fixture.membership.hash,
+      recordHash,
+    }).pipe(
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
+    );
+    const sent = yield* Fiber.join(sending);
+
+    expect(authorEvidence).toBe(actionSignatureKind);
+    expect(resentBodies).toMatchObject([
+      {
+        kind: "direct",
+        packet: {
+          kind: "certified_record",
+          actionCertifiedRecord: {
+            recordHash: first.proposal.action.previousRecordHash,
+          },
+        },
+      },
+      { kind: "direct", packet: first.proposal },
+    ]);
+    expect(resent[1]?.messageId).not.toBe(first.message.messageId);
+    expect(sent.recordHash).toBe(recordHash);
+  });
+
+/**
+ * A proposal stays open through catch-up on the same Router instance. Time
+ * spent fenced exceeds every resend delay without consuming its attempts,
+ * so recovery without a re-anchor still releases an identical proposal.
+ * `Queue.size(...) === 0` checks the spec rule that nothing is resent during
+ * recovery.
+ */
+const preservesResendAttemptsWhileFenced = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    yield* retainCertifiedRecord(fixture);
+    const sending = yield* forkSend(
+      fixture.engine,
+      `agent:${fixture.remote.card.agentName}`,
+      "waiting through a long recovery",
+    );
+    const first = yield* takeActionProposalAfterEvidence(
+      fixture.normalOutbound,
+    );
+    const { outbound } = yield* forkRecovery(
+      fixture,
+      "feed_gap",
+      oldRouterInstanceId,
+    );
+    const request = yield* takeCatchUpRequest(outbound);
+    yield* Effect.replicateEffect(
+      TestClock.adjust("5 minutes").pipe(Effect.zipRight(settle)),
+      catchUpRetryAttempts + 1,
+      { discard: true },
+    );
+    expect(yield* Queue.size(fixture.normalOutbound)).toBe(0);
+
+    yield* deliverRecovery(
+      fixture.engine,
+      catchUpIncompleteIngressFrom({
+        membership: fixture.membership,
+        responder: fixture.remote,
+        request,
+        routerInstanceId: oldRouterInstanceId,
+      }),
+    );
+    yield* TestClock.adjust(FIRST_RESEND_DUE);
+    const resent = yield* TestServices.provideLive(
+      takeActionProposalAfterEvidence(fixture.normalOutbound).pipe(
+        Effect.timeoutOption(RESEND_WAIT),
+      ),
+    );
+
+    expect(Option.map(resent, ({ proposal }) => proposal)).toEqual(
+      Option.some(first.proposal),
+    );
+    yield* Fiber.interrupt(sending);
+  });
+
+/** Each conversation retains its own catch-up position and readiness threshold. */
+const recoversSeveralConversationsIndependently = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    yield* retainCertifiedRecord(fixture);
+    const n3 = yield* addGroupFoundation(fixture, 3);
+    const n4 = yield* addN4Foundation(fixture);
+    const { outbound } = yield* forkRecovery(
+      { engine: n4.engine, recoveryOutbound: fixture.recoveryOutbound },
+      "feed_gap",
+      oldRouterInstanceId,
+    );
+    const requests = yield* Effect.replicateEffect(
+      takeCatchUpRequest(outbound),
+      3,
+    );
+    const requestFor = (membership: VerifiedMembership) => {
+      const request = requests.find(
+        (candidate) =>
+          candidate.conversationId === membership.descriptor.conversationId,
+      );
+      return request === undefined
+        ? Effect.dieMessage("recovery omitted a conversation")
+        : Effect.succeed(request);
+    };
+    const direct = yield* requestFor(fixture.membership);
+    const group3 = yield* requestFor(n3.membership);
+    const group4 = yield* requestFor(n4.membership);
+    expect(direct.knownRecordHash).toBe(
+      fixture.certifiedRecord.actionCertifiedRecord.recordHash,
+    );
+    expect([group3.knownRecordHash, group4.knownRecordHash]).toEqual([
+      null,
+      null,
+    ]);
+
+    yield* Effect.forEach(
+      [fixture.remote, n4.third],
+      (responder) =>
+        deliverRecovery(
+          n4.engine,
+          catchUpIncompleteIngressFrom({
+            membership: n4.membership,
+            responder,
+            request: group4,
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        ),
+      { concurrency: 1, discard: true },
+    );
+    const sending = yield* forkSend(
+      n4.engine,
+      `agent:${fixture.remote.card.agentName}`,
+      "wait for this conversation",
+    );
+    expect(Option.isNone(yield* Fiber.poll(sending))).toBe(true);
+    yield* deliverRecovery(
+      n4.engine,
+      catchUpIncompleteIngress(fixture, direct),
+    );
+    const proposal = yield* takeActionProposalIn(
+      fixture.normalOutbound,
+      direct.conversationId,
+    );
+    expect(proposal.proposal.action.previousRecordHash).toBe(
+      direct.knownRecordHash,
+    );
+
+    yield* Effect.forEach(
+      n3.others,
+      (responder) =>
+        deliverRecovery(
+          n4.engine,
+          catchUpIncompleteIngressFrom({
+            membership: n3.membership,
+            responder,
+            request: group3,
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        ).pipe(
+          Effect.tap((disposition) => {
+            expect(disposition).toBe(acceptedDisposition);
+          }),
+        ),
+      { concurrency: 1, discard: true },
+    );
+    const recovered = yield* fixture.store.recover();
+    expect(
+      recovered.positions.find(
+        (position) => position.conversationId === direct.conversationId,
+      )?.headRecordHash,
+    ).toBe(direct.knownRecordHash);
+    expect(
+      recovered.positions
+        .filter((position) => position.conversationId !== direct.conversationId)
+        .map((position) => position.headRecordHash),
+    ).toEqual([undefined, undefined]);
+    yield* Fiber.interrupt(sending);
+  });
+
+/** A certified head delivered by the local Router echo must restart spent retries. */
+const retriesAnAdvancedHeadAfterItsScheduleRanOut = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const { outbound } = yield* forkRecovery(
+      fixture,
+      "feed_gap",
+      oldRouterInstanceId,
+      { clock: "caller" },
+    );
+    yield* takeCatchUpRequest(outbound);
+    yield* Effect.replicateEffect(
+      takeRetriedCatchUpRequest(outbound),
+      catchUpRetryAttempts,
+    );
+    yield* TestClock.adjust("100000 seconds");
+    const accepted = yield* deliverRecovery(
+      fixture.engine,
+      directPacketIngressFrom({
+        membership: fixture.membership,
+        sender: fixture.local,
+        packet: fixture.certifiedRecord,
+        routerInstanceId: oldRouterInstanceId,
+      }),
+    );
+    const advanced = yield* takeCatchUpRequest(outbound);
+    yield* TestClock.adjust(FIRST_RESEND_DUE);
+    const retried = yield* TestServices.provideLive(
+      takeCatchUpRequest(outbound).pipe(Effect.timeoutOption("5 seconds")),
+    );
+    expect(accepted).toBe(acceptedDisposition);
+    expect(advanced.knownRecordHash).toBe(
+      fixture.certifiedRecord.actionCertifiedRecord.recordHash,
+    );
+    expect(retried).toEqual(Option.some(advanced));
+  });
+
 // @agent-code-guard/regression-only: these traces pin the catch-up and re-anchor work a recovery run routes between its phases and its store.
 describe("catch-up and re-anchor inside a recovery run", () => {
+  it(
+    "recovers several conversations independently at their own durable positions",
+    recoversSeveralConversationsIndependently,
+  );
+  itOnTestClock(
+    "retries an advanced certified head after its previous schedule ran out",
+    retriesAnAdvancedHeadAfterItsScheduleRanOut,
+  );
+  itOnTestClock(
+    "preserves proposal resend attempts through a long fence without a re-anchor",
+    preservesResendAttemptsWhileFenced,
+  );
+  itOnTestClock(
+    "sends its proposal again to a member that dropped it while recovering, and the post certifies",
+    resendsAProposalAMemberDroppedWhileRecovering,
+  );
   it(
     "sends a recovered conversation's post while another waits on a silent member, and the held post once that one recovers",
     recoversOneConversationWhileAnotherWaitsOnASilentMember,
@@ -6736,7 +7122,7 @@ describe("catch-up and re-anchor inside a recovery run", () => {
     "arms catch-up again for every paused conversation when the Router worker reattaches",
     rearmsEveryPausedConversationOnReattach,
   );
-  it(
+  itOnTestClock(
     "proposes a pending post only once its conversation recovers, at the head it settles on",
     proposesPendingPostsOnlyOnceItsConversationRecovers,
   );
@@ -8369,6 +8755,131 @@ describe("staged successors in recovery", () => {
   it(
     "converts under an adopted anchor after a refused conversion at the same head",
     convertsUnderAnAdoptedAnchorAfterARefusedConversion,
+  );
+});
+
+/**
+ * Catch-up accepts a held page without consuming attestations or advancing its
+ * request. The certification port deliberately holds the record until the
+ * test promotes it through the real certification path.
+ */
+const retriesWhileARecordPageAwaitsPromotion = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const n4 = yield* addN4Foundation(fixture);
+    const history = yield* buildN4PartialHistory(fixture, n4);
+    yield* directPacketIngressFrom({
+      membership: n4.membership,
+      sender: fixture.remote,
+      packet: history.certifiedHead,
+      routerInstanceId: oldRouterInstanceId,
+    }).pipe(
+      Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
+    );
+    const recovered = yield* recoverEngineState(
+      fixture.input,
+      yield* fixture.store.recover(),
+    );
+    const queued = yield* Queue.unbounded<DecodedOuterBody>();
+    const unexpected = () =>
+      Effect.dieMessage("unexpected phase in held-page trace");
+    const runtime: EngineRuntime = {
+      input: fixture.input,
+      conversations: recovered.conversations,
+      intents: new Map(),
+      completedPosts: recovered.completedPosts,
+      actionFolds: recovered.actionFolds,
+      recordFolds: recovered.recordFolds,
+      gate: yield* Effect.makeSemaphore(1),
+      scope: yield* Effect.scope,
+      outbox: yield* makeOutbox(fixture.input, []),
+      phases: {
+        proposeIntent: unexpected,
+        acceptIngress: unexpected,
+        acceptRecoveryIngress: () => Effect.succeed(acceptedDisposition),
+        resumeFolds: unexpected,
+        resumeDissemination: unexpected,
+        rearmCatchUp: unexpected,
+        isRecovering: () => true,
+        headAdvanced: advanceHead,
+      },
+    };
+    const run: CatchUpRun = {
+      runtime,
+      state: makeCatchUpState(),
+      isActive: () => true,
+      membership: () => n4.membership,
+      routerInstanceId: newRouterInstanceId,
+      onPositionReady: unexpected,
+      queue: (membership, body) =>
+        membership.hash === n4.membership.hash
+          ? Queue.offer(queued, body).pipe(Effect.asVoid)
+          : unexpected(),
+    };
+    function advanceHead() {
+      return requestCertifiedHistory(
+        run,
+        n4.membership.descriptor.conversationId,
+      );
+    }
+    const conversationId = n4.membership.descriptor.conversationId;
+    yield* requestCertifiedHistory(run, conversationId);
+    const pending = run.state.pendingRequests.get(conversationId);
+    if (pending === undefined) {
+      return yield* Effect.dieMessage("catch-up did not retain its request");
+    }
+    yield* Queue.takeAll(queued);
+    run.state.incompleteResponders.set(
+      conversationId,
+      new Set([n4.third.card.agentId]),
+    );
+    const ingress = yield* catchUpPageIngressFrom({
+      membership: n4.membership,
+      responder: fixture.remote,
+      request: pending,
+      item: history.certifiedSuccessor,
+      routerInstanceId: newRouterInstanceId,
+    });
+    if (
+      ingress.payload.kind !== "direct" ||
+      ingress.payload.packet.kind !== "catch_up_page"
+    ) {
+      return yield* Effect.dieMessage("fixture did not deliver a page");
+    }
+    expect(yield* acceptCatchUpPage(run, ingress, ingress.payload.packet)).toBe(
+      acceptedDisposition,
+    );
+    expect(yield* Queue.size(queued)).toBe(0);
+    expect(run.state.incompleteResponders.get(conversationId)).toEqual(
+      new Set([n4.third.card.agentId]),
+    );
+    yield* resendCertifiedHistoryRequest(run, conversationId);
+    expect(yield* Queue.take(queued)).toEqual({
+      kind: "direct",
+      packet: pending,
+    });
+    const before = yield* groupState(
+      fixture,
+      n4,
+      history.stagedSuccessor.recordHash,
+    );
+    expect(before.head).toBe(pending.knownRecordHash);
+    yield* acceptEngineRecoveryIngress(runtime, {
+      ...ingress,
+      payload: { kind: "direct", packet: history.certifiedSuccessor },
+    });
+    const after = run.state.pendingRequests.get(conversationId);
+    expect(after?.knownRecordHash).toBe(history.stagedSuccessor.recordHash);
+    expect(yield* Queue.take(queued)).toEqual({
+      kind: "direct",
+      packet: after,
+    });
+  });
+
+describe("held catch-up pages", () => {
+  it(
+    "retries at its head while a record page awaits promotion",
+    retriesWhileARecordPageAwaitsPromotion,
   );
 });
 

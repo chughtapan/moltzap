@@ -74,7 +74,7 @@ const collect = (): readonly Constant[] => {
       "V2_PROTOCOL_VERSION",
       MOLTZAP_VERSION_SOURCE,
       readCompatibilityVersion(workspaceRoot),
-      "Current MoltZap wire compatibility value for Identity and Router representations; package release versions are independent of it.",
+      "Current wire compatibility value for Identity and Router representations; package release versions are independent of it.",
     ),
   ];
 

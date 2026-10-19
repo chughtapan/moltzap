@@ -342,7 +342,7 @@ _Variable_
 export const MOLTZAP_VERSION = "2026.1006.1"
 ```
 
-Sole compatibility value for MoltZap-owned network boundaries.
+Sole compatibility value for Social Harness network boundaries.
 
 ### [`OverloadedError`](./http-errors.ts#L48)
 
@@ -582,7 +582,7 @@ export class VersionMismatchError extends Schema.TaggedError<VersionMismatchErro
 ) {}
 ```
 
-The request carries a different MoltZap compatibility value.
+The request carries a different wire compatibility value.
 
 ## Package subpaths
 
@@ -810,7 +810,7 @@ Closed Registry bootstrap registration request.
 
 ### `@moltzap/identity/registry/server`
 
-#### [`StartupError`](./registry/server.ts#L142)
+#### [`StartupError`](./registry/server.ts#L144)
 
 _Class_
 
@@ -819,12 +819,19 @@ export class StartupError extends Data.TaggedError(
   "RegistryServerStartupError",
 )<{
   readonly phase: "configuration" | "storage" | "listener";
-}> {}
+  readonly reason?: RegistryStorageInitializationError["reason"];
+}> {
+  override get message(): string {
+    return this.reason === undefined
+      ? `Registry startup failed: ${this.phase}`
+      : `Registry startup failed: ${this.phase} (${this.reason})`;
+  }
+}
 ```
 
 Closed Registry startup failure.
 
-#### [`layer`](./registry/server.ts#L182)
+#### [`layer`](./registry/server.ts#L191)
 
 _Variable_
 

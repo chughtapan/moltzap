@@ -1,5 +1,6 @@
 /** @file Validated evidence and shared code/English middleware contracts. */
 
+import { AgentId } from "@moltzap/identity";
 import { Cause, Data, Effect, Either, Schema } from "effect";
 
 const identifier = Schema.NonEmptyTrimmedString;
@@ -7,13 +8,57 @@ const visibility = Schema.Literal("runtime", "assessor");
 const probability = Schema.Number.pipe(Schema.between(0, 1));
 const nextAction = Schema.Literal("revise", "wait", "stop", "seek-approval");
 
-/** Attribution is supplied by Client, never inferred from names in the body. */
+const collectingOp = Schema.Literal("gather", "all_gather");
+
+/**
+ * The collective operation a message belongs to, so a policy can tell a
+ * question, an answer, a result or a failure from a plain message without
+ * reading its text. A request carries its absolute deadline in epoch
+ * milliseconds; an answer and a result name the operation they belong to.
+ */
+const messageOperation = Schema.Union(
+  Schema.Struct({
+    kind: Schema.Literal("request"),
+    op: collectingOp,
+    id: identifier,
+    deadlineAt: Schema.Int.pipe(Schema.positive()),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("answer", "result"),
+    op: collectingOp,
+    id: identifier,
+  }),
+  Schema.Struct({ kind: Schema.Literal("failure"), id: identifier }),
+);
+
+/**
+ * Attribution is supplied by Client, never inferred from names in the body.
+ * `operation` is absent for a plain message.
+ */
 export class Message extends Schema.Class<Message>("Message")({
   id: identifier,
   sender: identifier,
   recipients: Schema.NonEmptyArray(identifier),
   text: Schema.String,
+  operation: Schema.optional(messageOperation),
 }) {}
+
+/* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- The history entry Schema shares its domain name with the value it decodes. */
+
+/**
+ * One message of authorized earlier history: whether the runtime can see it,
+ * and whether the endpoint admitted it or withheld it.
+ */
+export const HistoryEntry = Schema.Struct({
+  ...Message.fields,
+  visibility,
+  admission: Schema.Literal("admitted", "withheld"),
+}).annotations({ identifier: "HistoryEntry" });
+
+/** One validated message of earlier history. */
+export type HistoryEntry = typeof HistoryEntry.Type;
+
+/* eslint-enable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Restore naming after the Schema/type pair. */
 
 const approval = Schema.Struct({
   kind: Schema.Literal("verified"),
@@ -37,13 +82,11 @@ export class MessageContext extends Schema.Class<MessageContext>(
       principal: identifier,
     }),
   ),
-  history: Schema.Array(
-    Schema.Struct({
-      ...Message.fields,
-      visibility,
-      admission: Schema.Literal("admitted", "withheld"),
-    }),
-  ),
+  history: Schema.Array(HistoryEntry),
+  /** Older certified records outside the configured window are not an evidence gap. */
+  earlierHistoryOmitted: Schema.optional(Schema.Boolean),
+  /** Epoch milliseconds when Client captured the context, so a deadline can be judged and a check replayed. */
+  now: Schema.optional(Schema.Int.pipe(Schema.nonNegative())),
   facts: Schema.Array(
     Schema.Struct({
       id: identifier,
@@ -404,4 +447,108 @@ function freezeData(value: unknown): void {
     freezeData(child);
   }
   Object.freeze(value);
+}
+
+const exact = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
+  Schema.Struct(fields).annotations({
+    parseOptions: { exact: true, onExcessProperty: "error" },
+  });
+
+const ruleFields = {
+  id: EnglishRule.fields.id,
+  text: EnglishRule.fields.text,
+  feedback: EnglishRule.fields.feedback,
+};
+
+/** Norm instructions must have a registered template before owners can activate them. */
+const editableRuleSchema = Schema.Union(
+  exact({
+    ...ruleFields,
+    kind: Schema.Literal("norm"),
+    guidance: Schema.NonEmptyString,
+  }),
+  exact({
+    ...ruleFields,
+    kind: Schema.Literal("safety", "autonomy"),
+    guidance: EnglishRule.fields.guidance,
+  }),
+);
+
+/** Removing and adding the same editable id replaces it in one activation. */
+export const policyUpdateSchema = exact({
+  add: Schema.optional(
+    Schema.Array(editableRuleSchema).pipe(Schema.maxItems(256)),
+  ),
+  remove: Schema.optional(
+    Schema.Array(EnglishRule.fields.id).pipe(Schema.maxItems(256)),
+  ),
+});
+
+/** The digest identifies the entire active installation, including fixed policy. */
+export const policyReadSchema = exact({
+  rules: Schema.Array(editableRuleSchema),
+  fixedRuleIds: Schema.Array(EnglishRule.fields.id),
+  activeRevision: Schema.NonEmptyString,
+});
+
+/** Activation acknowledges future checks only; retained dispositions are unchanged. */
+export const policyUpdateResultSchema = exact({
+  activeRevision: Schema.NonEmptyString,
+  retroactive: Schema.Literal(false),
+});
+
+/** Inclusive Unix milliseconds permit polling across checks completed out of start order. */
+export const firewallDecisionsRequestSchema = exact({
+  since: Schema.optional(Schema.NonNegativeInt),
+});
+
+/** Activation metadata contains rule ids only, never their text or templates. */
+export const firewallActivationSchema = exact({
+  time: Schema.NonNegativeInt,
+  activeRevision: Schema.NonEmptyString,
+  addedRuleIds: Schema.Array(Schema.NonEmptyString),
+  removedRuleIds: Schema.Array(Schema.NonEmptyString),
+});
+
+/** One row per peer contains no content, templates, feedback or provider traces. */
+export const firewallDecisionsSchema = exact({
+  activations: Schema.Array(firewallActivationSchema),
+  decisions: Schema.Array(
+    exact({
+      checkId: Schema.NonEmptyString,
+      time: Schema.NonNegativeInt,
+      direction: Schema.Literal("incoming", "outgoing"),
+      peerAgentId: Schema.NullOr(AgentId),
+      outcome: Schema.Literal("allow", "block", "hold", "revise"),
+      disposition: Schema.Literal("stale", "admitted", "withheld"),
+      ruleIds: Schema.Array(Schema.NonEmptyString),
+      activeRevision: Schema.NonEmptyString,
+    }),
+  ),
+});
+
+/** A failed edit never replaces the active installation or retained editable document. */
+export class FirewallPolicyError extends Data.TaggedError(
+  "FirewallPolicyError",
+)<{
+  readonly reason:
+    | "not-configured"
+    | "invalid-rule"
+    | "fixed-rule"
+    | "build-failed"
+    | "persistence-failed";
+}> {}
+
+/** Owner capabilities are separate from runtime send and inbox authority. */
+export interface FirewallPolicyOperations {
+  readonly read: () => Effect.Effect<
+    typeof policyReadSchema.Type,
+    FirewallPolicyError
+  >;
+  readonly update: (
+    request: typeof policyUpdateSchema.Type,
+  ) => Effect.Effect<typeof policyUpdateResultSchema.Type, FirewallPolicyError>;
+  readonly decisions: (
+    request: typeof firewallDecisionsRequestSchema.Type,
+  ) => Effect.Effect<typeof firewallDecisionsSchema.Type, FirewallPolicyError>;
 }

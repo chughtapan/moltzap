@@ -45,6 +45,14 @@ import {
   readEventResultSchema,
   sendErrorData,
 } from "../../delivery/operations.js";
+import {
+  firewallDecisionsRequestSchema,
+  firewallDecisionsSchema,
+  type FirewallPolicyOperations,
+  policyReadSchema,
+  policyUpdateResultSchema,
+  policyUpdateSchema,
+} from "../../firewall/index.js";
 import { FirewallSendError } from "../../firewall/runtime.js";
 import {
   authenticateHarnessRequest,
@@ -114,6 +122,7 @@ type ClosedOperationError = Readonly<{ readonly reason: string }>;
 
 /** Structural daemon operations projected onto the loopback MCP boundary. */
 export interface HarnessMcpOperations extends DeliveryOperations {
+  readonly policy?: FirewallPolicyOperations;
   /**
    * Whether the daemon's protocol is up. The catalog lists the
    * post-registration tools, and admits their calls and the inbox
@@ -188,6 +197,21 @@ const emptyInput = makeStandardSchema<Record<string, never>>(
 );
 const statusOutput = makeStandardSchema<ManagementStatusResult>(
   makeJsonSchema(managementStatusResultSchema),
+);
+const policyReadOutput = makeStandardSchema<typeof policyReadSchema.Type>(
+  makeJsonSchema(policyReadSchema),
+);
+const policyUpdateInput = makeStandardSchema<typeof policyUpdateSchema.Type>(
+  makeJsonSchema(policyUpdateSchema),
+);
+const policyUpdateOutput = makeStandardSchema<
+  typeof policyUpdateResultSchema.Type
+>(makeJsonSchema(policyUpdateResultSchema));
+const decisionsInput = makeStandardSchema<
+  typeof firewallDecisionsRequestSchema.Type
+>(makeJsonSchema(firewallDecisionsRequestSchema));
+const decisionsOutput = makeStandardSchema<typeof firewallDecisionsSchema.Type>(
+  makeJsonSchema(firewallDecisionsSchema),
 );
 const searchAgentsInput = makeStandardSchema<ManagementSearchAgentsRequest>(
   makeJsonSchema(managementSearchAgentsRequestSchema),
@@ -412,6 +436,24 @@ interface ToolListing {
  * only names a tool and its schemas.
  */
 const toolListings = {
+  policy_read: {
+    description:
+      "Read the active editable English rules and fixed rule identifiers.",
+    inputSchema: emptyInput,
+    outputSchema: policyReadOutput,
+  },
+  policy_update: {
+    description:
+      "Update editable English rules. Returns after activation. Changes are not retroactive: admitted guidance, held items and bound sends remain unchanged.",
+    inputSchema: policyUpdateInput,
+    outputSchema: policyUpdateOutput,
+  },
+  firewall_decisions: {
+    description:
+      "Read metadata for the latest 100 completed checks since inclusive Unix milliseconds; no message text. Groups have one row per peer.",
+    inputSchema: decisionsInput,
+    outputSchema: decisionsOutput,
+  },
   [STATUS_TOOL]: {
     description:
       "Inspect whether this daemon is registered and read its bound AgentCard.",
@@ -505,6 +547,9 @@ const ownerEventTools = [
 
 /** The local and owner tools that follow registration, after `status`. */
 const activeTools = [
+  "policy_read",
+  "policy_update",
+  "firewall_decisions",
   SEARCH_AGENTS_TOOL,
   SEARCH_CONVERSATIONS_TOOL,
   READ_CONVERSATION_TOOL,
@@ -797,6 +842,82 @@ const handleReadSendToolCall = async (
     requestScope: input.requestScope,
   });
 
+const POLICY_REASONS = new Set([
+  "not-configured",
+  "invalid-rule",
+  "fixed-rule",
+  "build-failed",
+  "persistence-failed",
+]);
+
+// #ignore-sloppy-code-next-line[async-keyword]: MCP schema validation and request execution are Promise-native.
+const handlePolicyRead = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+) => {
+  await decodeToolInput(
+    emptyInput,
+    emptyRequestSchema,
+    input.toolArguments,
+    input.name,
+  );
+  return await runValidatedOperation(policyReadOutput, input.name, {
+    operation:
+      operations.policy?.read() ?? Effect.fail({ reason: "not-configured" }),
+    label: "Policy read",
+    allowedReasons: POLICY_REASONS,
+    fallbackReason: "persistence-failed",
+    signal: input.signal,
+    requestScope: input.requestScope,
+  });
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: MCP schema validation and request execution are Promise-native.
+const handlePolicyUpdate = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+) => {
+  const request = await decodeToolInput(
+    policyUpdateInput,
+    policyUpdateSchema,
+    input.toolArguments,
+    input.name,
+  );
+  return await runValidatedOperation(policyUpdateOutput, input.name, {
+    operation:
+      operations.policy?.update(request) ??
+      Effect.fail({ reason: "not-configured" }),
+    label: "Policy update",
+    allowedReasons: POLICY_REASONS,
+    fallbackReason: "build-failed",
+    signal: input.signal,
+    requestScope: input.requestScope,
+  });
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: MCP schema validation and request execution are Promise-native.
+const handleDecisions = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+) => {
+  const request = await decodeToolInput(
+    decisionsInput,
+    firewallDecisionsRequestSchema,
+    input.toolArguments,
+    input.name,
+  );
+  return await runValidatedOperation(decisionsOutput, input.name, {
+    operation:
+      operations.policy?.decisions(request) ??
+      Effect.fail({ reason: "not-configured" }),
+    label: "Firewall decisions",
+    allowedReasons: POLICY_REASONS,
+    fallbackReason: "persistence-failed",
+    signal: input.signal,
+    requestScope: input.requestScope,
+  });
+};
+
 /** The operations a tool call runs: the daemon's and the event subscription's. */
 interface ToolOperations extends HarnessMcpOperations {
   readonly events: HarnessEvents;
@@ -831,6 +952,9 @@ type ToolHandler = (
  * so a listed tool without a handler does not compile.
  */
 const toolHandlers = {
+  policy_read: handlePolicyRead,
+  policy_update: handlePolicyUpdate,
+  firewall_decisions: handleDecisions,
   [STATUS_TOOL]: handleStatusToolCall,
   [REGISTER_TOOL]: handleRegistrationToolCall,
   event_subscription_status: (input, operations) =>
@@ -861,7 +985,15 @@ const currentTools = (
   operations: HarnessMcpOperations,
 ): readonly ToolName[] => {
   const catalog = roleCatalogs[role];
-  return operations.protocolActive() ? catalog.active : catalog.inactive;
+  const tools = operations.protocolActive() ? catalog.active : catalog.inactive;
+  return operations.policy === undefined
+    ? tools.filter(
+        (name) =>
+          name !== "policy_read" &&
+          name !== "policy_update" &&
+          name !== "firewall_decisions",
+      )
+    : tools;
 };
 
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP dispatcher awaits the selected Promise-native tool handler.

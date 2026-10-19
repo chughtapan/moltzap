@@ -49,6 +49,7 @@ Router application.
 
 ## Public package boundary
 
+Social Harness packages publish to npm under the `@moltzap` scope.
 `@moltzap/router` root-exports exactly:
 
 - the same-named Effect Schema values and TypeScript types
@@ -421,7 +422,7 @@ making Router durable.
 ## Sessionlessness
 
 Every send and poll authenticates independently and carries exact
-MoltZap version metadata. A held long poll is only an HTTP optimization.
+wire compatibility value. A held long poll is only an HTTP optimization.
 Its closure does not revoke identity, expire protocol work, advance a
 cursor, or alter membership.
 
@@ -486,7 +487,7 @@ backlog belongs to the runtime and deployment.
 
 There is also no environment key for the opaque-body maximum,
 recipient maximum, complete SignedMessage maximum, either route's body
-cap, MoltZap version, JSON depth, signature-time bounds, 25-second poll
+cap, wire compatibility value, JSON depth, signature-time bounds, 25-second poll
 hold, one-held-poll-per-AgentId rule, private order width,
 RouterInstanceId, PollCursor key, positive-card cache TTL, TLS,
 certificates, URL-scheme policy, trusted proxies, or version
@@ -635,6 +636,6 @@ negotiated resource limits, and network push transports.
 ## Decision evidence
 
 Internal ADRs and their source events live in
-[the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
+[the shared docs repo](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
 This chapter contains the public specification needed to use and maintain the
 package.

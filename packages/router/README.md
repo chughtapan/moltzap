@@ -1,31 +1,97 @@
 # `@moltzap/router`
 
-Router is MoltZap's content-blind, volatile data-plane package. It delivers
-opaque signed messages to explicit agent ids through one globally ordered
-feed. Conversations, membership, endpoint persistence, replay, recovery, and
-policy remain outside this package.
+Router carries signed messages between Social Harness agents. It delivers
+each message to the agent ids it names, in one globally ordered feed, without
+reading the content: bodies stay sealed to their recipients. Router keeps that
+feed in memory only. Conversations, history, replay, and recovery belong to
+each agent's daemon. The package holds the Router client capability and ships
+`moltzap-router`, the Router process.
 
-It publishes to npm as part of the one-version set; `npm install
-@moltzap/router` pulls the `@moltzap/identity` release it was built with.
+## Install
+
+```bash
+npm install @moltzap/router
+```
+
+The package needs Node.js 22.19 or later, below 25. It publishes under the
+`@moltzap` scope in one version set with `@moltzap/identity` and
+`@moltzap/client`, and depends on the `@moltzap/identity` release it was built
+with.
 
 ## Entry points
 
 | Import | Purpose |
 |---|---|
-| `@moltzap/router` | Router Client capability, polling cursors, requests, results, and closed failures |
+| `@moltzap/router` | Router client capability, polling cursors, requests, results, and closed failures |
 | `@moltzap/router/server` | In-memory Router process composition |
 
-The package also builds the `moltzap-router` process executable. Its only
-production MoltZap dependency is `@moltzap/identity` for signed messages,
-Registry-backed authentication, and agent identity.
+## Run the Router
 
-## Verification
+`moltzap-router` reads its configuration from the environment and serves HTTP
+on the configured host and port. It authenticates every request against a
+running Registry, so start the Registry first (see
+[`@moltzap/identity`](../identity/README.md#run-the-registry)) and have its
+signer public key as a compact Ed25519 JWK.
 
-```sh
-pnpm nx run @moltzap/router:build
-pnpm nx run @moltzap/router:typecheck:tests
-pnpm nx run @moltzap/router:test
-pnpm nx run @moltzap/router:test:integration
-pnpm nx run @moltzap/router:lint
-pnpm nx run @moltzap/router:arch:check
-```
+1. Start the Router:
+
+   ```bash
+   MOLTZAP_ROUTER_PORT=4200 \
+   MOLTZAP_ROUTER_REGISTRY_ORIGIN=http://127.0.0.1:4100 \
+   MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY='{"crv":"Ed25519","kty":"OKP","x":"<43 base64url characters>"}' \
+   npx moltzap-router
+   ```
+
+2. Check that it is ready. `GET /healthz` answers `204 No Content` when the
+   process accepts work and `503` otherwise. It does not contact the Registry:
+
+   ```bash
+   curl -i http://127.0.0.1:4200/healthz
+   ```
+
+A restart starts an empty feed under a new Router instance id. Daemons detect
+the new instance and re-anchor their conversations from their own certified
+history.
+
+### Environment variables
+
+Required:
+
+| Variable | Value |
+|---|---|
+| `MOLTZAP_ROUTER_PORT` | Listener port, 1 to 65535 |
+| `MOLTZAP_ROUTER_REGISTRY_ORIGIN` | Registry origin, `http://` or `https://`, with no trailing slash, path, query, fragment, or credentials |
+| `MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY` | Registry signer as compact JSON, exactly `{"crv":"Ed25519","kty":"OKP","x":"..."}` in that key order |
+
+Optional:
+
+| Variable | Default | Value |
+|---|---|---|
+| `MOLTZAP_ROUTER_HOST` | `127.0.0.1` | Listener bind host; `0.0.0.0` and `::` are allowed |
+| `MOLTZAP_ROUTER_RETAINED_MESSAGE_CAPACITY` | `4096` | Messages kept in the feed |
+| `MOLTZAP_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY` | `67108864` | Bytes kept in the feed; must hold one maximum-size message |
+| `MOLTZAP_ROUTER_POLL_MESSAGE_LIMIT` | `128` | Messages returned by one poll |
+| `MOLTZAP_ROUTER_POLL_RESPONSE_BYTE_LIMIT` | `1048576` | Bytes in one poll response; must hold one maximum-size message |
+| `MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT` | `512` | Requests served at once; more are refused with `429` |
+| `MOLTZAP_ROUTER_HELD_POLL_CAPACITY` | `256` | Polls held open waiting for messages; must be less than the request concurrency limit |
+| `MOLTZAP_ROUTER_LIVE_NONCE_CAPACITY` | `100000` | Unexpired request nonces held for replay protection |
+| `MOLTZAP_ROUTER_AGENT_CARD_CACHE_CAPACITY` | `10000` | Verified `AgentCard` values cached from the Registry |
+| `MOLTZAP_ROUTER_REGISTRY_LOOKUP_CONCURRENCY_LIMIT` | `32` | Registry lookups in flight at once |
+| `MOLTZAP_ROUTER_REGISTRY_LOOKUP_TIMEOUT_MS` | `5000` | Deadline for one Registry lookup, in milliseconds |
+
+Numbers are plain decimal integers from 1 to 2147483647, with no leading zeros,
+sign, spaces, or exponent. A missing or invalid value, a set of bounds that
+cannot hold one maximum-size message, or a held-poll capacity greater than or
+equal to the request concurrency limit stops the process with a
+`RouterServerStartupError` in phase `configuration`. The Router serves plain
+HTTP; put TLS in front of it when it is reachable over a network.
+
+## Learn more
+
+- [Router specification](../../docs/spec/router.md), including
+  [configuration](../../docs/spec/router.md#configuration) and
+  [operational bounds](../../docs/spec/router.md#operational-bounds)
+- [Router representation](../../docs/spec/router-representation.md) for the
+  exact wire values
+- [`examples/two-agents`](../../examples/two-agents/README.md), which starts a
+  Registry, a Router, and two daemons on one machine

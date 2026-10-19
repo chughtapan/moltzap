@@ -28,10 +28,9 @@ import {
   type ClientRepresentationError,
   type CompletedReanchor as CompletedReanchorValue,
   type ConversationId as ConversationIdValue,
-  decodeCanonical,
   type DecodedOuterBody,
   encodeCanonical,
-  EvidenceStatement,
+  type EvidenceStatement,
   hashAnchor,
   quorumThreshold,
   ReanchorBody,
@@ -152,14 +151,16 @@ export function positionReady(
  * @param run Recovery run the vote targets.
  * @param ingress Authenticated Router delivery containing the outer envelope.
  * @param message Stable self-addressed vote evidence.
+ * @param statement Statement decoded from the vote's body by ingress.
  * @returns Whether the vote was accepted or safely ignored.
  */
 export function acceptReanchorVote(
   run: ReanchorRun,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   message: SignedMessageValue,
+  statement: EvidenceStatement,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  return acceptReanchorVoteEffect(run, ingress, message).pipe(
+  return acceptReanchorVoteEffect(run, ingress, message, statement).pipe(
     Effect.withSpan("acceptReanchorVote"),
   );
 }
@@ -290,23 +291,20 @@ function acceptReanchorVoteEffect(
   run: ReanchorRun,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   message: SignedMessageValue,
+  statement: EvidenceStatement,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  return decodeCanonical(EvidenceStatement, message.body).pipe(
-    Effect.flatMap((statement) => {
-      if (statement.kind !== "reanchor_vote") {
-        return Effect.succeed(ignoredDisposition);
-      }
-      const membership = run.membership(statement.reanchor.conversationId);
-      if (membership === undefined) {
-        return Effect.succeed(ignoredDisposition);
-      }
-      return verifyInboundVote(run, ingress, message, membership);
-    }),
-    Effect.catchTag("ClientRepresentationError", () =>
-      Effect.succeed(ignoredDisposition),
-    ),
-    Effect.mapError(persistenceFailure),
-  );
+  if (statement.kind !== "reanchor_vote") {
+    return Effect.succeed(ignoredDisposition);
+  }
+  const membership = run.membership(statement.reanchor.conversationId);
+  return membership === undefined
+    ? Effect.succeed(ignoredDisposition)
+    : verifyInboundVote(run, ingress, membership, { message, statement }).pipe(
+        Effect.catchTag("ClientRepresentationError", () =>
+          Effect.succeed(ignoredDisposition),
+        ),
+        Effect.mapError(persistenceFailure),
+      );
 }
 
 /**
@@ -316,22 +314,23 @@ function acceptReanchorVoteEffect(
  * the caller reports as ignored like any other unusable input.
  * @param run Recovery run that receives the vote.
  * @param ingress Router delivery whose outer envelope carries the vote.
- * @param message The vote's evidence message from that envelope.
  * @param membership Recovered membership of the vote's conversation.
+ * @param vote The signed evidence and its decoded statement.
  * @returns Accepted when the run took the vote, ignored when it did not.
  */
 function verifyInboundVote(
   run: ReanchorRun,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
-  message: SignedMessageValue,
   membership: VerifiedMembership,
+  vote: Readonly<{ message: SignedMessageValue; statement: EvidenceStatement }>,
 ): Effect.Effect<
   RouterIngressDisposition,
   ClientRepresentationError | RouterWorkerPersistenceError
 > {
   return verifyDeliveredEvidence({
     outer: ingress.message,
-    evidence: message,
+    evidence: vote.message,
+    statement: vote.statement,
     membership,
   }).pipe(
     Effect.flatMap((verified) => {

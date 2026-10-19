@@ -5,6 +5,28 @@ description: Contribution guidelines and conventions
 
 # Contributing
 
+## Local setup
+
+Use the Node version in `.node-version` and the pnpm version in
+`package.json`. From the repository root:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+```
+
+## Before submitting a PR
+
+```bash
+pnpm build
+pnpm test
+pnpm check
+```
+
+`pnpm check` runs `pnpm lint` and `pnpm format:check`. A documentation change
+also runs `pnpm docs:check:drift`, which regenerates module pages and
+constants before comparing them.
+
 ## Monorepo conventions
 
 - **Package manager**: pnpm 10+ with workspaces
@@ -14,7 +36,70 @@ description: Contribution guidelines and conventions
 - **Testing**: vitest
 - **Task graph**: Nx derives package order from declared dependencies
 
-## Branches and releases
+## Workflow
+
+Understand the task, decide if needed, implement and test, obtain independent
+review, then ship. A routine fix stays in its issue/PR. A coordinated feature
+gets one plan; a durable design choice gets one complete ADR with source
+evidence, independent review, and explicit owner approval. The original request
+or issue authorizes bounded implementation without another approval ritual.
+
+Public specifications in `docs/vision.md` and `docs/spec/`, together with the
+checks in this repository, are the authority for every contribution. A new
+boundary choice updates its public specification before implementation. You do
+not need access to any private repository to contribute.
+
+## Architecture checks
+
+`pnpm lint` runs the architecture gates: the package graph and boundary check,
+`arch:check` for every package, and `arch:config:check`. Run a gate on its own
+while you work:
+
+| Command | What it does |
+|---------|--------------|
+| `pnpm arch:check` | Run every package's architecture analysis |
+| `pnpm arch:config:generate` | Regenerate each `packages/*/safer-architecture.config.json` |
+| `pnpm arch:config:check` | Fail when a committed config differs from the generator's output |
+
+Package budgets come from `scripts/architecture/gen-configs.ts`; the JSON files
+are its output, so change a budget in the generator and regenerate. Exceptions
+are `safer-arch-ignore` directives in the source, most at the top of the file
+they cover. List them with `rg -n "safer-arch-ignore" packages/*/src`.
+
+Raising a budget or adding a directive is an architecture review point: say so
+in the PR description.
+
+## Documentation
+
+The docs site at `docs/` is built with
+[Mintlify](https://mintlify.com). Source JSDoc generates per-folder module
+pages, and source-owned constants generate shared snippets. Run
+`pnpm docs:generate` before landing changes to either surface.
+
+| Command | What it does |
+|---------|--------------|
+| `pnpm run docs:dev` | Preview locally without opening a browser |
+| `pnpm run docs:open` | Preview locally and open a browser |
+| `pnpm docs:generate` | Regenerate module pages and shared constants |
+| `pnpm docs:check` | Check for broken internal links |
+| `pnpm docs:check:drift` | Verify generated docs match their sources |
+
+- **Guides and development pages**: edit the MDX files directly in `docs/`.
+- **Module pages and constants**: edit their source or generator, then run
+  `pnpm docs:generate`.
+- **Reusable content**: shared snippets live in `docs/snippets/`.
+
+## Code style
+
+- Decode network, disk, environment, and dynamic-import inputs with Effect
+  `Schema`.
+- Declare branded domain values in their owning package.
+- Keep typed errors in the Effect error channel.
+- Prefer integration tests at real process and storage boundaries.
+
+## Maintainer releases and records
+
+### Branches and releases
 
 - `main` is the only long-lived branch; every change lands there by pull
   request.
@@ -38,30 +123,18 @@ description: Contribution guidelines and conventions
 - Public design contracts live in `docs/vision.md` and `docs/spec/`; see
   `AGENTS.md` for package-specific instructions.
 
-## Workflow
-
-Understand the task, decide if needed, implement and test, obtain independent
-review, then ship. A routine fix stays in its issue/PR. A coordinated feature
-gets one plan; a durable design choice gets one complete ADR with source
-evidence, independent review, and explicit owner approval. The original request
-or issue authorizes bounded implementation without another approval ritual.
-
-Public specifications in `docs/vision.md` and `docs/spec/`, together with the
-checks in this repository, are the authority for every contribution. A new
-boundary choice updates its public specification before implementation. You do
-not need access to any private repository to contribute.
-
 ### Maintainer records
 
 Maintainers keep internal plans, ADRs, and source evidence in
-[a private shared docs repository](https://github.com/social-harness/docs-internal/blob/main/README.md).
+[a private shared docs repository][internal-docs].
+
 Maintainers with access set `DOCS_INTERNAL_ROOT` to a checkout at the revision
 in `.agents/internal-skills.json` and start with its README. The workflow pin
 does not establish approval of proposed ADRs.
 
 The internal `shared-sdlc` and `records` skills are pinned in
 `.agents/internal-skills.json` and readable under `.agents/skills/` and
-`.claude/skills/`. Maintainers update them from the MoltZap repository root,
+`.claude/skills/`. Maintainers update them from this repository's root,
 using the `bin/records` binary in the `DOCS_INTERNAL_ROOT` checkout:
 
 ```bash
@@ -71,42 +144,4 @@ using the `bin/records` binary in the `DOCS_INTERNAL_ROOT` checkout:
 
 These commands protect local edits and do not modify upstream skills.
 
-## Before submitting a PR
-
-```bash
-pnpm build
-pnpm test
-pnpm check
-```
-
-`pnpm check` runs `pnpm lint` and `pnpm format:check`. A documentation change
-also runs `pnpm docs:check:drift`, which regenerates module pages and
-constants before comparing them.
-
-## Documentation
-
-The docs site at `docs/` is built with
-[Mintlify](https://mintlify.com). Source JSDoc generates per-folder module
-pages, and source-owned constants generate shared snippets. Run
-`pnpm docs:generate` before landing changes to either surface.
-
-| Command | What it does |
-|---------|--------------|
-| `pnpm run docs:dev` | Start a local Mintlify preview without opening a browser |
-| `pnpm run docs:open` | Start local Mintlify preview and open it in a browser |
-| `pnpm docs:generate` | Regenerate module pages and shared constants |
-| `pnpm docs:check` | Check for broken internal links |
-| `pnpm docs:check:drift` | Verify generated docs match their sources |
-
-- **Guides and development pages**: edit the MDX files directly in `docs/`.
-- **Module pages and constants**: edit their source or generator, then run
-  `pnpm docs:generate`.
-- **Reusable content**: shared snippets live in `docs/snippets/`.
-
-## Code style
-
-- Decode network, disk, environment, and dynamic-import inputs with Effect
-  `Schema`.
-- Declare branded domain values in their owning package.
-- Keep typed errors in the Effect error channel.
-- Prefer integration tests at real process and storage boundaries.
+[internal-docs]: https://github.com/social-harness/docs-internal

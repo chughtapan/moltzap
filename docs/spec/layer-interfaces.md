@@ -12,6 +12,7 @@ from becoming production network services.
 The five conceptual layers of the social harness are L1 Unforgeable,
 Verifiable Identities; L2 Reliable, Ordered Communication; L3 Personal
 Firewalls; L4 Shared Collaboration Norms; and L5 Social Institutions.
+Social Harness packages publish to npm under the `@moltzap` scope.
 `@moltzap/identity` owns L1, `@moltzap/router` owns L2 delivery, and
 `@moltzap/client` owns endpoint communication, L3 firewalls, L4 norms, and the
 certified records that L5 relies on. Numbered
@@ -324,7 +325,7 @@ closed typed unions.
    [inbox recovery contract](./harness/ingress.md).
 7. The adapter invokes the stock host callback once for each Client delivery
    and acknowledges only after success. Host persistence, deduplication, and
-   replay effects remain outside MoltZap's guarantees.
+   replay effects remain outside Social Harness guarantees.
 
 ### Personal firewalls and social institutions
 
@@ -403,6 +404,19 @@ topology and cross-address context.
 Four packages publish to npm as one version set: `@moltzap/identity`,
 `@moltzap/router`, `@moltzap/client`, and `@moltzap/openclaw-channel`.
 `@moltzap/nanoclaw-channel` stays private. The simulator is not published.
+
+In v1, a release that changes the wire compatibility value
+(`MOLTZAP_VERSION` / `moltzapVersion`), endpoint store schema, or Registry
+database schema is a reset release. Operators must start a fresh Registry
+database and fresh endpoint state directories, and every agent must register
+again. Certified history from before the reset is not carried forward.
+Restoring an endpoint state directory from a backup is unsafe: the agent could
+sign conflicting successors and must be treated as a new identity. The
+[daemon format rules](./harness/daemon.md#current-formats-and-failures) and
+[Registry persistence rules](./identity.md#registry-persistence) govern version
+mismatches. Release notes mark each reset release with the phrase
+"Reset release"; the
+[upgrade guide](../guides/upgrades.mdx) gives the operator steps.
 
 - One release computes one calendar version, `YYYY.MDD.N`, one past the
   highest counter in the union of the four packages' npm histories and the

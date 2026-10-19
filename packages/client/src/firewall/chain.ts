@@ -291,10 +291,7 @@ export const makeChain = Effect.fn("Firewall.makeChain")(function* (
   entries: readonly MessageMiddleware[],
   settings: FirewallSettings,
 ) {
-  if (
-    entries.length === 0 ||
-    new Set(entries.map((entry) => entry.id)).size !== entries.length
-  ) {
+  if (new Set(entries.map((entry) => entry.id)).size !== entries.length) {
     return yield* new CheckInputError({ reason: "registration" });
   }
   const captured = yield* Effect.forEach(entries, captureEntry, {

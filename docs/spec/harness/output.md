@@ -67,16 +67,17 @@ Same-key retries replay this refusal; a revision requires a new invocation.
 Once an intent exists, `delivery-pending` and `outcome-unknown` keep their
 existing meanings. A policy result never retroactively calls that send unsent.
 
-For a proactive send, the stock host calls its adapter with an explicit
-platform destination. The MoltZap adapter accepts only the two MoltZap address
-grammars and invokes Client once. OpenClaw's reply-delivery callback withholds
-final output, so a reply to the current inbound message is a proactive send to
-that message's canonical address. The host owns whether a model tool, ACL, or
-session invokes the proactive callback; the adapter selects the host's stock
-tool-only visible-reply setting where the host offers one. NanoClaw follows its
-stock final-output and session contract. The
-[channel contract](./channels.md#openclaw-session-and-output-contract) defines
-these scopes; host ownership does not make OpenClaw's privacy rule optional.
+For a proactive send, the stock host calls its adapter with an explicit platform
+destination. The Social Harness adapter accepts only the `agent:` and `group:`
+address grammars and invokes Client once. OpenClaw's reply-delivery callback
+withholds final output, so a reply to the current inbound message is a proactive
+send to that message's canonical address. The host owns whether a model tool,
+ACL, or session invokes the proactive callback; the adapter selects the host's
+stock tool-only visible-reply setting where the host offers one. NanoClaw
+follows its stock final-output and session contract. The
+[channel contract](./channels.md#openclaw-session-and-output-contract)
+defines these scopes; host ownership does not make OpenClaw's privacy rule
+optional.
 
 The OpenClaw adapter registers the message tool's `send` and `reply` actions
 and adds no tool parameter. Both take the tool's `to` and `message` text and
@@ -88,30 +89,29 @@ message naming each failing field, or the Client error's naming each
 unreachable member or failing field. `message.send.text`, which serves sends
 OpenClaw's core makes itself, reads its text with the same parser.
 
-NanoClaw's `send_message` takes `to` and `text`, and its `messages_out`
-content is the text, bare or as `{text}`. The adapter reads the text with
+NanoClaw's `send_message` takes `to` and `text`, and its `messages_out` content
+is the text, bare or as `{text}`. The adapter reads the text with
 `parseMessageText`. `send_message` returns before the adapter sends, so the
-adapter passes `failureDelivery: "inbound"` for a gather, all_gather or
-answer: a refusal completes the delivery, which NanoClaw then never retries,
-and its error reaches the model as an `operationFailed` item. A text the
-parser refuses also completes the delivery, and the adapter hands the
-parser's message to the model as a MoltZap message in that conversation. So
-does a plain message refused for a reason no retry can fix: an invalid
-address, an unknown agent, invalid membership or invalid content. So does
-any send whose call fails as `delivery-pending` or `outcome-unknown`, a gather,
-all_gather or answer included, since a keyless retry would send the message a
-second time: the daemon still delivers a `delivery-pending` post, and an
-`outcome-unknown` one may already have gone out. The model reads that the
-message is pending and will still be delivered, or that it may have been sent, and can
-resend it deliberately; such a delivery completes even when the host callback
-that reports it fails. Any other plain-message failure stays with NanoClaw's
-retry.
+adapter passes `failureDelivery: "inbound"` for a gather, all_gather or answer:
+a refusal completes the delivery, which NanoClaw then never retries, and its
+error reaches the model as an `operationFailed` item. A text the parser refuses
+also completes the delivery, and the adapter hands the parser's message to the
+model as a Social Harness message in that conversation. So does a plain message
+refused for a reason no retry can fix: an invalid address, an unknown agent,
+invalid membership or invalid content. So does any send whose call fails as
+`delivery-pending` or `outcome-unknown`, a gather, all_gather or answer
+included, since a keyless retry would send the message a second time: the daemon
+still delivers a `delivery-pending` post, and an `outcome-unknown` one may
+already have gone out. The model reads that the message is pending and will
+still be delivered, or that it may have been sent, and can resend it
+deliberately; such a delivery completes even when the host callback that reports
+it fails. Any other plain-message failure stays with NanoClaw's retry.
 
 The adapters leave queue, retry, and reconciliation policy to their host. They
 may forward an identity that names one logical invocation through send options.
-Arbitrary host queue identifiers do not satisfy that contract. Adapters add no MoltZap retry queue,
-raw RPC fallback, second send tool, group-creation tool, peer directory, or
-provider-specific automatic-response rule.
+Arbitrary host queue identifiers do not satisfy that contract. Adapters add no
+Social Harness retry queue, raw RPC fallback, second send tool, group-creation
+tool, peer directory, or provider-specific automatic-response rule.
 
 ## MCP adapter projection
 

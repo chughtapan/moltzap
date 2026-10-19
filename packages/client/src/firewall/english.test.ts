@@ -9,6 +9,7 @@ import {
   Exit,
   FastCheck as fc,
   Fiber,
+  Schema,
   TestClock,
 } from "effect";
 import { expect } from "vitest";
@@ -228,6 +229,68 @@ it("preserves the receiver of an injected provider method", () =>
     const result = yield* check(stateful);
     expect(result.judgment).toBe("allow");
     expect(result.checks[0]?.trace?.data).toContain(stateful.model);
+  }));
+
+it("reports earlier history omissions to the provider without holding or colliding with owner facts", () =>
+  Effect.gen(function* () {
+    const requests: DecisionRequest[] = [];
+    const result = yield* check(provider({}, requests), {
+      context: {
+        ...context,
+        earlierHistoryOmitted: true,
+        facts: [
+          ...context.facts,
+          {
+            id: "client:earlier-history-omitted",
+            source: "owner",
+            text: "Owner evidence retains its own reference.",
+            visibility: "assessor",
+          },
+        ],
+      },
+    });
+
+    expect(result.reason).toBe("eligible");
+    expect(requests.length).toBeGreaterThan(0);
+    expect(
+      requests.every((request) =>
+        request.state.includes('"earlierHistoryOmitted":true'),
+      ),
+    ).toBe(true);
+  }));
+
+/** The parts of a request's state that say when it was captured and which operation it checks. */
+const statedTimeAndCandidate = Schema.parseJson(
+  Schema.Struct({
+    now: Schema.optional(Schema.Number),
+    candidate: Schema.Struct({
+      operation: Schema.optional(Schema.Struct({ id: Schema.String })),
+    }),
+  }),
+);
+
+it("states the capture time and each message's collective operation to the provider", () =>
+  Effect.gen(function* () {
+    const requests: DecisionRequest[] = [];
+    const operation = {
+      kind: "request",
+      op: "gather",
+      id: "col_question",
+      deadlineAt: 2_000,
+    } as const;
+    yield* check(provider({}, requests), {
+      message: { ...draft, operation },
+      context: { ...context, now: 1_000 },
+    });
+
+    const states = requests.map((request) =>
+      Schema.decodeUnknownSync(statedTimeAndCandidate)(request.state),
+    );
+    expect(states.length).toBeGreaterThan(0);
+    expect(states.every((state) => state.now === 1_000)).toBe(true);
+    expect(
+      states.some((state) => state.candidate.operation?.id === operation.id),
+    ).toBe(true);
   }));
 
 it.prop(

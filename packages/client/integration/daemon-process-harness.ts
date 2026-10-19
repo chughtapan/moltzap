@@ -74,6 +74,13 @@ const ROUTER_BINARY = join(
   "packages/router/bin/moltzap-router",
 );
 const DAEMON_BINARY = join(WORKSPACE_ROOT, "packages/client/bin/moltzapd");
+const FIREWALL_DAEMON = join(
+  WORKSPACE_ROOT,
+  "packages/client/integration/firewall-daemon.ts",
+);
+
+/** The mode of the firewall a daemon fixture installs; absent for `moltzapd` itself. */
+export type FirewallMode = "guidance" | "enforcement";
 
 /** One closed process-fixture failure with captured child output when available. */
 export class ProcessTestError extends Data.TaggedError("ProcessTestError")<{
@@ -100,13 +107,18 @@ export interface ProcessInfrastructure {
   readonly restartRouter: Effect.Effect<void, ProcessTestError>;
 }
 
-/** Exact reusable process inputs for one daemon identity and state directory. */
+/**
+ * Exact reusable process inputs for one daemon identity and state directory.
+ * A fixture with a `firewall` mode runs `firewall-daemon.ts`, which installs
+ * that firewall; one without runs `moltzapd`.
+ */
 export interface DaemonProcessFixture {
   readonly agentName: AgentName;
   readonly endpoint: URL;
   readonly environment: Readonly<Record<string, string>>;
   readonly stateDirectory: string;
   readonly agentPrivateKeyFile: string;
+  readonly firewall?: FirewallMode;
 }
 
 /** Private management calls used to bootstrap and inspect a real daemon. */
@@ -440,6 +452,7 @@ export const acquireProcessInfrastructure: Effect.Effect<
 export const makeDaemonProcessFixture = (
   infrastructure: ProcessInfrastructure,
   name: string,
+  firewall?: FirewallMode,
 ): Effect.Effect<DaemonProcessFixture, ProcessTestError> =>
   Effect.gen(function* () {
     const agentName = yield* Schema.decodeUnknown(AgentName)(name).pipe(
@@ -474,18 +487,31 @@ export const makeDaemonProcessFixture = (
         MOLTZAPD_ROUTER_ORIGIN: infrastructure.routerOrigin.origin,
         MOLTZAPD_AGENT_PRIVATE_KEY_FILE: keyPath,
         MOLTZAPD_ADMISSION_CREDENTIAL_FILE: credentialPath,
+        ...(firewall === undefined
+          ? {}
+          : { MOLTZAP_TEST_FIREWALL_MODE: firewall }),
       },
+      ...(firewall === undefined ? {} : { firewall }),
     };
   });
+
+/** The command that runs one fixture's daemon. */
+const daemonCommand = (
+  fixture: DaemonProcessFixture,
+): readonly [string, readonly string[]] =>
+  fixture.firewall === undefined
+    ? [DAEMON_BINARY, []]
+    : [process.execPath, ["--import", "tsx", FIREWALL_DAEMON]];
 
 /** Starts one moltzapd and returns only after its guarded loopback port listens. */
 export const acquireDaemonProcess = (
   fixture: DaemonProcessFixture,
 ): Effect.Effect<RunningProcess, ProcessTestError, Scope.Scope> =>
   Effect.gen(function* () {
+    const [executable, arguments_] = daemonCommand(fixture);
     const running = yield* managedProcess(
-      DAEMON_BINARY,
-      [],
+      executable,
+      arguments_,
       fixture.environment,
     );
     yield* awaitReady(
@@ -510,9 +536,10 @@ export const awaitDaemonStartupFailure = (
   fixture: DaemonProcessFixture,
 ): Effect.Effect<DaemonStartupFailure, ProcessTestError, Scope.Scope> =>
   Effect.gen(function* () {
+    const [executable, arguments_] = daemonCommand(fixture);
     const running = yield* managedProcess(
-      DAEMON_BINARY,
-      [],
+      executable,
+      arguments_,
       fixture.environment,
     );
     const listened = yield* awaitReady(

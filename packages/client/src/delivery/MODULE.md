@@ -8,7 +8,7 @@ One service's delivery, for the service to compose.
 
 ## Public surface
 
-### [`FirewallAuditRecord`](./firewall-values.ts#L161)
+### [`FirewallAuditRecord`](./firewall-values.ts#L166)
 
 _TypeAlias_
 
@@ -18,7 +18,7 @@ export type FirewallAuditRecord = typeof FirewallAuditRecord.Type;
 
 Completion verifies the snapshot, not completion or delivery of each attempt.
 
-### [`FirewallAuditRecord`](./firewall-values.ts#L126)
+### [`FirewallAuditRecord`](./firewall-values.ts#L127)
 
 _Variable_
 
@@ -41,7 +41,6 @@ export const FirewallAuditRecord = Schema.Union(
       "stale",
       "admitted",
       "withheld",
-      "observed",
     ),
     post: Schema.NullOr(firewallAuditPost),
     candidate: Schema.Uint8ArrayFromBase64,
@@ -49,18 +48,23 @@ export const FirewallAuditRecord = Schema.Union(
     result: Schema.NullOr(firewallAuditResult),
   }),
   exactStruct({
+    kind: Schema.Literal("activation"),
+    ...firewallActivationSchema.fields,
+  }),
+  exactStruct({
     kind: Schema.Literal("complete"),
     format,
     snapshotId,
     checkCount: Schema.NonNegativeInt,
+    activationCount: Schema.NonNegativeInt,
     sha256: digest,
   }),
 ).annotations({ identifier: "FirewallAuditRecord" })
 ```
 
 One NDJSON record in an operator-only shutdown snapshot. A complete file has
-one start, every retained check, and one matching complete record. Its digest
-covers exactly the UTF-8 check lines including their trailing newlines.
+one start, every retained check and activation, and one matching complete record.
+Its digest covers the UTF-8 check and activation lines including trailing newlines.
 Candidate bytes are opaque canonical Client data, encoded as base64. A null
 result or checking/interrupted disposition never represents permission.
 The nullable post reference identifies supported messages without decoding candidate bytes.

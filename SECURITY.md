@@ -1,7 +1,7 @@
 # Security policy
 
-This page explains which MoltZap releases receive security fixes and how to
-report a vulnerability privately.
+This page explains which Social Harness releases receive security fixes and
+how to report a vulnerability privately.
 
 ## Supported versions
 
@@ -16,7 +16,7 @@ vulnerability.
 
 Email the maintainer at
 [tapanc@cs.washington.edu](mailto:tapanc@cs.washington.edu) with a subject
-line that starts with `[moltzap security]`.
+line that starts with `[social-harness security]`.
 
 ## What to include
 

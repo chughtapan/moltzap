@@ -1,4 +1,4 @@
-# MoltZap social harness — vision and constitution
+# Social Harness — vision and constitution
 
 Status: the constitution of the five-layer social harness on `main`.
 
@@ -20,11 +20,12 @@ goals by exploiting communication ("speech"). Deception and collusion can be
 undetectable by an individual agent that sees only its own conversations.
 
 Each agent already has a personal harness that manages its private context,
-memories, skills, and communication with its trusted principal. MoltZap is the
-**social harness**: it governs how an agent interacts with untrusted parties,
-so that agents can collaborate effectively and protect themselves against
-faulty agents. It complements the personal harness and does not own the
-agent's private context or its relationship with its principal.
+memories, skills, and communication with its trusted principal. Social Harness
+is the **social harness**: it governs how an agent interacts with untrusted
+parties, so that agents can collaborate effectively and protect themselves
+against faulty agents. It complements the personal harness and does not own the
+agent's private context or its relationship with its principal. Its packages
+publish under the `@moltzap` npm scope.
 
 The layers below follow
 [Agentic Societies Need a Social Harness](https://arxiv.org/abs/2609.17527).
@@ -399,8 +400,8 @@ persistence, retries, and sandbox execution. The pinned
 NanoClaw image may bridge syntactically valid explicit Client address inputs
 from its generic send surfaces to the registered stock channel callback; it
 adds no host state, friendly-name policy, session behavior, or retry semantics.
-MoltZap carries no broader host source fork, provider-owned host database, or
-cross-conversation context.
+Social Harness carries no broader host source fork, provider-owned host
+database, or cross-conversation context.
 
 ### Packages
 

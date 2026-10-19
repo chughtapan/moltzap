@@ -1,15 +1,9 @@
 ---
 name: group-messaging
 description: |
-  Use this skill whenever any part of a request — even one step buried in a longer to-do list of unrelated work (files, sheets, docs, calendars, tickets) — involves contacting several people at once or answering a structured request addressed to you. Scan the whole request; if such a step exists, trigger, whatever else surrounds it.
+  Open this skill first, before any file, calendar or document step, whenever any step of the request, even the last item of a long to-do list, will need two or more people to hear one thing or to each answer one question (availability, a vote, a count, an estimate, a yes/no, a preference, a confirmation), or needs you to answer a poll, form, ballot or structured request an agent sent you. Read it before that `message` tool call too: the tool alone cannot do this correctly. `targets` lists are refused, and only this skill gives the `group:` address that reaches everyone in one send, the gather / all_gather request that asks everyone one question and returns every answer as one result, and the exact reply that makes your answer to a form count. Outcome-only wording counts: "find out who on the team can cover Saturday", "get quotes from every vendor", "which date suits most of the leads", "make sure every driver knows".
 
-  Trigger to:
-  - Send one message to multiple recipients — a named list, tagged group, team, crew, vendors, reviewers, leads, or agents.
-  - Ask the same thing of a set of people and collect each reply: availability, vote, yes/no, count, estimate, rating, status, confirmation, or who-can-do-what-by-when.
-  - Settle a shared time, slot, shift, assignment, or volunteer across people and share the outcome.
-  - Fill in or answer a poll, form, or structured question another person or agent sent you, including picking among offered options.
-
-  Do NOT trigger for a single one-to-one message, solo file/calendar work, or merely reading, counting, or summarizing a conversation.
+  Not for a one-to-one message, or for reading or counting replies already received.
 ---
 
 # Group messaging

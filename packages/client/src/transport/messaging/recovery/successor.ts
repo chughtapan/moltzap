@@ -60,7 +60,10 @@ interface HeldDelivery {
 interface PendingSuccessor {
   readonly position: HeadPosition;
   record?: HeldDelivery;
-  readonly votes: Map<AgentId, HeldDelivery>;
+  readonly votes: Map<
+    AgentId,
+    HeldDelivery & { readonly statement: EvidenceStatement }
+  >;
   /** Set once the endpoint has tried to stage the held record. */
   settled: boolean;
 }
@@ -76,10 +79,6 @@ export interface SuccessorRun {
   ) => VerifiedMembership | undefined;
   /** Whether the run re-anchors the conversation after a Router restart. */
   readonly reanchoring: (conversationId: ConversationIdValue) => boolean;
-  /** Catch the conversation up again from a newly certified head. */
-  readonly armCatchUp: (
-    conversationId: ConversationIdValue,
-  ) => Effect.Effect<void, RouterWorkerPersistenceError>;
 }
 
 const acceptedDisposition: RouterIngressDisposition = "accepted";
@@ -110,7 +109,7 @@ export function acceptSuccessorRecord(
     return Effect.succeed(ignoredDisposition);
   }
   if (!run.reanchoring(conversationId)) {
-    return certifyThroughPhases(run, conversationId, [ingress]);
+    return run.runtime.phases.acceptIngress(run.runtime, ingress);
   }
   const { position, membership } = extended;
   const pending = pendingFor(run.pending, conversationId, position);
@@ -173,9 +172,13 @@ export function acceptSuccessorVote(
   return holdTowardConversion(
     run,
     membership,
-    verifyHeldVote(run, membership, ingress, vote.message),
+    verifyHeldVote(run, membership, ingress, vote),
     () => {
-      pending.votes.set(signerAgentId, { recordHash, ingress });
+      pending.votes.set(signerAgentId, {
+        recordHash,
+        ingress,
+        statement: vote.statement,
+      });
     },
   ).pipe(Effect.withSpan("acceptSuccessorVote"));
 }
@@ -206,9 +209,9 @@ function acceptStagedSuccessorVote(
     !fold.certified &&
     position !== undefined &&
     extendsHead(position, fold.action);
-  const { conversationId, signerAgentId } = statement;
+  const { signerAgentId } = statement;
   return staged && !fold.durabilityEvidence.has(signerAgentId)
-    ? certifyThroughPhases(run, conversationId, [ingress])
+    ? run.runtime.phases.acceptIngress(run.runtime, ingress, statement)
     : Effect.succeed(ignoredDisposition);
 }
 
@@ -259,11 +262,12 @@ function verifyHeldVote(
   run: SuccessorRun,
   membership: VerifiedMembership,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
-  message: SignedMessage,
+  vote: Readonly<{ message: SignedMessage; statement: EvidenceStatement }>,
 ): Effect.Effect<boolean> {
   return verifyDeliveredEvidence({
     outer: ingress.message,
-    evidence: message,
+    evidence: vote.message,
+    statement: vote.statement,
     membership,
   }).pipe(
     Effect.map(
@@ -306,46 +310,23 @@ function maybeConvert(
       return Effect.void;
     }
     pending.settled = true;
-    return certifyThroughPhases(run, conversationId, [
-      record.ingress,
-      ...votes.map((vote) => vote.ingress),
-    ]).pipe(Effect.asVoid);
+    return run.runtime.phases
+      .acceptIngress(run.runtime, record.ingress)
+      .pipe(
+        Effect.zipRight(
+          Effect.forEach(
+            votes,
+            (vote) =>
+              run.runtime.phases.acceptIngress(
+                run.runtime,
+                vote.ingress,
+                vote.statement,
+              ),
+            { concurrency: 1, discard: true },
+          ),
+        ),
+      );
   });
-}
-
-/**
- * Hand a staged successor's traffic to the protocol phases in order. When
- * they certify it, the conversation's head moves, and catch-up starts again
- * from the new head.
- * @param run Recovery run that holds the conversation.
- * @param conversationId Conversation the traffic is for.
- * @param deliveries Verified Router deliveries: a record, then votes.
- * @returns The first delivery's disposition.
- */
-function certifyThroughPhases(
-  run: SuccessorRun,
-  conversationId: ConversationIdValue,
-  deliveries: ReadonlyArray<RouterWorkerIngress<DecodedOuterBody>>,
-): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  const { runtime } = run;
-  const headBefore =
-    runtime.conversations.get(conversationId)?.head?.recordHash;
-  return Effect.forEach(
-    deliveries,
-    (delivery) => runtime.phases.acceptIngress(runtime, delivery),
-    { concurrency: 1 },
-  ).pipe(
-    Effect.tap(() => {
-      if (
-        runtime.conversations.get(conversationId)?.head?.recordHash ===
-        headBefore
-      ) {
-        return Effect.void;
-      }
-      return run.armCatchUp(conversationId);
-    }),
-    Effect.map((dispositions) => dispositions[0] ?? ignoredDisposition),
-  );
 }
 
 /**
