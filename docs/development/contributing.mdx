@@ -85,20 +85,23 @@ constants before comparing them.
 
 ## Architecture checks
 
-`pnpm lint` runs the package graph and boundary checks.
-`pnpm arch:check` runs each package's architecture analysis on its own.
-Each `packages/*/safer-architecture.config.json` records that package's
-budgets. Source-specific exceptions stay inline as `safer-arch-ignore`
-directives next to the declaration they cover.
+`pnpm lint` runs the architecture gates: the package graph and boundary check,
+`arch:check` for every package, and `arch:config:check`. Run a gate on its own
+while you work:
 
 | Command | What it does |
 |---------|--------------|
 | `pnpm arch:check` | Run every package's architecture analysis |
-| `pnpm arch:config:generate` | Regenerate the package architecture configs |
-| `pnpm arch:config:check` | Fail when a generated config differs from its committed copy |
+| `pnpm arch:config:generate` | Regenerate each `packages/*/safer-architecture.config.json` |
+| `pnpm arch:config:check` | Fail when a committed config differs from the generator's output |
 
-Raising a budget or adding a waiver is an architecture review point: say so
-in the PR description instead of regenerating the config silently.
+Package budgets come from `scripts/architecture/gen-configs.ts`; the JSON files
+are its output, so change a budget in the generator and regenerate. Exceptions
+are `safer-arch-ignore` directives in the source, most at the top of the file
+they cover. List them with `rg -n "safer-arch-ignore" packages/*/src`.
+
+Raising a budget or adding a directive is an architecture review point: say so
+in the PR description.
 
 ## Documentation
 
