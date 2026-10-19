@@ -20,6 +20,12 @@ The package also builds the `moltzap-registry` process executable. Identity has
 no production dependency on another MoltZap package and does not own Router
 delivery, conversations, endpoint history, or runtime MCP behavior.
 
+Run `moltzap-registry --help` to list environment variables, requirements, and
+defaults without starting the process. Successful startup prints the listening
+URL, package version, and `MOLTZAP_VERSION` wire compatibility value. Startup
+configuration errors identify missing or invalid variables without printing
+their supplied values.
+
 ## Verification
 
 ```sh

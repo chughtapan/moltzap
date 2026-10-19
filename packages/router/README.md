@@ -19,6 +19,12 @@ The package also builds the `moltzap-router` process executable. Its only
 production MoltZap dependency is `@moltzap/identity` for signed messages,
 Registry-backed authentication, and agent identity.
 
+Run `moltzap-router --help` to list environment variables, requirements, and
+defaults without starting the process. Successful startup prints the listening
+URL, package version, and `MOLTZAP_VERSION` wire compatibility value. Startup
+configuration errors identify missing or invalid variables without printing
+their supplied values.
+
 ## Verification
 
 ```sh

@@ -5,12 +5,17 @@
  */
 import { HttpServer } from "@effect/platform";
 import { NodeHttpClient, NodeHttpServer } from "@effect/platform-node";
-import { AuthenticatedHttp } from "@moltzap/identity";
+import { AuthenticatedHttp, MOLTZAP_VERSION } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
-import { Data, Duration, Effect, Layer } from "effect";
+import { ConfigError, Console, Data, Duration, Effect, Layer } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- NodeHttpServer.make requires Node's server factory at this adapter boundary.
 import { createServer } from "node:http";
-import { loadRouterConfiguration, type RouterConfiguration } from "./router.js";
+import packageJson from "../package.json" with { type: "json" };
+import {
+  configurationMessage,
+  loadRouterConfiguration,
+  type RouterConfiguration,
+} from "./router.js";
 import { makeRouterFeed } from "./router/feed.js";
 import { makeRouterHttpApp } from "./router/http.js";
 import {
@@ -23,7 +28,6 @@ import { makeRouterPoll } from "./router/poll.js";
 import { makeRouterRpcClient } from "./router/rpc.js";
 import { makeRouterSend } from "./router/send.js";
 
-// Production Router process surface.
 // eslint-disable-next-line @typescript-eslint/no-namespace -- The namespace keeps the process layer and its closed startup error under one RouterServer capability.
 export namespace RouterServer {
   /** Closed Router startup phase. */
@@ -31,7 +35,16 @@ export namespace RouterServer {
     "RouterServerStartupError",
   )<{
     readonly phase: "configuration" | "listener";
-  }> {}
+    readonly cause?: unknown;
+  }> {
+    /** Rejected environment values never enter the operator message. */
+    override get message(): string {
+      const detail = ConfigError.isConfigError(this.cause)
+        ? `: ${configurationMessage(this.cause)}`
+        : "";
+      return `moltzap-router startup failed in phase ${this.phase}${detail}`;
+    }
+  }
 
   const runRouterServer = Effect.gen(function* () {
     const configuration = yield* loadRouterConfiguration.pipe(
@@ -46,6 +59,9 @@ export namespace RouterServer {
       Effect.provideService(HttpServer.HttpServer, httpServer),
       Effect.provide(authenticatedHttpLayer(configuration)),
       Effect.provide(NodeHttpServer.layerContext),
+    );
+    yield* Console.log(
+      `moltzap-router listening on ${listeningUrl(httpServer.address)} (package ${packageJson.version}; MOLTZAP_VERSION ${MOLTZAP_VERSION})`,
     );
   }).pipe(Effect.withSpan("RouterServer.layer"));
 
@@ -125,11 +141,22 @@ export namespace RouterServer {
     }).pipe(Layer.provide(registryLayer));
   }
 
-  function configurationFailure() {
-    return new StartupError({ phase: "configuration" });
+  function configurationFailure(cause: unknown) {
+    return new StartupError({ phase: "configuration", cause });
   }
 
-  function listenerFailure() {
-    return new StartupError({ phase: "listener" });
+  function listenerFailure(cause: unknown) {
+    return new StartupError({ phase: "listener", cause });
   }
+}
+
+/** IPv6 listener addresses need brackets in a URL authority. */
+function listeningUrl(address: HttpServer.Address): string {
+  if (address._tag === "UnixAddress") {
+    return HttpServer.formatAddress(address);
+  }
+  const host = address.hostname.includes(":")
+    ? `[${address.hostname}]`
+    : address.hostname;
+  return `http://${host}:${address.port}`;
 }

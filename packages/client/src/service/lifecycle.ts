@@ -2,9 +2,10 @@
 
 import type { Implementation } from "@modelcontextprotocol/server";
 import type { Registry } from "@moltzap/identity/registry";
+import { MOLTZAP_VERSION } from "@moltzap/identity";
 import type { Router } from "@moltzap/router";
 import { NodeFileSystem } from "@effect/platform-node";
-import { Effect, type Scope } from "effect";
+import { Console, Effect, type Scope } from "effect";
 import {
   type HistoryExportPort,
   makeHistoryExport,
@@ -127,6 +128,9 @@ function runDaemonResources(
           handler,
         })
         .pipe(Effect.mapError(() => runtimeFailure("listener")));
+      yield* Console.log(
+        `moltzapd listening on http://127.0.0.1:${input.bootstrap.configuration.mcpPort}/mcp (package ${packageVersion}; MOLTZAP_VERSION ${MOLTZAP_VERSION})`,
+      );
       return yield* daemon.awaitFailure;
     }).pipe(Effect.raceFirst(daemon.awaitFailure));
   });

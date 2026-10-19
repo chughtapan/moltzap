@@ -4,7 +4,10 @@ import { NodeHttpClient } from "@effect/platform-node";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Data, Duration, Effect, Layer } from "effect";
-import type { DaemonProcessConfiguration } from "./bootstrap.js";
+import {
+  DaemonConfigurationError,
+  type DaemonProcessConfiguration,
+} from "./bootstrap.js";
 import {
   type InstalledFirewall,
   type FirewallOptions as InstalledFirewallOptions,
@@ -68,16 +71,18 @@ export namespace Daemon {
     readonly auditExport?: string;
   };
 
-  /** Closed daemon startup phase without configuration or platform detail. */
+  /** Closed startup phase retaining its cause without exposing supplied values. */
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
+    readonly cause?: unknown;
   }> {
-    /**
-     * Names only the failed phase, so the process log says why startup stopped.
-     * @returns The startup failure message.
-     */
+    /** Only sanitized configuration details enter the process log. */
     override get message(): string {
-      return `moltzapd startup failed in phase ${this.phase}`;
+      const detail =
+        this.cause instanceof DaemonConfigurationError
+          ? `: ${this.cause.message ?? this.cause.reason}`
+          : "";
+      return `moltzapd startup failed in phase ${this.phase}${detail}`;
     }
   }
 
@@ -119,7 +124,9 @@ export namespace Daemon {
       }).pipe(
         Effect.provide(networkContext),
         // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- The public process layer deliberately projects private runtime failures onto its closed startup phase.
-        Effect.mapError((error) => new StartupError({ phase: error.phase })),
+        Effect.mapError(
+          (error) => new StartupError({ phase: error.phase, cause: error }),
+        ),
       );
     }).pipe(Effect.withSpan("Daemon.layer"));
 
@@ -147,12 +154,12 @@ export namespace Daemon {
     );
   };
 
-  function configurationFailure(): StartupError {
-    return new StartupError({ phase: "configuration" });
+  function configurationFailure(cause: unknown): StartupError {
+    return new StartupError({ phase: "configuration", cause });
   }
 
-  function storageFailure(): StartupError {
-    return new StartupError({ phase: "storage" });
+  function storageFailure(cause: unknown): StartupError {
+    return new StartupError({ phase: "storage", cause });
   }
 }
 

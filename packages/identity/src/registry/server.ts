@@ -7,7 +7,8 @@ import { PgClient } from "@effect/sql-pg";
 import {
   Cause,
   Config,
-  type ConfigError,
+  ConfigError,
+  Console,
   Data,
   Duration,
   Effect,
@@ -18,6 +19,8 @@ import {
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- NodeHttpServer.make requires the platform listener constructor at this adapter boundary.
 import { createServer } from "node:http";
 import { isAbsolute } from "node:path";
+import packageJson from "../../package.json" with { type: "json" };
+import { MOLTZAP_VERSION } from "../version.js";
 import { AgentSigningAuthority } from "../agent-key.js";
 import { makeRegistryHttpApp } from "./http.js";
 import {
@@ -61,6 +64,9 @@ const postgresqlUrl = Schema.String.pipe(
       return false;
     }
   }),
+  Schema.annotations({
+    identifier: "PostgreSQL URL with a database name and no fragment",
+  }),
 );
 const admissionCredential = Schema.String.pipe(
   Schema.minLength(8),
@@ -69,43 +75,64 @@ const admissionCredential = Schema.String.pipe(
 );
 const absolutePath = Schema.String.pipe(
   Schema.filter((value) => isAbsolute(value)),
+  Schema.annotations({ identifier: "absolute file path" }),
 );
 
-const configuredValues = Config.all({
-  host: Schema.Config("MOLTZAP_REGISTRY_HOST", bindHost).pipe(
-    Config.withDefault("127.0.0.1"),
+const configurationFields = {
+  host: setting("MOLTZAP_REGISTRY_HOST", bindHost, "127.0.0.1"),
+  port: setting("MOLTZAP_REGISTRY_PORT", port),
+  postgresqlUrl: setting("MOLTZAP_REGISTRY_POSTGRESQL_URL", postgresqlUrl),
+  admissionCredential: setting(
+    "MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL",
+    admissionCredential,
   ),
-  port: Schema.Config("MOLTZAP_REGISTRY_PORT", port),
-  postgresqlUrl: Config.redacted(
-    Schema.Config("MOLTZAP_REGISTRY_POSTGRESQL_URL", postgresqlUrl),
+  signingPrivateKeyPath: setting(
+    "MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH",
+    absolutePath,
   ),
-  admissionCredential: Config.redacted(
-    Schema.Config("MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL", admissionCredential),
-  ),
-  signingPrivateKeyPath: Config.redacted(
-    Schema.Config("MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH", absolutePath),
-  ),
-  listPageSize: Schema.Config(
-    "MOLTZAP_REGISTRY_LIST_PAGE_SIZE",
-    processInteger,
-  ).pipe(Config.withDefault(100)),
-  requestConcurrencyLimit: Schema.Config(
+  listPageSize: setting("MOLTZAP_REGISTRY_LIST_PAGE_SIZE", processInteger, 100),
+  requestConcurrencyLimit: setting(
     "MOLTZAP_REGISTRY_REQUEST_CONCURRENCY_LIMIT",
     processInteger,
-  ).pipe(Config.withDefault(256)),
-  liveNonceCapacity: Schema.Config(
+    256,
+  ),
+  liveNonceCapacity: setting(
     "MOLTZAP_REGISTRY_LIVE_NONCE_CAPACITY",
     processInteger,
-  ).pipe(Config.withDefault(10_000)),
-  sqlPoolSize: Schema.Config(
-    "MOLTZAP_REGISTRY_SQL_POOL_SIZE",
-    processInteger,
-  ).pipe(Config.withDefault(10)),
-  sqlOperationTimeoutMs: Schema.Config(
+    10_000,
+  ),
+  sqlPoolSize: setting("MOLTZAP_REGISTRY_SQL_POOL_SIZE", processInteger, 10),
+  sqlOperationTimeoutMs: setting(
     "MOLTZAP_REGISTRY_SQL_OPERATION_TIMEOUT_MS",
     processInteger,
-  ).pipe(Config.withDefault(5_000)),
+    5_000,
+  ),
+};
+
+const configuredValues = Config.all({
+  host: configurationFields.host.config,
+  port: configurationFields.port.config,
+  postgresqlUrl: Config.redacted(configurationFields.postgresqlUrl.config),
+  admissionCredential: Config.redacted(
+    configurationFields.admissionCredential.config,
+  ),
+  signingPrivateKeyPath: Config.redacted(
+    configurationFields.signingPrivateKeyPath.config,
+  ),
+  listPageSize: configurationFields.listPageSize.config,
+  requestConcurrencyLimit: configurationFields.requestConcurrencyLimit.config,
+  liveNonceCapacity: configurationFields.liveNonceCapacity.config,
+  sqlPoolSize: configurationFields.sqlPoolSize.config,
+  sqlOperationTimeoutMs: configurationFields.sqlOperationTimeoutMs.config,
 });
+
+/** Usage is generated from the same fields consumed by the process. */
+export const processHelp = [
+  "Usage: moltzap-registry [--help]",
+  "",
+  "Environment:",
+  ...Object.values(configurationFields).map((field) => `  ${field.usage}`),
+].join("\n");
 
 /**
  * Complete validated configuration for one Registry process.
@@ -143,7 +170,18 @@ export class StartupError extends Data.TaggedError(
   "RegistryServerStartupError",
 )<{
   readonly phase: "configuration" | "storage" | "listener";
-}> {}
+  readonly cause?: unknown;
+}> {
+  /** Operator diagnostics exclude rejected inputs and platform paths. */
+  override get message(): string {
+    const detail = ConfigError.isConfigError(this.cause)
+      ? `: ${configurationMessage(this.cause)}`
+      : this.phase === "configuration"
+        ? ": MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH must name a readable Ed25519 PKCS#8 key file"
+        : "";
+    return `moltzap-registry startup failed in phase ${this.phase}${detail}`;
+  }
+}
 
 const runRegistryServer = Effect.gen(function* () {
   const configuration = yield* loadRegistryConfiguration.pipe(
@@ -273,20 +311,72 @@ function serveRegistry(
       port: configuration.port,
     }).pipe(Effect.mapError(listenerFailure));
     yield* HttpServer.serveEffect(app).pipe(
-      // The server capability owns listener acquisition and release.
       Effect.provideService(HttpServer.HttpServer, httpServer),
+    );
+    yield* Console.log(
+      `moltzap-registry listening on ${listeningUrl(httpServer.address)} (package ${packageJson.version}; MOLTZAP_VERSION ${MOLTZAP_VERSION})`,
     );
   });
 }
 
-function configurationFailure() {
-  return new StartupError({ phase: "configuration" });
+function configurationFailure(cause: unknown) {
+  return new StartupError({ phase: "configuration", cause });
 }
 
-function storageFailure() {
-  return new StartupError({ phase: "storage" });
+function storageFailure(cause?: unknown) {
+  return new StartupError({ phase: "storage", cause });
 }
 
-function listenerFailure() {
-  return new StartupError({ phase: "listener" });
+function listenerFailure(cause: unknown) {
+  return new StartupError({ phase: "listener", cause });
+}
+
+/** Config and operator text share the name, schema and default at declaration. */
+function setting<A, D = never>(
+  name: string,
+  schema: Schema.Schema<A, string>,
+  ...defaults: [] | [D]
+) {
+  const config = Schema.Config(name, schema);
+  return {
+    name,
+    reason: `must satisfy ${String(schema)}`,
+    config:
+      defaults.length === 0
+        ? config
+        : config.pipe(Config.withDefault(defaults[0])),
+    usage: `${name}: ${defaults.length === 0 ? "required; default: none" : `optional; default: ${defaults[0] === undefined ? "unset" : JSON.stringify(defaults[0])}`}`,
+  };
+}
+
+/** ConfigError trees retain every missing field without printing rejected inputs. */
+function configurationMessage(error: ConfigError.ConfigError): string {
+  switch (error._op) {
+    case "And":
+    case "Or":
+      return `${configurationMessage(error.left)}; ${configurationMessage(error.right)}`;
+    case "MissingData":
+      return `${Array.from(error.path).join("_")} is required`;
+    case "InvalidData": {
+      const name = Array.from(error.path).join("_");
+      const field = Object.values(configurationFields).find(
+        (candidate) => candidate.name === name,
+      );
+      return field === undefined ? error.message : `${name} ${field.reason}`;
+    }
+    case "SourceUnavailable":
+    case "Unsupported":
+      return `${Array.from(error.path).join("_")} configuration source unavailable`;
+  }
+}
+
+/** IPv6 listener addresses need brackets in a URL authority. */
+function listeningUrl(address: HttpServer.Address): string {
+  if (address._tag === "UnixAddress") {
+    return HttpServer.formatAddress(address);
+  }
+  const host = address.hostname.includes(":")
+    ? `[${address.hostname}]`
+    : address.hostname;
+  return `http://${host}:${address.port}`;
 }

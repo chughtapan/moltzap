@@ -19,6 +19,7 @@ import {
 import canonicalize from "canonicalize";
 import {
   Config,
+  ConfigError,
   Context,
   Duration,
   Effect,
@@ -313,6 +314,9 @@ const isSerializedRegistryOrigin = (value: string): boolean => {
 
 const registryOriginText = Schema.String.pipe(
   Schema.filter(isSerializedRegistryOrigin),
+  Schema.annotations({
+    identifier: "serialized HTTP(S) origin without a path",
+  }),
 );
 const registryOrigin = registryOriginText.pipe(Schema.compose(Schema.URL));
 const compactPublicKeyJson = Schema.String.pipe(
@@ -320,60 +324,92 @@ const compactPublicKeyJson = Schema.String.pipe(
   Schema.compose(Schema.parseJson(Ed25519PublicKey)),
 );
 
-const configuredValues = Config.all({
-  host: Schema.Config("MOLTZAP_ROUTER_HOST", bindHost).pipe(
-    Config.withDefault("127.0.0.1"),
-  ),
-  port: Schema.Config("MOLTZAP_ROUTER_PORT", port),
-  registryOrigin: Schema.Config(
-    "MOLTZAP_ROUTER_REGISTRY_ORIGIN",
-    registryOrigin,
-  ),
-  registrySignerPublicKey: Schema.Config(
+const configurationFields = {
+  host: setting("MOLTZAP_ROUTER_HOST", bindHost, "127.0.0.1"),
+  port: setting("MOLTZAP_ROUTER_PORT", port),
+  registryOrigin: setting("MOLTZAP_ROUTER_REGISTRY_ORIGIN", registryOrigin),
+  registrySignerPublicKey: setting(
     "MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY",
     compactPublicKeyJson,
   ),
-  retainedMessageCapacity: Schema.Config(
+  retainedMessageCapacity: setting(
     "MOLTZAP_ROUTER_RETAINED_MESSAGE_CAPACITY",
     processInteger,
-  ).pipe(Config.withDefault(4_096)),
-  retainedMessageByteCapacity: Schema.Config(
+    4_096,
+  ),
+  retainedMessageByteCapacity: setting(
     "MOLTZAP_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY",
     processInteger,
-  ).pipe(Config.withDefault(67_108_864)),
-  pollMessageLimit: Schema.Config(
+    67_108_864,
+  ),
+  pollMessageLimit: setting(
     "MOLTZAP_ROUTER_POLL_MESSAGE_LIMIT",
     processInteger,
-  ).pipe(Config.withDefault(128)),
-  pollResponseByteLimit: Schema.Config(
+    128,
+  ),
+  pollResponseByteLimit: setting(
     "MOLTZAP_ROUTER_POLL_RESPONSE_BYTE_LIMIT",
     processInteger,
-  ).pipe(Config.withDefault(1_048_576)),
-  requestConcurrencyLimit: Schema.Config(
+    1_048_576,
+  ),
+  requestConcurrencyLimit: setting(
     "MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT",
     processInteger,
-  ).pipe(Config.withDefault(512)),
-  heldPollCapacity: Schema.Config(
+    512,
+  ),
+  heldPollCapacity: setting(
     "MOLTZAP_ROUTER_HELD_POLL_CAPACITY",
     processInteger,
-  ).pipe(Config.withDefault(256)),
-  liveNonceCapacity: Schema.Config(
+    256,
+  ),
+  liveNonceCapacity: setting(
     "MOLTZAP_ROUTER_LIVE_NONCE_CAPACITY",
     processInteger,
-  ).pipe(Config.withDefault(100_000)),
-  agentCardCacheCapacity: Schema.Config(
+    100_000,
+  ),
+  agentCardCacheCapacity: setting(
     "MOLTZAP_ROUTER_AGENT_CARD_CACHE_CAPACITY",
     processInteger,
-  ).pipe(Config.withDefault(10_000)),
-  registryLookupConcurrencyLimit: Schema.Config(
+    10_000,
+  ),
+  registryLookupConcurrencyLimit: setting(
     "MOLTZAP_ROUTER_REGISTRY_LOOKUP_CONCURRENCY_LIMIT",
     processInteger,
-  ).pipe(Config.withDefault(32)),
-  registryLookupTimeoutMs: Schema.Config(
+    32,
+  ),
+  registryLookupTimeoutMs: setting(
     "MOLTZAP_ROUTER_REGISTRY_LOOKUP_TIMEOUT_MS",
     processInteger,
-  ).pipe(Config.withDefault(5_000)),
+    5_000,
+  ),
+};
+
+const configuredValues = Config.all({
+  host: configurationFields.host.config,
+  port: configurationFields.port.config,
+  registryOrigin: configurationFields.registryOrigin.config,
+  registrySignerPublicKey: configurationFields.registrySignerPublicKey.config,
+  retainedMessageCapacity: configurationFields.retainedMessageCapacity.config,
+  retainedMessageByteCapacity:
+    configurationFields.retainedMessageByteCapacity.config,
+  pollMessageLimit: configurationFields.pollMessageLimit.config,
+  pollResponseByteLimit: configurationFields.pollResponseByteLimit.config,
+  requestConcurrencyLimit: configurationFields.requestConcurrencyLimit.config,
+  heldPollCapacity: configurationFields.heldPollCapacity.config,
+  liveNonceCapacity: configurationFields.liveNonceCapacity.config,
+  agentCardCacheCapacity: configurationFields.agentCardCacheCapacity.config,
+  registryLookupConcurrencyLimit:
+    configurationFields.registryLookupConcurrencyLimit.config,
+  registryLookupTimeoutMs: configurationFields.registryLookupTimeoutMs.config,
 });
+
+/** Usage is generated from the same fields consumed by the process. */
+export const processHelp = [
+  "Usage: moltzap-router [--help]",
+  "",
+  "Environment:",
+  ...Object.values(configurationFields).map((field) => `  ${field.usage}`),
+].join("\n");
 
 /** Complete validated private process configuration. */
 export interface RouterConfiguration {
@@ -408,12 +444,17 @@ const heldPollsFit = (candidate: RouterConfiguration): boolean =>
 
 const validatedConfiguration = configuredValues.pipe(
   Config.validate({
+    message: `MOLTZAP_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY must be at least ${SignedMessage.maximumEncodedByteLength} to retain one maximum-size message`,
+    validation: retentionFits,
+  }),
+  Config.validate({
+    message: `MOLTZAP_ROUTER_POLL_RESPONSE_BYTE_LIMIT must be at least ${routerRepresentationLimits.oneMessageBatchBytes} to return one maximum-size message`,
+    validation: pollBatchFits,
+  }),
+  Config.validate({
     message:
-      "Router resource bounds do not satisfy the representation fit laws",
-    validation: (candidate) =>
-      retentionFits(candidate) &&
-      pollBatchFits(candidate) &&
-      heldPollsFit(candidate),
+      "MOLTZAP_ROUTER_HELD_POLL_CAPACITY must be less than MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT",
+    validation: heldPollsFit,
   }),
 );
 
@@ -422,3 +463,42 @@ export const loadRouterConfiguration = Effect.gen(function* () {
   const configuration: RouterConfiguration = yield* validatedConfiguration;
   return configuration;
 }).pipe(Effect.withSpan("loadRouterConfiguration"));
+
+/** Config and operator text share the name, schema and default at declaration. */
+function setting<A, D = never>(
+  name: string,
+  schema: Schema.Schema<A, string>,
+  ...defaults: [] | [D]
+) {
+  const config = Schema.Config(name, schema);
+  return {
+    name,
+    reason: `must satisfy ${String(schema)}`,
+    config:
+      defaults.length === 0
+        ? config
+        : config.pipe(Config.withDefault(defaults[0])),
+    usage: `${name}: ${defaults.length === 0 ? "required; default: none" : `optional; default: ${defaults[0] === undefined ? "unset" : JSON.stringify(defaults[0])}`}`,
+  };
+}
+
+/** ConfigError trees retain every missing field without printing rejected inputs. */
+export function configurationMessage(error: ConfigError.ConfigError): string {
+  switch (error._op) {
+    case "And":
+    case "Or":
+      return `${configurationMessage(error.left)}; ${configurationMessage(error.right)}`;
+    case "MissingData":
+      return `${Array.from(error.path).join("_")} is required`;
+    case "InvalidData": {
+      const name = Array.from(error.path).join("_");
+      const field = Object.values(configurationFields).find(
+        (candidate) => candidate.name === name,
+      );
+      return field === undefined ? error.message : `${name} ${field.reason}`;
+    }
+    case "SourceUnavailable":
+    case "Unsupported":
+      return `${Array.from(error.path).join("_")} configuration source unavailable`;
+  }
+}
