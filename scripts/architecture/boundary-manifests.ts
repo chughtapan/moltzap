@@ -67,12 +67,12 @@ export function checkCompatibilityVersion(run: BoundaryRun): string | null {
       "packages/identity/src/index.ts: missing; it exports the compatibility value",
     );
   } else if (
-    !/export\s*\{\s*MOLTZAP_VERSION\s*\}\s*from\s*["']\.\/version\.js["']/.test(
+    !/export\s*\{[^}]*\bWIRE_VERSION\b[^}]*\}\s*from\s*["']\.\/version\.js["']/.test(
       readFileSync(identityIndex, "utf8"),
     )
   ) {
     run.failures.push(
-      "packages/identity/src/index.ts: must re-export MOLTZAP_VERSION from ./version.js",
+      "packages/identity/src/index.ts: must re-export WIRE_VERSION from ./version.js",
     );
   }
   return compatibilityVersion;
@@ -188,19 +188,18 @@ function readCompatibilityVersion(
     );
     return null;
   }
-  const literal =
-    /export\s+const\s+MOLTZAP_VERSION\s*=\s*["']([^"']*)["']/.exec(
-      readFileSync(identityVersion, "utf8"),
-    )?.[1];
+  const literal = /export\s+const\s+WIRE_VERSION\s*=\s*["']([^"']*)["']/.exec(
+    readFileSync(identityVersion, "utf8"),
+  )?.[1];
   if (literal === undefined) {
     run.failures.push(
-      "packages/identity/src/version.ts: must export the literal MOLTZAP_VERSION",
+      "packages/identity/src/version.ts: must export the literal WIRE_VERSION",
     );
     return null;
   }
   if (!CALENDAR_VERSION.test(literal)) {
     run.failures.push(
-      `packages/identity/src/version.ts: MOLTZAP_VERSION "${literal}" is not a YYYY.MDD.N CalVer`,
+      `packages/identity/src/version.ts: WIRE_VERSION "${literal}" is not a YYYY.MDD.N CalVer`,
     );
     return null;
   }

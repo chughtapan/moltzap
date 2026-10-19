@@ -26,7 +26,7 @@ import {
 } from "@moltzap/client";
 import { Effect, Either, Encoding, Fiber, Schema, Stream } from "effect";
 import { join } from "node:path";
-import { describe, expect, vi, it as vitestIt } from "vitest";
+import { beforeAll, describe, expect, vi, it as vitestIt } from "vitest";
 
 import manifest from "../openclaw.plugin.json" with { type: "json" };
 import { openClawTestStateDirectory } from "../vitest.setup.js";
@@ -52,6 +52,16 @@ interface FakeHarnessEndpoint {
   readonly endpoint: HarnessEndpoint;
   readonly sends: readonly SendInput[];
 }
+
+/**
+ * OpenClaw lazily loads its inbound session-recording runtime on the first turn.
+ * A real turn warms that runtime and Effect before any test's five-second budget;
+ * the hook allows 30 seconds for cold setup on a loaded host.
+ */
+beforeAll(
+  () => Effect.runPromise(runItemTurn(multicast(directMessage(8)))),
+  30_000,
+);
 
 describe("OpenClaw HarnessEndpoint adapter", () => {
   it(
@@ -367,23 +377,13 @@ function replayRemainsHostOwned() {
 
 function proactiveSendUsesLocalReceiptIdentity() {
   const fake = makeListeningEndpoint();
-  const runtime = makeObservedRuntime({
-    events: [],
-    calls: [],
-    routePeers: [],
-  });
   const plugin = createChannelPlugin({
     harnessEndpointForAccount: () => fake.endpoint,
   });
   const controller = new AbortController();
-  const setStatus = vi.fn();
 
   return Effect.gen(function* () {
-    const fiber = yield* startAccount(
-      plugin,
-      gatewayContext(controller.signal, runtime, setStatus),
-    ).pipe(Effect.fork);
-    yield* waitForConnected(setStatus);
+    const fiber = yield* connectAccount(plugin, controller.signal);
     const { direct, group } = yield* executeProactiveSends(plugin);
 
     expect(direct.messageId).toEqual(expect.any(String));
@@ -456,23 +456,13 @@ function executeProactiveSends(plugin: Plugin) {
 
 function rejectsInvalidTarget() {
   const fake = makeListeningEndpoint();
-  const runtime = makeObservedRuntime({
-    events: [],
-    calls: [],
-    routePeers: [],
-  });
   const plugin = createChannelPlugin({
     harnessEndpointForAccount: () => fake.endpoint,
   });
   const controller = new AbortController();
-  const setStatus = vi.fn();
 
   return Effect.gen(function* () {
-    const fiber = yield* startAccount(
-      plugin,
-      gatewayContext(controller.signal, runtime, setStatus),
-    ).pipe(Effect.fork);
-    yield* waitForConnected(setStatus);
+    const fiber = yield* connectAccount(plugin, controller.signal);
     const failure = yield* Effect.tryPromise({
       try: () =>
         requireSendText(plugin)({
@@ -507,6 +497,16 @@ const SLOT_SCHEMA = {
   type: "object",
   properties: { slot: { type: "string", enum: ["mon", "tue"] } },
   required: ["slot"],
+};
+
+const COLLECTIVE_REQUEST = {
+  kind: "collectiveRequest",
+  id: COLLECTIVE_ID,
+  postId: postId(4),
+  from: "agent:alice",
+  question: "Which day?",
+  requestedSchema: SLOT_SCHEMA,
+  deadlineAt: Date.UTC(2026, 8, 30, 12),
 };
 
 function messageToolOffersSendAndReply() {
@@ -715,15 +715,9 @@ function withConnectedSend<A, E>(
 
 function rendersCollectiveRequest() {
   const item = Schema.decodeUnknownSync(InboundItem)({
-    kind: "collectiveRequest",
+    ...COLLECTIVE_REQUEST,
     op: "gather",
-    id: COLLECTIVE_ID,
-    postId: postId(4),
-    from: "agent:alice",
     to: "agent:alice",
-    question: "Which day?",
-    requestedSchema: SLOT_SCHEMA,
-    deadlineAt: Date.UTC(2026, 8, 30, 12),
   });
 
   return Effect.gen(function* () {
@@ -747,15 +741,9 @@ function rendersCollectiveRequest() {
 function rendersAllGatherRequest() {
   const [from, group] = ["agent:alice", "group:alice,bob,carol"];
   const item = Schema.decodeUnknownSync(InboundItem)({
-    kind: "collectiveRequest",
+    ...COLLECTIVE_REQUEST,
     op: "all_gather",
-    id: COLLECTIVE_ID,
-    postId: postId(4),
-    from,
     to: group,
-    question: "Which day?",
-    requestedSchema: SLOT_SCHEMA,
-    deadlineAt: Date.UTC(2026, 8, 30, 12),
   });
 
   return runItemTurn(item).pipe(
@@ -1039,10 +1027,10 @@ function manifestMatchesRuntimeSchema() {
   expect(manifest.channelConfigs.moltzap.schema).toEqual(embedded);
 }
 
-function directMessage(): InboundMessage {
+function directMessage(id = 1): InboundMessage {
   return Schema.decodeUnknownSync(InboundMessage)({
     kind: "direct",
-    postId: postId(1),
+    postId: postId(id),
     address: "agent:alice",
     sender: "agent:alice",
     content: [

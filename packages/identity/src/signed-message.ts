@@ -32,7 +32,7 @@ import {
   type AgentId as AgentIdValue,
   canonicalIdentifier,
 } from "./identifiers.js";
-import { MOLTZAP_VERSION } from "./version.js";
+import { WIRE_VERSION, WireVersions } from "./version.js";
 
 /** Sender-scoped identity of one attributed message. */
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Effect Schemas share the public domain name they decode.
@@ -49,7 +49,7 @@ export const MAXIMUM_RECIPIENTS = 128;
 /**
  * The complete General JWS encoding of the largest SignedMessage: the
  * maximum body to the maximum recipients. It is derived from the closed
- * representation, so it changes with the length of `MOLTZAP_VERSION`, which
+ * representation, so it changes with the length of `WIRE_VERSION`, which
  * every payload carries; a test recomputes it from an actual encoding.
  */
 const MAXIMUM_ENCODED_BYTES = 471_673;
@@ -159,7 +159,7 @@ const opaqueBody = Schema.String.pipe(
 
 const payload = exactStruct({
   kind: Schema.Literal("signedMessage"),
-  moltzapVersion: Schema.Literal(MOLTZAP_VERSION),
+  moltzapVersion: WireVersions.history,
   senderAgentId: AgentId,
   agentCardDigest: AgentCardDigest,
   recipientAgentIds,
@@ -177,6 +177,7 @@ export interface SignedMessage {
 }
 
 interface SignedMessageState {
+  readonly wireVersion: string;
   readonly representation: SignedMessageRepresentation;
   readonly protectedHeader: typeof protectedHeader.Type;
   readonly body: Uint8Array;
@@ -270,6 +271,7 @@ const decodeRepresentation = (
     }
     const view = makeView(decodedPayload, body);
     messageState.set(view, {
+      wireVersion: decodedPayload.moltzapVersion,
       representation: retained,
       protectedHeader: Object.freeze({ ...decodedHeader }),
       body: Uint8Array.from(body),
@@ -321,19 +323,22 @@ export class SignedMessageVerificationError extends Data.TaggedError(
   "SignedMessageVerificationError",
 ) {}
 
+/** A decoded outer envelope whose version is admitted by the live window. */
+export type LiveSignedMessage = SignedMessage &
+  Brand.Brand<"LiveSignedMessage">;
+
+const live = signedMessageSchema.pipe(
+  Schema.filterEffect((message) =>
+    WireVersions.live(messageState.get(message)?.wireVersion ?? ""),
+  ),
+  Schema.brand("LiveSignedMessage"),
+);
+
 const signingFailure = (): SignedMessageSigningError =>
   new SignedMessageSigningError();
 
 const verificationFailure = (): SignedMessageVerificationError =>
   new SignedMessageVerificationError();
-
-const parseSignedMessage = (
-  representation: unknown,
-): Effect.Effect<SignedMessage, SignedMessageSigningError> =>
-  Schema.decodeUnknown(signedMessageSchema)(representation, {
-    exact: true,
-    onExcessProperty: "error",
-  }).pipe(Effect.mapError(signingFailure));
 
 interface SignInput {
   readonly agentCard: VerifiedAgentCard;
@@ -395,7 +400,7 @@ const prepareSigningMaterial = (input: SignInput) =>
     ).pipe(Effect.mapError(signingFailure));
     const payloadBytes = yield* encodeCanonicalJson({
       kind: "signedMessage",
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       senderAgentId: input.agentCard.agentId,
       agentCardDigest,
       recipientAgentIds: recipients,
@@ -407,7 +412,10 @@ const prepareSigningMaterial = (input: SignInput) =>
 
 const sign = (
   input: SignInput,
-): Effect.Effect<VerifiedSignedMessage, SignedMessageSigningError> =>
+): Effect.Effect<
+  LiveSignedMessage & VerifiedSignedMessage,
+  SignedMessageSigningError
+> =>
   Effect.gen(function* () {
     const { kid, payloadBytes } = yield* prepareSigningMaterial(input);
     const representation = yield* Effect.tryPromise({
@@ -422,8 +430,10 @@ const sign = (
           .sign(),
       catch: signingFailure,
     });
-    const signedMessage = yield* parseSignedMessage(representation);
-    return brandVerifiedSignedMessage(signedMessage);
+    const admitted = yield* Schema.decodeUnknown(live)(representation).pipe(
+      Effect.mapError(signingFailure),
+    );
+    return Brand.nominal<LiveSignedMessage & VerifiedSignedMessage>()(admitted);
   });
 
 interface VerifyInput {
@@ -431,10 +441,19 @@ interface VerifyInput {
   readonly agentCard: VerifiedAgentCard;
 }
 
-const verify = (
+function verify(
+  input: VerifyInput & { readonly signedMessage: LiveSignedMessage },
+): Effect.Effect<
+  LiveSignedMessage & VerifiedSignedMessage,
+  SignedMessageVerificationError
+>;
+function verify(
   input: VerifyInput,
-): Effect.Effect<VerifiedSignedMessage, SignedMessageVerificationError> =>
-  Effect.gen(function* () {
+): Effect.Effect<VerifiedSignedMessage, SignedMessageVerificationError>;
+function verify(
+  input: VerifyInput,
+): Effect.Effect<VerifiedSignedMessage, SignedMessageVerificationError> {
+  return Effect.gen(function* () {
     const state = messageState.get(input.signedMessage);
     if (state === undefined) {
       return yield* new SignedMessageVerificationError();
@@ -479,6 +498,7 @@ const verify = (
     });
     return brandVerifiedSignedMessage(input.signedMessage);
   });
+}
 
 const encodedByteLength = (signedMessage: SignedMessage): number =>
   messageState.get(signedMessage)?.encodedByteLength ?? 0;
@@ -488,12 +508,14 @@ const encodedByteLength = (signedMessage: SignedMessage): number =>
  */
 /** Opaque attributed message operations and exact representation Schema. */
 export const SignedMessage = Object.assign(signedMessageSchema, {
+  live: live as Schema.Schema<LiveSignedMessage, unknown>,
   sign,
   verify,
   encodedByteLength,
   maximumEncodedByteLength: MAXIMUM_ENCODED_BYTES,
 }) as Schema.Schema<SignedMessage, unknown> &
   Readonly<{
+    readonly live: Schema.Schema<LiveSignedMessage, unknown>;
     readonly sign: typeof sign;
     readonly verify: typeof verify;
     readonly encodedByteLength: typeof encodedByteLength;

@@ -8,7 +8,12 @@ import {
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Cause, type Context, Deferred, Effect, Schema, Scope } from "effect";
-import type { EndpointStore, StoredMembership } from "../../store/index.js";
+import type {
+  EndpointStore,
+  EndpointStoreError,
+  StoredMembership,
+} from "../../store/index.js";
+import type { ListenError } from "../../transport/messaging/errors.js";
 import type { DaemonBootstrap } from "../bootstrap.js";
 import {
   collectiveAdmission,
@@ -106,6 +111,22 @@ const encodeCard = (
 ): Effect.Effect<Uint8Array, DaemonActivationError> =>
   encodeCanonical(AgentCard, card).pipe(
     Effect.mapError(() => activationFailure("representation")),
+  );
+
+/** Log only the closed storage reason before waking daemon shutdown. */
+export const reportStorageFault = (
+  environment: ProtocolEnvironment,
+  error: EndpointStoreError | ListenError | CollectiveEmitError,
+): Effect.Effect<void> =>
+  Effect.logError("Storage failed, daemon exits").pipe(
+    Effect.annotateLogs({
+      _tag: error._tag,
+      reason: error._tag === "CollectiveEmitError" ? undefined : error.reason,
+    }),
+    Effect.zipRight(
+      Deferred.fail(environment.fatal, runtimeFailure("storage")),
+    ),
+    Effect.asVoid,
   );
 
 const retainPinnedCard = (
@@ -302,10 +323,7 @@ const acquireProtocolEngine = (
       store: environment.store,
       routerWorker: worker,
       actionPolicy: signStructurallyValidAction,
-      reportStorageFault: Deferred.fail(
-        environment.fatal,
-        runtimeFailure("storage"),
-      ).pipe(Effect.asVoid),
+      reportStorageFault: (error) => reportStorageFault(environment, error),
     })
     .pipe(
       Scope.extend(environment.daemonScope),

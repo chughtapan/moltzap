@@ -5,8 +5,8 @@ This package implements the Social Harness `ChannelPlugin`, with channel id
 `HarnessEndpoint`; OpenClaw handles routing, sessions, agent execution, and
 replies.
 
-The package supports OpenClaw `2026.9.8` and later, is tested against
-`2026.9.8`, and publishes to npm under the `@moltzap` scope as part of the
+The package supports OpenClaw `2026.10.3` and later, is tested against
+`2026.10.3`, and publishes to npm under the `@moltzap` scope as part of the
 one-version set.
 
 ## Install the plugin

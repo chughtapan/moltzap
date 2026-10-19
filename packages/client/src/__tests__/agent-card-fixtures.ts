@@ -6,9 +6,9 @@ import {
   AgentName,
   AgentSigningAuthority,
   Ed25519PublicKey,
-  MOLTZAP_VERSION,
   PrincipalId,
   type VerifiedAgentCard,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import canonicalize from "canonicalize";
 import { Effect, Encoding, Redacted, Schema } from "effect";
@@ -96,7 +96,7 @@ export function issueTestCard(
       agentName: Schema.decodeUnknownSync(AgentName)(input.name),
       issuedAt: "2026-08-27T12:00:00Z",
       kind: "agentCard",
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       principalId: Schema.decodeUnknownSync(PrincipalId)(
         identifier("prn_", input.byte),
       ),

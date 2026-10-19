@@ -6,10 +6,11 @@ import {
   AgentName,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
   Ed25519PublicKey,
-  MOLTZAP_VERSION,
   SealedBody,
   SignedMessage,
   type VerifiedAgentCard,
+  WIRE_VERSION,
+  WireVersions,
 } from "@moltzap/identity";
 import { RouterInstanceId } from "@moltzap/router";
 import { Effect, Option, Schema } from "effect";
@@ -25,7 +26,7 @@ import {
   type ActionCore,
   type ActionHash,
   type ActionProposal,
-  type CatchUpPage,
+  CatchUpPage,
   type CatchUpRequest,
   type CertifiedRecord,
   ClientRepresentationError,
@@ -162,7 +163,7 @@ const makeProtocolFixture = (memberCount: number) =>
       identities.map(({ card }) => card.agentId),
     );
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptorSchema)({
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "membership_descriptor",
       conversationId: yield* deriveConversationId(memberAgentIds),
       members: asAtLeastTwo(encodedCards),
@@ -187,7 +188,7 @@ const signActionEvidence = (fixture: ProtocolFixture, actionHash: ActionHash) =>
     ({ card, authority }) =>
       signEvidenceMessage({
         statement: {
-          moltzapVersion: MOLTZAP_VERSION,
+          moltzapVersion: WIRE_VERSION,
           kind: "action_signature",
           signerAgentId: card.agentId,
           actionHash,
@@ -207,7 +208,7 @@ const signDurabilityEvidence = (
     ({ card, authority }) =>
       signEvidenceMessage({
         statement: {
-          moltzapVersion: MOLTZAP_VERSION,
+          moltzapVersion: WIRE_VERSION,
           kind: "durability_vote",
           signerAgentId: card.agentId,
           conversationId: fixture.membership.descriptor.conversationId,
@@ -236,7 +237,7 @@ const buildRecord = (input: {
     const recordCore: ActionCertifiedRecord["recordCore"] =
       input.action.kind === "GENESIS"
         ? {
-            moltzapVersion: MOLTZAP_VERSION,
+            moltzapVersion: WIRE_VERSION,
             kind: "record_core",
             membership: input.fixture.membership.descriptor,
             anchorHash,
@@ -244,7 +245,7 @@ const buildRecord = (input: {
             actionHash,
           }
         : {
-            moltzapVersion: MOLTZAP_VERSION,
+            moltzapVersion: WIRE_VERSION,
             kind: "record_core",
             membershipHash: input.fixture.membership.hash,
             anchorHash,
@@ -253,13 +254,13 @@ const buildRecord = (input: {
           };
     const recordHash = yield* hashRecord(recordCore);
     const actionCertifiedRecord: ActionCertifiedRecord = {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "action_certified_record",
       recordHash,
       recordCore,
       routerAnchor: input.routerAnchor,
       actionCertificate: {
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         kind: "action_certificate",
         actionHash,
         signatures: asNonEmpty(actionRepresentations),
@@ -271,11 +272,11 @@ const buildRecord = (input: {
     );
     const durabilityRepresentations = yield* encodeEvidence(durabilityMessages);
     const certifiedRecord: CertifiedRecord = {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "certified_record",
       actionCertifiedRecord,
       durabilityCertificate: {
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         kind: "durability_certificate",
         recordHash,
         votes: asNonEmpty(durabilityRepresentations),
@@ -295,7 +296,7 @@ const buildGenesis = (fixture: ProtocolFixture, content: ContentValue) =>
   Effect.gen(function* () {
     const firstIdentity = at(fixture.identities, 0);
     const postIntent: PostIntent = {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "post_intent",
       conversationId: fixture.membership.descriptor.conversationId,
       membershipHash: fixture.membership.hash,
@@ -304,14 +305,14 @@ const buildGenesis = (fixture: ProtocolFixture, content: ContentValue) =>
       content,
     };
     const anchor: GenesisAnchorBody = {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "genesis_anchor_body",
       conversationId: fixture.membership.descriptor.conversationId,
       membershipHash: fixture.membership.hash,
       routerInstanceId: firstRouterInstanceId,
     };
     const action: ActionCore = {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "GENESIS",
       conversationId: fixture.membership.descriptor.conversationId,
       membership: fixture.membership.descriptor,
@@ -336,7 +337,7 @@ const buildPost = (
   Effect.gen(function* () {
     const firstIdentity = at(fixture.identities, 0);
     const postIntent: PostIntent = {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "post_intent",
       conversationId: fixture.membership.descriptor.conversationId,
       membershipHash: fixture.membership.hash,
@@ -345,7 +346,7 @@ const buildPost = (
       content,
     };
     const action: ActionCore = {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "POST",
       conversationId: fixture.membership.descriptor.conversationId,
       membershipHash: fixture.membership.hash,
@@ -370,7 +371,7 @@ const buildPost = (
 const voteReanchor = (fixture: ProtocolFixture, selected: RecordFixture) =>
   Effect.gen(function* () {
     const reanchor: ReanchorBody = {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "reanchor_body",
       conversationId: fixture.membership.descriptor.conversationId,
       membershipHash: fixture.membership.hash,
@@ -384,7 +385,7 @@ const voteReanchor = (fixture: ProtocolFixture, selected: RecordFixture) =>
       ({ card, authority }) =>
         signEvidenceMessage({
           statement: {
-            moltzapVersion: MOLTZAP_VERSION,
+            moltzapVersion: WIRE_VERSION,
             kind: "reanchor_vote",
             signerAgentId: card.agentId,
             anchorHash,
@@ -650,7 +651,7 @@ const verifiesProposalEnvelopeAttribution = () =>
     ]);
     const author = at(fixture.identities, 0).card.agentId;
     const proposal: ActionProposal = {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "action_proposal",
       action: genesis.action,
     };
@@ -680,12 +681,12 @@ const verifiesReanchorCatchUpBindings = () =>
       votes: reanchorRepresentations,
     } = yield* voteReanchor(fixture, genesis);
     const completed: CompletedReanchor = {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "completed_reanchor",
       anchorHash,
       reanchor,
       certificate: {
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         kind: "reanchor_certificate",
         anchorHash,
         votes: asNonEmpty(reanchorRepresentations.slice(0, 3)),
@@ -698,7 +699,7 @@ const verifiesReanchorCatchUpBindings = () =>
 
     const responder = at(fixture.identities, 0);
     const request: CatchUpRequest = {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "catch_up_request",
       conversationId: fixture.membership.descriptor.conversationId,
       membershipHash: fixture.membership.hash,
@@ -708,7 +709,7 @@ const verifiesReanchorCatchUpBindings = () =>
     };
     const attestation = yield* signEvidenceMessage({
       statement: {
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         kind: "catch_up_attestation",
         signerAgentId: responder.card.agentId,
         request,
@@ -720,7 +721,7 @@ const verifiesReanchorCatchUpBindings = () =>
       signingAuthority: responder.authority,
     });
     const page: CatchUpPage = {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "catch_up_page",
       request,
       item: completed,
@@ -763,7 +764,7 @@ const catchesUpGenesisFirst = () =>
     const request = (
       known: Pick<CatchUpRequest, "knownRecordHash" | "knownAnchorHash">,
     ): CatchUpRequest => ({
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "catch_up_request",
       conversationId: fixture.membership.descriptor.conversationId,
       membershipHash: fixture.membership.hash,
@@ -773,7 +774,7 @@ const catchesUpGenesisFirst = () =>
     const page = (asked: CatchUpRequest, item: CertifiedRecord) =>
       signEvidenceMessage({
         statement: {
-          moltzapVersion: MOLTZAP_VERSION,
+          moltzapVersion: WIRE_VERSION,
           kind: "catch_up_attestation",
           signerAgentId: responder.card.agentId,
           request: asked,
@@ -789,7 +790,7 @@ const catchesUpGenesisFirst = () =>
         ),
         Effect.map(
           (attestation): CatchUpPage => ({
-            moltzapVersion: MOLTZAP_VERSION,
+            moltzapVersion: WIRE_VERSION,
             kind: "catch_up_page",
             request: asked,
             item,
@@ -842,12 +843,12 @@ const buildMaximumArtifact = Effect.gen(function* () {
   const genesis = yield* buildGenesis(fixture, content);
   const { reanchor, anchorHash, votes } = yield* voteReanchor(fixture, genesis);
   const reanchored: CompletedReanchor = {
-    moltzapVersion: MOLTZAP_VERSION,
+    moltzapVersion: WIRE_VERSION,
     kind: "completed_reanchor",
     anchorHash,
     reanchor,
     certificate: {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "reanchor_certificate",
       anchorHash,
       votes: asNonEmpty(votes),
@@ -856,7 +857,7 @@ const buildMaximumArtifact = Effect.gen(function* () {
   const post = yield* buildPost(fixture, genesis, content, reanchored);
   const responder = at(fixture.identities, 0);
   const request: CatchUpRequest = {
-    moltzapVersion: MOLTZAP_VERSION,
+    moltzapVersion: WIRE_VERSION,
     kind: "catch_up_request",
     conversationId: fixture.membership.descriptor.conversationId,
     membershipHash: fixture.membership.hash,
@@ -866,7 +867,7 @@ const buildMaximumArtifact = Effect.gen(function* () {
   };
   const attestation = yield* signEvidenceMessage({
     statement: {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "catch_up_attestation",
       signerAgentId: responder.card.agentId,
       request,
@@ -878,7 +879,7 @@ const buildMaximumArtifact = Effect.gen(function* () {
     signingAuthority: responder.authority,
   });
   const page: CatchUpPage = {
-    moltzapVersion: MOLTZAP_VERSION,
+    moltzapVersion: WIRE_VERSION,
     kind: "catch_up_page",
     request,
     item: post.certifiedRecord,
@@ -917,6 +918,38 @@ const verifiesMaximumPage = () =>
       membership: fixture.membership,
       responseSenderAgentId: responder.card.agentId,
     });
+  });
+
+const verifiesHistoryOnlyCatchUpItem = () =>
+  Effect.gen(function* () {
+    const { fixture, responder, page } = yield* maximumArtifact;
+    const outer = yield* signOuterPacket({
+      packet: page,
+      membership: fixture.membership,
+      agentCard: responder.card,
+      signingAuthority: responder.authority,
+    });
+    const encodedOuter = yield* Schema.encode(SignedMessage)(outer);
+    const encodedPage = yield* Schema.encode(CatchUpPage)(page);
+    yield* Effect.gen(function* () {
+      const retained = yield* Schema.decodeUnknown(CatchUpPage)(encodedPage);
+      yield* verifyCatchUpPage({
+        page: retained,
+        membership: fixture.membership,
+        responseSenderAgentId: responder.card.agentId,
+      });
+      expect(retained.item.moltzapVersion).toBe(WIRE_VERSION);
+      expect(
+        yield* Schema.decodeUnknown(SignedMessage.live)(encodedOuter).pipe(
+          Effect.isFailure,
+        ),
+      ).toBe(true);
+    }).pipe(
+      Effect.provideService(WireVersions, {
+        live: ["2099.102.0"],
+        history: [WIRE_VERSION, "2099.102.0"],
+      }),
+    );
   });
 
 const sealsMaximumPageInsideIdentityLimits = () =>
@@ -987,11 +1020,11 @@ const rejectsSubstitutedEvidenceStatements = () =>
     const fixture = yield* makeProtocolFixture(2);
     const signer = at(fixture.identities, 0);
     const statement: EvidenceStatement = {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "catch_up_attestation",
       signerAgentId: signer.card.agentId,
       request: {
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         kind: "catch_up_request",
         conversationId: fixture.membership.descriptor.conversationId,
         membershipHash: fixture.membership.hash,
@@ -1090,6 +1123,10 @@ describe("Client protocol acceptance", () => {
     { timeout: MAXIMUM_PAGE_TIMEOUT_MS },
     () => {
       it("verifies from its responder", verifiesMaximumPage);
+      it(
+        "verifies a history-only item inside a live catch-up page",
+        verifiesHistoryOnlyCatchUpItem,
+      );
       it(
         "fits inside Identity limits sealed to every member",
         sealsMaximumPageInsideIdentityLimits,

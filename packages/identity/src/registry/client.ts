@@ -28,7 +28,7 @@ import {
   VersionMismatchError,
 } from "../http-errors.js";
 import { AgentSigningError, signHttpRequest } from "../http-signature.js";
-import { MOLTZAP_VERSION } from "../version.js";
+import { WIRE_VERSION } from "../version.js";
 import {
   LIST_PATH,
   listResponseSchema,
@@ -122,13 +122,6 @@ const errorEnvelope = new Map<number, ErrorEnvelope>([
     },
   ],
   [
-    412,
-    {
-      body: '{"error":"version_mismatch"}',
-      make: () => new VersionMismatchError(),
-    },
-  ],
-  [
     413,
     {
       body: '{"error":"payload_too_large"}',
@@ -206,6 +199,25 @@ const decodeEnvelope = (
 ): Effect.Effect<never, HttpEnvelopeError | RegistryInvalidResponseError> => {
   if (response.headers["content-type"] !== "application/json") {
     return Effect.fail(invalidResponse());
+  }
+  if (response.status === 412) {
+    return Schema.decodeUnknown(
+      Schema.parseJson(
+        Schema.Struct({
+          error: Schema.Literal("version_mismatch"),
+          supported: Schema.optional(Schema.Array(Schema.String)),
+        }),
+      ),
+    )(exactText(bytes), { onExcessProperty: "error" }).pipe(
+      Effect.mapError(invalidResponse),
+      Effect.flatMap(({ supported }) =>
+        Effect.fail(
+          new VersionMismatchError(
+            supported === undefined ? {} : { supported },
+          ),
+        ),
+      ),
+    );
   }
   const expected = errorEnvelope.get(response.status);
   const actual = exactText(bytes);
@@ -311,7 +323,7 @@ const makePost = (
 ): HttpClientRequest.HttpClientRequest =>
   HttpClientRequest.post(new URL(path, origin)).pipe(
     HttpClientRequest.bodyUint8Array(bodyBytes, "application/json"),
-    HttpClientRequest.setHeader("moltzap-version", MOLTZAP_VERSION),
+    HttpClientRequest.setHeader("moltzap-version", WIRE_VERSION),
   );
 
 const makeSignedRegistrationRequest = (

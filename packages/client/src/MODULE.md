@@ -141,7 +141,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L93)
+### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L98)
 
 _Class_
 
@@ -411,7 +411,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](./transport/messaging/errors.ts#L72)
+### [`ListenError`](./transport/messaging/errors.ts#L77)
 
 _Class_
 
@@ -564,7 +564,7 @@ each data part as JSON, one part per line.
 
 **Returns:** The text a host puts in the model's turn.
 
-### [`SendError`](./transport/messaging/errors.ts#L56)
+### [`SendError`](./transport/messaging/errors.ts#L57)
 
 _Class_
 
@@ -572,6 +572,10 @@ _Class_
 export class SendError extends Data.TaggedError("SendError")<{
   readonly reason: SendFailure;
   readonly detail?: string;
+  readonly issues?: ReadonlyArray<{
+    readonly path: ReadonlyArray<string | number>;
+    readonly message: string;
+  }>;
 }> {
   override get message(): string {
     return `send failed: ${this.detail ?? sendFailureText[this.reason]}`;
@@ -582,6 +586,7 @@ export class SendError extends Data.TaggedError("SendError")<{
 An addressed send failed before local certification completed. `detail`
 names the specific cause when the failing step knows it, such as which
 agent is unknown; the message is what a host hands its model.
+Validation issues expose only field paths and schema expectations.
 
 ### [`SendInput (type)`](./transport/collectives/forms.ts#L164)
 
@@ -632,31 +637,35 @@ What a completed send returns: a collecting operation names its id.
 
 ### `@moltzap/client/service`
 
-#### [`Daemon`](./service/index.ts#L61)
+#### [`Daemon`](./service/index.ts#L65)
 
 _Namespace_
 
-#### [`Daemon.StartupError`](./service/index.ts#L72)
+#### [`Daemon.StartupError`](./service/index.ts#L79)
 
 _Class_
 
 ```ts
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
+    readonly reason?: "outbox-too-old";
+    readonly detail?: string;
   }> {
     /**
-     * Names only the failed phase, so the process log says why startup stopped.
-     * @returns The startup failure message.
+     * Only closed refusal reasons and sanitized configuration details enter the process log.
+     * @returns The startup phase and any safe operator diagnostic.
      */
     override get message(): string {
-      return `moltzapd startup failed in phase ${this.phase}`;
+      const reason = this.reason === undefined ? "" : ` (${this.reason})`;
+      const detail = this.detail === undefined ? "" : `: ${this.detail}`;
+      return `moltzapd startup failed in phase ${this.phase}${reason}${detail}`;
     }
   }
 ```
 
-Closed daemon startup phase without configuration or platform detail.
+Closed startup phase with sanitized configuration details.
 
-#### [`Daemon.FirewallOptions`](./service/index.ts#L63)
+#### [`Daemon.FirewallOptions`](./service/index.ts#L70)
 
 _TypeAlias_
 
@@ -672,7 +681,17 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-#### [`Daemon.layer`](./service/index.ts#L132)
+#### [`Daemon.help`](./service/index.ts#L67)
+
+_Variable_
+
+```ts
+  export const help = processHelp
+```
+
+Usage text listing the daemon process's environment variables.
+
+#### [`Daemon.layer`](./service/index.ts#L142)
 
 _Variable_
 
@@ -684,7 +703,7 @@ _Variable_
 
 Complete production process composition for `moltzapd`.
 
-#### [`Daemon.withFirewall`](./service/index.ts#L141)
+#### [`Daemon.withFirewall`](./service/index.ts#L151)
 
 _Function_
 

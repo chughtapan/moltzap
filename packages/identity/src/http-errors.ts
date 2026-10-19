@@ -1,6 +1,7 @@
 /** @file Closed HTTP envelope failures and their exact response projections. */
 
 import { Schema } from "effect";
+import { LIVE_WIRE_VERSIONS } from "./version.js";
 
 /** The request representation is not valid for the selected operation. */
 export class MalformedRequestError extends Schema.TaggedError<MalformedRequestError>()(
@@ -29,7 +30,11 @@ export class MethodNotAllowedError extends Schema.TaggedError<MethodNotAllowedEr
 /** The request carries a different wire compatibility value. */
 export class VersionMismatchError extends Schema.TaggedError<VersionMismatchError>()(
   "VersionMismatchError",
-  {},
+  {
+    supported: Schema.optionalWith(Schema.Array(Schema.String), {
+      default: () => LIVE_WIRE_VERSIONS,
+    }),
+  },
 ) {}
 
 /** The received body exceeds the selected route's derived representation cap. */
