@@ -9,7 +9,7 @@ composition, and the assembly that binds the phases into one engine.
 
 ## Public surface
 
-### [`DeliveryAcknowledgeError`](./errors.ts#L93)
+### [`DeliveryAcknowledgeError`](./errors.ts#L98)
 
 _Class_
 
@@ -70,7 +70,7 @@ export const InboundMessage = Schema.Union(
 
 One certified remote-authored post, direct or to a fixed group.
 
-### [`ListenError`](./errors.ts#L72)
+### [`ListenError`](./errors.ts#L77)
 
 _Class_
 
@@ -86,7 +86,7 @@ export class ListenError extends Data.TaggedError("ListenError")<{
 
 The endpoint's sole inbound subscription failed.
 
-### [`SendError`](./errors.ts#L56)
+### [`SendError`](./errors.ts#L57)
 
 _Class_
 
@@ -94,6 +94,10 @@ _Class_
 export class SendError extends Data.TaggedError("SendError")<{
   readonly reason: SendFailure;
   readonly detail?: string;
+  readonly issues?: ReadonlyArray<{
+    readonly path: ReadonlyArray<string | number>;
+    readonly message: string;
+  }>;
 }> {
   override get message(): string {
     return `send failed: ${this.detail ?? sendFailureText[this.reason]}`;
@@ -104,6 +108,7 @@ export class SendError extends Data.TaggedError("SendError")<{
 An addressed send failed before local certification completed. `detail`
 names the specific cause when the failing step knows it, such as which
 agent is unknown; the message is what a host hands its model.
+Validation issues expose only field paths and schema expectations.
 
 ## Files
 

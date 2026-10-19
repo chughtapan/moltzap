@@ -319,6 +319,18 @@ function readNorms(trace: PolicyStageTrace): readonly NormExpectation[] {
   if (trace.status !== "answered" || trace.uncertainQuestions.length !== 0) {
     return [];
   }
+  const subjects = new Map<string, string[]>();
+  Object.entries(trace.request.questions).forEach(([id, question]) => {
+    if (
+      question.purpose === "subject" &&
+      question.subject !== undefined &&
+      trace.response.answers[id]?.choice === "relevant"
+    ) {
+      const references = subjects.get(question.ruleId) ?? [];
+      references.push(question.subject);
+      subjects.set(question.ruleId, references);
+    }
+  });
   return Object.entries(trace.request.questions).flatMap(([id, question]) => {
     const expectation = trace.response.answers[id]?.choice;
     if (
@@ -331,24 +343,9 @@ function readNorms(trace: PolicyStageTrace): readonly NormExpectation[] {
       {
         ruleId: question.ruleId,
         expectation,
-        subjects: readSubjects(trace, question.ruleId),
+        subjects: subjects.get(question.ruleId) ?? [],
       },
     ];
-  });
-}
-
-function readSubjects(
-  trace: Extract<PolicyStageTrace, { readonly status: "answered" }>,
-  ruleId: string,
-): readonly string[] {
-  return Object.entries(trace.request.questions).flatMap(([id, question]) => {
-    if (question.ruleId !== ruleId || question.purpose !== "subject") {
-      return [];
-    }
-    return question.subject !== undefined &&
-      trace.response.answers[id]?.choice === "relevant"
-      ? [question.subject]
-      : [];
   });
 }
 

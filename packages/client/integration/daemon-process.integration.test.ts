@@ -338,7 +338,14 @@ const processBehavior = Effect.gen(function* () {
         { conversationId: "retired-public-identifier" },
       );
       expect(malformed.code).toBe(ProtocolErrorCode.InvalidParams);
-      expect(malformed.data).toBeUndefined();
+      expect(malformed.data).toMatchObject({
+        issues: expect.arrayContaining([
+          { path: ["conversationId"], message: "Unexpected field" },
+        ]),
+      });
+      expect(JSON.stringify(malformed.data)).not.toContain(
+        "retired-public-identifier",
+      );
     }),
   );
 
@@ -548,6 +555,11 @@ const admissionLifetimeBehavior = Effect.gen(function* () {
   const firstRun = yield* acquireDaemonProcess(registeredFixture);
   yield* registerFixture(registeredFixture);
   yield* stopProcess(firstRun);
+  expect(firstRun.logs()).toContain(
+    `moltzapd listening on ${registeredFixture.endpoint}`,
+  );
+  expect(firstRun.logs()).toMatch(/\(package \S+; WIRE_VERSION \S+\)/u);
+  expect(firstRun.logs().match(/moltzapd listening on/gu)).toHaveLength(1);
 
   const unsetRun = yield* acquireDaemonProcess(
     withoutAdmissionCredential(registeredFixture),
