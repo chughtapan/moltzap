@@ -8,18 +8,19 @@
 import { type Ed25519PublicKey, SignedMessage } from "@moltzap/identity";
 import { Effect, type ParseResult, Schema } from "effect";
 import type {
-  EndpointRecovery,
-  ProtocolEvidence,
-  StagedRecord,
-  CertifiedRecord as StoredCertifiedRecord,
-  StoredMembership,
-  StoredOutboundMessage,
-} from "../../../store/index.js";
-import type {
   EndpointEngineInput,
   EngineConversation,
   EngineRuntime,
 } from "../runtime/index.js";
+import {
+  type EndpointRecovery,
+  OutboxTooOldError,
+  type ProtocolEvidence,
+  type StagedRecord,
+  type CertifiedRecord as StoredCertifiedRecord,
+  type StoredMembership,
+  type StoredOutboundMessage,
+} from "../../../store/index.js";
 import {
   RouterWorkerPersistenceError,
   RouterWorkerRecoveryError,
@@ -295,7 +296,10 @@ export function verifyStoredOutbounds(
   input: EndpointEngineInput,
   outbounds: readonly StoredOutboundMessage[],
   memberships: ReadonlyMap<ConversationIdValue, VerifiedMembership>,
-): Effect.Effect<readonly StoredOutboundMessage[], StoredRowError> {
+): Effect.Effect<
+  readonly StoredOutboundMessage[],
+  StoredRowError | OutboxTooOldError
+> {
   return Effect.forEach(
     outbounds,
     (outbound) => verifyStoredOutbound(input, memberships, outbound),
@@ -647,8 +651,18 @@ function verifyStoredOutbound(
   input: EndpointEngineInput,
   memberships: ReadonlyMap<ConversationIdValue, VerifiedMembership>,
   outbound: StoredOutboundMessage,
-): Effect.Effect<StoredOutboundMessage, StoredRowError> {
+): Effect.Effect<StoredOutboundMessage, StoredRowError | OutboxTooOldError> {
   return Effect.gen(function* () {
+    const retained = yield* decodeCanonical(
+      SignedMessage,
+      outbound.canonicalSignedMessage,
+    );
+    const representation = yield* Schema.encode(SignedMessage)(retained);
+    const message = yield* Schema.decodeUnknown(SignedMessage.live)(
+      representation,
+    ).pipe(
+      Effect.catchTag("ParseError", () => Effect.fail(new OutboxTooOldError())),
+    );
     const conversationId = yield* Schema.decodeUnknown(ConversationId)(
       outbound.conversationId,
     );
@@ -656,10 +670,6 @@ function verifyStoredOutbound(
     if (membership === undefined) {
       return yield* Effect.fail(persistenceFailure());
     }
-    const message = yield* decodeCanonical(
-      SignedMessage,
-      outbound.canonicalSignedMessage,
-    );
     if (
       message.messageId !== outbound.messageId ||
       message.senderAgentId !== input.localAgentCard.agentId

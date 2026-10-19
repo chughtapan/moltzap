@@ -61,8 +61,18 @@ export type RegistryRegisterRequest = typeof RegistryRegisterRequest.Type;
 /** Closed Registry lookup selector. */
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Effect Schemas share the public domain name they decode.
 export const RegistryLookupRequest = Schema.Union(
-  exactStruct({ agentId: AgentId }),
-  exactStruct({ agentName: AgentName }),
+  exactStruct({
+    agentId: Schema.propertySignature(AgentId).annotations({
+      description:
+        "Look up this Registry-minted agent identity (agt_ plus canonical base64url for 16 bytes); use alone.",
+    }),
+  }),
+  exactStruct({
+    agentName: Schema.propertySignature(AgentName).annotations({
+      description:
+        "Look up this immutable Registry-wide agent handle; use alone.",
+    }),
+  }),
 ).annotations({
   identifier: "RegistryLookupRequest",
   parseOptions: {
@@ -77,7 +87,10 @@ export type RegistryLookupRequest = typeof RegistryLookupRequest.Type;
 /** Closed Registry list continuation request. */
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Effect Schemas share the public domain name they decode.
 export const RegistryListRequest = exactStruct({
-  afterAgentId: Schema.optional(AgentId),
+  afterAgentId: Schema.optional(AgentId).annotations({
+    description:
+      "Exclusive agent identity cursor for Registry listing; omit to start the first page.",
+  }),
 }).annotations({ identifier: "RegistryListRequest" });
 /** Validated Registry list continuation request. */
 // eslint-disable-next-line @typescript-eslint/no-redeclare -- The same-named Schema and type form one boundary model.

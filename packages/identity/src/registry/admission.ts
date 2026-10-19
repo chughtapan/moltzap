@@ -19,7 +19,7 @@ import {
   verifyHttpRequestSignature,
 } from "../http-signature.js";
 import { hasCanonicalBase64UrlLength } from "../identifiers.js";
-import { MOLTZAP_VERSION } from "../version.js";
+import { LIVE_WIRE_VERSIONS } from "../version.js";
 import {
   registrationBody,
   type RegistryRegisterRequest as RegistryRegisterRequestValue,
@@ -88,7 +88,11 @@ export function verifyBootstrapRegistration(
       profile: "registration",
     });
     yield* claimNonce(input, signature);
-    if (input.httpRequest.headers["moltzap-version"] !== MOLTZAP_VERSION) {
+    if (
+      !LIVE_WIRE_VERSIONS.some(
+        (version) => version === input.httpRequest.headers["moltzap-version"],
+      )
+    ) {
       return yield* new VersionMismatchError();
     }
     const complete = yield* malformedRequest(

@@ -113,6 +113,7 @@ function sendFailure(
           ? decoded.reason
           : "network-unavailable",
         ...(decoded.detail === undefined ? {} : { detail: decoded.detail }),
+        ...("issues" in decoded ? { issues: decoded.issues } : {}),
       });
     }),
     Effect.orElseSucceed(

@@ -78,7 +78,7 @@ export class AgentCardVerificationError extends Data.TaggedError(
 
 A parsed AgentCard does not verify against the pinned Registry signer.
 
-### [`AgentId (type)`](./identifiers.ts#L73)
+### [`AgentId (type)`](./identifiers.ts#L78)
 
 _TypeAlias_
 
@@ -88,7 +88,7 @@ export type AgentId = typeof AgentId.Type;
 
 Validated nominal value decoded by AgentId.
 
-### [`AgentId (value)`](./identifiers.ts#L67)
+### [`AgentId (value)`](./identifiers.ts#L72)
 
 _Variable_
 
@@ -102,7 +102,7 @@ export const AgentId = canonicalIdentifier(
 
 Canonical network identity minted by the Registry.
 
-### [`AgentName (type)`](./identifiers.ts#L96)
+### [`AgentName (type)`](./identifiers.ts#L101)
 
 _TypeAlias_
 
@@ -112,7 +112,7 @@ export type AgentName = typeof AgentName.Type;
 
 Validated nominal value decoded by AgentName.
 
-### [`AgentName (value)`](./identifiers.ts#L85)
+### [`AgentName (value)`](./identifiers.ts#L90)
 
 _Variable_
 
@@ -201,7 +201,7 @@ export class AuthenticatedHttp extends Context.Tag(
 
 Registered-agent request signing and verification.
 
-### [`AuthenticationFailedError`](./http-errors.ts#L12)
+### [`AuthenticationFailedError`](./http-errors.ts#L13)
 
 _Class_
 
@@ -261,7 +261,17 @@ export const Ed25519PublicKey = Schema.transform(
 
 Exact immutable Ed25519 public JWK.
 
-### [`InternalServerError`](./http-errors.ts#L60)
+### [`HISTORY_WIRE_VERSIONS`](./version.ts#L12)
+
+_Variable_
+
+```ts
+export const HISTORY_WIRE_VERSIONS = [WIRE_VERSION] as const
+```
+
+Retained artifacts remain readable until the next protocol reset.
+
+### [`InternalServerError`](./http-errors.ts#L65)
 
 _Class_
 
@@ -288,7 +298,28 @@ The supplied private-key material cannot act as an Ed25519 signer or yield
 its X25519 opening key. The public contract represents every such cause with
 this one empty error.
 
-### [`MalformedRequestError`](./http-errors.ts#L6)
+### [`LIVE_WIRE_VERSIONS`](./version.ts#L9)
+
+_Variable_
+
+```ts
+export const LIVE_WIRE_VERSIONS = [WIRE_VERSION] as const
+```
+
+Versions accepted at outer-envelope and authenticated HTTP admission.
+
+### [`LiveSignedMessage`](./signed-message.ts#L327)
+
+_TypeAlias_
+
+```ts
+export type LiveSignedMessage = SignedMessage &
+  Brand.Brand<"LiveSignedMessage">;
+```
+
+A decoded outer envelope whose version is admitted by the live window.
+
+### [`MalformedRequestError`](./http-errors.ts#L7)
 
 _Class_
 
@@ -321,7 +352,7 @@ export const MessageId = canonicalIdentifier("MessageId", "msg_", 16)
 
 Sender-scoped identity of one attributed message.
 
-### [`MethodNotAllowedError`](./http-errors.ts#L24)
+### [`MethodNotAllowedError`](./http-errors.ts#L25)
 
 _Class_
 
@@ -334,17 +365,7 @@ export class MethodNotAllowedError extends Schema.TaggedError<MethodNotAllowedEr
 
 The selected route does not accept the request method.
 
-### [`MOLTZAP_VERSION`](./version.ts#L4)
-
-_Variable_
-
-```ts
-export const MOLTZAP_VERSION = "2026.1006.1"
-```
-
-Sole compatibility value for Social Harness network boundaries.
-
-### [`OverloadedError`](./http-errors.ts#L48)
+### [`OverloadedError`](./http-errors.ts#L53)
 
 _Class_
 
@@ -357,7 +378,7 @@ export class OverloadedError extends Schema.TaggedError<OverloadedError>()(
 
 A finite immediate resource permit is unavailable.
 
-### [`PayloadTooLargeError`](./http-errors.ts#L36)
+### [`PayloadTooLargeError`](./http-errors.ts#L41)
 
 _Class_
 
@@ -370,7 +391,7 @@ export class PayloadTooLargeError extends Schema.TaggedError<PayloadTooLargeErro
 
 The received body exceeds the selected route's derived representation cap.
 
-### [`PrincipalId (type)`](./identifiers.ts#L82)
+### [`PrincipalId (type)`](./identifiers.ts#L87)
 
 _TypeAlias_
 
@@ -380,7 +401,7 @@ export type PrincipalId = typeof PrincipalId.Type;
 
 Validated nominal value decoded by PrincipalId.
 
-### [`PrincipalId (value)`](./identifiers.ts#L76)
+### [`PrincipalId (value)`](./identifiers.ts#L81)
 
 _Variable_
 
@@ -394,7 +415,7 @@ export const PrincipalId = canonicalIdentifier(
 
 Opaque identity of the principal represented by an agent.
 
-### [`RouteNotFoundError`](./http-errors.ts#L18)
+### [`RouteNotFoundError`](./http-errors.ts#L19)
 
 _Class_
 
@@ -464,18 +485,20 @@ export interface SignedMessage {
 
 Immutable attributed-message fields exposed to Router consumers.
 
-### [`SignedMessage (value)`](./signed-message.ts#L490)
+### [`SignedMessage (value)`](./signed-message.ts#L510)
 
 _Variable_
 
 ```ts
 export const SignedMessage = Object.assign(signedMessageSchema, {
+  live: live as Schema.Schema<LiveSignedMessage, unknown>,
   sign,
   verify,
   encodedByteLength,
   maximumEncodedByteLength: MAXIMUM_ENCODED_BYTES,
 }) as Schema.Schema<SignedMessage, unknown> &
   Readonly<{
+    readonly live: Schema.Schema<LiveSignedMessage, unknown>;
     readonly sign: typeof sign;
     readonly verify: typeof verify;
     readonly encodedByteLength: typeof encodedByteLength;
@@ -485,7 +508,7 @@ export const SignedMessage = Object.assign(signedMessageSchema, {
 
 Opaque attributed message operations and exact representation Schema.
 
-### [`SignedMessageSigningError`](./signed-message.ts#L315)
+### [`SignedMessageSigningError`](./signed-message.ts#L317)
 
 _Class_
 
@@ -497,7 +520,7 @@ export class SignedMessageSigningError extends Data.TaggedError(
 
 A message cannot be signed under the supplied immutable identity.
 
-### [`SignedMessageVerificationError`](./signed-message.ts#L320)
+### [`SignedMessageVerificationError`](./signed-message.ts#L322)
 
 _Class_
 
@@ -509,7 +532,7 @@ export class SignedMessageVerificationError extends Data.TaggedError(
 
 A SignedMessage does not bind to the supplied verified AgentCard.
 
-### [`UnavailableError`](./http-errors.ts#L54)
+### [`UnavailableError`](./http-errors.ts#L59)
 
 _Class_
 
@@ -522,7 +545,7 @@ export class UnavailableError extends Schema.TaggedError<UnavailableError>()(
 
 A required service or durable operation cannot currently complete.
 
-### [`UnsupportedMediaTypeError`](./http-errors.ts#L42)
+### [`UnsupportedMediaTypeError`](./http-errors.ts#L47)
 
 _Class_
 
@@ -560,7 +583,7 @@ export type VerifiedAgentRequest = Readonly<{
 
 Request body and caller identity established by AuthenticatedHttp.
 
-### [`VerifiedSignedMessage`](./signed-message.ts#L309)
+### [`VerifiedSignedMessage`](./signed-message.ts#L311)
 
 _TypeAlias_
 
@@ -571,18 +594,86 @@ export type VerifiedSignedMessage = SignedMessage &
 
 SignedMessage whose sender attribution and signature are verified.
 
-### [`VersionMismatchError`](./http-errors.ts#L30)
+### [`VersionMismatchError`](./http-errors.ts#L31)
 
 _Class_
 
 ```ts
 export class VersionMismatchError extends Schema.TaggedError<VersionMismatchError>()(
   "VersionMismatchError",
-  {},
+  {
+    supported: Schema.optionalWith(Schema.Array(Schema.String), {
+      default: () => LIVE_WIRE_VERSIONS,
+    }),
+  },
 ) {}
 ```
 
 The request carries a different wire compatibility value.
+
+### [`WIRE_VERSION`](./version.ts#L6)
+
+_Variable_
+
+```ts
+export const WIRE_VERSION = "2026.1006.1"
+```
+
+Every newly signed artifact carries this version.
+
+### [`WireVersion`](./version.ts#L15)
+
+_TypeAlias_
+
+```ts
+export type WireVersion = (typeof HISTORY_WIRE_VERSIONS)[number];
+```
+
+A version represented by retained protocol artifacts.
+
+### [`WireVersions`](./version.ts#L21)
+
+_Class_
+
+```ts
+export class WireVersions extends Context.Tag("@moltzap/identity/WireVersions")<
+  WireVersions,
+  { readonly live: readonly string[]; readonly history: readonly string[] }
+>() {
+  /** Retained values share a window throughout nested artifact decoding. */
+  static readonly history = Schema.String.pipe(
+    Schema.filterEffect((version) =>
+      Effect.serviceOption(WireVersions).pipe(
+        Effect.map((configuration) =>
+          Option.match(configuration, {
+            onNone: () =>
+              HISTORY_WIRE_VERSIONS.some((item) => item === version),
+            onSome: (sets) =>
+              HISTORY_WIRE_VERSIONS.some((item) => item === version) ||
+              sets.history.includes(version),
+          }),
+        ),
+      ),
+    ),
+  );
+
+  /** Outer admission is independent from retained readability. */
+  static readonly live = (version: string) =>
+    Effect.serviceOption(WireVersions).pipe(
+      Effect.map((configuration) =>
+        Option.match(configuration, {
+          onNone: () => LIVE_WIRE_VERSIONS.some((item) => item === version),
+          onSome: (sets) =>
+            LIVE_WIRE_VERSIONS.some((item) => item === version) &&
+            sets.live.includes(version),
+        }),
+      ),
+    );
+}
+```
+
+Optional decoder policy can narrow live admission and extend retained history.
+The binary's live set remains the admission ceiling for every composition.
 
 ## Package subpaths
 
@@ -669,7 +760,7 @@ export type OperationId = typeof OperationId.Type;
 
 Validated nominal value decoded by OperationId.
 
-#### [`RegistryListRequest (type)`](./registry/contract.ts#L84)
+#### [`RegistryListRequest (type)`](./registry/contract.ts#L97)
 
 _TypeAlias_
 
@@ -679,7 +770,7 @@ export type RegistryListRequest = typeof RegistryListRequest.Type;
 
 Validated Registry list continuation request.
 
-#### [`RegistryListResult`](./registry/contract.ts#L99)
+#### [`RegistryListResult`](./registry/contract.ts#L112)
 
 _TypeAlias_
 
@@ -693,7 +784,7 @@ export type RegistryListResult = Readonly<{
 
 One deterministic page of complete immutable AgentCards.
 
-#### [`RegistryLookupRequest (type)`](./registry/contract.ts#L75)
+#### [`RegistryLookupRequest (type)`](./registry/contract.ts#L85)
 
 _TypeAlias_
 
@@ -703,7 +794,7 @@ export type RegistryLookupRequest = typeof RegistryLookupRequest.Type;
 
 Validated Registry lookup selector.
 
-#### [`RegistryLookupResult`](./registry/contract.ts#L94)
+#### [`RegistryLookupResult`](./registry/contract.ts#L107)
 
 _TypeAlias_
 
@@ -725,7 +816,7 @@ export type RegistryRegisterRequest = typeof RegistryRegisterRequest.Type;
 
 Validated Registry bootstrap registration request.
 
-#### [`RegistryRegisterResult`](./registry/contract.ts#L87)
+#### [`RegistryRegisterResult`](./registry/contract.ts#L100)
 
 _TypeAlias_
 
@@ -749,13 +840,16 @@ export const OperationId = canonicalIdentifier("OperationId", "opn_", 16)
 
 Idempotency identity for a registration operation.
 
-#### [`RegistryListRequest (value)`](./registry/contract.ts#L79)
+#### [`RegistryListRequest (value)`](./registry/contract.ts#L89)
 
 _Variable_
 
 ```ts
 export const RegistryListRequest = exactStruct({
-  afterAgentId: Schema.optional(AgentId),
+  afterAgentId: Schema.optional(AgentId).annotations({
+    description:
+      "Exclusive agent identity cursor for Registry listing; omit to start the first page.",
+  }),
 }).annotations({ identifier: "RegistryListRequest" })
 ```
 
@@ -767,8 +861,18 @@ _Variable_
 
 ```ts
 export const RegistryLookupRequest = Schema.Union(
-  exactStruct({ agentId: AgentId }),
-  exactStruct({ agentName: AgentName }),
+  exactStruct({
+    agentId: Schema.propertySignature(AgentId).annotations({
+      description:
+        "Look up this Registry-minted agent identity (agt_ plus canonical base64url for 16 bytes); use alone.",
+    }),
+  }),
+  exactStruct({
+    agentName: Schema.propertySignature(AgentName).annotations({
+      description:
+        "Look up this immutable Registry-wide agent handle; use alone.",
+    }),
+  }),
 ).annotations({
   identifier: "RegistryLookupRequest",
   parseOptions: {
@@ -797,7 +901,7 @@ Closed Registry bootstrap registration request.
 
 ### `@moltzap/identity/registry/server`
 
-#### [`StartupError`](./registry/server.ts#L144)
+#### [`StartupError`](./registry/server.ts#L164)
 
 _Class_
 
@@ -806,19 +910,21 @@ export class StartupError extends Data.TaggedError(
   "RegistryServerStartupError",
 )<{
   readonly phase: "configuration" | "storage" | "listener";
+  readonly detail?: string;
   readonly reason?: RegistryStorageInitializationError["reason"];
 }> {
+  /** Operator diagnostics exclude rejected inputs and platform paths. */
   override get message(): string {
-    return this.reason === undefined
-      ? `Registry startup failed: ${this.phase}`
-      : `Registry startup failed: ${this.phase} (${this.reason})`;
+    const detail = this.detail === undefined ? "" : `: ${this.detail}`;
+    const reason = this.reason === undefined ? "" : ` (${this.reason})`;
+    return `moltzap-registry startup failed in phase ${this.phase}${reason}${detail}`;
   }
 }
 ```
 
 Closed Registry startup failure.
 
-#### [`layer`](./registry/server.ts#L191)
+#### [`layer`](./registry/server.ts#L213)
 
 _Variable_
 
@@ -842,6 +948,21 @@ flowchart TD
   Rpc --> Storage
   Http --> Response["HttpServerResponse"]
 ```
+
+#### [`processHelp`](./registry/server.ts#L118)
+
+_Variable_
+
+```ts
+export const processHelp = [
+  "Usage: moltzap-registry [--help]",
+  "",
+  "Environment:",
+  ...Object.values(configurationFields).map((field) => `  ${field.usage}`),
+].join("\n")
+```
+
+Usage is generated from the same fields consumed by the process.
 
 ## Files
 

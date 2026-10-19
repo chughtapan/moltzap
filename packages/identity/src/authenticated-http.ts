@@ -32,7 +32,7 @@ import {
 } from "./http-signature.js";
 import { AgentId, type AgentId as AgentIdValue } from "./identifiers.js";
 import { Registry } from "./registry.js";
-import { MOLTZAP_VERSION } from "./version.js";
+import { LIVE_WIRE_VERSIONS } from "./version.js";
 
 /** Request body and caller identity established by AuthenticatedHttp. */
 export type VerifiedAgentRequest = Readonly<{
@@ -186,7 +186,8 @@ function verifyRequest(
     if (claim === "full") {
       return yield* new OverloadedError();
     }
-    if (input.httpRequest.headers["moltzap-version"] !== MOLTZAP_VERSION) {
+    const version = input.httpRequest.headers["moltzap-version"];
+    if (!LIVE_WIRE_VERSIONS.some((supported) => supported === version)) {
       return yield* new VersionMismatchError();
     }
     return makeVerifiedAgentRequest({

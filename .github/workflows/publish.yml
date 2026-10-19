@@ -151,6 +151,13 @@ jobs:
       - name: Build all packages
         run: pnpm build
 
+      - name: Record emitted wire version in published Identity metadata
+        working-directory: packages/identity
+        run: |
+          WIRE_VERSION=$(node --input-type=module -e 'import { WIRE_VERSION } from "@moltzap/identity"; console.log(WIRE_VERSION)')
+          jq --arg v "$WIRE_VERSION" '.moltzapWireVersion = $v' package.json > tmp.json
+          mv tmp.json package.json
+
       # The gates pack the four published packages and the NanoClaw adapter,
       # whose gate proves it still compiles against the Client ABI in isolation
       # (deployment's image build copies its source, not a tarball); identity and router
