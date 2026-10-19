@@ -797,7 +797,7 @@ Closed Registry bootstrap registration request.
 
 ### `@moltzap/identity/registry/server`
 
-#### [`StartupError`](./registry/server.ts#L144)
+#### [`StartupError`](./registry/server.ts#L164)
 
 _Class_
 
@@ -806,19 +806,21 @@ export class StartupError extends Data.TaggedError(
   "RegistryServerStartupError",
 )<{
   readonly phase: "configuration" | "storage" | "listener";
+  readonly detail?: string;
   readonly reason?: RegistryStorageInitializationError["reason"];
 }> {
+  /** Operator diagnostics exclude rejected inputs and platform paths. */
   override get message(): string {
-    return this.reason === undefined
-      ? `Registry startup failed: ${this.phase}`
-      : `Registry startup failed: ${this.phase} (${this.reason})`;
+    const detail = this.detail === undefined ? "" : `: ${this.detail}`;
+    const reason = this.reason === undefined ? "" : ` (${this.reason})`;
+    return `moltzap-registry startup failed in phase ${this.phase}${reason}${detail}`;
   }
 }
 ```
 
 Closed Registry startup failure.
 
-#### [`layer`](./registry/server.ts#L191)
+#### [`layer`](./registry/server.ts#L213)
 
 _Variable_
 
@@ -842,6 +844,21 @@ flowchart TD
   Rpc --> Storage
   Http --> Response["HttpServerResponse"]
 ```
+
+#### [`processHelp`](./registry/server.ts#L118)
+
+_Variable_
+
+```ts
+export const processHelp = [
+  "Usage: moltzap-registry [--help]",
+  "",
+  "Environment:",
+  ...Object.values(configurationFields).map((field) => `  ${field.usage}`),
+].join("\n")
+```
+
+Usage is generated from the same fields consumed by the process.
 
 ## Files
 

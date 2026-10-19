@@ -8,11 +8,11 @@ Production composition for one explicitly configured endpoint daemon.
 
 ## Public surface
 
-### [`Daemon`](./index.ts#L61)
+### [`Daemon`](./index.ts#L65)
 
 _Namespace_
 
-### [`FirewallOptions`](./index.ts#L63)
+### [`FirewallOptions`](./index.ts#L70)
 
 _TypeAlias_
 
@@ -28,7 +28,17 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-### [`layer`](./index.ts#L132)
+### [`help`](./index.ts#L67)
+
+_Variable_
+
+```ts
+  export const help = processHelp
+```
+
+Usage text listing the daemon process's environment variables.
+
+### [`layer`](./index.ts#L141)
 
 _Variable_
 
@@ -40,27 +50,29 @@ _Variable_
 
 Complete production process composition for `moltzapd`.
 
-### [`StartupError`](./index.ts#L72)
+### [`StartupError`](./index.ts#L79)
 
 _Class_
 
 ```ts
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
+    readonly detail?: string;
   }> {
     /**
-     * Names only the failed phase, so the process log says why startup stopped.
-     * @returns The startup failure message.
+     * Only sanitized configuration details enter the process log.
+     * @returns The startup phase and any safe operator diagnostic.
      */
     override get message(): string {
-      return `moltzapd startup failed in phase ${this.phase}`;
+      const detail = this.detail === undefined ? "" : `: ${this.detail}`;
+      return `moltzapd startup failed in phase ${this.phase}${detail}`;
     }
   }
 ```
 
-Closed daemon startup phase without configuration or platform detail.
+Closed startup phase with sanitized configuration details.
 
-### [`withFirewall`](./index.ts#L141)
+### [`withFirewall`](./index.ts#L150)
 
 _Function_
 
