@@ -370,36 +370,39 @@ function resendProposal(
   const { action } = proposal;
   return runtime.gate
     .withPermits(1)(
-      Effect.suspend(() => {
-        const conversation = runtime.conversations.get(action.conversationId);
-        if (
-          conversation === undefined ||
-          !proposalIsOpen(runtime, proposal, conversation)
-        ) {
-          return Effect.succeed(false);
-        }
-        if (runtime.phases.isRecovering(runtime, action.conversationId)) {
-          return Effect.succeed(undefined);
-        }
-        return Effect.uninterruptible(
-          queueProposal(runtime, { ...proposal, conversation }),
-        ).pipe(
-          Effect.as(true),
-          Effect.catchTags({
-            EndpointStoreError: () =>
-              runtime.input.reportStorageFault.pipe(Effect.as(false)),
-            ClientRepresentationError: () => Effect.succeed(false),
-          }),
-        );
-      }),
+      Effect.suspend(
+        (): Effect.Effect<boolean | Deferred.Deferred<undefined>> => {
+          const conversation = runtime.conversations.get(action.conversationId);
+          if (
+            conversation === undefined ||
+            !proposalIsOpen(runtime, proposal, conversation)
+          ) {
+            return Effect.succeed(false);
+          }
+          const barrier = pendingRecoveryFence(runtime, action.conversationId);
+          if (barrier !== undefined) {
+            return Effect.succeed(barrier);
+          }
+          return Effect.uninterruptible(
+            queueProposal(runtime, { ...proposal, conversation }),
+          ).pipe(
+            Effect.as(true),
+            Effect.catchTags({
+              EndpointStoreError: () =>
+                runtime.input.reportStorageFault.pipe(Effect.as(false)),
+              ClientRepresentationError: () => Effect.succeed(false),
+            }),
+          );
+        },
+      ),
     )
     .pipe(
       Effect.flatMap((due) =>
-        due === undefined
-          ? Effect.sleep("1 second").pipe(
+        typeof due === "boolean"
+          ? Effect.succeed(due)
+          : Deferred.await(due).pipe(
               Effect.zipRight(resendProposal(runtime, proposal)),
-            )
-          : Effect.succeed(due),
+            ),
       ),
     );
 }

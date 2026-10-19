@@ -6882,6 +6882,8 @@ const resendsAProposalAMemberDroppedWhileRecovering = () =>
  * A proposal stays open through catch-up on the same Router instance. Time
  * spent fenced exceeds every resend delay without consuming its attempts,
  * so recovery without a re-anchor still releases an identical proposal.
+ * `Queue.size(...) === 0` checks the spec rule that nothing is resent during
+ * recovery.
  */
 const preservesResendAttemptsWhileFenced = () =>
   Effect.gen(function* () {
