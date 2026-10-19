@@ -1,6 +1,6 @@
 /** @file Canonical branded identity identifiers and their exact encodings. */
 
-import { Either, Encoding, Schema } from "effect";
+import { Array, Either, Encoding, Schema } from "effect";
 
 const IDENTIFIER_BYTE_LENGTH = 16;
 
@@ -39,19 +39,16 @@ export const canonicalIdentifier = <const Name extends string>(
   prefix: string,
   byteLength: number,
 ) => {
-  const alphabet =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
   const wholeCharacters = Math.floor((byteLength * 8) / 6);
   const remainingBits = (byteLength * 8) % 6;
   const finalCharacter =
     remainingBits === 0
       ? ""
-      : `[${Array.from(alphabet)
-          .filter(
-            (character) =>
-              alphabet.indexOf(character) % 2 ** (6 - remainingBits) === 0,
-          )
-          .join("")}]`;
+      : `[${Array.makeBy(2 ** remainingBits, (value) =>
+          Encoding.encodeBase64Url(
+            Uint8Array.of(value << (8 - remainingBits)),
+          ).charAt(0),
+        ).join("")}]`;
   const pattern = new RegExp(
     `^${prefix}[A-Za-z0-9_-]{${wholeCharacters}}${finalCharacter}$`,
     "u",

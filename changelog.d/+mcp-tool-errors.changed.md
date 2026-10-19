@@ -1,1 +1,1 @@
-Daemon MCP tools report invalid argument field paths and messages, reject malformed registration identifiers before execution, and describe every tool and its key input fields.
+Daemon MCP tools report at most 20 invalid argument field paths and schema expectations without echoing submitted values, preserve those issues in runtime send errors, reject malformed registration identifiers before execution, and describe every tool and its key input fields.

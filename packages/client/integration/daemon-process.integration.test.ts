@@ -334,6 +334,14 @@ const processBehavior = Effect.gen(function* () {
         { conversationId: "retired-public-identifier" },
       );
       expect(malformed.code).toBe(ProtocolErrorCode.InvalidParams);
+      expect(malformed.data).toMatchObject({
+        issues: expect.arrayContaining([
+          { path: ["conversationId"], message: "Unexpected field" },
+        ]),
+      });
+      expect(JSON.stringify(malformed.data)).not.toContain(
+        "retired-public-identifier",
+      );
     }),
   );
 

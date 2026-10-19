@@ -54,10 +54,7 @@ export const harnessAcknowledgeDeliveryRequestSchema = exactStruct({
 const utf8 = new TextEncoder();
 const invocationKey = Schema.String.pipe(
   Schema.minLength(1),
-  Schema.maxLength(128, {
-    description:
-      "Runtime-owned send idempotency key: 1 to 128 UTF-8 bytes without NUL; reuse the exact key for retries and lookup.",
-  }),
+  Schema.maxLength(128),
   Schema.filter(
     (value) =>
       !value.includes("\u0000") && utf8.encode(value).byteLength <= 128,
@@ -70,7 +67,12 @@ const invocationKey = Schema.String.pipe(
  * item. The default returns it as the tool error.
  */
 export const harnessSendOptionsSchema = exactStruct({
-  idempotencyKey: Schema.optionalWith(invocationKey, { exact: true }),
+  idempotencyKey: Schema.optionalWith(invocationKey, {
+    exact: true,
+  }).annotations({
+    description:
+      "Runtime-owned send idempotency key: 1 to 128 UTF-8 bytes without NUL; reuse the exact key for retries and lookup.",
+  }),
   failureDelivery: Schema.optionalWith(Schema.Literal("result", "inbound"), {
     exact: true,
   }),
@@ -116,7 +118,10 @@ export const inboxResultSchema = exactStruct({
 });
 /** Caller-selected identity of one previously attempted send. */
 export const readSendRequestSchema = exactStruct({
-  idempotencyKey: invocationKey,
+  idempotencyKey: Schema.propertySignature(invocationKey).annotations({
+    description:
+      "Runtime-owned send idempotency key: 1 to 128 UTF-8 bytes without NUL; reuse the exact key for retries and lookup.",
+  }),
 });
 
 /** Validation diagnostics remain decodable as a send refusal at the runtime edge. */

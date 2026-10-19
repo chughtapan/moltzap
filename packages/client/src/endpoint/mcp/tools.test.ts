@@ -107,6 +107,8 @@ const invalidCalls = [
   { name: "status", arguments: { unexpected: true }, path: ["unexpected"] },
   { name: "read_event", arguments: { eventId: "bad" }, path: ["eventId"] },
   { name: "acknowledge_delivery", arguments: {}, path: ["deliveryToken"] },
+];
+const invalidInvocationCalls = [
   {
     name: "read_send",
     arguments: { idempotencyKey: "" },
@@ -196,28 +198,139 @@ function registrationOperation(
     });
 }
 
+function checksInvocationPrivacy() {
+  return Effect.gen(function* () {
+    const handler = yield* acquireHandler({
+      ...operations,
+      protocolActive: () => true,
+    });
+    const sentinel = "private-mcp-sentinel-1304";
+    const malformedText = yield* request(handler, "tools/call", {
+      name: "send_message",
+      arguments: { input: { to: "agent:bob", text: `${sentinel}\ud800` } },
+    });
+    expect(malformedText.error).toMatchObject({
+      code: ProtocolErrorCode.InvalidParams,
+    });
+    yield* checkDiagnostic(malformedText.error?.data, ["input", "text"]);
+    expect(JSON.stringify(malformedText.error)).not.toContain(sentinel);
+    const malformedToken = yield* request(
+      handler,
+      "tools/call",
+      {
+        name: "send_message",
+        arguments: { input: { to: "agent:bob", text: sentinel } },
+      },
+      { [HARNESS_SEND_META_KEY]: { idempotencyKey: `${sentinel}\u0000` } },
+    );
+    expect(malformedToken.error).toMatchObject({
+      code: ProtocolErrorCode.InvalidParams,
+    });
+    yield* checkDiagnostic(malformedToken.error?.data, [
+      HARNESS_SEND_META_KEY,
+      "idempotencyKey",
+    ]);
+    expect(JSON.stringify(malformedToken.error)).not.toContain(sentinel);
+  });
+}
+
+function checksStructuralPrivacy() {
+  return Effect.gen(function* () {
+    const handler = yield* acquireHandler({
+      ...operations,
+      protocolActive: () => true,
+    });
+    const sentinel = "private-token-sentinel-1304";
+    const response = yield* request(handler, "tools/call", {
+      name: "acknowledge_delivery",
+      arguments: { deliveryToken: { secret: sentinel } },
+    });
+    expect(response.error).toMatchObject({
+      code: ProtocolErrorCode.InvalidParams,
+    });
+    yield* checkDiagnostic(response.error?.data, ["deliveryToken"]);
+    expect(JSON.stringify(response.error)).not.toContain(sentinel);
+  });
+}
+
+function checksDiagnosticCap() {
+  return Effect.gen(function* () {
+    const handler = yield* acquireHandler(operations);
+    const sentinel = "private-excess-sentinel-1304";
+    const response = yield* request(handler, "tools/call", {
+      name: "status",
+      arguments: Object.fromEntries(
+        Array.from({ length: 25 }, () => sentinel).map((value, index) => [
+          `extra${index}`,
+          value,
+        ]),
+      ),
+    });
+    expect(response.error).toMatchObject({
+      code: ProtocolErrorCode.InvalidParams,
+    });
+    const diagnostics = yield* checkDiagnostic(response.error?.data, [
+      "extra0",
+    ]);
+    expect(diagnostics.issues).toHaveLength(20);
+    expect(JSON.stringify(response.error)).not.toContain(sentinel);
+  });
+}
+
 // @agent-code-guard/regression-only: malformed tool inputs name their fields without entering an operation.
 describe("MCP tool argument diagnostics", () => {
+  it.each(invalidInvocationCalls)(
+    "retains invocation diagnostics for $name",
+    (call) =>
+      Effect.gen(function* () {
+        const handler = yield* acquireHandler({
+          ...operations,
+          protocolActive: () => true,
+        });
+        const response = yield* request(
+          handler,
+          "tools/call",
+          { name: call.name, arguments: call.arguments },
+          call.metadata,
+        );
+        expect(response.error).toMatchObject({
+          code: ProtocolErrorCode.InvalidParams,
+        });
+        yield* checkDiagnostic(response.error?.data, call.path);
+        const failure = yield* decodeHarnessSendErrorData(response.error?.data);
+        expect(failure).toMatchObject({ reason: "content-invalid" });
+      }),
+  );
+
+  it(
+    "keeps message text and runtime tokens out of invocation errors",
+    checksInvocationPrivacy,
+  );
+
+  it("keeps token values out of structural errors", checksStructuralPrivacy);
+
+  it(
+    "caps structural diagnostics at twenty without exposing values",
+    checksDiagnosticCap,
+  );
+});
+
+// @agent-code-guard/regression-only: structural failures retain paths without entering operations.
+describe("MCP structural argument diagnostics", () => {
   it.each(invalidCalls)("names the invalid field for $name", (call) =>
     Effect.gen(function* () {
       const handler = yield* acquireHandler({
         ...operations,
         protocolActive: () => true,
       });
-      const response = yield* request(
-        handler,
-        "tools/call",
-        { name: call.name, arguments: call.arguments },
-        call.metadata,
-      );
+      const response = yield* request(handler, "tools/call", {
+        name: call.name,
+        arguments: call.arguments,
+      });
       expect(response.error).toMatchObject({
         code: ProtocolErrorCode.InvalidParams,
       });
       yield* checkDiagnostic(response.error?.data, call.path);
-      if (call.name === "send_message" || call.name === "read_send") {
-        const failure = yield* decodeHarnessSendErrorData(response.error?.data);
-        expect(failure).toMatchObject({ reason: "content-invalid" });
-      }
     }),
   );
 });

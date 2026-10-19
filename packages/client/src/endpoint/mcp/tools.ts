@@ -20,7 +20,7 @@ import {
   JSONSchema,
   Layer,
   Option,
-  ParseResult,
+  type ParseResult,
   Schema,
   Scope,
 } from "effect";
@@ -46,6 +46,7 @@ import {
   sendErrorData,
 } from "../../delivery/operations.js";
 import { FirewallSendError } from "../../firewall/runtime.js";
+import { validationIssues } from "../../transport/wire/index.js";
 import {
   authenticateHarnessRequest,
   type HarnessMcpCredentials,
@@ -287,19 +288,14 @@ const decodeToolInput = async <Value, A, I>(
       errors: "all",
     })(value);
     const issues = Either.match(diagnostics, {
-      onLeft: (error) => ParseResult.ArrayFormatter.formatErrorSync(error),
-      onRight: () => decoded.issues,
+      onLeft: validationIssues,
+      onRight: () => [{ path: [], message: "Expected tool argument schema" }],
     });
     throw new ProtocolError(
       ProtocolErrorCode.InvalidParams,
       `Invalid arguments for tool ${toolName}`,
       {
-        issues: issues.map(({ path, message }) => ({
-          path: (path ?? []).map((segment) =>
-            typeof segment === "object" ? segment.key : segment,
-          ),
-          message,
-        })),
+        issues,
       },
     );
   }
@@ -441,7 +437,7 @@ const toolListings = {
   },
   resume_event_subscription: {
     description:
-      "Resume transient callback retries after a recoverable delivery failure.",
+      "Resume transient callback retries after a recoverable delivery failure. A terminal rejection requires revocation and reconfiguration.",
     inputSchema: emptyInput,
   },
   [SEARCH_AGENTS_TOOL]: {
@@ -675,9 +671,7 @@ const decodeInvocationInput = <A>(
         Effect.fail(
           new ProtocolError(-32602, "Invalid invocation arguments", {
             reason: "content-invalid",
-            issues: ParseResult.ArrayFormatter.formatErrorSync(error).map(
-              ({ path, message }) => ({ path, message }),
-            ),
+            issues: validationIssues(error),
           }),
         ),
       ),

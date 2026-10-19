@@ -25,6 +25,8 @@ export {
   signOuterEvidence,
   signOuterPacket,
 } from "./encoding/index.js";
+
+export { validationIssues } from "./issues.js";
 export {
   ActionCertificate,
   ActionCertifiedRecord,

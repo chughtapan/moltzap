@@ -158,9 +158,11 @@ Every object above rejects missing required fields and excess fields. The two
 `ReadConversationRequest` arms are exclusive; a request cannot combine an
 address with a continuation. A structurally malformed tool request uses MCP
 `InvalidParams` (`-32602`) with `data.issues`, an array of field diagnostics.
-Each diagnostic has a `path` array of property names or array indices (empty
-for the root) and a human-readable `message`. Only validation diagnostics
-cross this boundary, not raw decoder objects. Invocation decoding retains
+At most 20 diagnostics are returned. Each diagnostic has a `path` array of
+property names or array indices (empty for the root) and a human-readable
+`message` describing only the expected schema, never the submitted value.
+Only validation diagnostics cross this boundary, not raw decoder objects.
+Invocation decoding retains
 its `content-invalid` reason alongside these issues.
 
 Registration validates Identity's canonical `OperationId` (`opn_`) and

@@ -187,9 +187,10 @@ function distinguishesProtocolAndDomainFailures() {
       port,
       "harness-boundary-client",
     );
+    const privateInput = "private-status-input";
     const [malformedCause, domainCause] = yield* Effect.all(
       [
-        capturesProtocolError(client, { unexpected: true }),
+        capturesProtocolError(client, { unexpected: privateInput }),
         capturesProtocolError(client, {}),
       ],
       { concurrency: 1 },
@@ -205,7 +206,11 @@ function distinguishesProtocolAndDomainFailures() {
     }
     expect(malformedCause).toMatchObject({
       code: ProtocolErrorCode.InvalidParams,
+      data: {
+        issues: [{ path: ["unexpected"], message: "Expected never" }],
+      },
     });
+    expect(JSON.stringify(malformedCause.data)).not.toContain(privateInput);
     expect(domainCause).toMatchObject({
       code: ProtocolErrorCode.InternalError,
       data: { reason: "incompatible-daemon" },
@@ -627,9 +632,13 @@ const runtimeOptions = {
 function checksSendConflicts(endpoint: HarnessEndpoint) {
   return Effect.gen(function* () {
     for (const idempotencyKey of ["", "bad\u0000key", "é".repeat(65)]) {
+      const failure = yield* endpoint
+        .send(sendInput, { idempotencyKey })
+        .pipe(Effect.flip);
+      expect(failure).toMatchObject({ reason: "content-invalid" });
       expect(
-        yield* endpoint.send(sendInput, { idempotencyKey }).pipe(Effect.flip),
-      ).toMatchObject({ reason: "content-invalid" });
+        "issues" in failure && failure.issues?.map(({ path }) => path),
+      ).toContainEqual([HARNESS_SEND_META_KEY, "idempotencyKey"]);
     }
     expect(
       yield* endpoint
