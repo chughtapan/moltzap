@@ -860,6 +860,13 @@ const registryBinaryBehavior = Effect.gen(function* () {
     infrastructure.registryPort,
   );
   yield* stopProcess(registry);
+  expect(registry.logs()).toContain(
+    `moltzap-registry listening on ${infrastructure.origin.origin}`,
+  );
+  expect(registry.logs()).toMatch(/\(package \S+; MOLTZAP_VERSION \S+\)/u);
+  expect(registry.logs().match(/moltzap-registry listening on/gu)).toHaveLength(
+    1,
+  );
   expect(yield* canConnect(infrastructure.registryPort)).toBe(false);
 
   yield* exerciseRestart({

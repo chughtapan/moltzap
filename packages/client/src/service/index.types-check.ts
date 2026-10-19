@@ -9,7 +9,10 @@ import type { Daemon } from "./index.js";
 type Expect<Value extends true> = Value;
 
 type NamespaceIsExact = Expect<
-  Types.Equals<keyof typeof Daemon, "StartupError" | "layer" | "withFirewall">
+  Types.Equals<
+    keyof typeof Daemon,
+    "StartupError" | "help" | "layer" | "withFirewall"
+  >
 >;
 type StartupValue = InstanceType<typeof Daemon.StartupError>;
 type StartupTagIsExact = Expect<

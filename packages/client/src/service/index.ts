@@ -4,15 +4,19 @@ import { NodeHttpClient } from "@effect/platform-node";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Data, Duration, Effect, Layer } from "effect";
-import type { DaemonProcessConfiguration } from "./bootstrap.js";
 import {
   type FirewallOptions as InstalledFirewallOptions,
   installEditableFirewall,
 } from "../delivery/index.js";
 import { inspectEndpointStore, openEndpointStore } from "../store/index.js";
 import {
+  DaemonConfigurationError,
+  type DaemonProcessConfiguration,
+} from "./bootstrap.js";
+import {
   loadDaemonBootstrap,
   loadDaemonProcessConfiguration,
+  processHelp,
 } from "./configuration.js";
 import { runDaemonRuntime } from "./lifecycle.js";
 import {
@@ -59,6 +63,9 @@ export type {
 
 // eslint-disable-next-line @typescript-eslint/no-namespace -- The published service subpath intentionally merges its runtime values with the closed startup-error type.
 export namespace Daemon {
+  /** Usage text listing the daemon process's environment variables. */
+  export const help = processHelp;
+
   /** Trusted process composition fixes code and evidence while owner tools edit English rules. */
   export type FirewallOptions = InstalledFirewallOptions & {
     /**
@@ -68,16 +75,18 @@ export namespace Daemon {
     readonly auditExport?: string;
   };
 
-  /** Closed daemon startup phase without configuration or platform detail. */
+  /** Closed startup phase with sanitized configuration details. */
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
+    readonly detail?: string;
   }> {
     /**
-     * Names only the failed phase, so the process log says why startup stopped.
-     * @returns The startup failure message.
+     * Only sanitized configuration details enter the process log.
+     * @returns The startup phase and any safe operator diagnostic.
      */
     override get message(): string {
-      return `moltzapd startup failed in phase ${this.phase}`;
+      const detail = this.detail === undefined ? "" : `: ${this.detail}`;
+      return `moltzapd startup failed in phase ${this.phase}${detail}`;
     }
   }
 
@@ -145,8 +154,12 @@ export namespace Daemon {
     return Layer.scopedDiscard(runDaemon(policyOptions, auditExport));
   };
 
-  function configurationFailure(): StartupError {
-    return new StartupError({ phase: "configuration" });
+  function configurationFailure(cause: unknown): StartupError {
+    return new StartupError({
+      phase: "configuration",
+      detail:
+        cause instanceof DaemonConfigurationError ? cause.message : undefined,
+    });
   }
 
   function storageFailure(): StartupError {
