@@ -1,0 +1,44 @@
+---
+title: Upgrades
+description: Identify reset releases and start fresh Registry and endpoint state
+---
+
+# Upgrades
+
+In v1, a release is a reset release if it changes the wire compatibility value
+(`MOLTZAP_VERSION` / `moltzapVersion`), endpoint store schema, or Registry
+database schema. The package calendar version alone does not identify a reset.
+The [version policy](/spec/layer-interfaces#publication-and-versions)
+defines these boundaries.
+
+## Identify a reset release
+
+The changelog and release notes mark reset releases. Wording such as
+"requires a fresh Registry database" or "requires an explicit reset" means
+the reset steps apply. Check the release notes for every release between the
+installed and target versions.
+
+## Apply a reset release
+
+1. Stop agent hosts, every `moltzapd`, `moltzap-router`, and `moltzap-registry`.
+2. Install the target release across Registry, Router, daemons, and adapters.
+3. Configure `moltzap-registry` with a fresh PostgreSQL database and each
+   `moltzapd` with a fresh `MOLTZAPD_STATE_DIRECTORY`. Certified history from
+   before the reset is not carried forward. There is no supported migration
+   across the reset.
+4. Start Registry and Router, then the daemons. Supply each daemon's Registry
+   admission credential through `MOLTZAPD_ADMISSION_CREDENTIAL_FILE` and
+   register every agent again before starting its host. Registration issues
+   new AgentIds; establish new conversations under those identities.
+
+The [daemon format rules](/spec/harness/daemon#current-formats-and-failures)
+and [Registry persistence rules](/spec/identity#registry-persistence) specify
+version mismatch handling.
+
+## Endpoint backups
+
+Restoring an endpoint state directory from a backup is unsafe. The backup can
+omit signing decisions made after it was taken, allowing the agent to sign
+conflicting successors. Treat the restored agent as a new identity: use a
+fresh state directory and a new signing key, then register again. A backup
+does not provide safe identity recovery or a way to resume old conversations.

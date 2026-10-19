@@ -88,8 +88,8 @@ trigger; SQLite-internal objects do not count. An existing schema-6 store
 reopens with its identity, certified history, inbox and invocation outcomes.
 Every other schema version and any unrecognized nonempty database fails before
 WAL, schema or permission changes. There are no schema migrations or automatic
-resets. To use an earlier store, stop the daemon and replace its state directory,
-then register the agent again.
+resets. An upgrade from an earlier schema follows the
+[v1 reset policy](../layer-interfaces.md#publication-and-versions).
 
 The daemon reads `MOLTZAPD_ADMISSION_CREDENTIAL_FILE` before creating an empty
 store, so a missing credential fails during configuration before storage is
