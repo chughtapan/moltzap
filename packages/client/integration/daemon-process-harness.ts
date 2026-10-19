@@ -57,6 +57,7 @@ const SHUTDOWN_TIMEOUT = Duration.seconds(5);
  * killed.
  */
 const TEARDOWN_TIMEOUT_MS = 60_000;
+const POLL_ATTEMPT_TIMEOUT = Duration.seconds(1);
 const POLL_INTERVAL = Duration.millis(25);
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
 const WORKSPACE_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
@@ -285,7 +286,13 @@ const canConnect = (port: number) =>
     return Effect.sync(() => {
       socket.destroy();
     });
-  });
+  }).pipe(
+    Effect.timeoutTo({
+      duration: POLL_ATTEMPT_TIMEOUT,
+      onTimeout: () => false,
+      onSuccess: (connected) => connected,
+    }),
+  );
 
 /** Whether `origin` answers its health check as ready. */
 const isHealthy = (origin: URL) =>
@@ -296,7 +303,10 @@ const isHealthy = (origin: URL) =>
         return response.status === READY_STATUS;
       }),
     catch: (cause) => processTestError("health request failed", cause),
-  }).pipe(Effect.orElseSucceed(() => false));
+  }).pipe(
+    Effect.timeout(POLL_ATTEMPT_TIMEOUT),
+    Effect.orElseSucceed(() => false),
+  );
 
 /**
  * Polls `probe` until it reads true, and fails with the child's output once
