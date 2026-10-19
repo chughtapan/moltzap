@@ -78,7 +78,7 @@ export class AgentCardVerificationError extends Data.TaggedError(
 
 A parsed AgentCard does not verify against the pinned Registry signer.
 
-### [`AgentId (type)`](./identifiers.ts#L73)
+### [`AgentId (type)`](./identifiers.ts#L78)
 
 _TypeAlias_
 
@@ -88,7 +88,7 @@ export type AgentId = typeof AgentId.Type;
 
 Validated nominal value decoded by AgentId.
 
-### [`AgentId (value)`](./identifiers.ts#L67)
+### [`AgentId (value)`](./identifiers.ts#L72)
 
 _Variable_
 
@@ -102,7 +102,7 @@ export const AgentId = canonicalIdentifier(
 
 Canonical network identity minted by the Registry.
 
-### [`AgentName (type)`](./identifiers.ts#L96)
+### [`AgentName (type)`](./identifiers.ts#L101)
 
 _TypeAlias_
 
@@ -112,7 +112,7 @@ export type AgentName = typeof AgentName.Type;
 
 Validated nominal value decoded by AgentName.
 
-### [`AgentName (value)`](./identifiers.ts#L85)
+### [`AgentName (value)`](./identifiers.ts#L90)
 
 _Variable_
 
@@ -370,7 +370,7 @@ export class PayloadTooLargeError extends Schema.TaggedError<PayloadTooLargeErro
 
 The received body exceeds the selected route's derived representation cap.
 
-### [`PrincipalId (type)`](./identifiers.ts#L82)
+### [`PrincipalId (type)`](./identifiers.ts#L87)
 
 _TypeAlias_
 
@@ -380,7 +380,7 @@ export type PrincipalId = typeof PrincipalId.Type;
 
 Validated nominal value decoded by PrincipalId.
 
-### [`PrincipalId (value)`](./identifiers.ts#L76)
+### [`PrincipalId (value)`](./identifiers.ts#L81)
 
 _Variable_
 
@@ -669,7 +669,7 @@ export type OperationId = typeof OperationId.Type;
 
 Validated nominal value decoded by OperationId.
 
-#### [`RegistryListRequest (type)`](./registry/contract.ts#L84)
+#### [`RegistryListRequest (type)`](./registry/contract.ts#L97)
 
 _TypeAlias_
 
@@ -679,7 +679,7 @@ export type RegistryListRequest = typeof RegistryListRequest.Type;
 
 Validated Registry list continuation request.
 
-#### [`RegistryListResult`](./registry/contract.ts#L99)
+#### [`RegistryListResult`](./registry/contract.ts#L112)
 
 _TypeAlias_
 
@@ -693,7 +693,7 @@ export type RegistryListResult = Readonly<{
 
 One deterministic page of complete immutable AgentCards.
 
-#### [`RegistryLookupRequest (type)`](./registry/contract.ts#L75)
+#### [`RegistryLookupRequest (type)`](./registry/contract.ts#L85)
 
 _TypeAlias_
 
@@ -703,7 +703,7 @@ export type RegistryLookupRequest = typeof RegistryLookupRequest.Type;
 
 Validated Registry lookup selector.
 
-#### [`RegistryLookupResult`](./registry/contract.ts#L94)
+#### [`RegistryLookupResult`](./registry/contract.ts#L107)
 
 _TypeAlias_
 
@@ -725,7 +725,7 @@ export type RegistryRegisterRequest = typeof RegistryRegisterRequest.Type;
 
 Validated Registry bootstrap registration request.
 
-#### [`RegistryRegisterResult`](./registry/contract.ts#L87)
+#### [`RegistryRegisterResult`](./registry/contract.ts#L100)
 
 _TypeAlias_
 
@@ -749,13 +749,16 @@ export const OperationId = canonicalIdentifier("OperationId", "opn_", 16)
 
 Idempotency identity for a registration operation.
 
-#### [`RegistryListRequest (value)`](./registry/contract.ts#L79)
+#### [`RegistryListRequest (value)`](./registry/contract.ts#L89)
 
 _Variable_
 
 ```ts
 export const RegistryListRequest = exactStruct({
-  afterAgentId: Schema.optional(AgentId),
+  afterAgentId: Schema.optional(AgentId).annotations({
+    description:
+      "Exclusive agent identity cursor for Registry listing; omit to start the first page.",
+  }),
 }).annotations({ identifier: "RegistryListRequest" })
 ```
 
@@ -767,8 +770,18 @@ _Variable_
 
 ```ts
 export const RegistryLookupRequest = Schema.Union(
-  exactStruct({ agentId: AgentId }),
-  exactStruct({ agentName: AgentName }),
+  exactStruct({
+    agentId: Schema.propertySignature(AgentId).annotations({
+      description:
+        "Look up this Registry-minted agent identity (agt_ plus canonical base64url for 16 bytes); use alone.",
+    }),
+  }),
+  exactStruct({
+    agentName: Schema.propertySignature(AgentName).annotations({
+      description:
+        "Look up this immutable Registry-wide agent handle; use alone.",
+    }),
+  }),
 ).annotations({
   identifier: "RegistryLookupRequest",
   parseOptions: {

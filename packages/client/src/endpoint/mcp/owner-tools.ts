@@ -120,9 +120,18 @@ const historyRecord = exactStruct({
 
 /** Closed local registration input; configured secrets are never tool fields. */
 export const managementRegisterRequestSchema = exactStruct({
-  operationId: OperationId,
-  principalId: PrincipalId,
-  agentName: AgentName,
+  operationId: Schema.propertySignature(OperationId).annotations({
+    description:
+      "Registration retry identity (opn_ plus canonical base64url for 16 bytes); reuse it for the same registration attempt.",
+  }),
+  principalId: Schema.propertySignature(PrincipalId).annotations({
+    description:
+      "Principal represented by this agent (prn_ plus canonical base64url for 16 bytes).",
+  }),
+  agentName: Schema.propertySignature(AgentName).annotations({
+    description:
+      "Immutable Registry-wide handle: 3 to 32 lowercase letters, digits, or single separating hyphens.",
+  }),
 });
 
 /** Exact Registry domain outcomes returned by daemon registration. */
@@ -167,7 +176,10 @@ export const managementSearchAgentsResultSchema = Schema.Union(
 
 /** Canonically ordered local-conversation page selector. */
 export const managementSearchConversationsRequestSchema = exactStruct({
-  afterAddress: Schema.optional(messageAddress),
+  afterAddress: Schema.optional(messageAddress).annotations({
+    description:
+      "Exclusive canonical address cursor from the previous page; omit to start at the first local conversation.",
+  }),
 });
 
 /** Canonically ordered local-conversation address page. */
@@ -186,10 +198,21 @@ export const managementSearchConversationsResultSchema = exactStruct({
 /** Frozen certified-history page selector or process-local continuation. */
 export const managementReadConversationRequestSchema = Schema.Union(
   exactStruct({
-    address: messageAddress,
-    afterRecordHash: Schema.optional(RecordHash),
+    address: Schema.propertySignature(messageAddress).annotations({
+      description:
+        "Canonical agent:<name> or group:<sorted-members> address whose certified history to read.",
+    }),
+    afterRecordHash: Schema.optional(RecordHash).annotations({
+      description:
+        "Read strictly after this certified record hash; omit to start at genesis.",
+    }),
   }),
-  exactStruct({ continuation: historyContinuation }),
+  exactStruct({
+    continuation: Schema.propertySignature(historyContinuation).annotations({
+      description:
+        "Single-use token from the previous history page; use alone and only within this daemon process.",
+    }),
+  }),
 ).annotations({ parseOptions: exactOptions });
 
 /** Complete proof-bearing local certified-history page. */

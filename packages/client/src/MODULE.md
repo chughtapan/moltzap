@@ -141,7 +141,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L93)
+### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L98)
 
 _Class_
 
@@ -411,7 +411,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](./transport/messaging/errors.ts#L72)
+### [`ListenError`](./transport/messaging/errors.ts#L77)
 
 _Class_
 
@@ -564,7 +564,7 @@ each data part as JSON, one part per line.
 
 **Returns:** The text a host puts in the model's turn.
 
-### [`SendError`](./transport/messaging/errors.ts#L56)
+### [`SendError`](./transport/messaging/errors.ts#L57)
 
 _Class_
 
@@ -572,6 +572,10 @@ _Class_
 export class SendError extends Data.TaggedError("SendError")<{
   readonly reason: SendFailure;
   readonly detail?: string;
+  readonly issues?: ReadonlyArray<{
+    readonly path: ReadonlyArray<string | number>;
+    readonly message: string;
+  }>;
 }> {
   override get message(): string {
     return `send failed: ${this.detail ?? sendFailureText[this.reason]}`;
@@ -582,6 +586,7 @@ export class SendError extends Data.TaggedError("SendError")<{
 An addressed send failed before local certification completed. `detail`
 names the specific cause when the failing step knows it, such as which
 agent is unknown; the message is what a host hands its model.
+Validation issues expose only field paths and schema expectations.
 
 ### [`SendInput (type)`](./transport/collectives/forms.ts#L164)
 
