@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import { NodeRuntime } from "@effect/platform-node";
 import { ConfigProvider, Console, Effect, Layer } from "effect";
-import { RouterServer } from "../dist/server.js";
-import { processHelp } from "../dist/router.js";
+import { processHelp, RouterServer } from "../dist/server.js";
 
 const program = process.argv.includes("--help")
   ? Console.log(processHelp)

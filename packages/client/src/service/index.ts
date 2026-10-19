@@ -19,6 +19,8 @@ import {
   loadDaemonProcessConfiguration,
 } from "./configuration.js";
 import { runDaemonRuntime } from "./lifecycle.js";
+/** Usage text listing the daemon process's environment variables. */
+export { processHelp } from "./configuration.js";
 import {
   readDaemonRegistrationState,
   requireAdmission,
