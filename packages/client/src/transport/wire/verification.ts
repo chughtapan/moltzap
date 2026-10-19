@@ -15,6 +15,7 @@ import {
   decodeCanonical,
   deriveConversationId,
   deriveEvidenceMessageId,
+  encodeCanonical,
   equalCanonical,
   hashAction,
   hashAnchor,
@@ -23,6 +24,7 @@ import {
   hashRecord,
   type OuterMembership,
   representationFailure,
+  sameBytes,
 } from "./encoding/index.js";
 import {
   type ActionCertifiedRecord,
@@ -188,6 +190,14 @@ export const verifyStableEvidence = (input: {
     const statement =
       input.statement ??
       (yield* decodeCanonical(EvidenceStatement, message.body));
+    if (
+      !sameBytes(
+        yield* encodeCanonical(EvidenceStatement, statement),
+        message.body,
+      )
+    ) {
+      return yield* representationFailure();
+    }
     const expectedMessageId = yield* deriveEvidenceMessageId(statement);
     if (
       statement.signerAgentId !== message.senderAgentId ||

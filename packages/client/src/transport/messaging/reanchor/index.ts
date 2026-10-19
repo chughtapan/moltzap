@@ -314,9 +314,8 @@ function acceptReanchorVoteEffect(
  * the caller reports as ignored like any other unusable input.
  * @param run Recovery run that receives the vote.
  * @param ingress Router delivery whose outer envelope carries the vote.
- * @param message The vote's evidence message from that envelope.
  * @param membership Recovered membership of the vote's conversation.
- * @param vote
+ * @param vote The signed evidence and its decoded statement.
  * @returns Accepted when the run took the vote, ignored when it did not.
  */
 function verifyInboundVote(

@@ -30,6 +30,7 @@ import {
   type ConversationId as ConversationIdValue,
   decodeCanonical,
   type DecodedOuterBody,
+  hashAnchor,
   memberCard,
   quorumThreshold,
   type ReanchorBody,
@@ -476,6 +477,14 @@ function queueCatchUpRequest(
     if (!run.isActive() || membership === undefined) {
       return;
     }
+    const pending = run.state.pendingRequests.get(conversationId);
+    if (
+      held === "keep" &&
+      pending !== undefined &&
+      (yield* requestMatchesCurrentPosition(run.runtime, pending))
+    ) {
+      return yield* run.queue(membership, { kind: "direct", packet: pending });
+    }
     const { position, recovery } = yield* durablePosition(
       run.runtime,
       conversationId,
@@ -503,6 +512,40 @@ function queueCatchUpRequest(
       }
     });
     yield* run.queue(membership, { kind: "direct", packet: request });
+  });
+}
+
+/**
+ * In-memory positions follow durable promotions and completed re-anchors.
+ * An unchanged retry can retain its request and attestations without loading
+ * the conversation's retained records and evidence from the store.
+ * @param runtime Engine whose installed position reflects durable writes.
+ * @param request Pending request to compare with that position.
+ * @returns Whether the pending request still names the installed position.
+ */
+function requestMatchesCurrentPosition(
+  runtime: EngineRuntime,
+  request: CatchUpRequestValue,
+): Effect.Effect<boolean, RouterWorkerPersistenceError> {
+  return Effect.gen(function* () {
+    const conversation = runtime.conversations.get(request.conversationId);
+    if (conversation === undefined) {
+      return false;
+    }
+    const head = conversation.head?.recordHash ?? null;
+    const anchor = conversation.currentAnchor;
+    if (head === null) {
+      return (
+        request.knownRecordHash === null && request.knownAnchorHash === null
+      );
+    }
+    const anchorHash =
+      anchor.kind === "genesis_anchor_body"
+        ? yield* hashAnchor(anchor).pipe(Effect.mapError(persistenceFailure))
+        : anchor.anchorHash;
+    return (
+      request.knownRecordHash === head && request.knownAnchorHash === anchorHash
+    );
   });
 }
 

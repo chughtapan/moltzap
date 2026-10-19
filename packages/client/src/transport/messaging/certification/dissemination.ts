@@ -4,28 +4,28 @@ import { Effect, Schema } from "effect";
 import type { DisseminationObligation } from "../../../store/index.js";
 import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
 import { RouterWorkerPersistenceError } from "../../router/index.js";
-import {
-  type ActionCertifiedRecord,
-  type ConversationId,
-  RecordHash,
-} from "../../wire/index.js";
+import { type ActionCertifiedRecord, RecordHash } from "../../wire/index.js";
 import {
   makeActionCertifiedRecord,
   recordAnchorHash,
 } from "../history/index.js";
 
+/* eslint-disable agent-code-guard/no-conditional-chaining -- This optional single-conversation filter passes through unchanged to the store, where omission selects all conversations. */
 /**
  * Attach every durable certification obligation that lacks an outer envelope.
  * @param runtime Recovered engine state and durable protocol dependencies.
- * @param conversations One conversation to resume, or none to resume all.
+ * @param conversationId One conversation to resume, or none to resume all.
  * @returns Completion after every obligation has one exact retained outbox row.
  */
 export function resumeDisseminationObligations(
   runtime: EngineRuntime,
-  ...conversations: [] | [ConversationId]
+  conversationId?: string,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   return runtime.gate.withPermits(1)(
-    runtime.input.store.recover(...conversations).pipe(
+    (conversationId === undefined
+      ? runtime.input.store.recover()
+      : runtime.input.store.recover(conversationId)
+    ).pipe(
       Effect.mapError(persistenceFailure),
       Effect.flatMap((recovery) =>
         Effect.forEach(
@@ -37,6 +37,8 @@ export function resumeDisseminationObligations(
     ),
   );
 }
+
+/* eslint-enable agent-code-guard/no-conditional-chaining -- The selection is resolved by the store. */
 
 function attachObligation(
   runtime: EngineRuntime,

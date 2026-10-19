@@ -452,7 +452,7 @@ function completePromotion(
   runtime: EngineRuntime,
   fold: EngineActionFold,
   record: CertifiedRecord,
-): Effect.Effect<void, RouterWorkerPersistenceError> {
+): Effect.Effect<void> {
   return applyPromotionState(runtime, fold, record).pipe(
     Effect.flatMap((intent) =>
       intent === undefined
@@ -461,9 +461,6 @@ function completePromotion(
             intent.completion,
             record.actionCertifiedRecord.recordHash,
           ).pipe(Effect.asVoid),
-    ),
-    Effect.zipRight(
-      runtime.phases.headAdvanced(runtime, fold.conversation.conversationId),
     ),
   );
 }
@@ -584,6 +581,10 @@ const promote = (
         .pipe(Effect.zipRight(completePromotion(runtime, fold, record))),
     );
     yield* rebasePendingIntents(runtime, fold.conversation.conversationId);
+    yield* runtime.phases.headAdvanced(
+      runtime,
+      fold.conversation.conversationId,
+    );
   });
 
 const maybePromote = (
@@ -1027,6 +1028,10 @@ const acceptCertifiedRecord = (
       ),
     );
     yield* rebasePendingIntents(runtime, fold.conversation.conversationId);
+    yield* runtime.phases.headAdvanced(
+      runtime,
+      fold.conversation.conversationId,
+    );
     return "accepted";
   });
 
