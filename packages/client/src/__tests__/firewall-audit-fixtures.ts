@@ -112,7 +112,7 @@ export function decodeAudit(text: string) {
   );
   const digest = createHash("sha256");
   for (const [index, record] of records.entries()) {
-    if (record.kind === "check") {
+    if (record.kind === "check" || record.kind === "activation") {
       digest.update(`${lines[index]}\n`);
     }
   }

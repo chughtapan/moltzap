@@ -26,15 +26,15 @@ _TypeAlias_
   };
 ```
 
-Trusted fixed process composition; agents receive no policy mutation capability.
+Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-### [`layer`](./index.ts#L127)
+### [`layer`](./index.ts#L132)
 
 _Variable_
 
 ```ts
   export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
-    runDaemon(Effect.succeed(undefined)),
+    runDaemon(),
   )
 ```
 
@@ -60,7 +60,7 @@ _Class_
 
 Closed daemon startup phase without configuration or platform detail.
 
-### [`withFirewall`](./index.ts#L136)
+### [`withFirewall`](./index.ts#L141)
 
 _Function_
 
@@ -70,7 +70,7 @@ _Function_
   ): Layer.Layer<never, StartupError>
 ```
 
-Fixed middleware and owner evidence are installed before the daemon accepts host calls.
+Fixed middleware and persisted English rules are installed before the daemon accepts host calls.
 
 **Returns:** The complete daemon layer with both message boundaries checked.
 

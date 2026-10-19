@@ -1,5 +1,5 @@
 /**
- * @file A signed two-member GENESIS record, the store rows its endpoint
+ * @file Signed two-member history, the store rows its endpoint
  * keeps, and the corrupt reads of those rows stored-history tests start from.
  */
 
@@ -37,6 +37,7 @@ import {
   hashRecord,
   MembershipDescriptor,
   mintPostId,
+  type PostActionCore,
   PostIntent,
   type RecordCore,
   type RecordHash,
@@ -51,7 +52,7 @@ export interface SigningIdentity {
 }
 
 /** A GENESIS record core with its anchor and both certificates' signers. */
-interface CertifiedGenesisParts {
+interface CertifiedRecordParts {
   readonly recordCore: RecordCore;
   readonly recordHash: RecordHash;
   readonly anchor: GenesisAnchorBody;
@@ -87,7 +88,7 @@ export const buildCertifiedGenesis = (
       actionHash,
     };
     const recordHash = yield* hashRecord(recordCore);
-    return certifiedGenesis({
+    return certifiedRecord({
       recordCore,
       recordHash,
       anchor: action.anchor,
@@ -131,6 +132,56 @@ export const storeCertifiedGenesis = (
       yield* remotePost(local, membership, record),
     );
   }).pipe(Effect.orDie, Effect.withSpan("storeCertifiedGenesis"));
+
+/** The real endpoint store and the two members that certify each history extension. */
+export interface HistoryEndpoint {
+  readonly store: EndpointStore;
+  readonly local: SigningIdentity;
+  readonly remote: SigningIdentity;
+  readonly membership: VerifiedMembership;
+}
+
+/**
+ * Extend a two-member certified history with a signed remote or local post
+ * carrying `text` as its one part, or exactly the given content.
+ */
+export function appendCertifiedPost(
+  endpoint: HistoryEndpoint,
+  previous: CertifiedRecord,
+  text: string | PostIntent["content"],
+  authoredLocally = false,
+): Effect.Effect<CertifiedRecord> {
+  const { local, remote, membership } = endpoint;
+  return Effect.gen(function* () {
+    const predecessor = previous.actionCertifiedRecord;
+    if (predecessor.routerAnchor.kind !== "genesis_anchor_body") {
+      return yield* Effect.dieMessage("expected a genesis-anchored history");
+    }
+    const recordCore = yield* postRecordCore(
+      membership,
+      predecessor,
+      authoredLocally ? local : remote,
+      text,
+    );
+    const actionHash = recordCore.actionHash;
+    const recordHash = yield* hashRecord(recordCore);
+    const record = certifiedRecord({
+      recordCore,
+      recordHash,
+      anchor: predecessor.routerAnchor,
+      signatures: yield* Effect.all([
+        signAction(local, actionHash),
+        signAction(remote, actionHash),
+      ]),
+      votes: yield* Effect.all([
+        voteDurable(local, membership, recordHash),
+        voteDurable(remote, membership, recordHash),
+      ]),
+    });
+    yield* storeCertifiedPost(endpoint, predecessor, record);
+    return record;
+  }).pipe(Effect.orDie, Effect.withSpan("appendCertifiedPost"));
+}
 
 /**
  * `store` as it reads once `signer`'s action evidence row is filed under
@@ -220,6 +271,63 @@ export function signEvidence(
   }).pipe(Effect.flatMap((message) => Schema.encode(SignedMessage)(message)));
 }
 
+function storeCertifiedPost(
+  endpoint: HistoryEndpoint,
+  predecessor: CertifiedRecord["actionCertifiedRecord"],
+  record: CertifiedRecord,
+) {
+  const { store, local, membership } = endpoint;
+  const core = record.actionCertifiedRecord.recordCore;
+  return Effect.gen(function* () {
+    yield* bindLocalIntent(store, local.card, membership, record);
+    yield* store.lockProposal({
+      conversationId: membership.descriptor.conversationId,
+      previousRecordHash: predecessor.recordHash,
+      actionHash: core.actionHash,
+      canonicalActionCore: yield* encodeCanonical(ActionCore, core.action),
+    });
+    yield* store.applyCertifiedRecord(
+      yield* storedRecordRow(record),
+      yield* remotePost(local.card, membership, record),
+    );
+  });
+}
+
+function postRecordCore(
+  membership: VerifiedMembership,
+  predecessor: CertifiedRecord["actionCertifiedRecord"],
+  author: SigningIdentity,
+  text: string | PostIntent["content"],
+) {
+  return Effect.gen(function* () {
+    const postIntent: PostIntent = {
+      ...predecessor.recordCore.action.postIntent,
+      authorAgentId: author.card.agentId,
+      postId: yield* mintPostId(),
+      content: typeof text === "string" ? [{ type: "text", text }] : text,
+    };
+    const action: PostActionCore = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "POST",
+      conversationId: membership.descriptor.conversationId,
+      membershipHash: membership.hash,
+      anchorHash: predecessor.recordCore.anchorHash,
+      previousRecordHash: predecessor.recordHash,
+      postIntent,
+      postIntentHash: yield* hashPostIntent(postIntent),
+    };
+    const recordCore: RecordCore = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "record_core",
+      membershipHash: membership.hash,
+      anchorHash: predecessor.recordCore.anchorHash,
+      action,
+      actionHash: yield* hashAction(action),
+    };
+    return recordCore;
+  }).pipe(Effect.orDie);
+}
+
 function genesisAction(
   author: SigningIdentity,
   membership: VerifiedMembership,
@@ -279,7 +387,7 @@ function voteDurable(
   });
 }
 
-function certifiedGenesis(parts: CertifiedGenesisParts): CertifiedRecord {
+function certifiedRecord(parts: CertifiedRecordParts): CertifiedRecord {
   return {
     moltzapVersion: MOLTZAP_VERSION,
     kind: "certified_record",

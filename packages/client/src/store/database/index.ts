@@ -27,7 +27,9 @@ export {
   requireBytes,
   requireEqual,
   requireSameBytes,
+  requireSameOptionalBytes,
   requireText,
+  sameBytes,
   StoreSignal,
   validateContinuation,
 } from "./values.js";

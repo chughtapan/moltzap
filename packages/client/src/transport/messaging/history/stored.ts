@@ -350,13 +350,13 @@ export function storedRowMatchesCore(
  * Resolve the latest durable position for one fixed conversation.
  * @param runtime Engine whose endpoint store owns the conversation.
  * @param conversationId Private conversation identity to locate.
- * @returns The complete recovery snapshot and its matching position row.
+ * @returns The conversation's recovery snapshot and its matching position row.
  */
 export const durablePosition = (
   runtime: EngineRuntime,
   conversationId: ConversationIdValue,
 ) =>
-  runtime.input.store.recover().pipe(
+  runtime.input.store.recover(conversationId).pipe(
     Effect.mapError(persistenceFailure),
     Effect.map((recovery) => ({
       recovery,

@@ -20,6 +20,7 @@ import {
   AcceptResponse,
   CollectiveId,
   DeclineResponse,
+  EpochMillis,
   RequestedSchema,
 } from "../forms.js";
 import { FormFieldSchema } from "./grammar.js";
@@ -118,7 +119,7 @@ const CollectingOperation = exactStruct({
   op: Schema.Literal("gather", "all_gather"),
   id: CollectiveId,
   nonce: CollectiveNonce,
-  deadlineAt: Schema.Int.pipe(Schema.positive()),
+  deadlineAt: EpochMillis,
   requestedSchema: FormModeSchema,
 });
 

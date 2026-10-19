@@ -117,7 +117,8 @@ trust: the expectation, derived from the agent's own experience and
 deployment-specific context, that a communication will not harm its
 principal's goals. It combines structural verification with the endpoint's
 semantic policy. Structural checks of attribution, membership, evidence, and
-bounds always run. Semantic checks of application messages run through the
+bounds always run. Semantic checks of application messages and of every step
+of a collective operation an agent authors or is shown run through the
 experimental [message firewall](../spec/harness/message-policy.md). A refusal
 remains local; no network service produces a universal trust verdict.
 
