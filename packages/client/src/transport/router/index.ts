@@ -5,7 +5,7 @@ import {
   type AgentId,
   type LiveSignedMessage,
   SignedMessage,
-  type SignedMessage as SignedMessageValue,
+  type LiveSignedMessage as SignedMessageValue,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
@@ -592,18 +592,12 @@ const verifyOuter = <Payload>(
   RouterWorkerAuthenticationError | RouterWorkerPersistenceError
 > =>
   Effect.gen(function* () {
-    const representation = yield* Schema.encode(SignedMessage)(
-      signedMessage,
-    ).pipe(Effect.mapError(mapAuthenticationError));
-    const liveMessage = yield* Schema.decodeUnknown(SignedMessage.live)(
-      representation,
-    ).pipe(Effect.mapError(mapAuthenticationError));
     const senderCard = yield* resolveSenderCard(
       runtime,
       signedMessage.senderAgentId,
     );
     const message = yield* SignedMessage.verify({
-      signedMessage: liveMessage,
+      signedMessage,
       agentCard: senderCard,
     }).pipe(Effect.mapError(mapAuthenticationError));
     return { message, senderCard };

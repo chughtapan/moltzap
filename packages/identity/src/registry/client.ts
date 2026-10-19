@@ -205,13 +205,17 @@ const decodeEnvelope = (
       Schema.parseJson(
         Schema.Struct({
           error: Schema.Literal("version_mismatch"),
-          supported: Schema.Array(Schema.String),
+          supported: Schema.optional(Schema.Array(Schema.String)),
         }),
       ),
     )(exactText(bytes), { onExcessProperty: "error" }).pipe(
       Effect.mapError(invalidResponse),
       Effect.flatMap(({ supported }) =>
-        Effect.fail(new VersionMismatchError({ supported })),
+        Effect.fail(
+          new VersionMismatchError(
+            supported === undefined ? {} : { supported },
+          ),
+        ),
       ),
     );
   }

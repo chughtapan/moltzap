@@ -3,8 +3,8 @@
 import {
   AgentCard,
   AgentId,
-  HISTORY_WIRE_VERSIONS,
   SignedMessage,
+  WireVersions,
 } from "@moltzap/identity";
 import { RouterInstanceId } from "@moltzap/router";
 import { Schema } from "effect";
@@ -19,7 +19,7 @@ import {
 /* eslint-disable jsdoc/require-jsdoc -- These package-private Schema names are the exact closed protocol vocabulary. */
 
 const versionAndKind = <const Kind extends string>(kind: Kind) => ({
-  moltzapVersion: Schema.Literal(...HISTORY_WIRE_VERSIONS),
+  moltzapVersion: WireVersions.history,
   kind: Schema.Literal(kind),
 });
 

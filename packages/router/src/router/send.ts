@@ -53,7 +53,7 @@ const messageInvalid: RouterSendResult = { kind: "message_invalid" };
 const utf8Encoder = new TextEncoder();
 
 const encodedLengthIsValid = (
-  message: VerifiedSignedMessage,
+  message: LiveSignedMessage & VerifiedSignedMessage,
   encodedMessageJcs: string,
 ): boolean => {
   const encodedByteLength = SignedMessage.encodedByteLength(message);
@@ -66,7 +66,7 @@ const encodedLengthIsValid = (
 const retainMessage = (
   input: SendDependencies,
   mode: RawRouterSendRequest["mode"],
-  message: VerifiedSignedMessage,
+  message: LiveSignedMessage & VerifiedSignedMessage,
 ): Effect.Effect<RouterSendResult, OverloadedError | InternalServerError> =>
   Effect.gen(function* () {
     const encodedMessageJcs = yield* encodeMessage(message);
@@ -144,7 +144,7 @@ function handleSend(
 }
 
 function encodeMessage(
-  signedMessage: VerifiedSignedMessage,
+  signedMessage: LiveSignedMessage & VerifiedSignedMessage,
 ): Effect.Effect<string, InternalServerError> {
   return Schema.encode(SignedMessage)(signedMessage).pipe(
     Effect.catchTag("ParseError", () => Effect.fail(new InternalServerError())),

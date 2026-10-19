@@ -1,8 +1,8 @@
 /** @file Two real daemons certify, deliver, and recover multicast operations. */
 
-import canonicalize from "canonicalize";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { ProtocolErrorCode } from "@modelcontextprotocol/client";
 import { AgentCard, type AgentName } from "@moltzap/identity";
@@ -618,7 +618,7 @@ const refusesStaleOutbox = Effect.scoped(
       "stale-outbox",
     );
     const peer = yield* makeDaemonProcessFixture(infrastructure, "stale-peer");
-    const process = yield* acquireDaemonProcess(local);
+    const daemonProcess = yield* acquireDaemonProcess(local);
     yield* acquireDaemonProcess(peer);
     yield* registerFixture(local);
     yield* registerFixture(peer);
@@ -628,16 +628,20 @@ const refusesStaleOutbox = Effect.scoped(
       text: "outbox baseline",
       send: sendOrQueue,
     });
-    yield* stopProcess(process);
+    yield* stopProcess(daemonProcess);
     const before = yield* Effect.try({
-      try: () => retireStoredOutbound(local.stateDirectory),
+      try: () => markStoredOutboundPending(local.stateDirectory),
       catch: (cause) =>
         new ProcessTestError({
           message: "could not prepare retired outbox",
           cause,
         }),
     });
-    const failed = yield* awaitDaemonStartupFailure(local);
+    const failed = yield* awaitDaemonStartupFailure(local, {
+      executable: process.execPath,
+      args: ["--input-type=module", "-e", retiredWindowDaemon],
+      cwd: fileURLToPath(new URL("../", import.meta.url)),
+    });
     expect(failed.exitCode).not.toBe(0);
     expect(failed.logs).toContain("outbox-too-old");
     const after = yield* Effect.try({
@@ -672,45 +676,34 @@ function storedSchema(directory: string) {
   }
 }
 
-/** Fixture corruption retires only the signed version; startup must diagnose it before replay. */
-function retireStoredOutbound(directory: string) {
+/**
+ * A release with an empty live window refuses this binary's retained outbound
+ * bytes. The child composes only published service and Identity APIs.
+ */
+const retiredWindowDaemon = `
+  import { NodeRuntime } from "@effect/platform-node";
+  import { WIRE_VERSION, WireVersions } from "@moltzap/identity";
+  import { Daemon } from "@moltzap/client/service";
+  import { ConfigProvider, Effect, Layer } from "effect";
+  Layer.launch(Daemon.layer).pipe(
+    Effect.provideService(WireVersions, { live: [], history: [WIRE_VERSION] }),
+    Effect.withConfigProvider(ConfigProvider.fromEnv()),
+    NodeRuntime.runMain,
+  );
+`;
+
+/** Retry an existing signed envelope unchanged under the narrower release window. */
+function markStoredOutboundPending(directory: string) {
   const database = new DatabaseSync(join(directory, "moltzapd.sqlite3"));
   try {
-    const row = Schema.decodeUnknownSync(
-      Schema.Struct({
-        outbound_id: Schema.String,
-        canonical_current_signed_message: Schema.Uint8ArrayFromSelf,
-      }),
-    )(
-      database
-        .prepare(
-          "SELECT outbound_id, canonical_current_signed_message FROM outbound_messages LIMIT 1",
-        )
-        .get(),
-    );
-    const representation = Schema.decodeUnknownSync(
-      Schema.parseJson(
-        Schema.Struct({
-          payload: Schema.String,
-          signatures: Schema.Unknown,
-        }),
-      ),
-    )(new TextDecoder().decode(row.canonical_current_signed_message));
-    const payload = Schema.decodeUnknownSync(
-      Schema.parseJson(
-        Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-      ),
-    )(Buffer.from(representation.payload, "base64url").toString("utf8"));
-    const retired = canonicalize({ ...payload, moltzapVersion: "2000.101.0" });
-    const envelope = canonicalize({
-      ...representation,
-      payload: Buffer.from(retired ?? "").toString("base64url"),
-    });
-    database
+    const result = database
       .prepare(
-        "UPDATE outbound_messages SET canonical_current_signed_message = ?, disposition = 'pending' WHERE outbound_id = ?",
+        "UPDATE outbound_messages SET disposition = 'pending' WHERE outbound_id = (SELECT outbound_id FROM outbound_messages LIMIT 1)",
       )
-      .run(Buffer.from(envelope ?? ""), row.outbound_id);
+      .run();
+    if (result.changes !== 1) {
+      throw new Error("expected an existing signed outbound envelope");
+    }
   } finally {
     database.close();
   }

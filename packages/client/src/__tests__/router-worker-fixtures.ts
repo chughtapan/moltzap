@@ -5,7 +5,7 @@ import {
   type AgentSigningAuthority as AgentSigningAuthorityValue,
   MessageId,
   SignedMessage,
-  type SignedMessage as SignedMessageValue,
+  type LiveSignedMessage as SignedMessageValue,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
 import {
@@ -168,8 +168,8 @@ const envelopeRepresentation = Schema.Struct({
  * @returns The same message under a signature its sender never made.
  */
 export const corruptSignature = (
-  message: SignedMessageValue,
-): Effect.Effect<SignedMessageValue> =>
+  message: SignedMessage,
+): Effect.Effect<SignedMessage> =>
   Effect.gen(function* () {
     const representation = yield* Schema.encode(SignedMessage)(message).pipe(
       Effect.flatMap(Schema.decodeUnknown(envelopeRepresentation)),

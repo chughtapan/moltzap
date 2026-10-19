@@ -12,7 +12,7 @@ import {
   PayloadTooLargeError,
   RouteNotFoundError,
   SignedMessage,
-  type SignedMessage as SignedMessageValue,
+  type LiveSignedMessage as SignedMessageValue,
   UnavailableError,
   UnsupportedMediaTypeError,
   VersionMismatchError,
@@ -223,7 +223,7 @@ export const RouterPollRequest: Schema.Schema<
 const batch = closedStruct({
   kind: Schema.Literal("batch"),
   routerInstanceId: RouterInstanceId,
-  signedMessages: Schema.Array(SignedMessage),
+  signedMessages: Schema.Array(SignedMessage.live),
   pollCursor: PollCursor,
 });
 const feedGap = closedStruct({
@@ -402,11 +402,16 @@ export const routerHttpErrorFromResponse = (
       Schema.parseJson(
         Schema.Struct({
           error: Schema.Literal("version_mismatch"),
-          supported: Schema.Array(Schema.String),
+          supported: Schema.optional(Schema.Array(Schema.String)),
         }),
       ),
     )(body, { onExcessProperty: "error" }).pipe(
-      Option.map(({ supported }) => new VersionMismatchError({ supported })),
+      Option.map(
+        ({ supported }) =>
+          new VersionMismatchError(
+            supported === undefined ? {} : { supported },
+          ),
+      ),
     );
   }
   const representation = Object.values(routerHttpErrors).find(

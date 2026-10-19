@@ -10,11 +10,12 @@ import {
   SignedMessage,
   type VerifiedAgentCard,
   WIRE_VERSION,
+  WireVersions,
 } from "@moltzap/identity";
 import { RouterInstanceId } from "@moltzap/router";
 import { Effect, Option, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
-import { describe, expect, vi } from "vitest";
+import { describe, expect } from "vitest";
 import {
   identifier,
   issueTestCard,
@@ -58,12 +59,6 @@ import {
   verifyMembershipDescriptor,
 } from "./index.js";
 import { Content, type Content as ContentValue } from "./values.js";
-
-vi.mock("../../../../identity/src/version.js", () => ({
-  WIRE_VERSION: "2026.1006.1",
-  LIVE_WIRE_VERSIONS: ["2026.1006.1"],
-  HISTORY_WIRE_VERSIONS: ["2026.827.1", "2026.1006.1"],
-}));
 
 /* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function -- Acceptance fixtures keep each complete cryptographic record and its assertions together. */
 
@@ -924,19 +919,33 @@ const verifiesMaximumPage = () =>
 const verifiesHistoryOnlyCatchUpItem = () =>
   Effect.gen(function* () {
     const { fixture, responder, page } = yield* maximumArtifact;
-    const encoded = yield* Schema.encode(CatchUpPage)(page);
-    const retained = yield* Schema.decodeUnknown(CatchUpPage)({
-      ...encoded,
-      item: { ...page.item, moltzapVersion: "2026.827.1" },
-    });
-    yield* verifyCatchUpPage({
-      page: retained,
+    const outer = yield* signOuterPacket({
+      packet: page,
       membership: fixture.membership,
-      responseSenderAgentId: responder.card.agentId,
+      agentCard: responder.card,
+      signingAuthority: responder.authority,
     });
-    expect(yield* Schema.encode(CatchUpPage)(retained)).toMatchObject({
-      item: { moltzapVersion: "2026.827.1" },
-    });
+    const encodedOuter = yield* Schema.encode(SignedMessage)(outer);
+    const encodedPage = yield* Schema.encode(CatchUpPage)(page);
+    yield* Effect.gen(function* () {
+      const retained = yield* Schema.decodeUnknown(CatchUpPage)(encodedPage);
+      yield* verifyCatchUpPage({
+        page: retained,
+        membership: fixture.membership,
+        responseSenderAgentId: responder.card.agentId,
+      });
+      expect(retained.item.moltzapVersion).toBe(WIRE_VERSION);
+      expect(
+        yield* Schema.decodeUnknown(SignedMessage.live)(encodedOuter).pipe(
+          Effect.isFailure,
+        ),
+      ).toBe(true);
+    }).pipe(
+      Effect.provideService(WireVersions, {
+        live: ["2099.102.0"],
+        history: [WIRE_VERSION, "2099.102.0"],
+      }),
+    );
   });
 
 const sealsMaximumPageInsideIdentityLimits = () =>

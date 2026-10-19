@@ -177,9 +177,10 @@ const startProcess = (
   executable: string,
   arguments_: readonly string[],
   environment: Readonly<Record<string, string>> = {},
+  cwd = WORKSPACE_ROOT,
 ): RunningProcess => {
   const child = spawn(executable, arguments_, {
-    cwd: WORKSPACE_ROOT,
+    cwd,
     env: { PATH: CHILD_PATH, ...environment },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -248,9 +249,10 @@ const managedProcess = (
   executable: string,
   arguments_: readonly string[],
   environment: Readonly<Record<string, string>> = {},
+  cwd = WORKSPACE_ROOT,
 ) =>
   Effect.acquireRelease(
-    Effect.sync(() => startProcess(executable, arguments_, environment)),
+    Effect.sync(() => startProcess(executable, arguments_, environment, cwd)),
     (running, exit) =>
       Exit.isInterrupted(exit)
         ? Console.error(
@@ -505,12 +507,18 @@ export interface DaemonStartupFailure {
  */
 export const awaitDaemonStartupFailure = (
   fixture: DaemonProcessFixture,
+  command: {
+    readonly executable: string;
+    readonly args: readonly string[];
+    readonly cwd?: string;
+  } = { executable: DAEMON_BINARY, args: [] },
 ): Effect.Effect<DaemonStartupFailure, ProcessTestError, Scope.Scope> =>
   Effect.gen(function* () {
     const running = yield* managedProcess(
-      DAEMON_BINARY,
-      [],
+      command.executable,
+      command.args,
       fixture.environment,
+      command.cwd,
     );
     const listened = yield* awaitReady(
       running,

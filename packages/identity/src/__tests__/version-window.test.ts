@@ -1,16 +1,16 @@
 /** @file A retained card and signed envelope survive beyond live admission. */
 
 import { Effect, Schema } from "effect";
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 
-import { AgentCard, Ed25519PublicKey, SignedMessage } from "../index.js";
+import {
+  AgentCard,
+  Ed25519PublicKey,
+  SignedMessage,
+  WIRE_VERSION,
+  WireVersions,
+} from "../index.js";
 import golden from "./wire-golden.json" with { type: "json" };
-
-vi.mock("../version.js", () => ({
-  WIRE_VERSION: "2026.1006.1",
-  LIVE_WIRE_VERSIONS: ["2026.1006.1"],
-  HISTORY_WIRE_VERSIONS: ["2026.827.1", "2026.1006.1"],
-}));
 
 it("verifies golden card and signed bytes without changing their representation", () =>
   Effect.runPromise(
@@ -40,5 +40,10 @@ it("verifies golden card and signed bytes without changing their representation"
           Effect.isFailure,
         ),
       ).toBe(true);
-    }),
+    }).pipe(
+      Effect.provideService(WireVersions, {
+        live: [WIRE_VERSION],
+        history: ["2099.101.0", WIRE_VERSION],
+      }),
+    ),
   ));

@@ -33,7 +33,8 @@
             "group": "Guides",
             "pages": [
               "guides/user-agent-communication",
-              "guides/harness-endpoint"
+              "guides/harness-endpoint",
+              "guides/upgrades"
             ]
           },
           {

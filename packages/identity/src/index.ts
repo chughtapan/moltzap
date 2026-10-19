@@ -12,6 +12,7 @@ export {
   LIVE_WIRE_VERSIONS,
   WIRE_VERSION,
   type WireVersion,
+  WireVersions,
 } from "./version.js";
 
 /** Canonical refined values shared by identity and its consumers. */

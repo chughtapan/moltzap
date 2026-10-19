@@ -31,7 +31,7 @@ import {
   PrincipalId,
   type PrincipalId as PrincipalIdValue,
 } from "./identifiers.js";
-import { HISTORY_WIRE_VERSIONS, WIRE_VERSION } from "./version.js";
+import { WIRE_VERSION, WireVersions } from "./version.js";
 
 const DIGEST_BYTE_LENGTH = 32;
 const WHOLE_SECOND_UTC =
@@ -134,7 +134,7 @@ const protectedHeader = exactStruct({
 
 const payload = exactStruct({
   kind: Schema.Literal("agentCard"),
-  moltzapVersion: Schema.Literal(...HISTORY_WIRE_VERSIONS),
+  moltzapVersion: WireVersions.history,
   agentId: AgentId,
   principalId: PrincipalId,
   agentName: AgentName,

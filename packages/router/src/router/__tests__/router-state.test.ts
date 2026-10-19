@@ -8,7 +8,7 @@ import {
   MessageId,
   type MessageId as MessageIdValue,
   SignedMessage,
-  type SignedMessage as SignedMessageValue,
+  type LiveSignedMessage as SignedMessageValue,
   WIRE_VERSION,
 } from "@moltzap/identity";
 import canonicalize from "canonicalize";
@@ -81,7 +81,7 @@ const makeSignedMessage = (input: {
   const agentCardDigest = Schema.decodeUnknownSync(AgentCardDigest)(
     `acd_${Encoding.encodeBase64Url(new Uint8Array(32).fill(9))}`,
   );
-  return Schema.decodeUnknownSync(SignedMessage)({
+  return Schema.decodeUnknownSync(SignedMessage.live)({
     payload: encodedCanonicalJson({
       kind: "signedMessage",
       moltzapVersion: WIRE_VERSION,

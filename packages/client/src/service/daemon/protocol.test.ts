@@ -3,6 +3,7 @@
 import type { Router } from "@moltzap/router";
 import { scopedLive as it } from "@effect/vitest";
 import {
+  type LiveSignedMessage,
   MessageId,
   SealedBody,
   SignedMessage,
@@ -129,7 +130,7 @@ const memberOf = (byte: number, name: string): Effect.Effect<SigningIdentity> =>
  * signals `polledAgain` and stays open, as a held long poll does.
  */
 const routerFeeding = (input: {
-  readonly feed: readonly SignedMessage[];
+  readonly feed: readonly LiveSignedMessage[];
   readonly released: Deferred.Deferred<undefined>;
   readonly polledAgain: Deferred.Deferred<undefined>;
   readonly fed: Ref.Ref<boolean>;
@@ -185,7 +186,7 @@ interface RunningProtocol {
 const runProtocol = (input: {
   readonly fixture: Effect.Effect.Success<typeof makeFixture>;
   readonly members: Members;
-  readonly feed: readonly SignedMessage[];
+  readonly feed: readonly LiveSignedMessage[];
   readonly released: Deferred.Deferred<undefined>;
   readonly polledAgain: Deferred.Deferred<undefined>;
 }): Effect.Effect<RunningProtocol, unknown, Scope.Scope> =>

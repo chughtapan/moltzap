@@ -140,12 +140,6 @@ export const verifyOuterMessage = (input: {
   ClientRepresentationError
 > =>
   Effect.gen(function* () {
-    const encoded = yield* Schema.encode(SignedMessage)(input.message).pipe(
-      Effect.mapError(representationFailure),
-    );
-    const live = yield* Schema.decodeUnknown(SignedMessage.live)(encoded).pipe(
-      Effect.mapError(representationFailure),
-    );
     const card = memberCard(input.membership, input.message.senderAgentId);
     const expected = input.membership.members.map((member) => member.agentId);
     if (
@@ -158,7 +152,7 @@ export const verifyOuterMessage = (input: {
       return yield* representationFailure();
     }
     const verified = yield* SignedMessage.verify({
-      signedMessage: live,
+      signedMessage: input.message,
       agentCard: card,
     }).pipe(Effect.mapError(representationFailure));
     return verified;

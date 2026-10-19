@@ -78,10 +78,14 @@ export const acquireParticipants = (names: readonly string[]) =>
       names.map((name) => makeDaemonProcessFixture(infrastructure, name)),
       { concurrency: "unbounded" },
     );
-    yield* Effect.forEach(fixtures, acquireDaemonProcess, {
-      concurrency: "unbounded",
-      discard: true,
-    });
+    yield* Effect.forEach(
+      fixtures,
+      (fixture) => acquireDaemonProcess(fixture),
+      {
+        concurrency: "unbounded",
+        discard: true,
+      },
+    );
     yield* Effect.forEach(fixtures, registerFixture, { discard: true });
     return yield* Effect.forEach(fixtures, joinParticipant);
   });

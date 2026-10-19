@@ -72,7 +72,7 @@ export const retainedIdentityFixture = Effect.gen(function* () {
   );
   const payload = yield* encodeCanonicalJson({
     ...fields,
-    moltzapVersion: "2026.827.1",
+    moltzapVersion: "2099.101.0",
   });
   const registrySignerPublicKey = AgentSigningAuthority.publicKey(
     fixture.registryAuthority,

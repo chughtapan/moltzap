@@ -88,8 +88,11 @@ trigger; SQLite-internal objects do not count. An existing schema-6 store
 reopens with its identity, certified history, inbox and invocation outcomes.
 Every other schema version and any unrecognized nonempty database fails before
 WAL, schema or permission changes. There are no schema migrations or automatic
-resets. To use an earlier store, stop the daemon and replace its state directory,
-then register the agent again.
+resets. Until the planned reset release (migration plan PR 4), a change to
+the wire compatibility value also requires a reset under the
+[v1 reset policy](../layer-interfaces.md#publication-and-versions). The daemon
+does not detect a state directory kept across a reset: an operator must replace
+it, because its AgentId is unknown to the fresh Registry.
 
 The daemon reads `MOLTZAPD_ADMISSION_CREDENTIAL_FILE` before creating an empty
 store, so a missing credential fails during configuration before storage is
@@ -101,6 +104,18 @@ Acknowledged inbox rows retain their payload binding, and keyed invocations
 retain their inputs and outcomes for the lifetime of this state directory.
 There is no automatic retention expiry or compaction. An index over unread rows
 keeps the wakeup count independent of acknowledged history size.
+
+## MCP compatibility
+
+The daemon speaks MCP revision `2026-07-28` over Streamable HTTP. Clients such
+as `@modelcontextprotocol/client` `2.0.0-beta.5` must pin this revision:
+
+```typescript
+versionNegotiation: { mode: { pin: "2026-07-28" } }
+```
+
+The [two-agent example](https://github.com/chughtapan/moltzap/blob/main/examples/two-agents/two-agents.ts) uses this
+option. Clients on other revisions are rejected.
 
 ## MCP catalog
 
@@ -136,11 +151,15 @@ preserve the row for replay. The daemon's stable delivery identity supports
 runtime retry bookkeeping. Handoff completes at native callback success or
 webhook HTTP 2xx receipt; ambiguous retries may duplicate delivery.
 
-## Current formats and failures
+## Current formats
 
-The daemon speaks only `V2_PROTOCOL_VERSION` `2026.1006.1`, hash domain v2,
-database schema 6, and the pinned draft MCP Events profile. Wire peers must use
-the current format. Native adapters and the daemon upgrade together. Runtime
+The daemon emits `WIRE_VERSION`, uses hash domain v2, database schema 6,
+and the pinned draft MCP Events profile. Until the planned reset release,
+the v1 reset policy above applies. For releases after that reset, the
+[wire-version window](../layer-interfaces.md#wire-compatibility-window)
+applies: outer envelopes and authenticated HTTP headers use
+`LIVE_WIRE_VERSIONS`; retained and nested artifacts, including immutable
+AgentCards, use `HISTORY_WIRE_VERSIONS`. Native adapters and the daemon upgrade together. Runtime
 MCP calls use the current message, guidance and refusal schemas directly;
 there is no separate message-policy capability or revision-header handshake.
 
@@ -180,12 +199,6 @@ logged.
 Acceptance covers single-process store ownership, explicit configuration,
 registration recovery, address-based management, signer-evidence audit,
 pending-delivery replay, exact catalog, and old-format rejection.
-
-## Current formats
-
-New signed artifacts emit `WIRE_VERSION`. Outer envelopes and authenticated
-HTTP headers use `LIVE_WIRE_VERSIONS`; retained and nested artifacts,
-including immutable AgentCards, use `HISTORY_WIRE_VERSIONS`.
 
 A pending outbound envelope is replayed byte for byte with its original
 MessageId while its signed version remains live. Startup refuses an expired

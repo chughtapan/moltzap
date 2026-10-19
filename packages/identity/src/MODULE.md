@@ -261,7 +261,7 @@ export const Ed25519PublicKey = Schema.transform(
 
 Exact immutable Ed25519 public JWK.
 
-### [`HISTORY_WIRE_VERSIONS`](./version.ts#L10)
+### [`HISTORY_WIRE_VERSIONS`](./version.ts#L12)
 
 _Variable_
 
@@ -298,7 +298,7 @@ The supplied private-key material cannot act as an Ed25519 signer or yield
 its X25519 opening key. The public contract represents every such cause with
 this one empty error.
 
-### [`LIVE_WIRE_VERSIONS`](./version.ts#L7)
+### [`LIVE_WIRE_VERSIONS`](./version.ts#L9)
 
 _Variable_
 
@@ -308,7 +308,7 @@ export const LIVE_WIRE_VERSIONS = [WIRE_VERSION] as const
 
 Versions accepted at outer-envelope and authenticated HTTP admission.
 
-### [`LiveSignedMessage`](./signed-message.ts#L331)
+### [`LiveSignedMessage`](./signed-message.ts#L327)
 
 _TypeAlias_
 
@@ -332,7 +332,7 @@ export class MalformedRequestError extends Schema.TaggedError<MalformedRequestEr
 
 The request representation is not valid for the selected operation.
 
-### [`MessageId (type)`](./signed-message.ts#L46)
+### [`MessageId (type)`](./signed-message.ts#L42)
 
 _TypeAlias_
 
@@ -342,7 +342,7 @@ export type MessageId = typeof MessageId.Type;
 
 Validated nominal value decoded by MessageId.
 
-### [`MessageId (value)`](./signed-message.ts#L43)
+### [`MessageId (value)`](./signed-message.ts#L39)
 
 _Variable_
 
@@ -469,7 +469,7 @@ export class SealedBodySealingError extends Data.TaggedError(
 
 A body cannot be sealed from the supplied sender to the supplied recipients.
 
-### [`SignedMessage (type)`](./signed-message.ts#L175)
+### [`SignedMessage (type)`](./signed-message.ts#L171)
 
 _Interface_
 
@@ -485,7 +485,7 @@ export interface SignedMessage {
 
 Immutable attributed-message fields exposed to Router consumers.
 
-### [`SignedMessage (value)`](./signed-message.ts#L516)
+### [`SignedMessage (value)`](./signed-message.ts#L510)
 
 _Variable_
 
@@ -508,7 +508,7 @@ export const SignedMessage = Object.assign(signedMessageSchema, {
 
 Opaque attributed message operations and exact representation Schema.
 
-### [`SignedMessageSigningError`](./signed-message.ts#L321)
+### [`SignedMessageSigningError`](./signed-message.ts#L317)
 
 _Class_
 
@@ -520,7 +520,7 @@ export class SignedMessageSigningError extends Data.TaggedError(
 
 A message cannot be signed under the supplied immutable identity.
 
-### [`SignedMessageVerificationError`](./signed-message.ts#L326)
+### [`SignedMessageVerificationError`](./signed-message.ts#L322)
 
 _Class_
 
@@ -583,7 +583,7 @@ export type VerifiedAgentRequest = Readonly<{
 
 Request body and caller identity established by AuthenticatedHttp.
 
-### [`VerifiedSignedMessage`](./signed-message.ts#L315)
+### [`VerifiedSignedMessage`](./signed-message.ts#L311)
 
 _TypeAlias_
 
@@ -611,7 +611,7 @@ export class VersionMismatchError extends Schema.TaggedError<VersionMismatchErro
 
 The request carries a different wire compatibility value.
 
-### [`WIRE_VERSION`](./version.ts#L4)
+### [`WIRE_VERSION`](./version.ts#L6)
 
 _Variable_
 
@@ -621,7 +621,7 @@ export const WIRE_VERSION = "2026.1006.1"
 
 Every newly signed artifact carries this version.
 
-### [`WireVersion`](./version.ts#L13)
+### [`WireVersion`](./version.ts#L15)
 
 _TypeAlias_
 
@@ -630,6 +630,45 @@ export type WireVersion = (typeof HISTORY_WIRE_VERSIONS)[number];
 ```
 
 A version represented by retained protocol artifacts.
+
+### [`WireVersions`](./version.ts#L18)
+
+_Class_
+
+```ts
+export class WireVersions extends Context.Tag("@moltzap/identity/WireVersions")<
+  WireVersions,
+  { readonly live: readonly string[]; readonly history: readonly string[] }
+>() {
+  /** Retained values share a window throughout nested artifact decoding. */
+  static readonly history = Schema.String.pipe(
+    Schema.filterEffect((version) =>
+      Effect.serviceOption(WireVersions).pipe(
+        Effect.map((configuration) =>
+          Option.match(configuration, {
+            onNone: () =>
+              HISTORY_WIRE_VERSIONS.some((item) => item === version),
+            onSome: (sets) => sets.history.includes(version),
+          }),
+        ),
+      ),
+    ),
+  );
+
+  /** Outer admission is independent from retained readability. */
+  static readonly live = (version: string) =>
+    Effect.serviceOption(WireVersions).pipe(
+      Effect.map((configuration) =>
+        Option.match(configuration, {
+          onNone: () => LIVE_WIRE_VERSIONS.some((item) => item === version),
+          onSome: (sets) => sets.live.includes(version),
+        }),
+      ),
+    );
+}
+```
+
+Optional artifact-decoder configuration; absent services use this binary's sets.
 
 ## Package subpaths
 

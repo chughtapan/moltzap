@@ -21,7 +21,7 @@ import {
 import { httpbis, type VerifyingKey } from "http-message-signatures";
 import { importJWK } from "jose";
 import { randomBytes, webcrypto } from "node:crypto";
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import type { VerifiedAgentCard } from "../agent-card.js";
 import {
   AgentSigningAuthority,
@@ -46,18 +46,12 @@ import {
   RegistryConnectionError,
   type RegistryLookupResult,
 } from "../registry/contract.js";
-import { WIRE_VERSION } from "../version.js";
+import { WIRE_VERSION, WireVersions } from "../version.js";
 import {
   type IdentityFixture,
   makeIdentityFixture,
   retainedIdentityFixture,
 } from "./authenticated-http-fixtures.js";
-
-vi.mock("../version.js", () => ({
-  WIRE_VERSION: "2026.1006.1",
-  LIVE_WIRE_VERSIONS: ["2026.1006.1"],
-  HISTORY_WIRE_VERSIONS: ["2026.827.1", "2026.1006.1"],
-}));
 
 /* eslint-disable agent-code-guard/no-example-only-tests -- regression-only suite: each case exercises a distinct HTTP proof, replay-ordering, cache, or cancellation contract. The concurrency timelines are not an input domain to generate over. */
 
@@ -82,8 +76,8 @@ const SIGNATURE_PARAMETERS = Object.freeze([
   "tag",
 ]);
 const WRONG_VERSION = "wrong-version";
-/** The MoltZap version before every outer body was sealed. */
-const PRIOR_WIRE_VERSION = "2026.827.1";
+/** Fictional history-only version, never emitted by a release. */
+const PRIOR_WIRE_VERSION = "2099.101.0";
 const SIGNATURE_INTERVAL_MILLISECONDS = 300_000;
 const CONCURRENT_REQUEST_COUNT = 4;
 const REGISTRY_LOOKUP_DEADLINE = Duration.millis(20);
@@ -1117,7 +1111,12 @@ it("keeps a shared card lookup alive when its first waiter is interrupted", () =
 
 /** The Registry signs the retained card version; the live HTTP proof uses the current version. */
 const authenticatesRetainedCard = Effect.gen(function* () {
-  const fixture = yield* retainedIdentityFixture;
+  const fixture = yield* retainedIdentityFixture.pipe(
+    Effect.provideService(WireVersions, {
+      live: [WIRE_VERSION],
+      history: ["2099.101.0", WIRE_VERSION],
+    }),
+  );
   const agentCard = fixture.agentCard;
   const controller = yield* makeLookupController({ kind: "found", agentCard });
   yield* releaseLookups(controller);

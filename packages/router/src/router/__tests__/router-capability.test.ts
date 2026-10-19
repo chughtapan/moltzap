@@ -35,6 +35,7 @@ import {
   Either,
   Encoding,
   Layer,
+  Option,
   Redacted,
   Ref,
   Schema,
@@ -867,6 +868,12 @@ describe("public client behavior", () => {
             expectedTag: "MethodNotAllowedError",
           },
           {
+            name: "legacy version mismatch without supported versions",
+            status: 412,
+            body: '{"error":"version_mismatch"}',
+            expectedTag: "VersionMismatchError",
+          },
+          {
             name: "version mismatch",
             status: 412,
             body: `{"error":"version_mismatch","supported":["${WIRE_VERSION}"]}`,
@@ -1029,28 +1036,18 @@ describe("public client behavior", () => {
           signingAuthority,
           Duration.seconds(5),
         );
-        Either.match(connectionOutcome, {
-          onLeft: (error) => {
-            expect(error).toBeInstanceOf(RouterConnectionError);
-          },
-          onRight: () => {
-            expect.fail("connection failure produced a result");
-          },
-        });
+        expect(
+          Option.getOrThrow(Either.getLeft(connectionOutcome)),
+        ).toBeInstanceOf(RouterConnectionError);
 
         const timeoutOutcome = yield* runPollWithClient(
           HttpClient.make(() => Effect.never),
           signingAuthority,
           Duration.millis(5),
         );
-        Either.match(timeoutOutcome, {
-          onLeft: (error) => {
-            expect(error).toBeInstanceOf(RouterRequestTimeoutError);
-          },
-          onRight: () => {
-            expect.fail("expired call produced a result");
-          },
-        });
+        expect(
+          Option.getOrThrow(Either.getLeft(timeoutOutcome)),
+        ).toBeInstanceOf(RouterRequestTimeoutError);
 
         let requestCount = 0;
         const signingOutcome = yield* Router.poll({

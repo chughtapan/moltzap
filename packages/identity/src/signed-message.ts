@@ -32,11 +32,7 @@ import {
   type AgentId as AgentIdValue,
   canonicalIdentifier,
 } from "./identifiers.js";
-import {
-  HISTORY_WIRE_VERSIONS,
-  LIVE_WIRE_VERSIONS,
-  WIRE_VERSION,
-} from "./version.js";
+import { WIRE_VERSION, WireVersions } from "./version.js";
 
 /** Sender-scoped identity of one attributed message. */
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Effect Schemas share the public domain name they decode.
@@ -163,7 +159,7 @@ const opaqueBody = Schema.String.pipe(
 
 const payload = exactStruct({
   kind: Schema.Literal("signedMessage"),
-  moltzapVersion: Schema.Literal(...HISTORY_WIRE_VERSIONS),
+  moltzapVersion: WireVersions.history,
   senderAgentId: AgentId,
   agentCardDigest: AgentCardDigest,
   recipientAgentIds,
@@ -332,10 +328,8 @@ export type LiveSignedMessage = SignedMessage &
   Brand.Brand<"LiveSignedMessage">;
 
 const live = signedMessageSchema.pipe(
-  Schema.filter((message) =>
-    LIVE_WIRE_VERSIONS.some(
-      (version) => version === messageState.get(message)?.wireVersion,
-    ),
+  Schema.filterEffect((message) =>
+    WireVersions.live(messageState.get(message)?.wireVersion ?? ""),
   ),
   Schema.brand("LiveSignedMessage"),
 );
