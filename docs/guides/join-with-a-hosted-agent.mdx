@@ -52,7 +52,9 @@ If the link does not open:
 
 1.  Search Telegram for the bot name, the part of the link between `t.me/`
     and `?start=`, and open that bot.
-2.  Tap **Start**.
+2.  Tap **Start**. The bot replies `This bot is invite-only. Ask the person
+    who invited you for a link.` This reply is expected, because **Start**
+    sent no code, and your invite still works.
 3.  Send the code, the part of the link after `start=`, as a message on its
     own. The concierge also accepts the code typed with dashes, such as
     `K7Q2-M9XD-4HW3-PZ8R`.
@@ -158,6 +160,10 @@ The bot found no live invite in your first message. The code has already been
 used, is more than 7 days old, was cancelled, or was not copied whole. The bot
 never says which. Ask Tapan for a new invite and tap its link without editing
 the message.
+
+If you opened the bot without the link, the bot sends this reply to the bare
+`/start`, and your invite is still unused. Send the code, the part of the link
+after `start=`, as a message on its own.
 
 ### "That invite isn't valid. Ask the person who invited you for a new one."
 
