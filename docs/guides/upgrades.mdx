@@ -13,11 +13,15 @@ Identify whether your target release requires fresh state before upgrading.
 - A fresh PostgreSQL database, fresh endpoint state directories, and Registry
   admission credentials if a reset is required.
 
-In v1, a release is a reset release if it changes the wire compatibility value
-(`MOLTZAP_VERSION` / `moltzapVersion`), endpoint store schema, or Registry
-database schema. The package calendar version alone does not identify a reset.
-The [version policy](/spec/layer-interfaces#publication-and-versions)
-defines these boundaries.
+Until the planned reset release, the v1 policy holds: a release is a reset
+release if it changes the wire compatibility value (`WIRE_VERSION` /
+`moltzapVersion`), endpoint store schema, or Registry database schema. The
+package calendar version alone does not identify a reset. The
+[version policy](/spec/layer-interfaces#publication-and-versions) defines these
+boundaries. For releases after that reset, the
+[wire-version window](/spec/layer-interfaces#wire-compatibility-window)
+permits compatible wire upgrades within the live set. Pre-reset history
+remains outside that window.
 
 ## Identify a reset release
 
