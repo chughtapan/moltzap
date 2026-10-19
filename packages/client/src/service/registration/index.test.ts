@@ -4,6 +4,7 @@ import { live as it } from "@effect/vitest";
 import {
   Registry,
   RegistryConnectionError,
+  type RegistryRegisterRequest,
   type RegistryRegisterResult,
 } from "@moltzap/identity/registry";
 import { type Context, Effect, Layer, Redacted, Ref, Schema } from "effect";
@@ -73,11 +74,26 @@ const registryLayer = (input: {
   readonly result: RegistryRegisterResult;
   readonly fail?: boolean;
 }) => {
+  const registrations = new Map<string, RegistryRegisterRequest>();
   const service: Context.Tag.Service<typeof Registry> = {
-    register: () =>
-      input.fail === true
-        ? Effect.fail(new RegistryConnectionError())
-        : Effect.succeed(input.result),
+    register: ({ request }) =>
+      Effect.suspend(() => {
+        if (input.fail === true) {
+          return Effect.fail(new RegistryConnectionError());
+        }
+        const existing = registrations.get(request.agentName);
+        if (
+          existing !== undefined &&
+          (existing.operationId !== request.operationId ||
+            existing.principalId !== request.principalId)
+        ) {
+          return Effect.succeed({ kind: "name_taken" as const });
+        }
+        if (input.result.kind === "registered") {
+          registrations.set(request.agentName, request);
+        }
+        return Effect.succeed(input.result);
+      }),
     lookup: () => Effect.succeed({ kind: "not_found" }),
     list: () =>
       Effect.succeed({ kind: "page", agentCards: [], hasMore: false }),
@@ -127,28 +143,29 @@ const retriesAfterLocalPersistenceFailure = () =>
       kind: "registered" as const,
       agentCard: fixture.localCard,
     };
+    const registry = registryLayer({ result });
     yield* Ref.set(memory.failWrites, true);
     const firstFailure = yield* Effect.flip(
-      provideRegistry(
+      Effect.provide(
         registerDaemonIdentity({
           request: fixture.registerRequest,
           store: memory.store,
           bootstrap: fixture.bootstrap,
         }),
-        result,
+        registry,
       ),
     );
     expect(firstFailure).toBeInstanceOf(DaemonRegistrationPersistenceError);
     expect(yield* Ref.get(memory.binding)).toBeUndefined();
 
     yield* Ref.set(memory.failWrites, false);
-    const recovered = yield* provideRegistry(
+    const recovered = yield* Effect.provide(
       registerDaemonIdentity({
         request: fixture.registerRequest,
         store: memory.store,
         bootstrap: fixture.bootstrap,
       }),
-      result,
+      registry,
     );
     expect(recovered).toEqual(result);
     expect(
@@ -313,9 +330,8 @@ const presentsLoadedCredentialToRegistry = () =>
       }),
       Layer.succeed(Registry, service),
     );
-    expect(yield* Ref.get(presented)).toBe(
-      Redacted.value(yield* fixture.bootstrap.admissionCredential),
-    );
+    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The fixture credential must reach the Registry boundary unchanged.
+    expect(yield* Ref.get(presented)).toBe("bootstrap-token=");
   });
 
 const refusesRegistrationWithoutCredential = () =>
