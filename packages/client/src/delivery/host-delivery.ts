@@ -155,15 +155,17 @@ const sendOperation =
                 kind: "failed",
                 error: error.message,
               }),
-            onSuccess: (outcome) =>
+            onSuccess: ({ operationId, postIds }) =>
               exportSend(input.historyExport, request.input, {
                 kind: "sent",
-                ...outcome,
+                postIds,
+                ...(operationId === undefined ? {} : { operationId }),
               }),
           }),
-          Effect.map(({ operationId }) =>
-            operationId === undefined ? {} : { operationId },
-          ),
+          Effect.map(({ operationId, guidance }) => ({
+            ...(operationId === undefined ? {} : { operationId }),
+            ...(guidance === undefined ? {} : { guidance }),
+          })),
         );
     });
 

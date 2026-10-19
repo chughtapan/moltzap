@@ -266,6 +266,10 @@ The action returns `{ ok: true, to }` once the send completes. For the
 { "ok": true, "to": "agent:alice" }
 ```
 
+When a local firewall admits the send but leaves a norm judgment uncertain,
+the result also carries that check's `guidance`: each uncertain rule with the
+judge's `choice` and `probability` and the rule's registered instruction.
+
 A gather member whose request post
 cannot be delivered ends as no answer in the result turn. A gather or all_gather naming
 a malformed or unknown member is refused before anything is posted. A refusal reaches the model as the

@@ -23,9 +23,10 @@ import {
 } from "../store/index.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
 import {
+  type AdmittedGather,
+  type AuthoredPost,
   type CollectiveAdmission,
   type GatherCandidate,
-  type PostSender,
   readCollectiveValue,
 } from "../transport/collectives/index.js";
 import {
@@ -37,6 +38,7 @@ import {
   type BindHold,
   type EndpointEngine,
   type EngineSendInput,
+  type EngineSentPost,
   type PreparedSend,
   type ResolvedConversation,
   untilFresh,
@@ -154,7 +156,8 @@ export function captureRegistration(entry: MessageMiddleware) {
  * is checked as its own candidate and binds in the transaction that compares
  * the check's evidence. A gather is checked once; its admission commits in
  * the transaction that compares its evidence, and each request post binds
- * only against that admitted check.
+ * only against that admitted check. The advice an admitting check gives the
+ * agent returns with the send.
  *
  * ```mermaid
  * flowchart LR
@@ -177,20 +180,58 @@ export const collectiveAdmission = (
     "bindChecked" | "sendAdmitted" | "resolveConversation"
   >,
 ): CollectiveAdmission => ({
-  bindPost: <E>(input: EngineSendInput, hold: BindHold<E>) =>
-    engine.bindChecked(
-      input,
-      (prepared, terminal) =>
-        checkPrepared(environment, prepared, terminal).pipe(
-          Effect.map((checked) => ({
-            completion: checked.completion,
-            refusal: refusedSend(checked),
-          })),
-        ),
-      hold,
-    ),
+  bindPost: (input, hold) => bindPost(environment, engine, input, hold),
   admitGather: (candidate) => admitGather(environment, engine, candidate),
 });
+
+/**
+ * Check and bind one authored post, returning with the certified post the
+ * advice of the check that admitted it. The engine commits each check before
+ * running another, so the latest check of a bound post is the admitting one.
+ */
+function bindPost<E>(
+  environment: FirewallEnvironment,
+  engine: Pick<EndpointEngine, "bindChecked">,
+  input: EngineSendInput,
+  hold: BindHold<E>,
+) {
+  return Effect.suspend(() => {
+    const latest: LatestCheck = {};
+    return engine
+      .bindChecked(input, recordingCheck(environment, latest), hold)
+      .pipe(
+        Effect.map((certified) =>
+          certified.pipe(Effect.map((post) => withGuidance(post, latest))),
+        ),
+      );
+  });
+}
+
+/** The latest check of one post, once one has run. */
+interface LatestCheck {
+  checked?: CheckedMessage;
+}
+
+/** One post's check, which keeps its latest result in `latest`. */
+function recordingCheck(environment: FirewallEnvironment, latest: LatestCheck) {
+  return (prepared: PreparedSend, terminal: boolean) =>
+    checkPrepared(environment, prepared, terminal).pipe(
+      Effect.tap((checked) =>
+        Effect.sync(() => {
+          latest.checked = checked;
+        }),
+      ),
+      Effect.map((checked) => ({
+        completion: checked.completion,
+        refusal: refusedSend(checked),
+      })),
+    );
+}
+
+function withGuidance(post: EngineSentPost, latest: LatestCheck): AuthoredPost {
+  const guidance = latest.checked?.guidance;
+  return guidance === undefined ? post : { ...post, guidance };
+}
 
 /** Only the immutable certified candidate supplies author and recipient attribution. */
 export const checkIncoming = (
@@ -327,7 +368,7 @@ function admitGather(
   environment: FirewallEnvironment,
   engine: Pick<EndpointEngine, "sendAdmitted" | "resolveConversation">,
   candidate: GatherCandidate,
-): Effect.Effect<PostSender, SendError | FirewallSendError> {
+): Effect.Effect<AdmittedGather, SendError | FirewallSendError> {
   return Effect.gen(function* () {
     const gather: GatherCheck = {
       candidate,
@@ -376,17 +417,21 @@ function commitGather(
   });
 }
 
-/** The sender an admitted gather's posts bind through, or the refusal of one withheld. */
+/** The sender an admitted gather's posts bind through and its check's advice, or the refusal of one withheld. */
 function admittedSender(
   engine: Pick<EndpointEngine, "sendAdmitted">,
   checked: CheckedMessage,
   disposition: "admitted" | "withheld",
-): Effect.Effect<PostSender, FirewallSendError> {
+): Effect.Effect<AdmittedGather, FirewallSendError> {
   const { checkId } = checked.completion;
   return disposition === "admitted"
-    ? Effect.succeed((input: EngineSendInput) =>
-        engine.sendAdmitted(input, checkId),
-      )
+    ? Effect.succeed({
+        sendRequest: (input: EngineSendInput) =>
+          engine.sendAdmitted(input, checkId),
+        ...(checked.guidance === undefined
+          ? {}
+          : { guidance: checked.guidance }),
+      })
     : Effect.fail(refusedSend(checked));
 }
 

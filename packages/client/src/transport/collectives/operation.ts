@@ -86,6 +86,8 @@ import {
 import type { InboundMessage } from "../messaging/message.js";
 import type { CollectiveMemberOutcome, InboundItem } from "./inbound.js";
 import type {
+  AdmittedGather,
+  AuthoredPost,
   AuthoredPostError,
   BindHold,
   CertifiedPost,
@@ -93,7 +95,6 @@ import type {
   CollectivePorts,
   CollectiveSendError,
   EngineSendInput,
-  EngineSentPost,
   PostSender,
   ResultProvenance,
 } from "./ports.js";
@@ -300,7 +301,7 @@ function multicast(
       bindAuthoredPost(state, { to, content }, Effect.succeed(Effect.void)),
     ),
     Effect.flatten,
-    Effect.map((post) => ({ postIds: [post.postId] })),
+    Effect.map((post) => ({ postIds: [post.postId], ...adviceOf(post) })),
   );
 }
 
@@ -474,13 +475,13 @@ function gather(
       prepared.open.op === "gather"
         ? admitGather(state, prepared).pipe(
             Effect.tap(() => openGather(state, prepared, false)),
-            Effect.flatMap((sendRequest) =>
-              sendRequests(state, prepared, sendRequest),
+            Effect.flatMap((admitted) =>
+              sendRequests(state, prepared, admitted.sendRequest).pipe(
+                Effect.map((sent) => ({ ...sent, ...adviceOf(admitted) })),
+              ),
             ),
           )
-        : sendGroupRequest(state, prepared).pipe(
-            Effect.map((postIds) => ({ postIds })),
-          );
+        : sendGroupRequest(state, prepared);
     const sent = yield* requests.pipe(
       Effect.mapError(refuseOperation(prepared.id, prepared.open.to)),
     );
@@ -495,10 +496,10 @@ function gather(
 function admitGather(
   state: CollectiveState,
   prepared: PreparedGather,
-): Effect.Effect<PostSender, AuthoredPostError<never>> {
+): Effect.Effect<AdmittedGather, AuthoredPostError<never>> {
   const { admission } = state.ports;
   return admission === undefined
-    ? Effect.succeed(state.ports.sendPost)
+    ? Effect.succeed({ sendRequest: state.ports.sendPost })
     : admission.admitGather({
         to: prepared.open.to,
         content: prepared.content,
@@ -651,10 +652,7 @@ function updateGather(
 function sendGroupRequest(
   state: CollectiveState,
   prepared: PreparedGather,
-): Effect.Effect<
-  ReadonlyArray<EngineSentPost["postId"]>,
-  AuthoredPostError<CollectiveError>
-> {
+): Effect.Effect<CollectiveSendOutcome, AuthoredPostError<CollectiveError>> {
   const opened = { now: false };
   const hold = openGather(state, prepared, true).pipe(
     Effect.tap(() => {
@@ -686,12 +684,12 @@ function sendGroupRequest(
         ),
       ),
     ),
-    Effect.map((post) => [post.postId]),
+    Effect.map((post) => ({ postIds: [post.postId], ...adviceOf(post) })),
     Effect.catchTag("SendError", (error) =>
       Effect.suspend(() =>
         !opened.now || state.gathers.has(prepared.id)
           ? abandonGroupRequest(state, prepared, error)
-          : Effect.succeed([]),
+          : Effect.succeed({ postIds: [] }),
       ),
     ),
   );
@@ -910,7 +908,7 @@ function respond(
       ),
       Effect.mapError(refused),
     );
-    return { operationId: id, postIds: [post.postId] };
+    return { operationId: id, postIds: [post.postId], ...adviceOf(post) };
   });
 }
 
@@ -924,14 +922,21 @@ function bindAuthoredPost<E>(
   state: CollectiveState,
   input: EngineSendInput,
   hold: BindHold<E>,
-): Effect.Effect<
-  Effect.Effect<EngineSentPost, SendError>,
-  AuthoredPostError<E>
-> {
+): Effect.Effect<Effect.Effect<AuthoredPost, SendError>, AuthoredPostError<E>> {
   const { admission } = state.ports;
   return admission === undefined
     ? hold.pipe(Effect.as(state.ports.sendPost(input)))
     : admission.bindPost(input, hold);
+}
+
+/**
+ * The advice a send returns: what the check that admitted its post or its
+ * gather gave the agent, if anything.
+ */
+function adviceOf(admitted: {
+  readonly guidance?: AuthoredPost["guidance"];
+}): Pick<CollectiveSendOutcome, "guidance"> {
+  return admitted.guidance === undefined ? {} : { guidance: admitted.guidance };
 }
 
 /**

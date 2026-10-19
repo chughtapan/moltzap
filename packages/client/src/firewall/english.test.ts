@@ -98,42 +98,6 @@ const firewallSettings = {
 /** Each generated example runs two full chains alongside other CI workers. */
 const propertyTimeoutMilliseconds = 15_000;
 
-function uncertainResponseFor(
-  request: DecisionRequest,
-): typeof DecisionResponse.Encoded {
-  if (request.stage !== "expectations") {
-    return responseFor(request);
-  }
-  return {
-    ...responseFor(request),
-    answers: Object.fromEntries(
-      Object.entries(request.questions).map(
-        ([id, question]): readonly [
-          string,
-          DecisionResponse["answers"][string],
-        ] => [
-          id,
-          question.purpose === "assessment"
-            ? {
-                choice: "required",
-                probabilities: {
-                  required: 0.4,
-                  permitted: 0.3,
-                  wait: 0.1,
-                  none: 0.1,
-                  unresolved: 0.1,
-                },
-              }
-            : {
-                choice: "irrelevant",
-                probabilities: { relevant: 0, irrelevant: 1, unresolved: 0 },
-              },
-        ],
-      ),
-    ),
-  };
-}
-
 function responseFor(
   request: DecisionRequest,
   choices: Readonly<Record<string, string>> = {},
@@ -187,25 +151,50 @@ function provider(
 
 const defaultProvider = provider();
 
-/** Answers every question in one stage the same way and the rest by default. */
+/**
+ * Answers one stage's assessment questions, or only one rule's, with
+ * `answer`, and every other question as `responseFor` would.
+ */
 function answering(
   stage: DecisionRequest["stage"],
   answer: DecisionResponse["answers"][string],
+  options: {
+    readonly ruleId?: string;
+    readonly choices?: Readonly<Record<string, string>>;
+    readonly requests?: DecisionRequest[];
+  } = {},
 ): DecisionProvider {
   return {
     decide: (request) =>
-      Effect.succeed(
-        request.stage === stage
-          ? {
-              ...responseFor(request),
-              answers: Object.fromEntries(
-                Object.keys(request.questions).map((id) => [id, answer]),
-              ),
-            }
-          : responseFor(request),
-      ),
+      Effect.sync(() => {
+        options.requests?.push(request);
+        const response = responseFor(request, options.choices);
+        if (request.stage !== stage) {
+          return response;
+        }
+        const answered = (id: string) =>
+          request.questions[id]?.purpose === "assessment" &&
+          (options.ruleId === undefined ||
+            request.questions[id]?.ruleId === options.ruleId);
+        return {
+          ...response,
+          answers: Object.fromEntries(
+            Object.entries(response.answers).map(([id, settled]) => [
+              id,
+              answered(id) ? answer : settled,
+            ]),
+          ),
+        };
+      }),
   };
 }
+
+/** The norms a request's state hands the judge. */
+const statedNorms = Schema.parseJson(
+  Schema.Struct({
+    norms: Schema.Array(Schema.Struct({ ruleId: Schema.String })),
+  }),
+);
 
 const check = (
   decisions: DecisionProvider = defaultProvider,
@@ -441,17 +430,90 @@ it("routes by Jev's stated choice when another option leads it within rounding",
     expect(result.judgment).toBe("block");
   }));
 
-it("holds uncertain expectations and withholds dependent conformance", () =>
+const replyRule: EnglishRule = {
+  id: "reply-once",
+  kind: "norm",
+  text: "Reply once to a direct question.",
+  guidance: "Reply once.",
+};
+
+it("admits an unsettled expectation as guidance and judges conformance against the settled ones", () =>
+  Effect.gen(function* () {
+    const requests: DecisionRequest[] = [];
+    const result = yield* check(
+      answering(
+        "expectations",
+        {
+          choice: "required",
+          probabilities: {
+            required: 0.4,
+            permitted: 0.3,
+            wait: 0.1,
+            none: 0.1,
+            unresolved: 0.1,
+          },
+        },
+        {
+          ruleId: "proposal-acceptance",
+          choices: { "expectations:reply-once:assessment": "required" },
+          requests,
+        },
+      ),
+      { rules: [...rules, replyRule] },
+    );
+    const conformance = requests.find((entry) => entry.stage === "conformance");
+
+    expect(result.judgment).toBe("allow");
+    expect(result.guidance).toContainEqual({
+      middlewareId: "owner",
+      ruleId: "proposal-acceptance",
+      uncertain: { choice: "required", probability: 0.4 },
+      instruction: reminder,
+    });
+    expect(result.checks[0]?.findings).toContainEqual({
+      ruleId: "proposal-acceptance",
+      outcome: "pass",
+      reason: "uncertain",
+      choice: "required",
+      probability: 0.4,
+    });
+    expect(
+      Schema.decodeUnknownSync(statedNorms)(conformance?.state).norms,
+    ).toEqual([{ ruleId: "reply-once" }]);
+  }));
+
+it("admits an unsettled conformance answer as guidance", () =>
+  Effect.gen(function* () {
+    const result = yield* check(
+      answering("conformance", {
+        choice: "violation",
+        probabilities: { compliant: 0.3, violation: 0.4, unresolved: 0.3 },
+      }),
+    );
+
+    expect(result.judgment).toBe("allow");
+    expect(result.guidance).toContainEqual({
+      middlewareId: "owner",
+      ruleId: "proposal-acceptance",
+      uncertain: { choice: "violation", probability: 0.4 },
+      instruction: reminder,
+    });
+  }));
+
+it("holds a failed expectations judge as check-unavailable", () =>
   Effect.gen(function* () {
     const requests: DecisionRequest[] = [];
     const result = yield* check({
       decide: (request) =>
-        Effect.sync(() => {
+        Effect.suspend(() => {
           requests.push(request);
-          return uncertainResponseFor(request);
+          return request.stage === "expectations"
+            ? Effect.fail(new DecisionProviderError({ reason: "http" }))
+            : Effect.succeed(responseFor(request));
         }),
     });
-    expect(result.reason).toBe("unresolved-evidence");
+
+    expect(result.reason).toBe("check-unavailable");
     expect(requests.some((entry) => entry.stage === "conformance")).toBe(false);
   }));
 
@@ -698,6 +760,33 @@ it("projects incoming advice using only admitted visible subjects", () =>
     ]);
     expect(requests.some((entry) => entry.stage === "conformance")).toBe(false);
     expect(JSON.stringify(result.guidance)).not.toContain(privateEvidence);
+  }));
+
+it("leaves an unsettled reference out of an incoming expectation", () =>
+  Effect.gen(function* () {
+    const message: typeof Message.Encoded = {
+      id: "proposal",
+      sender: "participant-agent",
+      recipients: [context.agentId],
+      text: "Can we meet Tuesday?",
+    };
+    const result = yield* check(
+      provider({
+        "expectations:proposal-acceptance:assessment": "required",
+        "expectations:proposal-acceptance:subject:availability": "unresolved",
+      }),
+      { incoming: true, message },
+    );
+    expect(result.judgment).toBe("allow");
+    expect(result.guidance).toEqual([
+      {
+        middlewareId: "owner",
+        ruleId: "proposal-acceptance",
+        expectation: "required",
+        subjects: ["proposal"],
+        instruction: reminder,
+      },
+    ]);
   }));
 
 it("holds a model-selected private subject instead of projecting it", () =>

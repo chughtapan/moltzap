@@ -1,6 +1,7 @@
 /** @file Collective operations, answers and the closed errors of a refused collective send. */
 
 import { Data, ParseResult, Schema } from "effect";
+import type { CheckedGuidance } from "../../firewall/runtime.js";
 import {
   type SendError,
   sendFailureReasons,
@@ -179,9 +180,14 @@ const unreachableMembers = Schema.NonEmptyArray(
   }),
 );
 
-/** What a completed send returns: a collecting operation names its id. */
+/**
+ * What a completed send returns: a collecting operation names its id, and
+ * `guidance` carries the local firewall's advice on the admitted send, such
+ * as a norm judgment the judge left unsettled.
+ */
 export interface SendResult {
   readonly operationId?: CollectiveId;
+  readonly guidance?: CheckedGuidance;
 }
 
 /** Private send completion includes the posts certified before returning to delivery. */

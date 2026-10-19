@@ -136,6 +136,7 @@ function validResult(
   );
 }
 
+/** Only a norm may pass uncertain; any other unsettled rule must hold. */
 function validFinding(
   finding: PolicyFinding,
   event: MessageEvent,
@@ -143,6 +144,9 @@ function validFinding(
 ): boolean {
   if (rule === undefined) {
     return false;
+  }
+  if ("reason" in finding && finding.outcome === "pass") {
+    return rule.kind === "norm";
   }
   if (finding.outcome === "revise") {
     return event.direction === "outgoing" && rule.kind === "norm";

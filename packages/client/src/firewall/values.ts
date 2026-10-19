@@ -133,8 +133,21 @@ export class EnglishRule extends Schema.Class<EnglishRule>("EnglishRule")({
   text: Schema.NonEmptyString,
 }) {}
 
-/** Pass is local to one rule; only the complete firewall may return allow. */
+/**
+ * Pass is local to one rule; only the complete firewall may return allow. An
+ * uncertain pass is a norm judgment the judge could not settle: it admits,
+ * and keeps the judge's choice and probability so the agent is advised and
+ * the audit can count it. It precedes plain pass, which would otherwise
+ * decode it without those fields.
+ */
 const policyFinding = Schema.Union(
+  Schema.Struct({
+    ruleId: identifier,
+    outcome: Schema.Literal("pass"),
+    reason: Schema.Literal("uncertain"),
+    choice: identifier,
+    probability,
+  }),
   Schema.Struct({
     ruleId: identifier,
     outcome: Schema.Literal(
@@ -255,6 +268,17 @@ export interface NormGuidance extends NormExpectation {
   readonly instruction: string;
 }
 
+/** A rule's registered guidance beside the judge's unsettled choice, in place of a hold. */
+export interface UncertainNormGuidance {
+  readonly middlewareId: string;
+  readonly ruleId: string;
+  readonly uncertain: {
+    readonly choice: string;
+    readonly probability: number;
+  };
+  readonly instruction: string;
+}
+
 /** Private audit is separate from the only fields intended for a runtime. */
 export interface FirewallCheck {
   readonly judgment: "allow" | "block" | "hold" | "revise";
@@ -269,7 +293,7 @@ export interface FirewallCheck {
     readonly nextAction: typeof nextAction.Type;
     readonly text: string;
   }>;
-  readonly guidance: readonly NormGuidance[];
+  readonly guidance: ReadonlyArray<NormGuidance | UncertainNormGuidance>;
   readonly checks: readonly MiddlewareCheck[];
 }
 

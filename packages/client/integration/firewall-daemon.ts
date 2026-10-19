@@ -5,9 +5,10 @@
  * The daemon runs `Daemon.withFirewall` with one deterministic code policy in
  * the mode `MOLTZAP_TEST_FIREWALL_MODE` names, so a trace decides each check
  * by the text it sends: the policy blocks an incoming text that carries
- * `[in]` and an outgoing text that carries `[out]`, and asks the agent to
- * respond to an incoming text that carries `[guide]`. Every other
- * `MOLTZAPD_*` setting is read as `moltzapd` reads it.
+ * `[in]` and an outgoing text that carries `[out]`, asks the agent to
+ * respond to an incoming text that carries `[guide]`, and leaves its norm
+ * judgment of a text that carries `[unsure]` unsettled in either direction.
+ * Every other `MOLTZAPD_*` setting is read as `moltzapd` reads it.
  */
 
 import { NodeRuntime } from "@effect/platform-node";
@@ -20,6 +21,8 @@ const INCOMING_HOLD = "[in]";
 const OUTGOING_HOLD = "[out]";
 /** The marker an incoming text carries to draw guidance. */
 const GUIDE = "[guide]";
+/** The marker a text carries for its norm judgment to be left unsettled. */
+const UNSURE = "[unsure]";
 
 const markers: MessageMiddleware = {
   id: "integration-markers",
@@ -35,14 +38,22 @@ const markers: MessageMiddleware = {
   check: ({ event }) =>
     Effect.succeed({
       findings: [
-        {
-          ruleId: "marked",
-          outcome: event.message.text.includes(
-            event.direction === "incoming" ? INCOMING_HOLD : OUTGOING_HOLD,
-          )
-            ? "block"
-            : "pass",
-        },
+        event.message.text.includes(UNSURE)
+          ? {
+              ruleId: "marked",
+              outcome: "pass",
+              reason: "uncertain",
+              choice: "none",
+              probability: 0.33,
+            }
+          : {
+              ruleId: "marked",
+              outcome: event.message.text.includes(
+                event.direction === "incoming" ? INCOMING_HOLD : OUTGOING_HOLD,
+              )
+                ? "block"
+                : "pass",
+            },
       ],
       expectations:
         event.direction === "incoming" && event.message.text.includes(GUIDE)

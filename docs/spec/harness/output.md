@@ -130,8 +130,14 @@ interface RuntimeSendOptions {
 interface SendMessageResult {
   /** `col_` followed by 43 base64url characters. */
   readonly operationId?: CollectiveId
+  /** The local firewall's advice on the admitted send. */
+  readonly guidance?: CheckedGuidance
 }
 ```
+
+`CheckedGuidance` is the [local guidance](./client.md#local-guidance) of the
+send's check, present when the local firewall left a norm judgment of the
+admitted send uncertain.
 
 `RuntimeSendOptions` travels in request metadata at
 `_meta["xyz.moltzap/send"]`, outside the tool's argument schema. The MCP-backed

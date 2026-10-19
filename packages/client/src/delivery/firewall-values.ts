@@ -97,11 +97,22 @@ const firewallAuditResult = exactStruct({
     }),
   ),
   guidance: Schema.Array(
-    Schema.Struct({
-      ...NormExpectation.fields,
-      middlewareId: Schema.String,
-      instruction: Schema.String,
-    }),
+    Schema.Union(
+      Schema.Struct({
+        ...NormExpectation.fields,
+        middlewareId: Schema.String,
+        instruction: Schema.String,
+      }),
+      Schema.Struct({
+        middlewareId: Schema.String,
+        ruleId: Schema.String,
+        uncertain: Schema.Struct({
+          choice: Schema.String,
+          probability: Schema.Number,
+        }),
+        instruction: Schema.String,
+      }),
+    ),
   ),
   checks: Schema.Array(
     Schema.Struct({

@@ -156,17 +156,18 @@ const runStage = Effect.fn("EnglishPolicy.runStage")(function* (
   });
 });
 
+/**
+ * Conformance judges the draft against the expectations the judge settled;
+ * the unsettled ones reach the agent as guidance instead. Only a failed
+ * expectations stage leaves conformance unavailable.
+ */
 const evaluateConformance = Effect.fn("EnglishPolicy.conformance")(function* (
   snapshot: EnglishCheck,
   expectations: PolicyStageTrace,
   provider: DecisionProvider,
   settings: EnglishPolicySettings,
 ): Effect.fn.Return<PolicyStageTrace> {
-  const ready =
-    expectations.status === "empty" ||
-    (expectations.status === "answered" &&
-      expectations.uncertainQuestions.length === 0);
-  if (!ready) {
+  if (expectations.status !== "empty" && expectations.status !== "answered") {
     return {
       stage: "conformance",
       status: "unavailable",
@@ -244,7 +245,7 @@ const checkEnglish = Effect.fn("EnglishPolicy.check")(function* (
  *   A --> S[Personal trust]
  *   S --> U[Autonomy]
  *   U --> N[Norm expectations from permitted evidence]
- *   N --> C[Outgoing conformance when expectations are available]
+ *   N --> C[Outgoing conformance against the settled expectations]
  *   C --> R[Return all findings and private stage trace]
  * ```
  */
@@ -329,15 +330,22 @@ function englishRevision(
     .digest("hex");
 }
 
+/**
+ * The expectations the judge settled, each with the references it settled
+ * as relevant. An unsettled expectation reaches the agent as guidance
+ * instead, and an unsettled reference is left out.
+ */
 function readNorms(trace: PolicyStageTrace): readonly NormExpectation[] {
-  if (trace.status !== "answered" || trace.uncertainQuestions.length !== 0) {
+  if (trace.status !== "answered") {
     return [];
   }
+  const settled = (id: string) => !trace.uncertainQuestions.includes(id);
   const subjects = new Map<string, string[]>();
   Object.entries(trace.request.questions).forEach(([id, question]) => {
     if (
       question.purpose === "subject" &&
       question.subject !== undefined &&
+      settled(id) &&
       trace.response.answers[id]?.choice === "relevant"
     ) {
       const references = subjects.get(question.ruleId) ?? [];
@@ -349,6 +357,7 @@ function readNorms(trace: PolicyStageTrace): readonly NormExpectation[] {
     const expectation = trace.response.answers[id]?.choice;
     if (
       question.purpose !== "assessment" ||
+      !settled(id) ||
       !Schema.is(NormExpectation.fields.expectation)(expectation)
     ) {
       return [];
@@ -376,23 +385,6 @@ function stageIncludes(
   );
 }
 
-function answerOutcome(
-  choice?: string,
-): Exclude<PolicyFinding["outcome"], "hold"> {
-  switch (choice) {
-    case undefined:
-      return "pass";
-    case "prohibited":
-      return "block";
-    case "violation":
-      return "revise";
-    case "approval-required":
-      return "approval-required";
-    default:
-      return "pass";
-  }
-}
-
 function stageFindings(
   trace: PolicyStageTrace,
   rules: readonly EnglishRule[],
@@ -413,19 +405,58 @@ function stageFindings(
               : "unresolved-evidence",
         }));
     case "answered":
-      return Object.entries(trace.request.questions).map(([id, question]) => {
-        if (trace.uncertainQuestions.includes(id)) {
-          return {
-            ruleId: question.ruleId,
-            outcome: "hold",
-            reason: "unresolved-evidence",
-          };
-        }
-        const choice = trace.response.answers[id]?.choice;
-        const outcome = answerOutcome(choice);
-        return { ruleId: question.ruleId, outcome };
-      });
+      return Object.entries(trace.request.questions).map(([id, question]) =>
+        questionFinding(trace, id, question),
+      );
     default:
       return trace satisfies never;
+  }
+}
+
+/**
+ * One answered question's finding. An unsettled answer holds, except in the
+ * norm stages: there an unsettled expectation or conformance answer passes
+ * with the judge's choice and probability, and an unsettled reference only
+ * drops out of its expectation.
+ */
+function questionFinding(
+  trace: Extract<PolicyStageTrace, { readonly status: "answered" }>,
+  id: string,
+  question: DecisionRequest["questions"][string],
+): PolicyFinding {
+  const { ruleId } = question;
+  const answer = trace.response.answers[id];
+  if (!trace.uncertainQuestions.includes(id)) {
+    return { ruleId, outcome: answerOutcome(answer?.choice) };
+  }
+  if (trace.stage !== "expectations" && trace.stage !== "conformance") {
+    return { ruleId, outcome: "hold", reason: "unresolved-evidence" };
+  }
+  if (question.purpose === "subject" || answer === undefined) {
+    return { ruleId, outcome: "pass" };
+  }
+  return {
+    ruleId,
+    outcome: "pass",
+    reason: "uncertain",
+    choice: answer.choice,
+    probability: answer.probabilities[answer.choice] ?? 0,
+  };
+}
+
+function answerOutcome(
+  choice?: string,
+): Exclude<PolicyFinding["outcome"], "hold"> {
+  switch (choice) {
+    case undefined:
+      return "pass";
+    case "prohibited":
+      return "block";
+    case "violation":
+      return "revise";
+    case "approval-required":
+      return "approval-required";
+    default:
+      return "pass";
   }
 }

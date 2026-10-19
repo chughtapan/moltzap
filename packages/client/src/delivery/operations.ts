@@ -3,6 +3,7 @@
 import { Effect, type ParseResult, Schema, type SchemaAST } from "effect";
 import type { SendError } from "../transport/messaging/errors.js";
 import {
+  checkedGuidanceSchema,
   firewallRefusalSchema,
   type FirewallSendError,
   localGuidanceSchema,
@@ -90,10 +91,12 @@ const harnessSendRequestSchema = exactStruct({
 });
 /**
  * A completed operation. A collecting operation names the id its answers and
- * result carry; a multicast has none, so its result is empty.
+ * result carry; a multicast has none. `guidance` is the local firewall's
+ * advice on the admitted send, absent when it gave none.
  */
 export const harnessSendResultSchema = exactStruct({
   operationId: Schema.optionalWith(CollectiveId, { exact: true }),
+  guidance: Schema.optionalWith(checkedGuidanceSchema, { exact: true }),
 });
 const harnessMessageReadyEventSchema = exactStruct({
   deliveryToken: DeliveryToken,

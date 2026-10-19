@@ -648,7 +648,12 @@ function runAssessment(
   );
 }
 
-/** Projection failure holds enforcement while shadow admission omits unusable advice. */
+/**
+ * Projection failure holds enforcement while shadow admission omits unusable
+ * advice. An outgoing check advises its sender only of the norm judgments
+ * left unsettled; the settled outgoing expectations are what its
+ * conformance judged.
+ */
 function guidanceProjection(
   result: FirewallCheck,
   input: AssessmentInput,
@@ -659,18 +664,20 @@ function guidanceProjection(
   EndpointStoreError
 > {
   return Effect.gen(function* () {
-    if (input.direction !== "incoming" || result.guidance.length === 0) {
+    const instructions =
+      input.direction === "incoming"
+        ? result.guidance
+        : result.guidance.filter((entry) => "uncertain" in entry);
+    if (instructions.length === 0) {
       return { result };
     }
-    const subjects = guidanceSubjects(result, input, context);
     const selected = new Set(
-      result.guidance.flatMap((entry) => entry.subjects),
+      instructions.flatMap((entry) =>
+        "subjects" in entry ? entry.subjects : [],
+      ),
     );
-    const guidance: CheckedGuidance = {
-      checkId,
-      instructions: result.guidance,
-      subjects,
-    };
+    const subjects = guidanceSubjects(selected, input, context);
+    const guidance: CheckedGuidance = { checkId, instructions, subjects };
     const bytes = yield* encodeRuntimeValue(guidance);
     if (
       subjects.length !== selected.size ||
@@ -687,11 +694,10 @@ function guidanceProjection(
 
 /** Only already admitted history and the incoming candidate can explain a selected subject. */
 function guidanceSubjects(
-  result: FirewallCheck,
+  selected: ReadonlySet<string>,
   input: AssessmentInput,
   context: MessageContext,
 ): CheckedGuidance["subjects"] {
-  const selected = new Set(result.guidance.flatMap((entry) => entry.subjects));
   const available = context.history.filter(
     (entry) => entry.visibility === "runtime" && entry.admission === "admitted",
   );

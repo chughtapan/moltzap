@@ -142,6 +142,51 @@ function guidanceIncoming() {
 }
 
 it(
+  "admits an incoming message whose norm judgment is unsettled, advising that judgment",
+  unsettledIncoming,
+);
+
+function unsettledIncoming() {
+  return Effect.gen(function* () {
+    const subject = yield* fixture;
+    const runtime = yield* incomingFixture(
+      subject,
+      policy(() =>
+        Effect.succeed({
+          findings: [
+            {
+              ruleId: rule.id,
+              outcome: "pass",
+              reason: "uncertain",
+              choice: "required",
+              probability: 0.4,
+            },
+          ],
+          expectations: [],
+        }),
+      ),
+    );
+    yield* runtime.runPass;
+    yield* Queue.take(runtime.completed);
+    expect(runtime.published).toMatchObject([
+      {
+        guidance: {
+          subjects: [],
+          instructions: [
+            {
+              middlewareId: "communication",
+              ruleId: rule.id,
+              uncertain: { choice: "required", probability: 0.4 },
+              instruction: rule.guidance,
+            },
+          ],
+        },
+      },
+    ]);
+  });
+}
+
+it(
   "records a shadow block while guidance mode admits the original message",
   shadowIncoming,
 );

@@ -108,6 +108,10 @@ Callers must change a code policy's revision when its behavior changes.
 
 Findings accumulate. `pass` and `not-applicable` describe one rule; they cannot
 erase a `block`, `hold`, `revise` or `approval-required` from another check.
+A norm rule may also `pass` with reason `uncertain`, naming the judge's
+`choice` and `probability`: the rule admits, and its registered guidance
+reaches the agent with that choice and probability. Any other rule kind must
+hold instead.
 Composition prioritizes prohibition, unavailable/uncertain evidence, norm
 revision, then missing approval. Opposing `required` and `wait` expectations
 about the same subject hold for review. Incoming checks never request revision.
@@ -135,6 +139,15 @@ English adapter ignores `previous`: earlier findings might have been derived
 from an outgoing draft. Outgoing expectations use original history and facts
 without the draft text, id or approval evidence. Conformance then sees the draft
 and the independently established expectations.
+
+An answer is uncertain when its choice is `unresolved` or its probability is
+below `minimumProbability`. Uncertain applicability, safety and autonomy
+answers hold. In the norm stages they never hold: an uncertain expectation or
+conformance answer is an uncertain `pass`, conformance judges only the
+expectations the judge settled, and an uncertain subject reference is left out
+of its expectation. A failed or invalid provider answer holds in every stage.
+A rounded near-tie is valid: in a distribution reported in hundredths, Jev's
+stated choice may trail another option by the same tolerance its sum has.
 
 Every norm checks each admitted, runtime-visible message reference independently.
 Incoming messages may also anchor their own guidance. Private facts, withheld
@@ -171,7 +184,8 @@ projections; arbitrary provider prose cannot. Held messages have no guidance.
 Raw responses, assessor facts and requests stay in `checks`, whose optional
 traces use an explicit `format` and serialized `data`. English traces use
 `english-policy/v1`. Never pass the complete check to an agent. Client attaches
-guidance to admitted incoming deliveries and returns refusal feedback through
+guidance to admitted incoming deliveries, returns an admitted send's uncertain
+norm judgments as guidance in its result, and returns refusal feedback through
 the send-call error. Each feedback entry's next action is included in the error
 text for hosts that retain only that text.
 

@@ -128,7 +128,7 @@ describe("OpenClaw message tool send and reply actions", () => {
     messageToolSendReturnsOnlyItsAddress,
   );
   it(
-    "sends answer text from reply to the target conversation",
+    "sends answer text from reply to the target conversation and returns the firewall's guidance",
     messageToolReplySendsAnswer,
   );
   it(
@@ -577,21 +577,34 @@ function messageToolSendReturnsOnlyItsAddress() {
 }
 
 function messageToolReplySendsAnswer() {
+  const guidance = {
+    checkId: `chk_${Encoding.encodeHex(new Uint8Array(32).fill(4))}`,
+    subjects: [],
+    instructions: [
+      {
+        middlewareId: "owner",
+        ruleId: "one-gather",
+        uncertain: { choice: "none", probability: 0.33 },
+        instruction: "Answer the open gather once.",
+      },
+    ],
+  };
   return withConnectedSend(
     (plugin) =>
       handleMessageAction(plugin, "reply", {
         to: "agent:alice",
         message: '{"action":"accept","content":{"slot":"mon"}}',
       }),
-    (sends) => {
+    (sends, result) => {
       expect(sends).toEqual([
         {
           to: "agent:alice",
           collectiveResponse: { action: "accept", content: { slot: "mon" } },
         },
       ]);
+      expect(result.details).toEqual({ ok: true, to: "agent:alice", guidance });
     },
-    SEND_SUCCEEDS,
+    Effect.succeed({ operationId: collectiveId(), guidance }),
   );
 }
 
