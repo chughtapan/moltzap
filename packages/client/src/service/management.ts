@@ -133,6 +133,7 @@ const activationFailureReasons = {
   persistence: "persistence-failed",
   upstream: "dependency-unavailable",
   representation: "dependency-unavailable",
+  "outbox-too-old": "persistence-failed",
 } as const satisfies Readonly<
   Record<DaemonActivationError["reason"], ManagementFailure>
 >;

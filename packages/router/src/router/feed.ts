@@ -1,5 +1,5 @@
 /** @file Volatile globally ordered Router feed with bounded retention and retry identity. */
-import type { AgentId, MessageId, SignedMessage } from "@moltzap/identity";
+import type { AgentId, LiveSignedMessage, MessageId } from "@moltzap/identity";
 import { Data, Effect, Ref } from "effect";
 import type {
   RouterInstanceId,
@@ -84,7 +84,7 @@ export const entriesAfter = (
 
 interface FeedEntry {
   readonly order: bigint;
-  readonly signedMessage: SignedMessage;
+  readonly signedMessage: LiveSignedMessage;
   readonly encodedMessageJcs: string;
   readonly encodedByteLength: number;
   readonly recipients: ReadonlySet<AgentId>;
@@ -112,7 +112,7 @@ type FeedAcceptResult =
 
 interface FeedCandidate {
   readonly mode: "initial" | "retry";
-  readonly signedMessage: SignedMessage;
+  readonly signedMessage: LiveSignedMessage;
   readonly encodedMessageJcs: string;
   readonly encodedByteLength: number;
   readonly recipients: ReadonlySet<AgentId>;

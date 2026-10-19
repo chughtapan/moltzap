@@ -3,6 +3,7 @@
 import type {
   AgentId,
   AgentSigningAuthority,
+  LiveSignedMessage,
   VerifiedAgentCard,
   VerifiedSignedMessage,
 } from "@moltzap/identity";
@@ -119,7 +120,7 @@ export type RouterWorkerPollError =
 /** Verified outer message and its decoded private Client payload. */
 export interface RouterWorkerIngress<Payload> {
   readonly routerInstanceId: RouterInstanceId;
-  readonly message: VerifiedSignedMessage;
+  readonly message: LiveSignedMessage & VerifiedSignedMessage;
   readonly senderCard: VerifiedAgentCard;
   readonly payload: Payload;
 }
@@ -142,7 +143,7 @@ export interface RouterWorkerCallbacks<Payload> {
     card: VerifiedAgentCard,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
   readonly decodePayload: (
-    message: VerifiedSignedMessage,
+    message: LiveSignedMessage & VerifiedSignedMessage,
   ) => Effect.Effect<Payload, RouterWorkerPayloadInvalidError>;
   readonly acceptPayload: (
     input: RouterWorkerIngress<Payload>,
@@ -255,7 +256,7 @@ export interface RouterWorkerRuntime<Payload> extends RouterWorkerServices {
 
 /** Outer message with both sender card and signature verified. */
 export interface RouterWorkerVerifiedIngress {
-  readonly message: VerifiedSignedMessage;
+  readonly message: LiveSignedMessage & VerifiedSignedMessage;
   readonly senderCard: VerifiedAgentCard;
 }
 

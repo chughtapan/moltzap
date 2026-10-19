@@ -89,15 +89,11 @@ export const EXPECTED_LISTENER_FAILURE = new DaemonRuntimeError({
 });
 
 /**
- * The fake engine's one pending delivery and what happened to it. The fake
- * store's inbox acknowledgment also marks it acknowledged here, as production
- * `retireItem` retires the item's pending delivery in the same transaction, so
- * both fakes append to one `acknowledgedTokens`.
+ * The fake engine retains its pending delivery until acknowledgment. Inbox
+ * acknowledgment retires that delivery, matching the store transaction.
  */
 interface DeliveryState {
   readonly pending: EnginePendingMessage;
-  readonly acknowledgedTokens: Array<typeof DeliveryToken.Type>;
-  readonly events: string[];
   acknowledged: boolean;
   readBarrier?: ReadBarrier;
   failReads?: boolean;
@@ -120,7 +116,6 @@ interface HarnessObservations {
   handler?: HarnessMcpEventHandler;
   eventStore?: EventStore;
   operations?: HarnessMcpOperations;
-  historyExportPath?: string;
 }
 
 interface RuntimeDependenciesInput {
@@ -142,7 +137,6 @@ export interface RuntimeHarness {
   readonly getEventStore: () => EventStore | undefined;
   readonly getHandler: () => HarnessMcpEventHandler | undefined;
   readonly getOperations: () => HarnessMcpOperations | undefined;
-  readonly getHistoryExportPath: () => string | undefined;
 }
 
 type BackgroundFailure = "none" | "outbound" | "worker";
@@ -163,7 +157,7 @@ const emptyRecovery = (identity?: IdentityBinding): EndpointRecovery => ({
   outboundMessages: [],
 });
 
-const makeInboxStore = (onAcknowledge: (token: DeliveryToken) => void) => {
+const makeInboxStore = (onAcknowledge: () => void) => {
   const inbox = new Map<DeliveryToken, Uint8Array>();
   const acknowledged = new Set<DeliveryToken>();
   return {
@@ -193,7 +187,7 @@ const makeInboxStore = (onAcknowledge: (token: DeliveryToken) => void) => {
     acknowledgeInboxItem: (token) =>
       Effect.sync(() => {
         acknowledged.add(token);
-        onAcknowledge(token);
+        onAcknowledge();
       }),
   } satisfies Pick<
     EndpointStore,
@@ -203,18 +197,16 @@ const makeInboxStore = (onAcknowledge: (token: DeliveryToken) => void) => {
 
 /**
  * A store over the fixture's identity, bound when `active`, whose inbox lives
- * in memory and whose acknowledgments are recorded in the harness delivery.
+ * in memory and whose acknowledgments retire the harness delivery.
  */
 export function makeStore(
   fixture: Fixture,
   active: boolean,
   delivery?: DeliveryState,
 ): EndpointStore {
-  const onAcknowledge = (token: DeliveryToken) => {
+  const onAcknowledge = () => {
     if (delivery !== undefined) {
       delivery.acknowledged = true;
-      delivery.acknowledgedTokens.push(token);
-      delivery.events.push("acknowledged");
     }
   };
   let identity: IdentityBinding | undefined = active
@@ -280,22 +272,6 @@ const closeHandler = (handler: HarnessMcpEventHandler) =>
     catch: () => new Error("failed to close test MCP handler"),
   }).pipe(Effect.ignore);
 
-/**
- * The production history export, opened at the configured path. The harness
- * notes the path so a test can tell whether the daemon opened an export.
- */
-const observedHistoryExport = (
-  observations: HarnessObservations,
-  path: string,
-) =>
-  Effect.sync(() => {
-    observations.historyExportPath = path;
-  }).pipe(
-    Effect.zipRight(
-      makeHistoryExport(path).pipe(Effect.provide(NodeFileSystem.layer)),
-    ),
-  );
-
 function makeRuntimeDependencies(
   input: RuntimeDependenciesInput,
 ): DaemonRuntimeDependencies {
@@ -328,7 +304,7 @@ function makeRuntimeDependencies(
         () => closeHandler(handler),
       ).pipe(Effect.asVoid),
     makeHistoryExport: (path) =>
-      observedHistoryExport(input.observations, path),
+      makeHistoryExport(path).pipe(Effect.provide(NodeFileSystem.layer)),
   };
 }
 
@@ -367,7 +343,6 @@ const readPending = (delivery: DeliveryState) =>
       yield* Deferred.succeed(barrier.entered, undefined);
       yield* Deferred.await(barrier.release);
     }
-    delivery.events.push("delivery-ready");
     return messages;
   });
 
@@ -402,8 +377,6 @@ function makeEngine(
           )
         : Effect.sync(() => {
             delivery.acknowledged = true;
-            delivery.acknowledgedTokens.push(deliveryToken);
-            delivery.events.push("acknowledged");
           }),
     acceptRouterIngress: () => Effect.succeed("ignored"),
     acceptRecoveryIngress: () => Effect.succeed("ignored"),
@@ -427,8 +400,6 @@ export const makeHarness = (
     const delivery: DeliveryState = {
       pending: fixture.pending,
       acknowledged: false,
-      acknowledgedTokens: [],
-      events: [],
     };
     const dependencies = makeRuntimeDependencies({
       background,
@@ -444,7 +415,6 @@ export const makeHarness = (
       getEventStore: () => observations.eventStore,
       getHandler: () => observations.handler,
       getOperations: () => observations.operations,
-      getHistoryExportPath: () => observations.historyExportPath,
     };
   }).pipe(Effect.withSpan("makeHarness"));
 

@@ -3,7 +3,7 @@
 /** Credential roles for tunneled runtime and owner requests. */
 export { credentialMatches, type HarnessMcpCredentials } from "./auth.js";
 /** The loopback Streamable HTTP listener. */
-export { acquireHarnessMcpHttpServer } from "./http.js";
+export { acquireHarnessMcpHttpServer, LOOPBACK_HOST } from "./http.js";
 /** Owner-tool results the service returns through the catalog. */
 export type {
   ManagementReadConversationResult,

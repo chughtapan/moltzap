@@ -12,15 +12,7 @@ import {
   type NodeMcpRequestHandler,
   toNodeHandler,
 } from "@modelcontextprotocol/node";
-import {
-  Deferred,
-  Duration,
-  Effect,
-  Exit,
-  Fiber,
-  Option,
-  type Scope,
-} from "effect";
+import { Deferred, Duration, Effect, Exit, Option, type Scope } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The official MCP Node adapter supplies a Node RequestListener, so this process edge hosts that exact interface.
 import {
   createServer,
@@ -30,7 +22,8 @@ import {
 
 const HARNESS_MCP_PATH = "/mcp";
 const POST_METHOD = "POST";
-const LOOPBACK_HOST = "127.0.0.1";
+/** The daemon listener and advertised MCP URL share one loopback address. */
+export const LOOPBACK_HOST = "127.0.0.1";
 const RESPONSE_DRAIN_GRACE_PERIOD = Duration.seconds(1);
 
 interface HarnessMcpHttpServerOptions {
@@ -229,28 +222,24 @@ const closeHandler = (handler: McpHttpHandler): Effect.Effect<void> =>
     catch: (cause) => cause,
   }).pipe(Effect.ignore);
 
+/** The handler stays open through the bounded drain so a send can finish its typed reply. */
 const release = (
   running: RunningHarnessMcpHttpServer,
   options: HarnessMcpHttpServerOptions,
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
     const closeCompletion = yield* beginClose(running.server);
-    const gracefulClose = yield* Effect.fork(
-      Effect.all([closeHandler(options.handler), running.waitForResponses], {
-        concurrency: 2,
-        discard: true,
-      }),
-    );
-    const drained = yield* Fiber.join(gracefulClose).pipe(
+    const drained = yield* running.waitForResponses.pipe(
       Effect.timeoutOption(RESPONSE_DRAIN_GRACE_PERIOD),
       Effect.interruptible,
     );
     if (Option.isNone(drained)) {
       running.destroyConnections();
-      yield* Fiber.join(gracefulClose);
     } else {
       running.server.closeAllConnections();
     }
+    yield* closeHandler(options.handler);
+    yield* running.waitForResponses;
     yield* closeCompletion;
   });
 
