@@ -127,7 +127,7 @@ const makeSignedMessage = (input: {
         protected: encodedCanonicalJson({
           alg: "Ed25519",
           kid: "urn:test:sender",
-          typ: "application/vnd.moltzap.signed-message+jws",
+          typ: "application/vnd.sharness.signed-message+jws",
         }),
         signature:
           "KDxTl7gpBIOcp3KzWrPaXGOI8uSNov6xWPXKa421caAinNAc-_pYc_kzBuUde6eY0Ayp21se-jZdCvMGLlbYDg",
@@ -140,9 +140,9 @@ const recipient = makeAgentId(2);
 const registrySignerPublicKey =
   '{"crv":"Ed25519","kty":"OKP","x":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}';
 const requiredConfiguration = new Map([
-  ["MOLTZAP_ROUTER_PORT", "3000"],
-  ["MOLTZAP_ROUTER_REGISTRY_ORIGIN", "http://127.0.0.1:3001"],
-  ["MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY", registrySignerPublicKey],
+  ["SHARNESS_ROUTER_PORT", "3000"],
+  ["SHARNESS_ROUTER_REGISTRY_ORIGIN", "http://127.0.0.1:3001"],
+  ["SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY", registrySignerPublicKey],
 ]);
 const LOOPBACK_HOST = "127.0.0.1";
 
@@ -226,7 +226,7 @@ const makeRegisteredSenderFixture = () =>
           .setProtectedHeader({
             alg: "Ed25519",
             kid: registryKeyId,
-            typ: "application/vnd.moltzap.agent-card+jws",
+            typ: "application/vnd.sharness.agent-card+jws",
           })
           .sign(),
       catch: () => new RouterTestFixtureError(),
@@ -538,7 +538,7 @@ describe("configuration behavior", () => {
   effectIt.effect("loads only declared values and owns its defaults", () =>
     Effect.gen(function* () {
       const defaults = yield* loadConfiguration(
-        new Map([["MOLTZAP_ROUTER_UNUSED", "ignored"]]),
+        new Map([["SHARNESS_ROUTER_UNUSED", "ignored"]]),
       );
       expect(defaults).toMatchObject({
         host: "127.0.0.1",
@@ -563,22 +563,22 @@ describe("configuration behavior", () => {
 
       const configured = yield* loadConfiguration(
         new Map([
-          ["MOLTZAP_ROUTER_HOST", "0.0.0.0"],
-          ["MOLTZAP_ROUTER_PORT", "3002"],
-          ["MOLTZAP_ROUTER_REGISTRY_ORIGIN", "https://registry.example"],
-          ["MOLTZAP_ROUTER_RETAINED_MESSAGE_CAPACITY", "2"],
-          ["MOLTZAP_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY", "500000"],
-          ["MOLTZAP_ROUTER_POLL_MESSAGE_LIMIT", "1"],
+          ["SHARNESS_ROUTER_HOST", "0.0.0.0"],
+          ["SHARNESS_ROUTER_PORT", "3002"],
+          ["SHARNESS_ROUTER_REGISTRY_ORIGIN", "https://registry.example"],
+          ["SHARNESS_ROUTER_RETAINED_MESSAGE_CAPACITY", "2"],
+          ["SHARNESS_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY", "500000"],
+          ["SHARNESS_ROUTER_POLL_MESSAGE_LIMIT", "1"],
           [
-            "MOLTZAP_ROUTER_POLL_RESPONSE_BYTE_LIMIT",
+            "SHARNESS_ROUTER_POLL_RESPONSE_BYTE_LIMIT",
             String(routerRepresentationLimits.oneMessageBatchBytes),
           ],
-          ["MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT", "4"],
-          ["MOLTZAP_ROUTER_HELD_POLL_CAPACITY", "3"],
-          ["MOLTZAP_ROUTER_LIVE_NONCE_CAPACITY", "5"],
-          ["MOLTZAP_ROUTER_AGENT_CARD_CACHE_CAPACITY", "6"],
-          ["MOLTZAP_ROUTER_REGISTRY_LOOKUP_CONCURRENCY_LIMIT", "2"],
-          ["MOLTZAP_ROUTER_REGISTRY_LOOKUP_TIMEOUT_MS", "7"],
+          ["SHARNESS_ROUTER_REQUEST_CONCURRENCY_LIMIT", "4"],
+          ["SHARNESS_ROUTER_HELD_POLL_CAPACITY", "3"],
+          ["SHARNESS_ROUTER_LIVE_NONCE_CAPACITY", "5"],
+          ["SHARNESS_ROUTER_AGENT_CARD_CACHE_CAPACITY", "6"],
+          ["SHARNESS_ROUTER_REGISTRY_LOOKUP_CONCURRENCY_LIMIT", "2"],
+          ["SHARNESS_ROUTER_REGISTRY_LOOKUP_TIMEOUT_MS", "7"],
         ]),
       );
       expect(configured).toMatchObject({
@@ -587,7 +587,7 @@ describe("configuration behavior", () => {
         retainedMessageCapacity: 2,
         retainedMessageByteCapacity: 500_000,
         pollMessageLimit: 1,
-        pollResponseByteLimit: 472_121,
+        pollResponseByteLimit: routerRepresentationLimits.oneMessageBatchBytes,
         requestConcurrencyLimit: 4,
         heldPollCapacity: 3,
         liveNonceCapacity: 5,
@@ -597,13 +597,13 @@ describe("configuration behavior", () => {
       });
       expect(configured.registryOrigin.href).toBe("https://registry.example/");
       expect(
-        (yield* loadConfiguration(new Map([["MOLTZAP_ROUTER_HOST", "::"]])))
+        (yield* loadConfiguration(new Map([["SHARNESS_ROUTER_HOST", "::"]])))
           .host,
       ).toBe("::");
       expect(routerRepresentationLimits).toEqual({
-        sendRequestBodyBytes: 471_821,
-        pollRequestBodyBytes: 422,
-        oneMessageBatchBytes: 472_121,
+        sendRequestBodyBytes: 471_823,
+        pollRequestBodyBytes: 423,
+        oneMessageBatchBytes: 472_124,
       });
       expect(
         yield* effectFails(
@@ -616,63 +616,66 @@ describe("configuration behavior", () => {
   effectIt.effect("rejects invalid values and inconsistent bounds", () =>
     Effect.gen(function* () {
       const numericKeys = [
-        "MOLTZAP_ROUTER_PORT",
-        "MOLTZAP_ROUTER_RETAINED_MESSAGE_CAPACITY",
-        "MOLTZAP_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY",
-        "MOLTZAP_ROUTER_POLL_MESSAGE_LIMIT",
-        "MOLTZAP_ROUTER_POLL_RESPONSE_BYTE_LIMIT",
-        "MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT",
-        "MOLTZAP_ROUTER_HELD_POLL_CAPACITY",
-        "MOLTZAP_ROUTER_LIVE_NONCE_CAPACITY",
-        "MOLTZAP_ROUTER_AGENT_CARD_CACHE_CAPACITY",
-        "MOLTZAP_ROUTER_REGISTRY_LOOKUP_CONCURRENCY_LIMIT",
-        "MOLTZAP_ROUTER_REGISTRY_LOOKUP_TIMEOUT_MS",
+        "SHARNESS_ROUTER_PORT",
+        "SHARNESS_ROUTER_RETAINED_MESSAGE_CAPACITY",
+        "SHARNESS_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY",
+        "SHARNESS_ROUTER_POLL_MESSAGE_LIMIT",
+        "SHARNESS_ROUTER_POLL_RESPONSE_BYTE_LIMIT",
+        "SHARNESS_ROUTER_REQUEST_CONCURRENCY_LIMIT",
+        "SHARNESS_ROUTER_HELD_POLL_CAPACITY",
+        "SHARNESS_ROUTER_LIVE_NONCE_CAPACITY",
+        "SHARNESS_ROUTER_AGENT_CARD_CACHE_CAPACITY",
+        "SHARNESS_ROUTER_REGISTRY_LOOKUP_CONCURRENCY_LIMIT",
+        "SHARNESS_ROUTER_REGISTRY_LOOKUP_TIMEOUT_MS",
       ] as const;
       const invalidCases = [
         ...numericKeys.map((key) => [key, new Map([[key, "0"]])] as const),
         [
           "noncanonical integer",
-          new Map([["MOLTZAP_ROUTER_PORT", "+3000"]]),
+          new Map([["SHARNESS_ROUTER_PORT", "+3000"]]),
         ] as const,
         [
           "fractional integer",
-          new Map([["MOLTZAP_ROUTER_PORT", "3000.0"]]),
+          new Map([["SHARNESS_ROUTER_PORT", "3000.0"]]),
         ] as const,
-        ["negative integer", new Map([["MOLTZAP_ROUTER_PORT", "-1"]])] as const,
+        [
+          "negative integer",
+          new Map([["SHARNESS_ROUTER_PORT", "-1"]]),
+        ] as const,
         [
           "exponent integer",
-          new Map([["MOLTZAP_ROUTER_PORT", "3e3"]]),
+          new Map([["SHARNESS_ROUTER_PORT", "3e3"]]),
         ] as const,
         [
           "whitespace integer",
-          new Map([["MOLTZAP_ROUTER_PORT", " 3000"]]),
+          new Map([["SHARNESS_ROUTER_PORT", " 3000"]]),
         ] as const,
-        ["empty bind host", new Map([["MOLTZAP_ROUTER_HOST", ""]])] as const,
+        ["empty bind host", new Map([["SHARNESS_ROUTER_HOST", ""]])] as const,
         [
           "port above range",
-          new Map([["MOLTZAP_ROUTER_PORT", "65536"]]),
+          new Map([["SHARNESS_ROUTER_PORT", "65536"]]),
         ] as const,
         [
           "process integer above range",
-          new Map([["MOLTZAP_ROUTER_LIVE_NONCE_CAPACITY", "2147483648"]]),
+          new Map([["SHARNESS_ROUTER_LIVE_NONCE_CAPACITY", "2147483648"]]),
         ] as const,
         [
           "origin with route path",
           new Map([
-            ["MOLTZAP_ROUTER_REGISTRY_ORIGIN", "http://127.0.0.1:3001/path"],
+            ["SHARNESS_ROUTER_REGISTRY_ORIGIN", "http://127.0.0.1:3001/path"],
           ]),
         ] as const,
         [
           "origin with user information",
           new Map([
-            ["MOLTZAP_ROUTER_REGISTRY_ORIGIN", "http://user@127.0.0.1:3001"],
+            ["SHARNESS_ROUTER_REGISTRY_ORIGIN", "http://user@127.0.0.1:3001"],
           ]),
         ] as const,
         [
           "origin with query",
           new Map([
             [
-              "MOLTZAP_ROUTER_REGISTRY_ORIGIN",
+              "SHARNESS_ROUTER_REGISTRY_ORIGIN",
               "http://127.0.0.1:3001?lookup=1",
             ],
           ]),
@@ -680,14 +683,14 @@ describe("configuration behavior", () => {
         [
           "origin with fragment",
           new Map([
-            ["MOLTZAP_ROUTER_REGISTRY_ORIGIN", "http://127.0.0.1:3001#lookup"],
+            ["SHARNESS_ROUTER_REGISTRY_ORIGIN", "http://127.0.0.1:3001#lookup"],
           ]),
         ] as const,
         [
           "noncanonical signer key",
           new Map([
             [
-              "MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY",
+              "SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY",
               '{"kty":"OKP","crv":"Ed25519","x":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}',
             ],
           ]),
@@ -696,7 +699,7 @@ describe("configuration behavior", () => {
           "retention cannot hold one message",
           new Map([
             [
-              "MOLTZAP_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY",
+              "SHARNESS_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY",
               String(SignedMessage.maximumEncodedByteLength - 1),
             ],
           ]),
@@ -705,7 +708,7 @@ describe("configuration behavior", () => {
           "response cannot hold one message",
           new Map([
             [
-              "MOLTZAP_ROUTER_POLL_RESPONSE_BYTE_LIMIT",
+              "SHARNESS_ROUTER_POLL_RESPONSE_BYTE_LIMIT",
               String(routerRepresentationLimits.oneMessageBatchBytes - 1),
             ],
           ]),
@@ -713,8 +716,8 @@ describe("configuration behavior", () => {
         [
           "held polls consume every request permit",
           new Map([
-            ["MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT", "4"],
-            ["MOLTZAP_ROUTER_HELD_POLL_CAPACITY", "4"],
+            ["SHARNESS_ROUTER_REQUEST_CONCURRENCY_LIMIT", "4"],
+            ["SHARNESS_ROUTER_HELD_POLL_CAPACITY", "4"],
           ]),
         ] as const,
       ];
@@ -771,8 +774,8 @@ describe("configuration behavior", () => {
           ConfigProvider.fromMap(
             new Map([
               ...requiredConfiguration,
-              ["MOLTZAP_ROUTER_HOST", LOOPBACK_HOST],
-              ["MOLTZAP_ROUTER_PORT", String(occupied.port)],
+              ["SHARNESS_ROUTER_HOST", LOOPBACK_HOST],
+              ["SHARNESS_ROUTER_PORT", String(occupied.port)],
             ]),
           ),
         ),

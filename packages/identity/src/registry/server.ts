@@ -20,6 +20,7 @@ import {
 import { createServer } from "node:http";
 import { isAbsolute } from "node:path";
 import { AgentSigningAuthority } from "../agent-key.js";
+import { legacyKeys } from "../legacy-keys.js";
 import { makeRegistryHttpApp } from "./http.js";
 import {
   makeRegistryRpcClient,
@@ -74,37 +75,40 @@ const absolutePath = Schema.String.pipe(
 );
 
 const configuredValues = Config.all({
-  host: Schema.Config("MOLTZAP_REGISTRY_HOST", bindHost).pipe(
+  host: Schema.Config("SHARNESS_REGISTRY_HOST", bindHost).pipe(
     Config.withDefault("127.0.0.1"),
   ),
-  port: Schema.Config("MOLTZAP_REGISTRY_PORT", port),
+  port: Schema.Config("SHARNESS_REGISTRY_PORT", port),
   postgresqlUrl: Config.redacted(
-    Schema.Config("MOLTZAP_REGISTRY_POSTGRESQL_URL", postgresqlUrl),
+    Schema.Config("SHARNESS_REGISTRY_POSTGRESQL_URL", postgresqlUrl),
   ),
   admissionCredential: Config.redacted(
-    Schema.Config("MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL", admissionCredential),
+    Schema.Config(
+      "SHARNESS_REGISTRY_ADMISSION_CREDENTIAL",
+      admissionCredential,
+    ),
   ),
   signingPrivateKeyPath: Config.redacted(
-    Schema.Config("MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH", absolutePath),
+    Schema.Config("SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH", absolutePath),
   ),
   listPageSize: Schema.Config(
-    "MOLTZAP_REGISTRY_LIST_PAGE_SIZE",
+    "SHARNESS_REGISTRY_LIST_PAGE_SIZE",
     processInteger,
   ).pipe(Config.withDefault(100)),
   requestConcurrencyLimit: Schema.Config(
-    "MOLTZAP_REGISTRY_REQUEST_CONCURRENCY_LIMIT",
+    "SHARNESS_REGISTRY_REQUEST_CONCURRENCY_LIMIT",
     processInteger,
   ).pipe(Config.withDefault(256)),
   liveNonceCapacity: Schema.Config(
-    "MOLTZAP_REGISTRY_LIVE_NONCE_CAPACITY",
+    "SHARNESS_REGISTRY_LIVE_NONCE_CAPACITY",
     processInteger,
   ).pipe(Config.withDefault(10_000)),
   sqlPoolSize: Schema.Config(
-    "MOLTZAP_REGISTRY_SQL_POOL_SIZE",
+    "SHARNESS_REGISTRY_SQL_POOL_SIZE",
     processInteger,
   ).pipe(Config.withDefault(10)),
   sqlOperationTimeoutMs: Schema.Config(
-    "MOLTZAP_REGISTRY_SQL_OPERATION_TIMEOUT_MS",
+    "SHARNESS_REGISTRY_SQL_OPERATION_TIMEOUT_MS",
     processInteger,
   ).pipe(Config.withDefault(5_000)),
 });
@@ -127,6 +131,21 @@ export interface RegistryConfiguration {
   readonly sqlOperationTimeoutMs: number;
 }
 
+/** Closed Registry startup failure. */
+export class StartupError extends Data.TaggedError(
+  "RegistryServerStartupError",
+)<{
+  readonly phase: "configuration" | "storage" | "listener";
+  readonly reason?: RegistryStorageInitializationError["reason"] | "legacy-key";
+  readonly keys?: readonly string[];
+}> {
+  override get message(): string {
+    const keys = this.keys === undefined ? "" : `: ${this.keys.join(", ")}`;
+    const details = this.reason === undefined ? "" : ` (${this.reason}${keys})`;
+    return `Registry startup failed: ${this.phase}${details}`;
+  }
+}
+
 /**
  * Loads the complete private Registry process configuration.
  *
@@ -134,25 +153,28 @@ export interface RegistryConfiguration {
  */
 export const loadRegistryConfiguration: Effect.Effect<
   RegistryConfiguration,
-  ConfigError.ConfigError
-> = configuredValues.pipe(
-  Effect.map((configuration): RegistryConfiguration => configuration),
-  Effect.withSpan("loadRegistryConfiguration"),
+  ConfigError.ConfigError | StartupError
+> = Effect.suspend(
+  (): Effect.Effect<
+    RegistryConfiguration,
+    ConfigError.ConfigError | StartupError
+  > => {
+    // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- Configuration acquisition enumerates unknown legacy keys, which Effect.Config cannot name in advance.
+    const keys = legacyKeys(process.env);
+    return keys.length === 0
+      ? configuredValues.pipe(
+          Effect.map((configuration): RegistryConfiguration => configuration),
+          Effect.withSpan("loadRegistryConfiguration"),
+        )
+      : Effect.fail(
+          new StartupError({
+            phase: "configuration",
+            reason: "legacy-key",
+            keys,
+          }),
+        );
+  },
 );
-
-/** Closed Registry startup failure. */
-export class StartupError extends Data.TaggedError(
-  "RegistryServerStartupError",
-)<{
-  readonly phase: "configuration" | "storage" | "listener";
-  readonly reason?: RegistryStorageInitializationError["reason"];
-}> {
-  override get message(): string {
-    return this.reason === undefined
-      ? `Registry startup failed: ${this.phase}`
-      : `Registry startup failed: ${this.phase} (${this.reason})`;
-  }
-}
 
 const runRegistryServer = Effect.gen(function* () {
   const configuration = yield* loadRegistryConfiguration.pipe(
@@ -176,7 +198,7 @@ const runRegistryServer = Effect.gen(function* () {
  *
  * ```mermaid
  * flowchart TD
- *   Binary["moltzap-registry"] --> Server["runRegistryServer"]
+ *   Binary["sharness-registry"] --> Server["runRegistryServer"]
  *   Server --> Configuration["loadRegistryConfiguration"]
  *   Server --> Storage["RegistryStorage"]
  *   Server --> Http["makeRegistryHttpApp"]
@@ -213,7 +235,7 @@ function connectStorage(
       url: configuration.postgresqlUrl,
       maxConnections: configuration.sqlPoolSize,
       connectTimeout: Duration.millis(configuration.sqlOperationTimeoutMs),
-      applicationName: "moltzap-registry",
+      applicationName: "sharness-registry",
     }).pipe(Effect.provide(Reactivity.layer), Effect.mapError(storageFailure));
     yield* initializeRegistryStorage({
       sql,
@@ -287,8 +309,10 @@ function serveRegistry(
   });
 }
 
-function configurationFailure() {
-  return new StartupError({ phase: "configuration" });
+function configurationFailure(error: unknown) {
+  return error instanceof StartupError
+    ? error
+    : new StartupError({ phase: "configuration" });
 }
 
 function storageFailure(error?: RegistryStorageInitializationError | SqlError) {

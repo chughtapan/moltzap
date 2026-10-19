@@ -76,11 +76,11 @@ const PGLITE_BINARY = join(
 );
 const REGISTRY_BINARY = join(
   WORKSPACE_ROOT,
-  "packages/identity/bin/moltzap-registry",
+  "packages/identity/bin/sharness-registry",
 );
 const ROUTER_BINARY = join(
   WORKSPACE_ROOT,
-  "packages/router/bin/moltzap-router",
+  "packages/router/bin/sharness-router",
 );
 
 interface RunningProcess {
@@ -473,7 +473,7 @@ const encodeSignedMessage = (signedMessage: SignedMessageValue) =>
 const makeRegistryIdentity = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const temporaryDirectory = yield* fileSystem.makeTempDirectoryScoped({
-    prefix: "moltzap-registry-router-",
+    prefix: "sharness-registry-router-",
   });
   const registryPrivateKeyPath = join(temporaryDirectory, "registry-key.pem");
   const registryPrivateKeyPem = makePrivateKeyPem();
@@ -507,11 +507,11 @@ const startInfrastructure = Effect.gen(function* () {
   ]);
   yield* waitForTcpListener(postgresql, postgresqlPort);
   const registry = yield* managedProcess(REGISTRY_BINARY, [], {
-    MOLTZAP_REGISTRY_HOST: LOOPBACK_HOST,
-    MOLTZAP_REGISTRY_PORT: String(registryPort),
-    MOLTZAP_REGISTRY_POSTGRESQL_URL: `postgresql://postgres:postgres@${LOOPBACK_HOST}:${postgresqlPort}/postgres`,
-    MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL: ADMISSION_CREDENTIAL,
-    MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH: registryPrivateKeyPath,
+    SHARNESS_REGISTRY_HOST: LOOPBACK_HOST,
+    SHARNESS_REGISTRY_PORT: String(registryPort),
+    SHARNESS_REGISTRY_POSTGRESQL_URL: `postgresql://postgres:postgres@${LOOPBACK_HOST}:${postgresqlPort}/postgres`,
+    SHARNESS_REGISTRY_ADMISSION_CREDENTIAL: ADMISSION_CREDENTIAL,
+    SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH: registryPrivateKeyPath,
   });
   yield* assertHealthy(registry, registryOrigin);
   return {
@@ -530,10 +530,10 @@ const startRouterAt = (
 ) =>
   Effect.gen(function* () {
     const router = yield* managedProcess(ROUTER_BINARY, [], {
-      MOLTZAP_ROUTER_HOST: LOOPBACK_HOST,
-      MOLTZAP_ROUTER_PORT: String(port),
-      MOLTZAP_ROUTER_REGISTRY_ORIGIN: infrastructure.registryOrigin.origin,
-      MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY: JSON.stringify({
+      SHARNESS_ROUTER_HOST: LOOPBACK_HOST,
+      SHARNESS_ROUTER_PORT: String(port),
+      SHARNESS_ROUTER_REGISTRY_ORIGIN: infrastructure.registryOrigin.origin,
+      SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY: JSON.stringify({
         crv: infrastructure.registrySignerPublicKey.crv,
         kty: infrastructure.registrySignerPublicKey.kty,
         x: infrastructure.registrySignerPublicKey.x,
@@ -685,7 +685,7 @@ const assertNonceCapacityWithoutEviction = (
     const port = yield* reservePort;
     const origin = new URL(`http://${LOOPBACK_HOST}:${port}`);
     const router = yield* startRouterAt(infrastructure, port, {
-      MOLTZAP_ROUTER_LIVE_NONCE_CAPACITY: "1",
+      SHARNESS_ROUTER_LIVE_NONCE_CAPACITY: "1",
     });
     const firstRequest = yield* signAuthenticatedRequest(
       origin,

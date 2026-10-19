@@ -55,7 +55,7 @@ The certified post is an envelope: routing address, author, Router anchor,
 signatures and an opaque content body. Collective operations sit above it,
 within L2, and below L4 norms. Every send is one collective operation, and the
 endpoint carries the operation as one `data` part of the post's content under
-the key `xyz.moltzap/collective`. The envelope travels sealed to the members,
+the key `org.social-harness/collective`. The envelope travels sealed to the members,
 so only endpoints read it or that part; the Router sees the outer message's
 addressing, sizes, and ciphertext, and the Registry sees none of it.
 

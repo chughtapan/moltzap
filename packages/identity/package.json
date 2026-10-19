@@ -41,7 +41,7 @@
     }
   },
   "bin": {
-    "moltzap-registry": "./bin/moltzap-registry"
+    "sharness-registry": "./bin/sharness-registry"
   },
   "scripts": {
     "build": "nx run @moltzap/identity:build",

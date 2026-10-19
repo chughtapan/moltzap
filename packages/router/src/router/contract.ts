@@ -15,6 +15,7 @@ import {
   UnavailableError,
   UnsupportedMediaTypeError,
   VersionMismatchError,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import canonicalize from "canonicalize";
 import { Data, Effect, Either, Encoding, Option, Schema } from "effect";
@@ -36,18 +37,25 @@ export const routerJsonContentType = "application/json";
 
 const INSTANCE_BYTE_LENGTH = 16;
 const DIGEST_BYTE_LENGTH = 32;
-const MAXIMUM_CURSOR_LENGTH = 348;
+/** Reset representations retain their own cursor type and encoded bound. */
+const wireProfiles = {
+  [WIRE_VERSION]: {
+    pollCursorType: "application/vnd.sharness.poll-cursor+jwe",
+    maximumPollCursorLength: 349,
+  },
+} as const;
+const MAXIMUM_CURSOR_LENGTH =
+  wireProfiles[WIRE_VERSION].maximumPollCursorLength;
 
 /** Exact protected header carried by every PollCursor. */
 export const pollCursorProtectedHeader = Object.freeze({
   alg: "dir" as const,
   enc: "A256GCM" as const,
-  typ: "application/vnd.moltzap.poll-cursor+jwe" as const,
+  typ: wireProfiles[WIRE_VERSION].pollCursorType,
 });
 
 /** Canonical protected-header JSON carried by every PollCursor. */
-const pollCursorProtectedHeaderJson =
-  '{"alg":"dir","enc":"A256GCM","typ":"application/vnd.moltzap.poll-cursor+jwe"}';
+const pollCursorProtectedHeaderJson = `{"alg":"dir","enc":"A256GCM","typ":"${wireProfiles[WIRE_VERSION].pollCursorType}"}`;
 
 /** Canonical encoded protected header carried by every PollCursor. */
 export const encodedPollCursorProtectedHeader = Encoding.encodeBase64Url(

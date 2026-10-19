@@ -8,6 +8,7 @@ import {
   AgentCard,
   type AgentSigningAuthority,
   Ed25519PublicKey,
+  LIVE_WIRE_VERSIONS,
   SignedMessage,
   type VerifiedAgentCard,
   WIRE_VERSION,
@@ -319,8 +320,8 @@ function scriptedRouterWorker(
   wrapSend?: WrapSend,
 ): EngineRouterPort {
   const anchor = { routerInstanceId, pollCursor };
-  const forward = (outboundId: string) =>
-    forwardStoredOutbound(store, outbound, outboundId);
+  const forward = (messageId: string) =>
+    forwardStoredOutbound(store, outbound, messageId);
   return {
     currentAnchor: attachment?.currentAnchor ?? Effect.succeed(anchor),
     awaitAnchor: attachment?.awaitAnchor ?? Effect.succeed(anchor),
@@ -434,7 +435,13 @@ function makeProtocolHarness(
           .makeTempDirectoryScoped({
             prefix: `moltzap-engine-protocol-${index}-`,
           })
-          .pipe(Effect.flatMap(openEndpointStore)),
+          .pipe(
+            Effect.flatMap((directory) =>
+              openEndpointStore(directory, {
+                liveWireVersions: LIVE_WIRE_VERSIONS,
+              }),
+            ),
+          ),
       { concurrency: 1 },
     );
     const outbound = yield* Queue.unbounded<typeof SignedMessage.Type>();
@@ -2543,10 +2550,10 @@ function failsThenForwards(
   failure: RouterWorkerSendError,
   attempts: Ref.Ref<number>,
 ): WrapSend {
-  return (forward) => (outboundId) =>
+  return (forward) => (messageId) =>
     Ref.getAndUpdate(attempts, (count) => count + 1).pipe(
       Effect.flatMap((count) =>
-        count < FAILED_TRANSMITS ? Effect.fail(failure) : forward(outboundId),
+        count < FAILED_TRANSMITS ? Effect.fail(failure) : forward(messageId),
       ),
     );
 }
@@ -2705,19 +2712,18 @@ function blackHolesFirstTransmit(
   transmits: Ref.Ref<number>,
   store: Deferred.Deferred<EndpointStore>,
 ): WrapSend {
-  const beginThenHang = (outboundId: string) =>
+  const beginThenHang = (messageId: string) =>
     Deferred.await(store).pipe(
-      Effect.flatMap((author) => author.beginOutbound(outboundId)),
+      Effect.flatMap((author) => author.beginOutbound(messageId)),
       Effect.orDie,
       Effect.zipRight(Effect.never),
     );
   const transmitOnce =
-    (forward: EngineRouterPort["send"], outboundId: string) =>
-    (count: number) =>
-      count === 0 ? beginThenHang(outboundId) : forward(outboundId);
-  return (forward) => (outboundId) =>
+    (forward: EngineRouterPort["send"], messageId: string) => (count: number) =>
+      count === 0 ? beginThenHang(messageId) : forward(messageId);
+  return (forward) => (messageId) =>
     Ref.getAndUpdate(transmits, (count) => count + 1).pipe(
-      Effect.flatMap(transmitOnce(forward, outboundId)),
+      Effect.flatMap(transmitOnce(forward, messageId)),
     );
 }
 
@@ -2800,12 +2806,12 @@ function serializedSlowTransmit(
   target: Deferred.Deferred<ForwardTarget>,
 ) {
   const transmitUnder =
-    (recoveryGate: Effect.Semaphore) => (outboundId: string) =>
+    (recoveryGate: Effect.Semaphore) => (messageId: string) =>
       Ref.update(transmits, (count) => count + 1).pipe(
         Effect.zipRight(Deferred.await(target)),
         Effect.flatMap(({ store, outbound }) =>
           recoveryGate.withPermits(1)(
-            forwardStoredOutbound(store, outbound, outboundId, "100 millis"),
+            forwardStoredOutbound(store, outbound, messageId, "100 millis"),
           ),
         ),
       );
@@ -2889,7 +2895,7 @@ function transmitWhile(
   attached: SubscriptionRef.SubscriptionRef<boolean>,
   armed: Ref.Ref<boolean>,
   forward: EngineRouterPort["send"],
-  outboundId: string,
+  messageId: string,
 ) {
   return Ref.getAndSet(armed, false).pipe(
     Effect.flatMap((first) =>
@@ -2897,9 +2903,7 @@ function transmitWhile(
     ),
     Effect.zipRight(SubscriptionRef.get(attached)),
     Effect.flatMap((up) =>
-      up
-        ? forward(outboundId)
-        : Effect.fail(new RouterWorkerUnavailableError()),
+      up ? forward(messageId) : Effect.fail(new RouterWorkerUnavailableError()),
     ),
   );
 }
@@ -2915,8 +2919,8 @@ function detachesOnFirstTransmit(
     Effect.map(
       (armed): HarnessOptions => ({
         attachment: anchorWhile(attached),
-        authorSend: (forward) => (outboundId) =>
-          transmitWhile(attached, armed, forward, outboundId),
+        authorSend: (forward) => (messageId) =>
+          transmitWhile(attached, armed, forward, messageId),
       }),
     ),
   );

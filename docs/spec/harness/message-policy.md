@@ -486,8 +486,8 @@ never relabelled as a registered instruction.
 
 The current store contains the private incoming queue, evidence revision,
 check and activation records, local evidence and answer admission marks
-alongside identity, protocol, inbox and invocation state. Only schema 8 reopens; earlier state requires an explicit reset under the
-[reset release policy](../layer-interfaces.md#publication-and-versions). Checks retain
+alongside identity, protocol, inbox and invocation state. Schema 9 is the reset baseline; forward migrations and earlier-state refusal
+follow the [daemon persistence contract](./daemon.md#persistence). Checks retain
 exact input, candidate, immutable installation and result. Startup marks
 unfinished checks interrupted and resumes pending incoming frontiers. A held
 item stays held. Previously admitted items remain readable with their original

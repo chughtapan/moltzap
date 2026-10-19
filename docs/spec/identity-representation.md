@@ -142,7 +142,7 @@ The payload is exactly:
 ```json
 {
   "kind": "agentCard",
-  "moltzapVersion": "2026.1006.1",
+  "moltzapVersion": "2026.1019.1",
   "agentId": "agt_<22-character-base64url>",
   "principalId": "prn_<22-character-base64url>",
   "agentName": "example-agent",
@@ -179,7 +179,7 @@ The decoded protected header is exactly:
 {
   "alg": "Ed25519",
   "kid": "<Registry signer RFC-9278 JWK Thumbprint URI>",
-  "typ": "application/vnd.moltzap.agent-card+jws"
+  "typ": "application/vnd.sharness.agent-card+jws"
 }
 ```
 
@@ -223,7 +223,7 @@ The payload is exactly:
 ```json
 {
   "kind": "signedMessage",
-  "moltzapVersion": "2026.1006.1",
+  "moltzapVersion": "2026.1019.1",
   "senderAgentId": "agt_<22-character-base64url>",
   "agentCardDigest": "acd_<43-character-base64url>",
   "recipientAgentIds": [
@@ -254,7 +254,7 @@ General JWS shape as AgentCard. Its protected header is exactly:
 {
   "alg": "Ed25519",
   "kid": "<sender RFC-9278 JWK Thumbprint URI>",
-  "typ": "application/vnd.moltzap.signed-message+jws"
+  "typ": "application/vnd.sharness.signed-message+jws"
 }
 ```
 
@@ -283,7 +283,7 @@ Schema, constructor, or standalone decoder is public.
 `SignedMessage.encodedByteLength` returns the UTF-8 JCS byte length of
 the complete retained General JWS and has no failure channel. Under the
 fixed recipient and body bounds,
-`SignedMessage.maximumEncodedByteLength` is exactly 471,673. Identity
+`SignedMessage.maximumEncodedByteLength` is exactly 471,675. Identity
 owns both operations and the overflow-checked calculation; consumers
 do not reproduce its General JWS size formula.
 
@@ -320,19 +320,19 @@ and its decoded protected header is exactly:
 {
   "alg": "ECDH-ES+A256KW",
   "enc": "A256GCM",
-  "xyz.moltzap/commitment": "<base64url of 32 bytes>",
-  "xyz.moltzap/message-id": "msg_<22-character-base64url>",
-  "xyz.moltzap/sender": "agt_<22-character-base64url>"
+  "org.social-harness/commitment": "<base64url of 32 bytes>",
+  "org.social-harness/message-id": "msg_<22-character-base64url>",
+  "org.social-harness/sender": "agt_<22-character-base64url>"
 }
 ```
 
-`xyz.moltzap/sender` and `xyz.moltzap/message-id` are the `senderAgentId`
+`org.social-harness/sender` and `org.social-harness/message-id` are the `senderAgentId`
 and `messageId` of the SignedMessage that carries the body. An opener
 refuses a body whose header sender or MessageId differs from those of
 the verified SignedMessage.
 
 The JWE plaintext is a fresh 32-byte random salt followed by the
-plaintext. `xyz.moltzap/commitment` is the SHA-256 digest of those
+plaintext. `org.social-harness/commitment` is the SHA-256 digest of those
 salted bytes. An opener recomputes the digest from the decrypted bytes,
 refuses a mismatch or decrypted bytes shorter than the salt, and returns
 the bytes after the salt. A256GCM is not key-committing, so without the
@@ -381,8 +381,8 @@ exactly:
 
 | Recipients | Sealed bytes |
 |---|---|
-| R = 1 | `ceil(4(N + 32) / 3) + 577` |
-| R ≥ 2 | `ceil(4(N + 32) / 3) + 389 + 171R` |
+| R = 1 | `ceil(4(N + 32) / 3) + 605` |
+| R ≥ 2 | `ceil(4(N + 32) / 3) + 417 + 171R` |
 
 The second recipient adds 154 bytes, because a single recipient's
 ephemeral key moves from the protected header into its entry. Each
@@ -435,7 +435,7 @@ Registry and Router domain POST requests:
   `application/json`, with no parameter;
 - have no `Content-Encoding`;
 - do not require `Accept`;
-- have exactly one `MoltZap-Version` field with value `2026.1006.1`;
+- have exactly one `Sharness-Version` field whose value is in `LIVE_WIRE_VERSIONS`;
   and
 - use one body whose octets are the canonical JSON bytes.
 
@@ -467,27 +467,27 @@ specified in `identity.md`.
 
 Requests using either signed profile contain exactly one
 `Signature-Input` dictionary member and one matching `Signature`
-dictionary member. Their label is `moltzap`.
+dictionary member. Their label is `sharness`.
 
 ### Normal profile
 
 The signature-input covered-component order is exactly:
 
 ```text
-"@method" "@authority" "@path" "@query" "content-digest" "content-type" "moltzap-version"
+"@method" "@authority" "@path" "@query" "content-digest" "content-type" "sharness-version"
 ```
 
-Its tag is `moltzap-request-v1`.
+Its tag is `sharness-request-v1`.
 
 ### Registry registration profile
 
 The covered-component order is exactly:
 
 ```text
-"@method" "@authority" "@path" "@query" "content-digest" "content-type" "moltzap-version" "authorization"
+"@method" "@authority" "@path" "@query" "content-digest" "content-type" "sharness-version" "authorization"
 ```
 
-Its tag is `moltzap-registration-v1`.
+Its tag is `sharness-registration-v1`.
 
 ### Parameters
 
@@ -595,7 +595,7 @@ Lookup and list perform:
 1. exact route lookup and method check;
 2. content framing, content type, content encoding, body byte bound,
    and early concurrency bound;
-3. exact `MoltZap-Version` check;
+3. live-set `Sharness-Version` check;
 4. fatal UTF-8 decoding, JSON parsing, complete closed-schema decoding,
    JCS re-encoding, and byte comparison; and
 5. domain handling.
@@ -639,7 +639,7 @@ Registered-agent `AuthenticatedHttp` outcomes after common framing are:
 | 4 | missing or invalid digest, signature fields, covered component, key binding, card, proof, algorithm, tag, or time window | 401 `authentication_failed` |
 | 5 | nonce is already live | 401 `authentication_failed` |
 | 5 | nonce is novel but live-nonce capacity is full | 429 `overloaded`; do not claim it |
-| 6 | the authenticated signed wire compatibility value differs | 412 `version_mismatch`; retain the nonce claim |
+| 6 | the authenticated signed wire compatibility value is outside the live set | 412 `version_mismatch`; retain the nonce claim |
 | 7 | complete closed route-owned schema fails | 400 `malformed`; retain the nonce claim |
 | 8 | owner admission capacity that is independent of a route-owned domain outcome is unavailable | 429 `overloaded` |
 | 8 | a required domain dependency is unavailable or times out | 503 `unavailable` |
@@ -654,7 +654,7 @@ Registry bootstrap-admission outcomes after common framing are:
 | 5 | nonce is already live | 401 `authentication_failed` |
 | 5 | nonce is novel but live-nonce capacity is full | 429 `overloaded`; do not claim it |
 | 5 | the durable nonce claim is unavailable or times out | 503 `unavailable` |
-| 6 | the bootstrap-signed wire compatibility value differs | 412 `version_mismatch`; retain the nonce claim |
+| 6 | the bootstrap-signed wire compatibility value is outside the live set | 412 `version_mismatch`; retain the nonce claim |
 | 7 | complete closed `RegistryRegisterRequest` Schema fails | 400 `malformed`; retain the nonce claim |
 | 8 | Registry storage is unavailable or times out | 503 `unavailable` |
 | 8 | an unexpected implementation failure occurs | 500 `internal` |
@@ -669,7 +669,7 @@ Public Registry read outcomes after common framing are:
 
 | Stage | First matching condition | Outcome |
 |---:|---|---|
-| 3 | `MoltZap-Version` is absent or differs | 412 `version_mismatch` |
+| 3 | `Sharness-Version` is absent or outside the live set | 412 `version_mismatch` |
 | 4 | fatal UTF-8, JSON syntax, duplicate name, depth, Unicode, canonical-byte, or complete closed-schema failure | 400 `malformed` |
 | 5 | Registry storage is unavailable or times out | 503 `unavailable` |
 | 5 | an unexpected implementation failure occurs | 500 `internal` |
@@ -693,7 +693,7 @@ response. Registry resolution infrastructure failure produces
 
 ## Envelope failures
 
-Non-domain failures have exactly one-member bodies:
+Non-domain failures have exactly the bodies below; `supported` lists the server's live wire versions:
 
 | Status | Exact body |
 |---:|---|
@@ -701,7 +701,7 @@ Non-domain failures have exactly one-member bodies:
 | 401 | `{"error":"authentication_failed"}` |
 | 404 | `{"error":"not_found"}` |
 | 405 | `{"error":"method_not_allowed"}` |
-| 412 | `{"error":"version_mismatch"}` |
+| 412 | `{"error":"version_mismatch","supported":[...]}` |
 | 413 | `{"error":"payload_too_large"}` |
 | 415 | `{"error":"unsupported_media_type"}` |
 | 429 | `{"error":"overloaded"}` |

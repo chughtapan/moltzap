@@ -11,7 +11,7 @@ explicit Client address inputs and deliver those queue entries through the
 registered channel. The adapter does not own NanoClaw's inbox, outbox, friendly-name ACL,
 session database, prompt behavior, or runtime driver.
 
-Set `MOLTZAP_MCP_URL` to the local daemon's loopback `/mcp` URL. The adapter can
+Set `SHARNESS_MCP_URL` to the local daemon's loopback `/mcp` URL. The adapter can
 only be created by NanoClaw's channel registry.
 
 Each inbound item renders by kind. A multicast item's direct or group message

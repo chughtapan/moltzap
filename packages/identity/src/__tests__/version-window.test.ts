@@ -12,6 +12,9 @@ import {
 } from "../index.js";
 import golden from "./wire-golden.json" with { type: "json" };
 
+const retainedVersion = "2099.101.0";
+
+// @agent-code-guard/regression-only: Fixed signed golden artifacts pin retained-artifact and admission regressions.
 it("verifies golden card and signed bytes without changing their representation", () =>
   Effect.runPromise(
     Effect.gen(function* () {
@@ -43,7 +46,7 @@ it("verifies golden card and signed bytes without changing their representation"
     }).pipe(
       Effect.provideService(WireVersions, {
         live: [WIRE_VERSION],
-        history: ["2099.101.0", WIRE_VERSION],
+        history: [retainedVersion, WIRE_VERSION],
       }),
     ),
   ));
@@ -53,8 +56,8 @@ it("cannot widen live admission even when the supplied live set includes a retai
     Schema.decodeUnknown(SignedMessage.live)(golden.message).pipe(
       Effect.isFailure,
       Effect.provideService(WireVersions, {
-        live: ["2099.101.0", WIRE_VERSION],
-        history: ["2099.101.0", WIRE_VERSION],
+        live: [retainedVersion, WIRE_VERSION],
+        history: [retainedVersion, WIRE_VERSION],
       }),
       Effect.tap((rejected) =>
         Effect.sync(() => {
@@ -71,6 +74,21 @@ it("keeps the binary's retained history when configured history is empty", () =>
       Effect.tap((version) =>
         Effect.sync(() => {
           expect(version).toBe(WIRE_VERSION);
+        }),
+      ),
+    ),
+  ));
+
+it("exposes a signed envelope's retained version independently from the binary", () =>
+  Effect.runPromise(
+    Schema.decodeUnknown(SignedMessage)(golden.message).pipe(
+      Effect.provideService(WireVersions, {
+        live: [],
+        history: [retainedVersion],
+      }),
+      Effect.tap((message) =>
+        Effect.sync(() => {
+          expect(SignedMessage.wireVersion(message)).toBe(retainedVersion);
         }),
       ),
     ),

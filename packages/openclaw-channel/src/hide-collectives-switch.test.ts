@@ -1,5 +1,5 @@
 /**
- * @file The `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES` experiment switch: which
+ * @file The `SHARNESS_EXPERIMENT_HIDE_COLLECTIVES` experiment switch: which
  * message texts it refuses.
  */
 
@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createChannelPlugin } from "./plugin.js";
 
-const HIDE_COLLECTIVES = "MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES";
+const HIDE_COLLECTIVES = "SHARNESS_EXPERIMENT_HIDE_COLLECTIVES";
 const REFUSAL = "gather, all_gather and answers are not available";
 const CONFIG: OpenClawConfig = {
   channels: { moltzap: { accounts: [{ id: "primary" }] } },

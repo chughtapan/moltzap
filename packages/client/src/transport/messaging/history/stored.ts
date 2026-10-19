@@ -657,6 +657,9 @@ function verifyStoredOutbound(
       SignedMessage,
       outbound.canonicalSignedMessage,
     );
+    if (SignedMessage.wireVersion(retained) !== outbound.wireVersion) {
+      return yield* Effect.fail(persistenceFailure());
+    }
     const representation = yield* Schema.encode(SignedMessage)(retained);
     const message = yield* Schema.decodeUnknown(SignedMessage.live)(
       representation,

@@ -1,6 +1,7 @@
 /** @file Exact preflight, proposal-lock, certification, and delivery tests. */
 
 import { live as it } from "@effect/vitest";
+import { LIVE_WIRE_VERSIONS, WIRE_VERSION } from "@moltzap/identity";
 import { Effect } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests create and inspect exact real-SQLite permission fixtures around the scoped Effect resource.
 import { readFileSync, statSync } from "node:fs";
@@ -68,12 +69,14 @@ function rejectsNonemptyDatabaseWithoutInitialization() {
   const original = readFileSync(path);
 
   return expectReason(
-    Effect.scoped(openEndpointStore(directory)).pipe(
+    Effect.scoped(
+      openEndpointStore(directory, { liveWireVersions: LIVE_WIRE_VERSIONS }),
+    ).pipe(
       Effect.catchTag("OutboxTooOldError", () =>
         Effect.dieMessage("unexpected pending outbox"),
       ),
     ),
-    "incompatible",
+    "pre-reset",
   ).pipe(
     Effect.tap(() =>
       Effect.sync(() => {
@@ -421,8 +424,8 @@ function stageInitialOutbound(fixture: OutboundLifecycleFixture) {
         foundation(fixture.message.conversationId),
       );
       const staged = yield* store.enqueueOutbound(fixture.message);
-      expect(staged.outboundId).toBe(fixture.message.messageId);
-      expect(yield* store.beginOutbound(staged.outboundId)).toEqual({
+      expect(staged.messageId).toBe(fixture.message.messageId);
+      expect(yield* store.beginOutbound(staged.messageId)).toEqual({
         kind: "pending",
         mode: "initial",
         outbound: staged,
@@ -436,10 +439,9 @@ function completeRetriedOutbound(fixture: OutboundLifecycleFixture) {
     Effect.gen(function* () {
       const replay = yield* recoverOnlyOutbound(store);
       expect(replay).toEqual({
-        outboundId: fixture.message.messageId,
         ...fixture.message,
       });
-      expect(yield* store.beginOutbound(replay.outboundId)).toEqual({
+      expect(yield* store.beginOutbound(replay.messageId)).toEqual({
         kind: "pending",
         mode: "retry",
         outbound: replay,
@@ -723,6 +725,7 @@ function discardsOnlyAnExactCurrentOutboundSet() {
           retainedFirst,
           {
             ...retainedSecond,
+            wireVersion: WIRE_VERSION,
             canonicalSignedMessage: bytes("outer:changed"),
           },
         ]),
@@ -950,6 +953,7 @@ function outboundMessage(
   return {
     conversationId,
     messageId,
+    wireVersion: WIRE_VERSION,
     canonicalSignedMessage: bytes(canonical),
   };
 }
@@ -1011,7 +1015,7 @@ describe("endpoint SQLite preflight", () => {
   it("initializes an empty database and reopens it", initializesEmptyDatabase);
 
   it(
-    "rejects an unrecognized database without changing its bytes",
+    "rejects an unversioned populated database without changing its bytes",
     rejectsNonemptyDatabaseWithoutInitialization,
   );
 });

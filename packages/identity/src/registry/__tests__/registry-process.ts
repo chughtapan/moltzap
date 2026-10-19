@@ -55,7 +55,7 @@ const REGISTRATION_SIGNATURE_FIELDS = [
   "@query",
   "content-digest",
   "content-type",
-  "moltzap-version",
+  "sharness-version",
   "authorization",
 ] as const;
 const SIGNATURE_PARAMETERS = [
@@ -76,7 +76,7 @@ const PGLITE_BINARY = join(
 );
 const REGISTRY_BINARY = join(
   WORKSPACE_ROOT,
-  "packages/identity/bin/moltzap-registry",
+  "packages/identity/bin/sharness-registry",
 );
 
 interface RunningProcess {
@@ -549,7 +549,7 @@ const signBootstrapMessage = (input: {
     try: () =>
       httpbis.signMessage(
         {
-          name: "moltzap",
+          name: "sharness",
           fields: [...REGISTRATION_SIGNATURE_FIELDS],
           params: [...SIGNATURE_PARAMETERS],
           paramValues: {
@@ -558,7 +558,7 @@ const signBootstrapMessage = (input: {
             keyid: input.keyid,
             nonce: input.nonce,
             alg: "ed25519",
-            tag: "moltzap-registration-v1",
+            tag: "sharness-registration-v1",
           },
           key: {
             id: input.keyid,
@@ -599,7 +599,7 @@ const makeVersionedBootstrapRequest = (
         `MoltZap-Admission ${ADMISSION_CREDENTIAL}`,
       ),
       HttpClientRequest.setHeader("content-digest", contentDigest(bodyBytes)),
-      HttpClientRequest.setHeader("moltzap-version", version),
+      HttpClientRequest.setHeader("sharness-version", version),
     );
     const signed = yield* signBootstrapMessage({
       request,
@@ -651,12 +651,12 @@ const registryEnvironment = (input: {
   readonly registryKeyPath: string;
   readonly overrides?: Readonly<Record<string, string>>;
 }) => ({
-  MOLTZAP_REGISTRY_HOST: LOOPBACK_HOST,
-  MOLTZAP_REGISTRY_PORT: String(input.port),
-  MOLTZAP_REGISTRY_POSTGRESQL_URL: input.postgresqlUrl,
-  MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL: ADMISSION_CREDENTIAL,
-  MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH: input.registryKeyPath,
-  MOLTZAP_REGISTRY_LIST_PAGE_SIZE: "2",
+  SHARNESS_REGISTRY_HOST: LOOPBACK_HOST,
+  SHARNESS_REGISTRY_PORT: String(input.port),
+  SHARNESS_REGISTRY_POSTGRESQL_URL: input.postgresqlUrl,
+  SHARNESS_REGISTRY_ADMISSION_CREDENTIAL: ADMISSION_CREDENTIAL,
+  SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH: input.registryKeyPath,
+  SHARNESS_REGISTRY_LIST_PAGE_SIZE: "2",
   ...input.overrides,
 });
 

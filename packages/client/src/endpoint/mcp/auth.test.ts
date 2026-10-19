@@ -6,7 +6,7 @@ import {
   CLIENT_INFO_META_KEY,
   PROTOCOL_VERSION_META_KEY,
 } from "@modelcontextprotocol/server";
-import { AgentCard } from "@moltzap/identity";
+import { AgentCard, LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Effect, Redacted, Schema } from "effect";
 import { describe, expect } from "vitest";
 import type { EventStore } from "../../delivery/operations.js";
@@ -483,7 +483,9 @@ const admittedCalls = [
  * inbox item terminally with 410 Gone, which only an owner revoke clears.
  */
 const terminallyStalledWebhookStore = Effect.gen(function* () {
-  const store = yield* openEndpointStore(stateDirectory());
+  const store = yield* openEndpointStore(stateDirectory(), {
+    liveWireVersions: LIVE_WIRE_VERSIONS,
+  });
   const callback = scriptedWebhook(store);
   const webhook = yield* callback.acquire;
   yield* webhook.subscribe(input, "runtime");

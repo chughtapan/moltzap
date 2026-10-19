@@ -33,6 +33,7 @@ import {
   canonicalIdentifier,
 } from "./identifiers.js";
 import { WIRE_VERSION, WireVersions } from "./version.js";
+import { WIRE_PROFILES } from "./wire-profile.js";
 
 /** Sender-scoped identity of one attributed message. */
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Effect Schemas share the public domain name they decode.
@@ -41,18 +42,19 @@ export const MessageId = canonicalIdentifier("MessageId", "msg_", 16);
 // eslint-disable-next-line @typescript-eslint/no-redeclare -- The same-named Schema and type form one boundary model.
 export type MessageId = typeof MessageId.Type;
 
-const SIGNED_MESSAGE_TYPE = "application/vnd.moltzap.signed-message+jws";
+const SIGNED_MESSAGE_TYPE = WIRE_PROFILES[WIRE_VERSION].signedMessageType;
 /** Largest opaque body, in bytes, that one SignedMessage carries. */
-export const MAXIMUM_BODY_BYTES = 262_144;
+export const MAXIMUM_BODY_BYTES = WIRE_PROFILES[WIRE_VERSION].maximumBodyBytes;
 /** Largest recipient set that one SignedMessage names. */
-export const MAXIMUM_RECIPIENTS = 128;
+export const MAXIMUM_RECIPIENTS = WIRE_PROFILES[WIRE_VERSION].maximumRecipients;
 /**
  * The complete General JWS encoding of the largest SignedMessage: the
  * maximum body to the maximum recipients. It is derived from the closed
  * representation, so it changes with the length of `WIRE_VERSION`, which
  * every payload carries; a test recomputes it from an actual encoding.
  */
-const MAXIMUM_ENCODED_BYTES = 471_673;
+const MAXIMUM_ENCODED_BYTES =
+  WIRE_PROFILES[WIRE_VERSION].maximumSignedMessageBytes;
 const ED25519_SIGNATURE_BYTES = 64;
 
 const decodeCanonicalBase64Url = (value: string): Uint8Array | undefined =>
@@ -400,7 +402,7 @@ const prepareSigningMaterial = (input: SignInput) =>
     ).pipe(Effect.mapError(signingFailure));
     const payloadBytes = yield* encodeCanonicalJson({
       kind: "signedMessage",
-      moltzapVersion: WIRE_VERSION,
+      moltzapVersion: yield* WireVersions.emitted,
       senderAgentId: input.agentCard.agentId,
       agentCardDigest,
       recipientAgentIds: recipients,
@@ -512,6 +514,8 @@ export const SignedMessage = Object.assign(signedMessageSchema, {
   sign,
   verify,
   encodedByteLength,
+  wireVersion: (message: SignedMessage): string =>
+    messageState.get(message)?.wireVersion ?? "",
   maximumEncodedByteLength: MAXIMUM_ENCODED_BYTES,
 }) as Schema.Schema<SignedMessage, unknown> &
   Readonly<{
@@ -519,6 +523,7 @@ export const SignedMessage = Object.assign(signedMessageSchema, {
     readonly sign: typeof sign;
     readonly verify: typeof verify;
     readonly encodedByteLength: typeof encodedByteLength;
+    readonly wireVersion: (message: SignedMessage) => string;
     readonly maximumEncodedByteLength: number;
   }>;
 /* eslint-enable @typescript-eslint/no-redeclare, @typescript-eslint/naming-convention, agent-code-guard/require-assertion-rationale --

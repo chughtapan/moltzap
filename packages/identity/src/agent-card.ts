@@ -32,11 +32,12 @@ import {
   type PrincipalId as PrincipalIdValue,
 } from "./identifiers.js";
 import { WIRE_VERSION, WireVersions } from "./version.js";
+import { WIRE_PROFILES } from "./wire-profile.js";
 
 const DIGEST_BYTE_LENGTH = 32;
 const WHOLE_SECOND_UTC =
   /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\dZ$/;
-const AGENT_CARD_TYPE = "application/vnd.moltzap.agent-card+jws";
+const AGENT_CARD_TYPE = WIRE_PROFILES[WIRE_VERSION].agentCardType;
 const ED25519_SIGNATURE_BYTES = 64;
 
 const isWholeSecondUtc = (value: string): boolean => {
@@ -365,7 +366,7 @@ export const issueAgentCard = (
   Effect.gen(function* () {
     const payloadBytes = yield* encodeCanonicalJson({
       kind: "agentCard",
-      moltzapVersion: WIRE_VERSION,
+      moltzapVersion: yield* WireVersions.emitted,
       agentId: input.agentId,
       principalId: input.principalId,
       agentName: input.agentName,

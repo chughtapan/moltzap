@@ -3,6 +3,7 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { scopedLive as it } from "@effect/vitest";
+import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import { join } from "node:path";
 import { describe, expect } from "vitest";
@@ -146,7 +147,9 @@ const snapshotRetainedAttempts = () =>
     const directory = stateDirectory();
     const path = join(directory, "audit.ndjson");
     const fixture = yield* makeAuditFixture;
-    const store = yield* openEndpointStore(directory);
+    const store = yield* openEndpointStore(directory, {
+      liveWireVersions: LIVE_WIRE_VERSIONS,
+    });
     const audit = yield* beginFirewallAudit(path, store);
     yield* seedRetainedAttempts(store, fixture);
     const first = yield* store.readFirewallAuditPage(0);
@@ -177,7 +180,9 @@ const restartInvalidatesCompletion = () =>
       }),
     );
     const prior = (yield* readAudit(path)).records[0];
-    const store = yield* openEndpointStore(directory);
+    const store = yield* openEndpointStore(directory, {
+      liveWireVersions: LIVE_WIRE_VERSIONS,
+    });
     const audit = yield* beginFirewallAudit(path, store);
     const current = (yield* readAudit(path)).records;
     expect(current.map((entry) => entry.kind)).toEqual(["start"]);
@@ -193,7 +198,9 @@ const restartInvalidatesCompletion = () =>
 const refusesUnsafePaths = () =>
   Effect.gen(function* () {
     const directory = stateDirectory();
-    const store = yield* openEndpointStore(directory);
+    const store = yield* openEndpointStore(directory, {
+      liveWireVersions: LIVE_WIRE_VERSIONS,
+    });
     const fileSystem = yield* FileSystem.FileSystem;
     const target = join(directory, "target");
     const link = join(directory, "link");
@@ -232,7 +239,9 @@ const failedReadLeavesIncomplete = () =>
     const directory = stateDirectory();
     const path = join(directory, "audit.ndjson");
     const fixture = yield* makeAuditFixture;
-    const store = yield* openEndpointStore(directory);
+    const store = yield* openEndpointStore(directory, {
+      liveWireVersions: LIVE_WIRE_VERSIONS,
+    });
     yield* store.beginFirewallAttempt({
       ...fixture,
       checkId: "one",
@@ -263,7 +272,9 @@ const failedPublicationLeavesIncomplete = () =>
     const directory = stateDirectory();
     const path = join(directory, "audit.ndjson");
     const fileSystem = yield* FileSystem.FileSystem;
-    const store = yield* openEndpointStore(directory);
+    const store = yield* openEndpointStore(directory, {
+      liveWireVersions: LIVE_WIRE_VERSIONS,
+    });
     const audit = yield* beginFirewallAudit(path, {
       readFirewallActivations: store.readFirewallActivations,
       readFirewallAuditPage: (after) =>
@@ -291,7 +302,9 @@ const corruptAttemptLeavesIncomplete = (
     const directory = stateDirectory();
     const path = join(directory, "audit.ndjson");
     const fixture = yield* makeAuditFixture;
-    const store = yield* openEndpointStore(directory);
+    const store = yield* openEndpointStore(directory, {
+      liveWireVersions: LIVE_WIRE_VERSIONS,
+    });
     yield* store.beginFirewallAttempt({
       ...fixture,
       canonicalInput:

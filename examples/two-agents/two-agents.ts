@@ -4,7 +4,7 @@
  * and prints the message bob receives.
  *
  * The network is one in-memory PGlite database, one Registry, one Router, and
- * one `moltzapd` per agent, each on a free loopback port. Registration goes
+ * one `sharnessd` per agent, each on a free loopback port. Registration goes
  * through each daemon's MCP `register` tool; the message goes through the
  * `HarnessEndpoint` that `@moltzap/client` acquires from the same MCP URL.
  * Every process and the scratch directory are removed when the script ends.
@@ -169,18 +169,18 @@ function startNetwork(): Effect.Effect<Network, StepError, Services> {
       "--max-connections=20",
     ]);
     yield* awaitReady(database, canConnect(databasePort));
-    const registry = yield* start("moltzap-registry", "registry", [], {
-      MOLTZAP_REGISTRY_HOST: HOST,
-      MOLTZAP_REGISTRY_PORT: String(registryPort),
-      MOLTZAP_REGISTRY_POSTGRESQL_URL: `postgresql://postgres:postgres@${HOST}:${databasePort}/postgres`,
-      MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL: ADMISSION_CREDENTIAL,
-      MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH: registryKey,
+    const registry = yield* start("sharness-registry", "registry", [], {
+      SHARNESS_REGISTRY_HOST: HOST,
+      SHARNESS_REGISTRY_PORT: String(registryPort),
+      SHARNESS_REGISTRY_POSTGRESQL_URL: `postgresql://postgres:postgres@${HOST}:${databasePort}/postgres`,
+      SHARNESS_REGISTRY_ADMISSION_CREDENTIAL: ADMISSION_CREDENTIAL,
+      SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH: registryKey,
     });
-    const router = yield* start("moltzap-router", "router", [], {
-      MOLTZAP_ROUTER_HOST: HOST,
-      MOLTZAP_ROUTER_PORT: String(routerPort),
-      MOLTZAP_ROUTER_REGISTRY_ORIGIN: registryOrigin,
-      MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY: registrySigner,
+    const router = yield* start("sharness-router", "router", [], {
+      SHARNESS_ROUTER_HOST: HOST,
+      SHARNESS_ROUTER_PORT: String(routerPort),
+      SHARNESS_ROUTER_REGISTRY_ORIGIN: registryOrigin,
+      SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY: registrySigner,
     });
     yield* awaitReady(registry, isHealthy(registryOrigin));
     yield* awaitReady(router, isHealthy(routerOrigin));
@@ -190,7 +190,7 @@ function startNetwork(): Effect.Effect<Network, StepError, Services> {
 }
 
 /**
- * Starts one `moltzapd` with its own key, admission credential file, and state
+ * Starts one `sharnessd` with its own key, admission credential file, and state
  * directory, and returns once its MCP port accepts connections.
  */
 function startAgent(
@@ -209,18 +209,18 @@ function startAgent(
       mode: 0o600,
     });
     const port = yield* freePort();
-    const daemon = yield* start("moltzapd", name, [], {
-      MOLTZAPD_MCP_PORT: String(port),
-      MOLTZAPD_STATE_DIRECTORY: stateDirectory,
-      MOLTZAPD_REGISTRY_ORIGIN: network.registryOrigin,
-      MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY: network.registrySigner,
-      MOLTZAPD_ROUTER_ORIGIN: network.routerOrigin,
-      MOLTZAPD_AGENT_PRIVATE_KEY_FILE: keyFile,
-      MOLTZAPD_ADMISSION_CREDENTIAL_FILE: admissionFile,
+    const daemon = yield* start("sharnessd", name, [], {
+      SHARNESS_MCP_PORT: String(port),
+      SHARNESS_STATE_DIRECTORY: stateDirectory,
+      SHARNESS_REGISTRY_ORIGIN: network.registryOrigin,
+      SHARNESS_REGISTRY_SIGNER_PUBLIC_KEY: network.registrySigner,
+      SHARNESS_ROUTER_ORIGIN: network.routerOrigin,
+      SHARNESS_AGENT_PRIVATE_KEY_FILE: keyFile,
+      SHARNESS_ADMISSION_CREDENTIAL_FILE: admissionFile,
     });
     yield* awaitReady(daemon, canConnect(port));
     const mcp = new URL(`http://${HOST}:${port}/mcp`);
-    yield* Console.log(`${name}: moltzapd serving ${mcp.href}`);
+    yield* Console.log(`${name}: sharnessd serving ${mcp.href}`);
     return { name, mcp };
   });
 }

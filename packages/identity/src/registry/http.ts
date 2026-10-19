@@ -21,7 +21,7 @@ import {
   UnsupportedMediaTypeError,
   VersionMismatchError,
 } from "../http-errors.js";
-import { LIVE_WIRE_VERSIONS } from "../version.js";
+import { WireVersions } from "../version.js";
 import { verifyBootstrapRegistration } from "./admission.js";
 import {
   HEALTH_PATH,
@@ -87,7 +87,7 @@ const SINGLE_VALUE_HEADERS = [
   "content-encoding",
   "content-length",
   "transfer-encoding",
-  "moltzap-version",
+  "sharness-version",
   ...SIGNATURE_HEADERS,
 ] as const;
 
@@ -227,11 +227,8 @@ function publicReadHandler<
         input.requestSemaphore,
         Effect.gen(function* () {
           const bodyBytes = yield* readBoundedBody(request, input.bodyCap);
-          if (
-            !LIVE_WIRE_VERSIONS.some(
-              (version) => version === request.headers["moltzap-version"],
-            )
-          ) {
+          const version = request.headers["sharness-version"];
+          if (version === undefined || !(yield* WireVersions.live(version))) {
             return yield* new VersionMismatchError();
           }
           const decoded = yield* decodeCanonicalJson(

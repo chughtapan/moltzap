@@ -5,7 +5,7 @@ each message to the agent ids it names, in one globally ordered feed, without
 reading the content: bodies stay sealed to their recipients. Router keeps that
 feed in memory only. Conversations, history, replay, and recovery belong to
 each agent's daemon. The package holds the Router client capability and ships
-`moltzap-router`, the Router process.
+`sharness-router`, the Router process.
 
 ## Install
 
@@ -27,7 +27,7 @@ with.
 
 ## Run the Router
 
-`moltzap-router` reads its configuration from the environment and serves HTTP
+`sharness-router` reads its configuration from the environment and serves HTTP
 on the configured host and port. It authenticates every request against a
 running Registry, so start the Registry first (see
 [`@moltzap/identity`](../identity/README.md#run-the-registry)) and have its
@@ -36,10 +36,10 @@ signer public key as a compact Ed25519 JWK.
 1. Start the Router:
 
    ```bash
-   MOLTZAP_ROUTER_PORT=4200 \
-   MOLTZAP_ROUTER_REGISTRY_ORIGIN=http://127.0.0.1:4100 \
-   MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY='{"crv":"Ed25519","kty":"OKP","x":"<43 base64url characters>"}' \
-   npx moltzap-router
+   SHARNESS_ROUTER_PORT=4200 \
+   SHARNESS_ROUTER_REGISTRY_ORIGIN=http://127.0.0.1:4100 \
+   SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY='{"crv":"Ed25519","kty":"OKP","x":"<43 base64url characters>"}' \
+   npx sharness-router
    ```
 
 2. Check that it is ready. `GET /healthz` answers `204 No Content` when the
@@ -59,25 +59,25 @@ Required:
 
 | Variable | Value |
 |---|---|
-| `MOLTZAP_ROUTER_PORT` | Listener port, 1 to 65535 |
-| `MOLTZAP_ROUTER_REGISTRY_ORIGIN` | Registry origin, `http://` or `https://`, with no trailing slash, path, query, fragment, or credentials |
-| `MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY` | Registry signer as compact JSON, exactly `{"crv":"Ed25519","kty":"OKP","x":"..."}` in that key order |
+| `SHARNESS_ROUTER_PORT` | Listener port, 1 to 65535 |
+| `SHARNESS_ROUTER_REGISTRY_ORIGIN` | Registry origin, `http://` or `https://`, with no trailing slash, path, query, fragment, or credentials |
+| `SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY` | Registry signer as compact JSON, exactly `{"crv":"Ed25519","kty":"OKP","x":"..."}` in that key order |
 
 Optional:
 
 | Variable | Default | Value |
 |---|---|---|
-| `MOLTZAP_ROUTER_HOST` | `127.0.0.1` | Listener bind host; `0.0.0.0` and `::` are allowed |
-| `MOLTZAP_ROUTER_RETAINED_MESSAGE_CAPACITY` | `4096` | Messages kept in the feed |
-| `MOLTZAP_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY` | `67108864` | Bytes kept in the feed; must hold one maximum-size message |
-| `MOLTZAP_ROUTER_POLL_MESSAGE_LIMIT` | `128` | Messages returned by one poll |
-| `MOLTZAP_ROUTER_POLL_RESPONSE_BYTE_LIMIT` | `1048576` | Bytes in one poll response; must hold one maximum-size message |
-| `MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT` | `512` | Requests served at once; more are refused with `429` |
-| `MOLTZAP_ROUTER_HELD_POLL_CAPACITY` | `256` | Polls held open waiting for messages; must be less than the request concurrency limit |
-| `MOLTZAP_ROUTER_LIVE_NONCE_CAPACITY` | `100000` | Unexpired request nonces held for replay protection |
-| `MOLTZAP_ROUTER_AGENT_CARD_CACHE_CAPACITY` | `10000` | Verified `AgentCard` values cached from the Registry |
-| `MOLTZAP_ROUTER_REGISTRY_LOOKUP_CONCURRENCY_LIMIT` | `32` | Registry lookups in flight at once |
-| `MOLTZAP_ROUTER_REGISTRY_LOOKUP_TIMEOUT_MS` | `5000` | Deadline for one Registry lookup, in milliseconds |
+| `SHARNESS_ROUTER_HOST` | `127.0.0.1` | Listener bind host; `0.0.0.0` and `::` are allowed |
+| `SHARNESS_ROUTER_RETAINED_MESSAGE_CAPACITY` | `4096` | Messages kept in the feed |
+| `SHARNESS_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY` | `67108864` | Bytes kept in the feed; must hold one maximum-size message |
+| `SHARNESS_ROUTER_POLL_MESSAGE_LIMIT` | `128` | Messages returned by one poll |
+| `SHARNESS_ROUTER_POLL_RESPONSE_BYTE_LIMIT` | `1048576` | Bytes in one poll response; must hold one maximum-size message |
+| `SHARNESS_ROUTER_REQUEST_CONCURRENCY_LIMIT` | `512` | Requests served at once; more are refused with `429` |
+| `SHARNESS_ROUTER_HELD_POLL_CAPACITY` | `256` | Polls held open waiting for messages; must be less than the request concurrency limit |
+| `SHARNESS_ROUTER_LIVE_NONCE_CAPACITY` | `100000` | Unexpired request nonces held for replay protection |
+| `SHARNESS_ROUTER_AGENT_CARD_CACHE_CAPACITY` | `10000` | Verified `AgentCard` values cached from the Registry |
+| `SHARNESS_ROUTER_REGISTRY_LOOKUP_CONCURRENCY_LIMIT` | `32` | Registry lookups in flight at once |
+| `SHARNESS_ROUTER_REGISTRY_LOOKUP_TIMEOUT_MS` | `5000` | Deadline for one Registry lookup, in milliseconds |
 
 Numbers are plain decimal integers from 1 to 2147483647, with no leading zeros,
 sign, spaces, or exponent. A missing or invalid value, a set of bounds that

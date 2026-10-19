@@ -8,11 +8,11 @@ Production composition for one explicitly configured endpoint daemon.
 
 ## Public surface
 
-### [`Daemon`](./index.ts#L72)
+### [`Daemon`](./index.ts#L81)
 
 _Namespace_
 
-### [`FirewallOptions`](./index.ts#L74)
+### [`FirewallOptions`](./index.ts#L83)
 
 _TypeAlias_
 
@@ -28,7 +28,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-### [`layer`](./index.ts#L144)
+### [`layer`](./index.ts#L161)
 
 _Variable_
 
@@ -38,31 +38,39 @@ _Variable_
   )
 ```
 
-Complete production process composition for `moltzapd`.
+Complete production process composition for `sharnessd`.
 
-### [`StartupError`](./index.ts#L83)
+### [`StartupError`](./index.ts#L92)
 
 _Class_
 
 ```ts
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
-    readonly reason?: "outbox-too-old" | "newer-schema" | "pre-reset";
+    readonly reason?:
+      | "outbox-too-old"
+      | "newer-schema"
+      | "pre-reset"
+      | "legacy-key";
+    readonly keys?: readonly string[];
   }> {
     /**
      * Names the failed phase and any actionable compatibility refusal.
      * @returns The startup failure message.
      */
     override get message(): string {
-      const phase = `moltzapd startup failed in phase ${this.phase}`;
-      return this.reason === undefined ? phase : `${phase}: ${this.reason}`;
+      const phase = `sharnessd startup failed in phase ${this.phase}`;
+      const keys = this.keys === undefined ? "" : ` (${this.keys.join(", ")})`;
+      return this.reason === undefined
+        ? phase
+        : `${phase}: ${this.reason}${keys}`;
     }
   }
 ```
 
 Closed daemon startup phase without configuration or platform detail.
 
-### [`withFirewall`](./index.ts#L153)
+### [`withFirewall`](./index.ts#L170)
 
 _Function_
 

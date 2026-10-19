@@ -8,6 +8,7 @@
  * each shape in turn.
  */
 
+import { WIRE_VERSION } from "@moltzap/identity";
 import { Data, Effect, Option, Schema } from "effect";
 import { createHash, randomBytes } from "node:crypto";
 import {
@@ -16,6 +17,7 @@ import {
   exactStruct,
   RecordHash,
 } from "../../wire/index.js";
+import { wireProfiles } from "../../wire/values.js";
 import {
   AcceptResponse,
   CollectiveId,
@@ -33,7 +35,7 @@ export type { FormField } from "./grammar.js";
 type PostContent = typeof Content.Type;
 
 /** The `data` part key under which the collective layer carries its value. */
-export const COLLECTIVE_DATA_KEY = "xyz.moltzap/collective";
+export const COLLECTIVE_DATA_KEY = wireProfiles[WIRE_VERSION].collectiveDataKey;
 
 /**
  * The MCP form-mode `requestedSchema`: a flat object of primitive properties.
@@ -87,7 +89,9 @@ export const collectiveIdOf = (
 ): CollectiveId =>
   decodeCollectiveId(
     `col_${createHash("sha256")
-      .update(`xyz.moltzap/collective-id\0${requester}\0${nonce}`)
+      .update(
+        `${wireProfiles[WIRE_VERSION].collectiveIdDomain}\0${requester}\0${nonce}`,
+      )
       .digest("base64url")}`,
   );
 

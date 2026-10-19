@@ -5,7 +5,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { ProtocolErrorCode } from "@modelcontextprotocol/client";
-import { AgentCard, type AgentName } from "@moltzap/identity";
+import {
+  WireVersions,
+  WIRE_VERSION,
+  AgentCard,
+  type AgentName,
+} from "@moltzap/identity";
 import { Effect, Fiber, Option, Schema, Stream } from "effect";
 import { expect, it } from "vitest";
 import {
@@ -42,7 +47,9 @@ const initialText = "hello from the first real daemon";
 const responseText = "addressed response from the second real daemon";
 const multicastPart = {
   type: "data",
-  value: { "xyz.moltzap/collective": { kind: "operation", op: "multicast" } },
+  value: {
+    "org.social-harness/collective": { kind: "operation", op: "multicast" },
+  },
 } as const;
 const initialContent = [
   { type: "text", text: initialText },
@@ -266,8 +273,22 @@ const routerRestartBehavior = Effect.gen(function* () {
   );
   yield* Effect.all(
     [
-      acquireDaemonProcess(memberFixture),
-      acquireDaemonProcess(conciergeFixture),
+      acquireDaemonProcess({
+        ...memberFixture,
+        wireVersions: {
+          emitted: WIRE_VERSION,
+          live: [WIRE_VERSION, "2026.1019.2"],
+          history: [WIRE_VERSION, "2026.1019.2"],
+        },
+      }),
+      acquireDaemonProcess({
+        ...conciergeFixture,
+        wireVersions: {
+          emitted: "2026.1019.2",
+          live: [WIRE_VERSION, "2026.1019.2"],
+          history: [WIRE_VERSION, "2026.1019.2"],
+        },
+      }),
     ] as const,
     { concurrency: 2 },
   );
@@ -281,6 +302,12 @@ const routerRestartBehavior = Effect.gen(function* () {
     send: certifiedSend,
   });
 
+  yield* deliverDirect({
+    from: conciergeFixture,
+    to: memberFixture,
+    text: "successor-authored head before Router restart",
+    send: certifiedSend,
+  });
   yield* infrastructure.restartRouter;
 
   yield* deliverDirect({
@@ -306,9 +333,18 @@ const routerRestartBehavior = Effect.gen(function* () {
     ),
   ).toEqual([
     { type: "text", text: beforeRouterRestartText },
+    { type: "text", text: "successor-authored head before Router restart" },
     { type: "text", text: afterRouterRestartText },
     { type: "text", text: replyAfterRouterRestartText },
   ]);
+  expect(
+    history.records.map(({ recordCore }) => recordCore.moltzapVersion),
+  ).toEqual([WIRE_VERSION, "2026.1019.2", WIRE_VERSION, "2026.1019.2"]);
+  const restartedAnchor = history.records[2]?.routerAnchor;
+  expect(restartedAnchor?.kind).toBe("completed_reanchor");
+  if (restartedAnchor?.kind === "completed_reanchor") {
+    expect(restartedAnchor.reanchor.moltzapVersion).toBe("2026.1019.2");
+  }
 }).pipe(Effect.scoped);
 
 const processBehavior = Effect.gen(function* () {
@@ -475,7 +511,7 @@ const withoutAdmissionCredential = (
   ...fixture,
   environment: Object.fromEntries(
     Object.entries(fixture.environment).filter(
-      ([name]) => name !== "MOLTZAPD_ADMISSION_CREDENTIAL_FILE",
+      ([name]) => name !== "SHARNESS_ADMISSION_CREDENTIAL_FILE",
     ),
   ),
 });
@@ -486,7 +522,7 @@ const withMissingAdmissionCredential = (
   ...fixture,
   environment: {
     ...fixture.environment,
-    MOLTZAPD_ADMISSION_CREDENTIAL_FILE: `${fixture.stateDirectory}.absent-admission`,
+    SHARNESS_ADMISSION_CREDENTIAL_FILE: `${fixture.stateDirectory}.absent-admission`,
   },
 });
 
@@ -497,7 +533,7 @@ const withAdmissionCredentialFile = (
   ...fixture,
   environment: {
     ...fixture.environment,
-    MOLTZAPD_ADMISSION_CREDENTIAL_FILE: path,
+    SHARNESS_ADMISSION_CREDENTIAL_FILE: path,
   },
 });
 
@@ -509,7 +545,7 @@ const withAgentKeyOf = (
   ...fixture,
   environment: {
     ...fixture.environment,
-    MOLTZAPD_AGENT_PRIVATE_KEY_FILE: other.agentPrivateKeyFile,
+    SHARNESS_AGENT_PRIVATE_KEY_FILE: other.agentPrivateKeyFile,
   },
 });
 
@@ -522,7 +558,7 @@ const expectStartupFailure = (
     Effect.map((failure) => {
       expect(failure.exitCode).not.toBe(0);
       expect(failure.logs).toContain(
-        `moltzapd startup failed in phase ${phase}`,
+        `sharnessd startup failed in phase ${phase}`,
       );
     }),
   );
@@ -611,8 +647,16 @@ it(
 );
 
 it(
-  "delivers both ways after the Router restarts while both daemons stay up",
-  processTrace(routerRestartBehavior),
+  "certifies across adjacent emitted versions and re-anchors after the Router restarts",
+  processTrace(
+    routerRestartBehavior.pipe(
+      Effect.provideService(WireVersions, {
+        emitted: WIRE_VERSION,
+        live: [WIRE_VERSION, "2026.1019.2"],
+        history: [WIRE_VERSION, "2026.1019.2"],
+      }),
+    ),
+  ),
   PROCESS_TEST_TIMEOUT_MS,
 );
 
@@ -665,7 +709,7 @@ const refusesStaleOutbox = Effect.scoped(
 
 /** Capture schema and backup state without depending on a particular schema number. */
 function storedSchema(directory: string) {
-  const database = new DatabaseSync(join(directory, "moltzapd.sqlite3"), {
+  const database = new DatabaseSync(join(directory, "sharnessd.sqlite3"), {
     readOnly: true,
   });
   try {
@@ -701,11 +745,11 @@ const retiredWindowDaemon = `
 
 /** Retry an existing signed envelope unchanged under the narrower release window. */
 function markStoredOutboundPending(directory: string) {
-  const database = new DatabaseSync(join(directory, "moltzapd.sqlite3"));
+  const database = new DatabaseSync(join(directory, "sharnessd.sqlite3"));
   try {
     const result = database
       .prepare(
-        "UPDATE outbound_messages SET disposition = 'pending' WHERE outbound_id = (SELECT outbound_id FROM outbound_messages LIMIT 1)",
+        "UPDATE outbound_messages SET disposition = 'pending' WHERE message_id = (SELECT message_id FROM outbound_messages LIMIT 1)",
       )
       .run();
     if (result.changes !== 1) {
@@ -733,7 +777,7 @@ it(
           infrastructure,
           "newer-schema",
         );
-        const path = join(local.stateDirectory, "moltzapd.sqlite3");
+        const path = join(local.stateDirectory, "sharnessd.sqlite3");
         const database = new DatabaseSync(path);
         database.exec("PRAGMA user_version = 2147483647");
         database.close();
@@ -745,6 +789,81 @@ it(
         expect(failed.logs).toContain("storage");
         expect(failed.logs).toContain("newer-schema");
         expect(storedSchema(local.stateDirectory)).toEqual(before);
+      }),
+    ),
+  ),
+  PROCESS_TEST_TIMEOUT_MS,
+);
+
+it(
+  "reports legacy-key and key names without values for every service",
+  processTrace(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const infrastructure = yield* acquireProcessInfrastructure;
+        const local = yield* makeDaemonProcessFixture(
+          infrastructure,
+          "legacy-key",
+        );
+        for (const [binary, key] of [
+          ["client/bin/sharnessd", "MOLTZAPD_STATE_DIRECTORY"],
+          [
+            "identity/bin/sharness-registry",
+            "MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL",
+          ],
+          ["router/bin/sharness-router", "MOLTZAP_ROUTER_PORT"],
+        ] as const) {
+          const failed = yield* awaitDaemonStartupFailure(
+            {
+              ...local,
+              environment: {
+                ...local.environment,
+                [key]: "retired-secret-value",
+              },
+            },
+            {
+              executable: fileURLToPath(
+                new URL(`../../${binary}`, import.meta.url),
+              ),
+              args: [],
+            },
+          );
+          expect(failed.exitCode).not.toBe(0);
+          expect(failed.logs).toContain("legacy-key");
+          expect(failed.logs).toContain(key);
+          expect(failed.logs).not.toContain("retired-secret-value");
+        }
+      }),
+    ),
+  ),
+  PROCESS_TEST_TIMEOUT_MS,
+);
+
+it(
+  "reports pre-reset for legacy filenames and every populated earlier schema without creating a replacement store",
+  processTrace(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const infrastructure = yield* acquireProcessInfrastructure;
+        for (const [name, filename, schema] of [
+          ["legacy-file", "moltzapd.sqlite3", 8],
+          ["legacy-schema", "sharnessd.sqlite3", 8],
+          ["unversioned-schema", "sharnessd.sqlite3", 0],
+        ] as const) {
+          const local = yield* makeDaemonProcessFixture(infrastructure, name);
+          const database = new DatabaseSync(
+            join(local.stateDirectory, filename),
+          );
+          database.exec(
+            `CREATE TABLE retained (value TEXT); PRAGMA user_version = ${schema}`,
+          );
+          database.close();
+          const before = readdirSync(local.stateDirectory);
+          const failed = yield* awaitDaemonStartupFailure(local);
+          expect(failed.exitCode).not.toBe(0);
+          expect(failed.logs).toContain("pre-reset");
+          expect(readdirSync(local.stateDirectory)).toEqual(before);
+        }
       }),
     ),
   ),

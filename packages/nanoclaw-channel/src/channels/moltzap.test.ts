@@ -117,7 +117,7 @@ beforeEach(async () => {
   vi.resetModules();
   boundary.register.mockClear();
   boundary.acquire.mockReset();
-  vi.stubEnv("MOLTZAP_MCP_URL", "http://127.0.0.1:8321/mcp");
+  vi.stubEnv("SHARNESS_MCP_URL", "http://127.0.0.1:8321/mcp");
   await import("./moltzap.js");
   expect(boundary.register).toHaveBeenCalledWith("moltzap", expect.anything());
   const entry = boundary.register.mock.calls[0];
@@ -146,7 +146,7 @@ async function createAdapter() {
 
 // @agent-code-guard/regression-only: The suite pins NanoClaw host handoff and the closed endpoint outcomes; real-host persistence is qualified outside this repository.
 it("stays disabled without an MCP URL", async () => {
-  vi.stubEnv("MOLTZAP_MCP_URL", undefined);
+  vi.stubEnv("SHARNESS_MCP_URL", undefined);
   expect(await registration.factory()).toBeNull();
   expect(boundary.acquire).not.toHaveBeenCalled();
 });

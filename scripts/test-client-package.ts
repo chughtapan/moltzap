@@ -208,10 +208,10 @@ function verifyPackedManifest(
       archive,
       temporaryRoot,
     );
-    const daemonTarget = manifest.bin?.moltzapd;
+    const daemonTarget = manifest.bin?.sharnessd;
     yield* requireCondition(
-      daemonTarget === "./bin/moltzapd",
-      "packed client does not expose the moltzapd executable",
+      daemonTarget === "./bin/sharnessd",
+      "packed client does not expose the sharnessd executable",
     );
     const exportEntries = Object.entries(manifest.exports ?? {});
     yield* requireCondition(
@@ -222,7 +222,7 @@ function verifyPackedManifest(
     );
     yield* verifyExportTargets(extractedPackage, manifest, exportEntries);
     yield* verifyHostImportGraph(extractedPackage, String(manifest.main));
-    yield* verifyDaemon(join(extractedPackage, "bin", "moltzapd"));
+    yield* verifyDaemon(join(extractedPackage, "bin", "sharnessd"));
     return exportEntries.map(([subpath]) =>
       subpath === "." ? manifest.name : `${manifest.name}/${subpath.slice(2)}`,
     );
@@ -271,16 +271,16 @@ function verifyDaemon(
     const fs = yield* FileSystem.FileSystem;
     const daemon = yield* readText(
       daemonPath,
-      "packed moltzapd executable is missing",
+      "packed sharnessd executable is missing",
     );
     yield* requireCondition(
       daemon.startsWith("#!/usr/bin/env node\n"),
-      "packed moltzapd executable has no Node shebang",
+      "packed sharnessd executable has no Node shebang",
     );
     const info = yield* fs.stat(daemonPath);
     yield* requireCondition(
       (info.mode & 0o111) !== 0,
-      "packed moltzapd executable is not executable",
+      "packed sharnessd executable is not executable",
     );
   });
 }

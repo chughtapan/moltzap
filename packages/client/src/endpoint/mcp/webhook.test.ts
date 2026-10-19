@@ -1,6 +1,7 @@
 /** @file Local Dot callback conformance through Effect's HttpClient service. */
 
 import { live as it } from "@effect/vitest";
+import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Clock, Context, Deferred, Duration, Effect, Fiber } from "effect";
 import { createHmac } from "node:crypto";
 import { describe, expect } from "vitest";
@@ -72,7 +73,9 @@ const onSteppedClock = <Value, Failure>(
 const signsVerifiesAndRotates = () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const store = yield* openEndpointStore(stateDirectory());
+      const store = yield* openEndpointStore(stateDirectory(), {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      });
       const test = scriptedWebhook(store);
       const events = yield* test.acquire;
       const grant = yield* events.subscribe(input, "runtime");
@@ -120,7 +123,9 @@ const retainsTerminalRejections = () =>
   Effect.scoped(
     Effect.gen(function* () {
       for (const status of [410, 413]) {
-        const store = yield* openEndpointStore(stateDirectory());
+        const store = yield* openEndpointStore(stateDirectory(), {
+          liveWireVersions: LIVE_WIRE_VERSIONS,
+        });
         const test = scriptedWebhook(store);
         const events = yield* test.acquire;
         yield* enqueue(store, 1);
@@ -148,7 +153,9 @@ const retainsTerminalRejections = () =>
 it("delivers local guidance and its subject map through a signed webhook", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const store = yield* openEndpointStore(stateDirectory());
+      const store = yield* openEndpointStore(stateDirectory(), {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      });
       const test = scriptedWebhook(store);
       const events = yield* test.acquire;
       const guidance = localGuidance(1);
@@ -173,7 +180,9 @@ it("delivers local guidance and its subject map through a signed webhook", () =>
 const verifiesRotatedSecret = () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const store = yield* openEndpointStore(stateDirectory());
+      const store = yield* openEndpointStore(stateDirectory(), {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      });
       const test = scriptedWebhook(store);
       const events = yield* test.acquire;
       const grant = yield* events.subscribe(input, "runtime");
@@ -200,7 +209,9 @@ const verifiesRotatedSecret = () =>
 const permitsReadAndRevokeDuringDelivery = () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const store = yield* openEndpointStore(stateDirectory());
+      const store = yield* openEndpointStore(stateDirectory(), {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      });
       const test = scriptedWebhook(store);
       const events = yield* test.acquire;
       yield* enqueue(store, 1);
@@ -230,7 +241,9 @@ const permitsReadAndRevokeDuringDelivery = () =>
 const refreshPreservesTerminalReceipt = () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const store = yield* openEndpointStore(stateDirectory());
+      const store = yield* openEndpointStore(stateDirectory(), {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      });
       const test = scriptedWebhook(store);
       const events = yield* test.acquire;
       yield* enqueue(store, 1);
@@ -261,7 +274,9 @@ const retriesAcrossRestart = () => {
   return Effect.gen(function* () {
     yield* Effect.scoped(
       Effect.gen(function* () {
-        const store = yield* openEndpointStore(path);
+        const store = yield* openEndpointStore(path, {
+          liveWireVersions: LIVE_WIRE_VERSIONS,
+        });
         const test = scriptedWebhook(store);
         const events = yield* test.acquire;
         yield* enqueue(store, 1);
@@ -275,7 +290,9 @@ const retriesAcrossRestart = () => {
     yield* stepClock("3 seconds");
     yield* Effect.scoped(
       Effect.gen(function* () {
-        const store = yield* openEndpointStore(path);
+        const store = yield* openEndpointStore(path, {
+          liveWireVersions: LIVE_WIRE_VERSIONS,
+        });
         const test = scriptedWebhook(store);
         const events = yield* test.acquire;
         yield* events.observe();
@@ -289,7 +306,9 @@ const retriesAcrossRestart = () => {
     );
     yield* Effect.scoped(
       Effect.gen(function* () {
-        const store = yield* openEndpointStore(path);
+        const store = yield* openEndpointStore(path, {
+          liveWireVersions: LIVE_WIRE_VERSIONS,
+        });
         expect(
           (yield* readRuntimeEvent(store, eventIdOf(token(1)))).item,
         ).toEqual(item());
@@ -301,7 +320,9 @@ const retriesAcrossRestart = () => {
 const resumesExhaustedCallbacks = () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const store = yield* openEndpointStore(stateDirectory());
+      const store = yield* openEndpointStore(stateDirectory(), {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      });
       const test = scriptedWebhook(store);
       const events = yield* test.acquire;
       yield* enqueue(store, 1);
@@ -333,7 +354,9 @@ const resumesExhaustedCallbacks = () =>
 const boundsPayloadAndDrains = () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const store = yield* openEndpointStore(stateDirectory());
+      const store = yield* openEndpointStore(stateDirectory(), {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      });
       const test = scriptedWebhook(store);
       const events = yield* test.acquire;
       const large = "世界".repeat(100_000);
@@ -363,7 +386,9 @@ const boundsPayloadAndDrains = () =>
 const removesRetiredOccurrence = () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const store = yield* openEndpointStore(stateDirectory());
+      const store = yield* openEndpointStore(stateDirectory(), {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      });
       const test = scriptedWebhook(store);
       const events = yield* test.acquire;
       yield* enqueue(store, 1);
@@ -426,7 +451,11 @@ const rejectsUnsafeCallbacks = () =>
       url: "https://localhost/private",
     }).pipe(Effect.provide(webhookHttpClientLayer), Effect.flip);
     expect(dnsBlocked.reason).toBe("connection_refused");
-    const test = scriptedWebhook(yield* openEndpointStore(stateDirectory()));
+    const test = scriptedWebhook(
+      yield* openEndpointStore(stateDirectory(), {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      }),
+    );
     test.status(302);
     const events = yield* test.acquire;
     expect(

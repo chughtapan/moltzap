@@ -7,6 +7,7 @@ import { scopedLive as it, scoped as itOnTestClock } from "@effect/vitest";
 import {
   AgentCard,
   Ed25519PublicKey,
+  LIVE_WIRE_VERSIONS,
   SignedMessage,
   type VerifiedAgentCard,
   WIRE_VERSION,
@@ -255,16 +256,16 @@ const forwardedBy = new WeakMap<SignedMessage, SigningIdentity>();
  * context's recovery queue when it carries catch-up or re-anchor traffic,
  * otherwise to its normal queue.
  * @param context Store and queues the fixture worker delivers through.
- * @param outboundId Outbox identity the endpoint sends.
+ * @param messageId Outbox identity the endpoint sends.
  * @returns Completion once the envelope is delivered or found inactive.
  */
 function forwardSorted(
   context: FixtureRouterContext,
-  outboundId: string,
+  messageId: string,
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     const staging = yield* Queue.unbounded<SignedMessage>();
-    yield* forwardStoredOutbound(context.store, staging, outboundId);
+    yield* forwardStoredOutbound(context.store, staging, messageId);
     const sent = yield* Queue.takeAll(staging);
     for (const message of sent) {
       forwardedBy.set(message, context.local);
@@ -373,14 +374,14 @@ function makeHeldRouter(input: HeldRouterInput) {
       routerInstanceId: oldRouterInstanceId,
       pollCursor,
     }),
-    send: (outboundId) =>
+    send: (messageId) =>
       Ref.get(input.holdOutbound).pipe(
         Effect.flatMap((hold) =>
           hold
-            ? Queue.offer(input.pendingOutboundIds, outboundId).pipe(
+            ? Queue.offer(input.pendingOutboundIds, messageId).pipe(
                 Effect.asVoid,
               )
-            : forwardSorted(context, outboundId),
+            : forwardSorted(context, messageId),
         ),
       ),
   });
@@ -408,6 +409,7 @@ const openGenesisStore = (
     const fileSystem = yield* FileSystem.FileSystem;
     const store = yield* openEndpointStore(
       yield* fileSystem.makeTempDirectoryScoped({ prefix }),
+      { liveWireVersions: LIVE_WIRE_VERSIONS },
     );
     yield* store.putConversationFoundation({
       conversationId: membership.descriptor.conversationId,
@@ -543,7 +545,7 @@ const fixtureRouterAt =
   (context: FixtureRouterContext): EngineRouterPort => ({
     currentAnchor: Effect.succeed({ routerInstanceId, pollCursor }),
     awaitAnchor: Effect.succeed({ routerInstanceId, pollCursor }),
-    send: (outboundId) => forwardSorted(context, outboundId),
+    send: (messageId) => forwardSorted(context, messageId),
   });
 
 const makeFixtureRouter = fixtureRouterAt(newRouterInstanceId);
@@ -711,7 +713,7 @@ const addGroupFoundation = (
           routerInstanceId: newRouterInstanceId,
           pollCursor,
         }),
-        send: (outboundId) => forwardSorted(fixture, outboundId),
+        send: (messageId) => forwardSorted(fixture, messageId),
       },
     }).pipe(Effect.orDie);
     return {
@@ -1383,6 +1385,7 @@ const stageCatchUpOutbound = (fixture: RecoveryFixture) =>
       conversationId: request.conversationId,
       messageId: message.messageId,
       canonicalSignedMessage,
+      wireVersion: SignedMessage.wireVersion(message),
     });
   }).pipe(Effect.orDie);
 
@@ -1608,6 +1611,7 @@ const stageAttachedDissemination = (fixture: RecoveryFixture) =>
       {
         conversationId: record.conversationId,
         messageId: message.messageId,
+        wireVersion: WIRE_VERSION,
         canonicalSignedMessage: yield* encodeCanonical(SignedMessage, message),
       },
     );
@@ -2095,14 +2099,15 @@ const reproposesPendingPostAfterRestart = () =>
     const headRecordOutboundId = yield* Queue.take(pendingOutboundIds);
     const staleOutboundId = yield* Queue.take(pendingOutboundIds);
     const before = yield* fixture.store.recover();
-    expect(before.outboundMessages.map(({ outboundId }) => outboundId)).toEqual(
-      [headRecordOutboundId, staleOutboundId],
-    );
+    expect(before.outboundMessages.map(({ messageId }) => messageId)).toEqual([
+      headRecordOutboundId,
+      staleOutboundId,
+    ]);
     const staleOutbound = before.outboundMessages[1];
     if (staleOutbound === undefined) {
       return yield* Effect.dieMessage("pending POST was not retained");
     }
-    expect(staleOutbound.outboundId).toBe(staleOutboundId);
+    expect(staleOutbound.messageId).toBe(staleOutboundId);
     const staleProposal = yield* decodeCanonical(
       SignedMessage,
       staleOutbound.canonicalSignedMessage,
@@ -2344,7 +2349,7 @@ const recoverMixedRouterInstances = () =>
 
 /** One Router send held until the test releases it. */
 interface HeldSend {
-  readonly outboundId: string;
+  readonly messageId: string;
   readonly release: Deferred.Deferred<undefined>;
 }
 
@@ -2356,12 +2361,12 @@ interface HeldSend {
 function makeGatedRouter(sends: Queue.Queue<HeldSend>) {
   return (context: FixtureRouterContext): EngineRouterPort => ({
     ...makeFixtureRouter(context),
-    send: (outboundId) =>
+    send: (messageId) =>
       Effect.gen(function* () {
         const release = yield* Deferred.make<undefined>();
-        yield* Queue.offer(sends, { outboundId, release });
+        yield* Queue.offer(sends, { messageId, release });
         yield* Deferred.await(release);
-        yield* forwardSorted(context, outboundId);
+        yield* forwardSorted(context, messageId);
       }),
   });
 }
@@ -2424,7 +2429,7 @@ const queuePeerCatchUpResponse = (
     const queued = after.outboundMessages.filter(
       (row) =>
         !before.outboundMessages.some(
-          (prior) => prior.outboundId === row.outboundId,
+          (prior) => prior.messageId === row.messageId,
         ),
     );
     const row = queued[0];
@@ -2465,7 +2470,7 @@ const recoverWhileDrainAwaitsWorker = () =>
     const queued = yield* queuePeerCatchUpResponse(fixture);
     const draining = yield* Effect.fork(fixture.engine.drainOutbound);
     const held = yield* Queue.take(sends);
-    expect(held.outboundId).toBe(queued.outboundId);
+    expect(held.messageId).toBe(queued.messageId);
 
     yield* fixture.engine.abandonVolatileFolds("feed_gap");
     yield* fixture.engine.recoverCertifiedHistory({
@@ -2500,17 +2505,17 @@ const concurrentDrainsSendOnceInOrder = () =>
     const leadingFirst = yield* Queue.take(sends);
     const trailing = yield* Effect.fork(fixture.engine.drainOutbound);
     const trailingFirst = yield* Queue.take(sends);
-    expect([leadingFirst.outboundId, trailingFirst.outboundId]).toEqual([
-      first.outboundId,
-      first.outboundId,
+    expect([leadingFirst.messageId, trailingFirst.messageId]).toEqual([
+      first.messageId,
+      first.messageId,
     ]);
 
     yield* releaseHeldSend(trailingFirst);
     const trailingSecond = yield* Queue.take(sends);
-    expect(trailingSecond.outboundId).toBe(second.outboundId);
+    expect(trailingSecond.messageId).toBe(second.messageId);
     yield* releaseHeldSend(leadingFirst);
     const leadingSecond = yield* Queue.take(sends);
-    expect(leadingSecond.outboundId).toBe(second.outboundId);
+    expect(leadingSecond.messageId).toBe(second.messageId);
     yield* releaseHeldSend(trailingSecond);
     yield* releaseHeldSend(leadingSecond);
     yield* Fiber.join(leading);
@@ -2541,7 +2546,7 @@ const staleDrainKeepsLaterHead = () =>
     const second = yield* queuePeerCatchUpResponse(fixture);
     yield* releaseHeldSend(staleFirst);
     const staleSecond = yield* Queue.take(sends);
-    expect(staleSecond.outboundId).toBe(second.outboundId);
+    expect(staleSecond.messageId).toBe(second.messageId);
     yield* releaseHeldSend(staleSecond);
     yield* Fiber.join(stale);
 
@@ -2580,12 +2585,12 @@ function makeRestartingRouter(input: RestartingRouterInput) {
       );
     return {
       ...makeFixtureRouter(context),
-      send: (outboundId) =>
+      send: (messageId) =>
         Ref.getAndSet(input.restartPending, false).pipe(
           Effect.flatMap((restarted) =>
             restarted
               ? Deferred.await(input.engineReady).pipe(Effect.flatMap(recover))
-              : forwardSorted(context, outboundId),
+              : forwardSorted(context, messageId),
           ),
         ),
     };
@@ -2685,10 +2690,10 @@ const recoverWhileNormalSendIsHeld = () =>
       const router = makeFixtureRouter(context);
       return {
         ...router,
-        send: (outboundId) =>
+        send: (messageId) =>
           Deferred.succeed(sendEntered, undefined).pipe(
             Effect.zipRight(Deferred.await(releaseSend)),
-            Effect.zipRight(router.send(outboundId)),
+            Effect.zipRight(router.send(messageId)),
           ),
       };
     });
@@ -8786,6 +8791,7 @@ const retriesWhileARecordPageAwaitsPromotion = () =>
     const unexpected = () =>
       Effect.dieMessage("unexpected phase in held-page trace");
     const runtime: EngineRuntime = {
+      wireVersion: WIRE_VERSION,
       input: fixture.input,
       conversations: recovered.conversations,
       intents: new Map(),

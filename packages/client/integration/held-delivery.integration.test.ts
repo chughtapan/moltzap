@@ -56,7 +56,7 @@ function multicastContent(text: string): Content {
     {
       type: "data",
       value: {
-        "xyz.moltzap/collective": { kind: "operation", op: "multicast" },
+        "org.social-harness/collective": { kind: "operation", op: "multicast" },
       },
     },
   ];
@@ -75,7 +75,7 @@ function throughProxy(
     ...fixture,
     environment: {
       ...fixture.environment,
-      MOLTZAPD_ROUTER_ORIGIN: routerOrigin.origin,
+      SHARNESS_ROUTER_ORIGIN: routerOrigin.origin,
     },
   };
 }

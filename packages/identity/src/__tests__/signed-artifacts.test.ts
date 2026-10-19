@@ -42,7 +42,7 @@ import {
 
 const MAXIMUM_BODY_BYTES = 262_144;
 const MAXIMUM_RECIPIENTS = 128;
-const EXPECTED_MAXIMUM_MESSAGE_BYTES = 471_673;
+const EXPECTED_MAXIMUM_MESSAGE_BYTES = 471_675;
 
 /*
  * This mixed-order key and odd-challenge signature satisfy only the
@@ -53,8 +53,8 @@ const MIXED_ORDER_PUBLIC_KEY_X = "lZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZk";
 const MIXED_ORDER_KEY_ID =
   "urn:ietf:params:oauth:jwk-thumbprint:sha-256:7jTI1Cc6_T4lcL3Vui-LXIjwjxL7Yw9lwXS3UE9hnb4";
 const MIXED_ORDER_CARD_DIGEST =
-  "acd_3sspaWrS1VzA3RBkg-ezXZExJRG-8UXi-IYu1P7CcOs";
-const COFACTORED_ONLY_BODY_TEXT = "cofactored-canary-2";
+  "acd_axYK4-cQfPV_bg6xmN004RMmtCzaY0wV93mxA0KDOLA";
+const COFACTORED_ONLY_BODY_TEXT = "cofactored-canary-1";
 
 const strictRegistryPublicKey = {
   crv: "Ed25519",
@@ -64,20 +64,19 @@ const strictRegistryPublicKey = {
 
 const mixedOrderAgentCard = {
   payload:
-    "eyJhZ2VudElkIjoiYWd0Xy12cjYtdnI2LXZyNi12cjYtdnI2LWciLCJhZ2VudE5hbWUiOiJtaXhlZC1vcmRlci1zZW5kZXIiLCJpc3N1ZWRBdCI6IjIwMjYtMDctMzBUMTI6MDA6MDBaIiwia2luZCI6ImFnZW50Q2FyZCIsIm1vbHR6YXBWZXJzaW9uIjoiMjAyNi4xMDA2LjEiLCJwcmluY2lwYWxJZCI6InBybl8tZm41LWZuNS1mbjUtZm41LWZuNS1RIiwicHVibGljS2V5Ijp7ImNydiI6IkVkMjU1MTkiLCJrdHkiOiJPS1AiLCJ4IjoibFptWm1abVptWm1abVptWm1abVptWm1abVptWm1abVptWm1abVptWm1aayJ9fQ",
+    "eyJhZ2VudElkIjoiYWd0Xy12cjYtdnI2LXZyNi12cjYtdnI2LWciLCJhZ2VudE5hbWUiOiJtaXhlZC1vcmRlci1zZW5kZXIiLCJpc3N1ZWRBdCI6IjIwMjYtMDctMzBUMTI6MDA6MDBaIiwia2luZCI6ImFnZW50Q2FyZCIsIm1vbHR6YXBWZXJzaW9uIjoiMjAyNi4xMDE5LjEiLCJwcmluY2lwYWxJZCI6InBybl8tZm41LWZuNS1mbjUtZm41LWZuNS1RIiwicHVibGljS2V5Ijp7ImNydiI6IkVkMjU1MTkiLCJrdHkiOiJPS1AiLCJ4IjoibFptWm1abVptWm1abVptWm1abVptWm1abVptWm1abVptWm1abVptWm1aayJ9fQ",
   signatures: [
     {
       protected:
-        "eyJhbGciOiJFZDI1NTE5Iiwia2lkIjoidXJuOmlldGY6cGFyYW1zOm9hdXRoOmp3ay10aHVtYnByaW50OnNoYS0yNTY6a1ByS19xbXhWV2FZVkE5d3dCRjZJdW8zdlZ6ejdUeEhDVHdYQnlnclM0ayIsInR5cCI6ImFwcGxpY2F0aW9uL3ZuZC5tb2x0emFwLmFnZW50LWNhcmQrandzIn0",
+        "eyJhbGciOiJFZDI1NTE5Iiwia2lkIjoidXJuOmlldGY6cGFyYW1zOm9hdXRoOmp3ay10aHVtYnByaW50OnNoYS0yNTY6a1ByS19xbXhWV2FZVkE5d3dCRjZJdW8zdlZ6ejdUeEhDVHdYQnlnclM0ayIsInR5cCI6ImFwcGxpY2F0aW9uL3ZuZC5zaGFybmVzcy5hZ2VudC1jYXJkK2p3cyJ9",
       signature:
-        "JLdCF4hX3xl5eH84PHhpbBICIlys6ysnxmTJYk8jK0BAbMwR7jrh23Gd0BrHx6u4fr8J9VChCgVY4mVlTWfqCg",
+        "PspTX4M5sLNTV1dVGwAv-N4y5zthpc-hdIR1ot5vnGOXh9QqgwsgZyCSTSjf0WyjJYduXVqAbOKEw-JGsrWbBQ",
     },
   ],
 };
 
 /**
- * The mixed-order card as the same Registry key signed it under the prior
- * MoltZap version, 2026.827.1, before every outer body was sealed.
+ * A Registry-signed pre-reset card is outside retained-history admission.
  */
 const priorVersionAgentCard = {
   payload:
@@ -94,13 +93,13 @@ const priorVersionAgentCard = {
 
 const cofactoredOnlySignedMessage = {
   payload:
-    "eyJhZ2VudENhcmREaWdlc3QiOiJhY2RfM3NzcGFXclMxVnpBM1JCa2ctZXpYWkV4SlJHLThVWGktSVl1MVA3Q2NPcyIsImJvZHkiOiJZMjltWVdOMGIzSmxaQzFqWVc1aGNua3RNZyIsImtpbmQiOiJzaWduZWRNZXNzYWdlIiwibWVzc2FnZUlkIjoibXNnX0FRRUJBUUVCQVFFQkFRRUJBUUVCQVEiLCJtb2x0emFwVmVyc2lvbiI6IjIwMjYuMTAwNi4xIiwicmVjaXBpZW50QWdlbnRJZHMiOlsiYWd0X0FBQUFBQUFBQUFBQUFBQUFBQUFBQUEiXSwic2VuZGVyQWdlbnRJZCI6ImFndF8tdnI2LXZyNi12cjYtdnI2LXZyNi1nIn0",
+    "eyJhZ2VudENhcmREaWdlc3QiOiJhY2RfYXhZSzQtY1FmUFZfYmc2eG1OMDA0Uk1tdEN6YVkwd1Y5M214QTBLRE9MQSIsImJvZHkiOiJZMjltWVdOMGIzSmxaQzFqWVc1aGNua3RNUSIsImtpbmQiOiJzaWduZWRNZXNzYWdlIiwibWVzc2FnZUlkIjoibXNnX0FRRUJBUUVCQVFFQkFRRUJBUUVCQVEiLCJtb2x0emFwVmVyc2lvbiI6IjIwMjYuMTAxOS4xIiwicmVjaXBpZW50QWdlbnRJZHMiOlsiYWd0X0FBQUFBQUFBQUFBQUFBQUFBQUFBQUEiXSwic2VuZGVyQWdlbnRJZCI6ImFndF8tdnI2LXZyNi12cjYtdnI2LXZyNi1nIn0",
   signatures: [
     {
       protected:
-        "eyJhbGciOiJFZDI1NTE5Iiwia2lkIjoidXJuOmlldGY6cGFyYW1zOm9hdXRoOmp3ay10aHVtYnByaW50OnNoYS0yNTY6N2pUSTFDYzZfVDRsY0wzVnVpLUxYSWp3anhMN1l3OWx3WFMzVUU5aG5iNCIsInR5cCI6ImFwcGxpY2F0aW9uL3ZuZC5tb2x0emFwLnNpZ25lZC1tZXNzYWdlK2p3cyJ9",
+        "eyJhbGciOiJFZDI1NTE5Iiwia2lkIjoidXJuOmlldGY6cGFyYW1zOm9hdXRoOmp3ay10aHVtYnByaW50OnNoYS0yNTY6N2pUSTFDYzZfVDRsY0wzVnVpLUxYSWp3anhMN1l3OWx3WFMzVUU5aG5iNCIsInR5cCI6ImFwcGxpY2F0aW9uL3ZuZC5zaGFybmVzcy5zaWduZWQtbWVzc2FnZStqd3MifQ",
       signature:
-        "WGZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZ4Wb3a-LFZTlcVrAELPuHXZNOPFYtgVXe9FopgyLSHAg",
+        "WGZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmaeZyVYeCQ3vpopIeRLhd-FNa-Sx9we5nE8TzI8jDQ6DA",
     },
   ],
 };

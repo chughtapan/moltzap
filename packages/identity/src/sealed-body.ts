@@ -26,11 +26,13 @@ import {
   MessageId,
   type VerifiedSignedMessage,
 } from "./signed-message.js";
+import { WIRE_VERSION } from "./version.js";
+import { WIRE_PROFILES } from "./wire-profile.js";
 
 const CONTENT_ENCRYPTION_ALGORITHM = "A256GCM";
-const COMMITMENT_HEADER = "xyz.moltzap/commitment";
-const MESSAGE_ID_HEADER = "xyz.moltzap/message-id";
-const SENDER_HEADER = "xyz.moltzap/sender";
+const COMMITMENT_HEADER = WIRE_PROFILES[WIRE_VERSION].commitmentHeader;
+const MESSAGE_ID_HEADER = WIRE_PROFILES[WIRE_VERSION].messageIdHeader;
+const SENDER_HEADER = WIRE_PROFILES[WIRE_VERSION].senderHeader;
 const COMMITMENT_BYTES = 32;
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
@@ -51,12 +53,14 @@ const SALT_BYTES = 32;
  * protected header, and two or more each carry one in their own entry.
  *
  * The outer members with IV and tag take 103 bytes. A single recipient adds a
- * 400-byte protected header and a 74-byte entry: 577. Two or more add a
- * 287-byte protected header and 171 bytes per entry including its separating
- * comma, less one byte because the last entry has none: 389 + 171R.
+ * 428-byte protected header and a 74-byte entry: 605. Two or more add a
+ * 315-byte protected header and 171 bytes per entry including its separating
+ * comma, less one byte because the last entry has none: 417 + 171R.
  */
-const SINGLE_RECIPIENT_FIXED_BYTES = 577;
-const MULTIPLE_RECIPIENT_FIXED_BYTES = 389;
+const SINGLE_RECIPIENT_FIXED_BYTES =
+  WIRE_PROFILES[WIRE_VERSION].singleRecipientSealedBytes;
+const MULTIPLE_RECIPIENT_FIXED_BYTES =
+  WIRE_PROFILES[WIRE_VERSION].multipleRecipientSealedBytes;
 const RECIPIENT_ENTRY_BYTES = 171;
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });

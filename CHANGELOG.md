@@ -48,12 +48,12 @@ section below from the fragments in `changelog.d/`.
   operator audit format is now `moltzap.firewall-audit/v2`: it adds `activation`
   records and a required `activationCount` on the `complete` record.
 - The `@moltzap/identity` and `@moltzap/router` READMEs explain how to install
-  each package and run `moltzap-registry` and `moltzap-router`, with every
+  each package and run `sharness-registry` and `sharness-router`, with every
   environment variable and its default. A new guide covers sending and receiving
   from TypeScript with `acquireHarnessEndpoint`, and the docs site navigation
   now includes the interface specification and architecture pages.
 - The `examples/two-agents` example starts a Registry, a Router and two
-  `moltzapd` daemons from the published packages, registers two agents, and
+  `sharnessd` daemons from the published packages, registers two agents, and
   prints one message passing between them. CI runs it against the packed
   tarballs.
 - The published packages declare their supported Node.js range in `engines` and
@@ -148,7 +148,7 @@ section below from the fragments in `changelog.d/`.
 - Client now encrypts every outer message body to the conversation's members
   before signing it, and a member refuses and ignores a body that is plaintext,
   not sealed to it, or sealed under another sender or MessageId. The wire
-  version `MOLTZAP_VERSION` advances from `2026.827.1` to `2026.1006.1`, with no
+  version `SHARNESS_VERSION` advances from `2026.827.1` to `2026.1006.1`, with no
   backward compatibility; npm releases `2026.1006.1` and `2026.1006.2` still
   speak `2026.827.1`. Upgrading requires a fresh Registry database, since a
   Registry refuses to start over metadata from the prior version. Every agent
@@ -156,7 +156,7 @@ section below from the fragments in `changelog.d/`.
   Registry, so rotate the admission credential, re-register every agent before
   admitting traffic, and reset host sessions keyed by agent or group address. A
   daemon opens its pre-upgrade store empty and unregistered, so it needs
-  `MOLTZAPD_ADMISSION_CREDENTIAL_FILE` for the new Registry to start; back up
+  `SHARNESS_ADMISSION_CREDENTIAL_FILE` for the new Registry to start; back up
   its state directory first if you may roll back. All prior conversations are
   gone. Upgrade every Registry, Router, daemon and adapter together. The
   SignedMessage maximum grows to 471,673 bytes and the Router send and
@@ -453,7 +453,7 @@ section below from the fragments in `changelog.d/`.
   is now `@moltzap/client/service`, and `MoltZapDaemon` is now
   `MoltZapService`. Its startup error `_tag` is now
   `MoltZapServiceStartupError`. There is no alias for the old names. The
-  `moltzapd` binary and the package root are unchanged.
+  `sharnessd` binary and the package root are unchanged.
 - Runtime code manages inbox delivery, acknowledgment and retries. Dot task
   configuration controls processing, destinations and notifications.
 - MCP sends expose semantic inputs to the model and carry optional invocation
@@ -505,7 +505,7 @@ section below from the fragments in `changelog.d/`.
 
 - The OpenClaw message tool's `collective` and `collectiveResponse`
   parameters, `COLLECTIVE_PARAMETER_VISIBILITY`, the
-  `MOLTZAP_EXPERIMENT_GUIDANCE_PARAMETERS` override and `parameters.json` in
+  `SHARNESS_EXPERIMENT_GUIDANCE_PARAMETERS` override and `parameters.json` in
   `--experiment-guidance-dir`, and the `typebox` dependency.
 - The `collective` and `collectiveResponse` parameters of NanoClaw's
   `send_message`.
@@ -528,10 +528,10 @@ section below from the fragments in `changelog.d/`.
   default and the only operation. `InboundDelivery` carries `item`, an
   `InboundItem` tagged by `kind`, in place of `message`; a `multicast` item
   carries the direct or group `InboundMessage`. The certified content of every
-  send is its text followed by one `data` part under `xyz.moltzap/collective`
+  send is its text followed by one `data` part under `org.social-harness/collective`
   naming the operation, and a multicast item's message omits that part.
   `HistoryExportRecord` records inbound items and each send's text and
-  operation. The daemon's MCP extension is `xyz.moltzap/events-v3`:
+  operation. The daemon's MCP extension is `org.social-harness/events-v3`:
   `send_message` takes the operation and returns an optional `operationId`,
   and `message_ready` carries `item`. Update every consumer to the new shapes.
 - `@moltzap/openclaw-channel` registers the message tool's `send` action with
@@ -603,7 +603,7 @@ section below from the fragments in `changelog.d/`.
 - Experiment switches for evaluations that compare agents with and without
   collective operations; they are not for production and may be removed
   without notice. `@moltzap/openclaw-channel` reads
-  `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES`: when `true`, the message tool's
+  `SHARNESS_EXPERIMENT_HIDE_COLLECTIVES`: when `true`, the message tool's
   `send` action omits the `collective` and `collectiveResponse` parameters,
   and a send carrying either fails with a tool error saying collective
   operations are not available. The OpenClaw image builder takes
@@ -670,7 +670,7 @@ section below from the fragments in `changelog.d/`.
   `absent`.
 
 - The OpenClaw agent image can summarize what each agent's model used. When
-  `MOLTZAP_AGENT_IMAGE_MODEL_USAGE` names a path, the entrypoint runs the
+  `SHARNESS_AGENT_IMAGE_MODEL_USAGE` names a path, the entrypoint runs the
   image's host finalizer as the host user once the host has stopped and writes
   the `moltzap.agent-model-usage/v1` summary it prints to that path as root, so
   the agent cannot write the file itself. The summary groups tokens by backend
@@ -840,13 +840,13 @@ contract). Runtimes accept `harvestWorkspaceFiles` and `historyExport`: after
 the program ends, the controller reads each named file and the daemon's
 transcript out of every agent container into the ledger as
 `moltzap.agent-workspace-file/v1` records. `@moltzap/client`'s daemon takes
-`MOLTZAPD_HISTORY_EXPORT=<file>` and appends one `HistoryExportRecord` line
+`SHARNESS_HISTORY_EXPORT=<file>` and appends one `HistoryExportRecord` line
 per delivered message and per send, certified or failed, with one
 `export-failed` line if the file itself ever fails. Container runtimes forward
 the provider key the model id's prefix names (`anthropic/` →
 `ANTHROPIC_API_KEY`, `openai/` → `OPENAI_API_KEY`); an id without a known
 prefix forwards none, where OpenClaw previously always received
-`OPENAI_API_KEY`. `MOLTZAP_ADMISSION_TIMEOUT_MS` keeps a cohort queued in
+`OPENAI_API_KEY`. `SHARNESS_ADMISSION_TIMEOUT_MS` keeps a cohort queued in
 Kueue from spending its startup budget, and `@moltzap/evals` runs
 `--concurrency` cells at once while committing them in plan order.
 
@@ -892,7 +892,7 @@ loop, adapter, daemons, and receiving Clients.
 
 MoltZap is now the four-layer social harness: Identity, Communication, Tasks
 and norms, and Personal trust. Registry is the identity control plane, Router
-is the content-blind data plane, and each agent's `moltzapd` owns its
+is the content-blind data plane, and each agent's `sharnessd` owns its
 credentials, addressed conversations, certified history, and one loopback MCP
 endpoint. There is no product Ledger, transcript service, named profile,
 bespoke CLI, or Unix socket. The constitution lives in `docs/vision.md`.

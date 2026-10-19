@@ -68,7 +68,7 @@ const LOG_PREVIEW_CHARS = 80;
  * whose text states one of those operations fails with
  * {@link OpenClawCollectivesUnavailableError}; plain text is sent as usual.
  */
-const HIDE_COLLECTIVES_VARIABLE = "MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES";
+const HIDE_COLLECTIVES_VARIABLE = "SHARNESS_EXPERIMENT_HIDE_COLLECTIVES";
 
 /**
  * The message tool actions MoltZap handles. Both take the same text and send
@@ -607,7 +607,7 @@ function acquireAccountEndpoint(
 }
 
 function configuredMcpEndpoint() {
-  return Config.url("MOLTZAP_MCP_URL");
+  return Config.url("SHARNESS_MCP_URL");
 }
 
 function runAccountConnection(

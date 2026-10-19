@@ -22,7 +22,7 @@ Acquire one real MCP-backed endpoint and its scoped connection.
 
 **Returns:** An endpoint whose resources remain live for the caller's scope.
 
-### [`AgentAddress (type)`](./transport/wire/values.ts#L242)
+### [`AgentAddress (type)`](./transport/wire/values.ts#L254)
 
 _TypeAlias_
 
@@ -32,7 +32,7 @@ export type AgentAddress = typeof AgentAddress.Type;
 
 A validated direct destination.
 
-### [`AgentAddress (value)`](./transport/wire/values.ts#L236)
+### [`AgentAddress (value)`](./transport/wire/values.ts#L248)
 
 _Variable_
 
@@ -95,7 +95,7 @@ export class ConnectError extends Data.TaggedError("ConnectError")<{
 
 Acquiring the endpoint connection failed.
 
-### [`Content (type)`](./transport/wire/values.ts#L104)
+### [`Content (type)`](./transport/wire/values.ts#L116)
 
 _TypeAlias_
 
@@ -105,7 +105,7 @@ export type Content = typeof Content.Type;
 
 Validated nonempty semantic content.
 
-### [`Content (value)`](./transport/wire/values.ts#L99)
+### [`Content (value)`](./transport/wire/values.ts#L111)
 
 _Variable_
 
@@ -118,7 +118,7 @@ export const Content = contentStructure.pipe(
 
 Nonempty semantic content whose canonical JSON is at most 32,768 bytes.
 
-### [`ContentPart (type)`](./transport/wire/values.ts#L94)
+### [`ContentPart (type)`](./transport/wire/values.ts#L106)
 
 _TypeAlias_
 
@@ -128,7 +128,7 @@ export type ContentPart = typeof ContentPart.Type;
 
 A validated semantic message part.
 
-### [`ContentPart (value)`](./transport/wire/values.ts#L89)
+### [`ContentPart (value)`](./transport/wire/values.ts#L101)
 
 _Variable_
 
@@ -190,7 +190,7 @@ export class FirewallSendError extends Data.TaggedError("FirewallSendError")<
 A refusal is returned only before an application invocation creates any intent.
 Its opaque check reference survives hosts that retain only the error message.
 
-### [`GroupAddress (type)`](./transport/wire/values.ts#L251)
+### [`GroupAddress (type)`](./transport/wire/values.ts#L263)
 
 _TypeAlias_
 
@@ -200,7 +200,7 @@ export type GroupAddress = typeof GroupAddress.Type;
 
 A validated canonical complete group destination.
 
-### [`GroupAddress (value)`](./transport/wire/values.ts#L245)
+### [`GroupAddress (value)`](./transport/wire/values.ts#L257)
 
 _Variable_
 
@@ -376,7 +376,7 @@ export const InboundMessage = Schema.Union(
 
 One certified remote-authored post, direct or to a fixed group.
 
-### [`JsonValue (type)`](./transport/wire/values.ts#L67)
+### [`JsonValue (type)`](./transport/wire/values.ts#L79)
 
 _TypeAlias_
 
@@ -392,7 +392,7 @@ export type JsonValue =
 
 A value accepted by the closed semantic content boundary.
 
-### [`JsonValue (value)`](./transport/wire/values.ts#L77)
+### [`JsonValue (value)`](./transport/wire/values.ts#L89)
 
 _Variable_
 
@@ -437,7 +437,7 @@ export type LocalGuidance = typeof localGuidanceSchema.Type;
 
 Local advice accompanies the envelope and never changes a certified item.
 
-### [`MessageAddressInput (type)`](./transport/wire/values.ts#L256)
+### [`MessageAddressInput (type)`](./transport/wire/values.ts#L268)
 
 _TypeAlias_
 
@@ -447,7 +447,7 @@ export type MessageAddressInput = typeof MessageAddressInput.Type;
 
 A validated explicit destination input.
 
-### [`MessageAddressInput (value)`](./transport/wire/values.ts#L254)
+### [`MessageAddressInput (value)`](./transport/wire/values.ts#L266)
 
 _Variable_
 
@@ -493,7 +493,7 @@ Read one message text as the send it states.
 **Returns:** The send input, or an error naming each field a stated operation
   gets wrong.
 
-### [`PostId (type)`](./transport/wire/values.ts#L56)
+### [`PostId (type)`](./transport/wire/values.ts#L68)
 
 _TypeAlias_
 
@@ -503,7 +503,7 @@ export type PostId = typeof PostId.Type;
 
 A validated author-scoped post identity.
 
-### [`PostId (value)`](./transport/wire/values.ts#L47)
+### [`PostId (value)`](./transport/wire/values.ts#L59)
 
 _Variable_
 
@@ -637,33 +637,41 @@ What a completed send returns: a collecting operation names its id.
 
 ### `@moltzap/client/service`
 
-#### [`Daemon`](./service/index.ts#L72)
+#### [`Daemon`](./service/index.ts#L81)
 
 _Namespace_
 
-#### [`Daemon.StartupError`](./service/index.ts#L83)
+#### [`Daemon.StartupError`](./service/index.ts#L92)
 
 _Class_
 
 ```ts
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
-    readonly reason?: "outbox-too-old" | "newer-schema" | "pre-reset";
+    readonly reason?:
+      | "outbox-too-old"
+      | "newer-schema"
+      | "pre-reset"
+      | "legacy-key";
+    readonly keys?: readonly string[];
   }> {
     /**
      * Names the failed phase and any actionable compatibility refusal.
      * @returns The startup failure message.
      */
     override get message(): string {
-      const phase = `moltzapd startup failed in phase ${this.phase}`;
-      return this.reason === undefined ? phase : `${phase}: ${this.reason}`;
+      const phase = `sharnessd startup failed in phase ${this.phase}`;
+      const keys = this.keys === undefined ? "" : ` (${this.keys.join(", ")})`;
+      return this.reason === undefined
+        ? phase
+        : `${phase}: ${this.reason}${keys}`;
     }
   }
 ```
 
 Closed daemon startup phase without configuration or platform detail.
 
-#### [`Daemon.FirewallOptions`](./service/index.ts#L74)
+#### [`Daemon.FirewallOptions`](./service/index.ts#L83)
 
 _TypeAlias_
 
@@ -679,7 +687,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-#### [`Daemon.layer`](./service/index.ts#L144)
+#### [`Daemon.layer`](./service/index.ts#L161)
 
 _Variable_
 
@@ -689,9 +697,9 @@ _Variable_
   )
 ```
 
-Complete production process composition for `moltzapd`.
+Complete production process composition for `sharnessd`.
 
-#### [`Daemon.withFirewall`](./service/index.ts#L153)
+#### [`Daemon.withFirewall`](./service/index.ts#L170)
 
 _Function_
 

@@ -37,7 +37,7 @@
     }
   },
   "bin": {
-    "moltzapd": "./bin/moltzapd"
+    "sharnessd": "./bin/sharnessd"
   },
   "scripts": {
     "build": "nx run @moltzap/client:build",

@@ -33,7 +33,7 @@ export const alice = Schema.decodeUnknownSync(AgentAddress)("agent:alice");
 const bob = Schema.decodeUnknownSync(AgentAddress)("agent:bob");
 
 /** The data-part key a post carries its collective value under. */
-export const collectiveKey = "xyz.moltzap/collective";
+export const collectiveKey = "org.social-harness/collective";
 
 /** The explicit collective part every multicast an endpoint authors carries. */
 export const multicastPart = {

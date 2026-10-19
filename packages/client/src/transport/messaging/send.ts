@@ -1,10 +1,6 @@
 /** @file Address resolution, immutable intent binding, and proposal creation. */
 
-import {
-  AgentCard,
-  type VerifiedAgentCard,
-  WIRE_VERSION,
-} from "@moltzap/identity";
+import { AgentCard, type VerifiedAgentCard } from "@moltzap/identity";
 import {
   Deferred,
   Duration,
@@ -151,9 +147,13 @@ const conversationIdOf = (resolved: ResolvedAddress) => {
       );
 };
 
-const buildMembership = (runtime: EngineRuntime, resolved: ResolvedAddress) =>
+const membershipFor = (runtime: EngineRuntime, resolved: ResolvedAddress) =>
   Effect.gen(function* () {
     const conversationId = yield* conversationIdOf(resolved);
+    const stored = runtime.conversations.get(conversationId);
+    if (stored !== undefined) {
+      return stored.membership;
+    }
     const encodedCards = yield* Effect.forEach(
       resolved.memberCards,
       (card) => Schema.encode(AgentCard)(card),
@@ -167,7 +167,7 @@ const buildMembership = (runtime: EngineRuntime, resolved: ResolvedAddress) =>
       );
     }
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptorSchema)({
-      moltzapVersion: WIRE_VERSION,
+      moltzapVersion: runtime.wireVersion,
       kind: "membership_descriptor",
       conversationId,
       members: [firstCard, secondCard, ...encodedCards.slice(2)],
@@ -226,7 +226,7 @@ export const resolveConversation = (
 
 const resolveMembership = (runtime: EngineRuntime, input: EngineSendInput) =>
   resolveCards(runtime, input.to).pipe(
-    Effect.flatMap((resolved) => buildMembership(runtime, resolved)),
+    Effect.flatMap((resolved) => membershipFor(runtime, resolved)),
   );
 
 const proposalAction = (
@@ -243,7 +243,7 @@ const proposalAction = (
       Effect.mapError(representationFailure),
       Effect.map((postIntentHash) => {
         const action: ActionCore = {
-          moltzapVersion: WIRE_VERSION,
+          moltzapVersion: intent.moltzapVersion,
           kind: "GENESIS",
           conversationId: conversation.conversationId,
           membership: conversation.membership.descriptor,
@@ -260,7 +260,7 @@ const proposalAction = (
     Effect.mapError(representationFailure),
     Effect.map((postIntentHash) => {
       const action: ActionCore = {
-        moltzapVersion: WIRE_VERSION,
+        moltzapVersion: intent.moltzapVersion,
         kind: "POST",
         conversationId: conversation.conversationId,
         membershipHash: conversation.membership.hash,
@@ -387,7 +387,7 @@ function queueProposal(
   return queueHead.pipe(
     Effect.zipRight(
       runtime.outbox.queuePacket(proposal.conversation, {
-        moltzapVersion: WIRE_VERSION,
+        moltzapVersion: proposal.action.moltzapVersion,
         kind: "action_proposal",
         action: proposal.action,
       }),
@@ -518,7 +518,7 @@ const createConversation = (
       Effect.mapError(currentAnchorFailure),
     );
     const anchor = yield* Schema.decodeUnknown(GenesisAnchorBody)({
-      moltzapVersion: WIRE_VERSION,
+      moltzapVersion: runtime.wireVersion,
       kind: "genesis_anchor_body",
       conversationId: membership.descriptor.conversationId,
       membershipHash: membership.hash,
@@ -819,7 +819,7 @@ function prepareIntent(
       Effect.mapError(representationFailure),
     );
     const intent = yield* Schema.decodeUnknown(PostIntentSchema)({
-      moltzapVersion: WIRE_VERSION,
+      moltzapVersion: runtime.wireVersion,
       kind: "post_intent",
       conversationId: membership.descriptor.conversationId,
       membershipHash: membership.hash,

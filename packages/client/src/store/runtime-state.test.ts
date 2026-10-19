@@ -1,6 +1,7 @@
 /** @file Runtime state and interrupted admission checks survive store restart. */
 
 import { live as it } from "@effect/vitest";
+import { WIRE_VERSION } from "@moltzap/identity";
 import { Array, Effect, Schema } from "effect";
 import { describe, expect } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
@@ -102,6 +103,7 @@ const seedState = (store: EndpointStore) =>
     const outbound = yield* store.enqueueOutbound({
       conversationId: foundation.conversationId,
       messageId: "msg_restart",
+      wireVersion: WIRE_VERSION,
       canonicalSignedMessage: bytes("plaintext outer envelope"),
     });
     yield* store.beginSendAttempt("before-restart", sendInput);
@@ -110,7 +112,7 @@ const seedState = (store: EndpointStore) =>
       deliveryToken: token,
       canonicalItem: inboxItem,
     });
-    return outbound.outboundId;
+    return outbound.messageId;
   });
 
 function reportsHowCurrentStoreOpens() {

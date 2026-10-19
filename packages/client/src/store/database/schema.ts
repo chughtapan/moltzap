@@ -6,12 +6,16 @@ import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { CertifiedRecord } from "../types.js";
-import { migrateStore, migrations, RESET_SCHEMA } from "./migrations.js";
+import {
+  migrateStore,
+  migrations,
+  type MigrationSteps,
+  RESET_SCHEMA,
+} from "./migrations.js";
 import {
   type EndpointStoreError,
   mapStoreFailure,
   OutboxTooOldError,
-  readBytes,
   readInteger,
   readText,
   requireText,
@@ -31,7 +35,7 @@ export interface StoreState {
   closed: boolean;
 }
 
-const DATABASE_NAME = "moltzapd.sqlite3";
+const DATABASE_NAME = "sharnessd.sqlite3";
 
 /** An absent or empty database is created; the current schema reopens. */
 export type StoreOpening = "create" | "reopen" | "migrate";
@@ -39,18 +43,25 @@ export type StoreOpening = "create" | "reopen" | "migrate";
 /**
  * Acquires one endpoint database and finishes admitted upgrades before use.
  * @param stateDirectory Exclusive persistent state directory.
- * @param options Live wire versions admitted before an upgrade; omission refuses pending envelopes.
+ * @param options Explicit live window and optional injected forward migration steps.
  * @param options.liveWireVersions Versions accepted for pending outbound envelopes.
+ * @param options.migrations Destination-indexed forward steps, defaulting to the binary's table.
  * @returns Acquired database state after integrity and compatibility checks.
  */
 export const openStoreState = (
   stateDirectory: string,
-  options: { readonly liveWireVersions: readonly string[] } = {
-    liveWireVersions: [],
+  options: {
+    readonly liveWireVersions: readonly string[];
+    readonly migrations?: MigrationSteps;
   },
 ): Effect.Effect<StoreState, EndpointStoreError | OutboxTooOldError> =>
   Effect.try({
-    try: () => initializeStoreState(stateDirectory, options.liveWireVersions),
+    try: () =>
+      initializeStoreState(
+        stateDirectory,
+        options.liveWireVersions,
+        options.migrations,
+      ),
     catch: (failure) =>
       failure instanceof OutboxTooOldError
         ? failure
@@ -69,10 +80,9 @@ export const inspectStoreState = (
   Effect.try({
     try: () => {
       requireText(stateDirectory);
+      requireResetDirectory(stateDirectory);
       const databasePath = resolve(stateDirectory, DATABASE_NAME);
-      return existsSync(databasePath)
-        ? inspectExistingDatabase(databasePath)
-        : "create";
+      return inspectExistingDatabase(databasePath);
     },
     catch: (failure) => mapStoreFailure(failure, "persistence"),
   });
@@ -145,27 +155,30 @@ export function transaction<Value>(
 function initializeStoreState(
   stateDirectory: string,
   liveWireVersions: readonly string[],
+  steps: MigrationSteps = migrations,
 ): StoreState {
   requireText(stateDirectory);
+  requireResetDirectory(stateDirectory);
   mkdirSync(stateDirectory, { recursive: true, mode: 0o700 });
   const databasePath = resolve(stateDirectory, DATABASE_NAME);
-  const expected = existsSync(databasePath)
-    ? inspectExistingDatabase(databasePath)
-    : undefined;
+  const expected = inspectExistingDatabase(databasePath, steps);
   let database: DatabaseSync | undefined;
   try {
     database = openWritableDatabase(databasePath);
     database.exec("PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE; COMMIT");
-    const disposition = preflightDatabase(database);
+    const disposition = preflightDatabase(database, steps);
     requireExpectedOpening(disposition, expected);
+    if (disposition !== "create") {
+      requireLiveOutbox(database, liveWireVersions);
+    }
     if (disposition === "migrate") {
-      upgradeDatabase(database, liveWireVersions, databasePath);
+      upgradeDatabase(database, liveWireVersions, databasePath, steps);
     }
     chmodSync(stateDirectory, 0o700);
     chmodSync(databasePath, 0o600);
     configureDatabase(database);
     if (disposition === "create") {
-      createStore(database);
+      createStore(database, steps);
     }
     database.exec(
       "UPDATE firewall_checks SET disposition = 'interrupted' WHERE disposition = 'checking'",
@@ -193,13 +206,20 @@ function upgradeDatabase(
   database: DatabaseSync,
   liveWireVersions: readonly string[],
   databasePath: string,
+  steps: MigrationSteps,
 ): void {
   requireLiveOutbox(database, liveWireVersions);
-  migrateStore(database, readSchemaVersion(database), databasePath);
+  migrateStore(database, readSchemaVersion(database), databasePath, steps);
   requireHealthyDatabase(database);
 }
 
-function inspectExistingDatabase(databasePath: string): StoreOpening {
+function inspectExistingDatabase(
+  databasePath: string,
+  steps: MigrationSteps = migrations,
+): StoreOpening {
+  if (!existsSync(databasePath)) {
+    return "create";
+  }
   const database = new DatabaseSync(databasePath, {
     readOnly: true,
     enableForeignKeyConstraints: false,
@@ -208,7 +228,7 @@ function inspectExistingDatabase(databasePath: string): StoreOpening {
     timeout: 0,
   });
   try {
-    return preflightDatabase(database);
+    return preflightDatabase(database, steps);
   } finally {
     database.close();
   }
@@ -223,14 +243,17 @@ function openWritableDatabase(databasePath: string): DatabaseSync {
   });
 }
 
-function preflightDatabase(database: DatabaseSync): StoreOpening {
+function preflightDatabase(
+  database: DatabaseSync,
+  steps: MigrationSteps,
+): StoreOpening {
   const version = readSchemaVersion(database);
-  if (version > schemaVersion()) {
+  if (version > schemaVersion(steps)) {
     throw new StoreSignal("newer-schema");
   }
   if (version === 0) {
     if (hasUserSchemaObjects(database)) {
-      throw new StoreSignal("incompatible");
+      throw new StoreSignal("pre-reset");
     }
     requireHealthyDatabase(database);
     return "create";
@@ -239,7 +262,7 @@ function preflightDatabase(database: DatabaseSync): StoreOpening {
     throw new StoreSignal("pre-reset");
   }
   requireHealthyDatabase(database);
-  return version === schemaVersion() ? "reopen" : "migrate";
+  return version === schemaVersion(steps) ? "reopen" : "migrate";
 }
 
 function readSchemaVersion(database: DatabaseSync): number {
@@ -251,53 +274,25 @@ function readSchemaVersion(database: DatabaseSync): number {
 }
 
 /** The highest registered destination is the schema created by this binary. */
-function schemaVersion(): number {
-  return Math.max(RESET_SCHEMA, ...Object.keys(migrations).map(Number));
+function schemaVersion(steps: MigrationSteps): number {
+  return Math.max(RESET_SCHEMA, ...Object.keys(steps).map(Number));
 }
 
-/** Pending envelopes keep their signed version until the reset introduces a dedicated column. */
+/** Pending envelopes must remain live before any schema step or backup is written. */
 function requireLiveOutbox(
   database: DatabaseSync,
   liveWireVersions: readonly string[],
 ): void {
   const rows = database
-    .prepare(`SELECT canonical_current_signed_message
-    FROM outbound_messages WHERE disposition = 'pending'`)
+    .prepare(
+      "SELECT wire_version FROM outbound_messages WHERE disposition = 'pending'",
+    )
     .all();
   for (const row of rows) {
-    const payload: unknown = JSON.parse(
-      Buffer.from(
-        signedPayload(readBytes(row, "canonical_current_signed_message")),
-        "base64url",
-      ).toString("utf8"),
-    );
-    if (
-      typeof payload !== "object" ||
-      payload === null ||
-      !("moltzapVersion" in payload) ||
-      typeof payload.moltzapVersion !== "string"
-    ) {
-      throw new StoreSignal("corrupt");
-    }
-    if (!liveWireVersions.includes(payload.moltzapVersion)) {
+    if (!liveWireVersions.includes(readText(row, "wire_version"))) {
       throw new OutboxTooOldError();
     }
   }
-}
-
-function signedPayload(bytes: Uint8Array): string {
-  const representation: unknown = JSON.parse(
-    Buffer.from(bytes).toString("utf8"),
-  );
-  if (
-    typeof representation !== "object" ||
-    representation === null ||
-    !("payload" in representation) ||
-    typeof representation.payload !== "string"
-  ) {
-    throw new StoreSignal("corrupt");
-  }
-  return representation.payload;
 }
 
 function hasUserSchemaObjects(database: DatabaseSync): boolean {
@@ -565,11 +560,10 @@ const schemaSql = `
   CREATE INDEX pending_deliveries_by_record ON pending_deliveries(record_hash);
   CREATE TABLE outbound_messages (
     outbound_sequence INTEGER PRIMARY KEY,
-    outbound_id TEXT NOT NULL UNIQUE,
     conversation_id TEXT NOT NULL REFERENCES memberships(conversation_id),
-    current_message_id TEXT NOT NULL UNIQUE,
-    canonical_initial_signed_message BLOB NOT NULL,
-    canonical_current_signed_message BLOB NOT NULL,
+    message_id TEXT NOT NULL UNIQUE,
+    canonical_signed_message BLOB NOT NULL,
+    wire_version TEXT NOT NULL,
     attempted INTEGER NOT NULL CHECK (attempted IN (0, 1)),
     disposition TEXT NOT NULL CHECK (
       disposition IN ('pending', 'accepted', 'discarded')
@@ -579,11 +573,11 @@ const schemaSql = `
     obligation_sequence INTEGER PRIMARY KEY,
     conversation_id TEXT NOT NULL,
     record_hash TEXT NOT NULL,
-    outbound_id TEXT UNIQUE,
+    message_id TEXT UNIQUE,
     UNIQUE (conversation_id, record_hash),
     FOREIGN KEY (conversation_id, record_hash)
       REFERENCES staged_records(conversation_id, record_hash),
-    FOREIGN KEY (outbound_id) REFERENCES outbound_messages(outbound_id)
+    FOREIGN KEY (message_id) REFERENCES outbound_messages(message_id)
   ) STRICT;
 `;
 
@@ -606,7 +600,7 @@ const editablePolicySql = `
 `;
 
 /** Creates the current schema atomically in an empty database. */
-function createStore(database: DatabaseSync): void {
+function createStore(database: DatabaseSync, steps: MigrationSteps): void {
   transaction(
     database,
     () => {
@@ -614,8 +608,15 @@ function createStore(database: DatabaseSync): void {
       database.exec(runtimeSchemaSql);
       database.exec(firewallSchemaSql);
       database.exec(editablePolicySql);
-      database.exec(`PRAGMA user_version = ${schemaVersion()}`);
+      database.exec(`PRAGMA user_version = ${schemaVersion(steps)}`);
     },
     "EXCLUSIVE",
   );
+}
+
+/** Legacy state must never silently create a fresh identity beside its old database. */
+function requireResetDirectory(stateDirectory: string): void {
+  if (existsSync(resolve(stateDirectory, "moltzapd.sqlite3"))) {
+    throw new StoreSignal("pre-reset");
+  }
 }

@@ -1,6 +1,7 @@
 /** @file Real NodeRuntime signal handling around the daemon's production audit lifecycle. */
 
 import { NodeRuntime } from "@effect/platform-node";
+import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Config, ConfigProvider, Deferred, Effect } from "effect";
 import { join } from "node:path";
 import { openEndpointStore } from "../store/index.js";
@@ -9,13 +10,15 @@ import { makeHarness, run } from "./daemon-runtime-harness.js";
 import { makeAuditFixture } from "./firewall-audit-fixtures.js";
 
 const program = Effect.gen(function* () {
-  const directory = yield* Config.string("MOLTZAP_TEST_AUDIT_DIRECTORY");
-  const block = yield* Config.boolean("MOLTZAP_TEST_AUDIT_BLOCK");
+  const directory = yield* Config.string("SHARNESS_TEST_AUDIT_DIRECTORY");
+  const block = yield* Config.boolean("SHARNESS_TEST_AUDIT_BLOCK");
   const fixture = yield* makeFixture;
   const evidence = yield* makeAuditFixture;
   const harness = yield* makeHarness(fixture, "none");
   harness.delivery.acknowledged = true;
-  const store = yield* openEndpointStore(directory);
+  const store = yield* openEndpointStore(directory, {
+    liveWireVersions: LIVE_WIRE_VERSIONS,
+  });
   yield* store.bindIdentity({
     agentId: fixture.localCard.agentId,
     canonicalAgentCard: fixture.canonicalLocalCard,

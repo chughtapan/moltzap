@@ -14,12 +14,14 @@ import {
   AuthenticatedHttp,
   Ed25519PublicKey,
   type Ed25519PublicKey as Ed25519PublicKeyValue,
+  legacyKeys,
   SignedMessage,
 } from "@moltzap/identity";
 import canonicalize from "canonicalize";
 import {
   Config,
   Context,
+  Data,
   Duration,
   Effect,
   Layer,
@@ -321,56 +323,56 @@ const compactPublicKeyJson = Schema.String.pipe(
 );
 
 const configuredValues = Config.all({
-  host: Schema.Config("MOLTZAP_ROUTER_HOST", bindHost).pipe(
+  host: Schema.Config("SHARNESS_ROUTER_HOST", bindHost).pipe(
     Config.withDefault("127.0.0.1"),
   ),
-  port: Schema.Config("MOLTZAP_ROUTER_PORT", port),
+  port: Schema.Config("SHARNESS_ROUTER_PORT", port),
   registryOrigin: Schema.Config(
-    "MOLTZAP_ROUTER_REGISTRY_ORIGIN",
+    "SHARNESS_ROUTER_REGISTRY_ORIGIN",
     registryOrigin,
   ),
   registrySignerPublicKey: Schema.Config(
-    "MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY",
+    "SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY",
     compactPublicKeyJson,
   ),
   retainedMessageCapacity: Schema.Config(
-    "MOLTZAP_ROUTER_RETAINED_MESSAGE_CAPACITY",
+    "SHARNESS_ROUTER_RETAINED_MESSAGE_CAPACITY",
     processInteger,
   ).pipe(Config.withDefault(4_096)),
   retainedMessageByteCapacity: Schema.Config(
-    "MOLTZAP_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY",
+    "SHARNESS_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY",
     processInteger,
   ).pipe(Config.withDefault(67_108_864)),
   pollMessageLimit: Schema.Config(
-    "MOLTZAP_ROUTER_POLL_MESSAGE_LIMIT",
+    "SHARNESS_ROUTER_POLL_MESSAGE_LIMIT",
     processInteger,
   ).pipe(Config.withDefault(128)),
   pollResponseByteLimit: Schema.Config(
-    "MOLTZAP_ROUTER_POLL_RESPONSE_BYTE_LIMIT",
+    "SHARNESS_ROUTER_POLL_RESPONSE_BYTE_LIMIT",
     processInteger,
   ).pipe(Config.withDefault(1_048_576)),
   requestConcurrencyLimit: Schema.Config(
-    "MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT",
+    "SHARNESS_ROUTER_REQUEST_CONCURRENCY_LIMIT",
     processInteger,
   ).pipe(Config.withDefault(512)),
   heldPollCapacity: Schema.Config(
-    "MOLTZAP_ROUTER_HELD_POLL_CAPACITY",
+    "SHARNESS_ROUTER_HELD_POLL_CAPACITY",
     processInteger,
   ).pipe(Config.withDefault(256)),
   liveNonceCapacity: Schema.Config(
-    "MOLTZAP_ROUTER_LIVE_NONCE_CAPACITY",
+    "SHARNESS_ROUTER_LIVE_NONCE_CAPACITY",
     processInteger,
   ).pipe(Config.withDefault(100_000)),
   agentCardCacheCapacity: Schema.Config(
-    "MOLTZAP_ROUTER_AGENT_CARD_CACHE_CAPACITY",
+    "SHARNESS_ROUTER_AGENT_CARD_CACHE_CAPACITY",
     processInteger,
   ).pipe(Config.withDefault(10_000)),
   registryLookupConcurrencyLimit: Schema.Config(
-    "MOLTZAP_ROUTER_REGISTRY_LOOKUP_CONCURRENCY_LIMIT",
+    "SHARNESS_ROUTER_REGISTRY_LOOKUP_CONCURRENCY_LIMIT",
     processInteger,
   ).pipe(Config.withDefault(32)),
   registryLookupTimeoutMs: Schema.Config(
-    "MOLTZAP_ROUTER_REGISTRY_LOOKUP_TIMEOUT_MS",
+    "SHARNESS_ROUTER_REGISTRY_LOOKUP_TIMEOUT_MS",
     processInteger,
   ).pipe(Config.withDefault(5_000)),
 });
@@ -417,8 +419,20 @@ const validatedConfiguration = configuredValues.pipe(
   }),
 );
 
+/** Legacy key names survive configuration mapping without rereading ambient state. */
+class LegacyConfigurationError extends Data.TaggedError(
+  "LegacyConfigurationError",
+)<{
+  readonly keys: readonly string[];
+}> {}
+
 /** Loads and cross-validates the complete private Router process configuration. */
 export const loadRouterConfiguration = Effect.gen(function* () {
+  // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- Configuration acquisition enumerates unknown legacy keys, which Effect.Config cannot name in advance.
+  const keys = legacyKeys(process.env);
+  if (keys.length > 0) {
+    return yield* Effect.fail(new LegacyConfigurationError({ keys }));
+  }
   const configuration: RouterConfiguration = yield* validatedConfiguration;
   return configuration;
 }).pipe(Effect.withSpan("loadRouterConfiguration"));

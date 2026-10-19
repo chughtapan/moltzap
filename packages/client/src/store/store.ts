@@ -20,6 +20,7 @@ import {
   closeStoreState,
   EndpointStoreError,
   inspectStoreState,
+  type MigrationSteps,
   openStoreState,
   runStoreOperation,
   type StoreOpening,
@@ -104,15 +105,17 @@ export const inspectEndpointStore = (
  * Opens the one SQLite store owned by a daemon state directory.
  *
  * @param stateDirectory Exclusive persistent state directory.
- * @param options Live wire versions admitted before migration; omission refuses pending envelopes.
+ * @param options Explicit live window and optional injected forward migration steps.
  * @param options.liveWireVersions Versions accepted for pending outbound envelopes.
+ * @param options.migrations Destination-indexed forward steps, defaulting to the binary's table.
  * @returns A scoped private endpoint-store capability.
  * @failure EndpointStoreError when the directory or database cannot be owned.
  */
 export const openEndpointStore = (
   stateDirectory: string,
-  options: { readonly liveWireVersions: readonly string[] } = {
-    liveWireVersions: [],
+  options: {
+    readonly liveWireVersions: readonly string[];
+    readonly migrations?: MigrationSteps;
   },
 ): Effect.Effect<
   EndpointStore,
@@ -287,8 +290,8 @@ function makeTransportOperations(state: StoreState, run: StoreRunner) {
           enqueueOutboundInTransaction,
         ),
       ),
-    beginOutbound: (outboundId) =>
-      run(() => beginOutbound(state.database, outboundId)),
+    beginOutbound: (messageId) =>
+      run(() => beginOutbound(state.database, messageId)),
     completeOutbound: (outbound) =>
       run(() => completeOutbound(state.database, outbound)),
     discardOutbound: (outbounds) =>

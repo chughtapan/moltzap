@@ -17,12 +17,12 @@ Four packages publish to npm under the `@moltzap` scope as one calendar
 version set:
 
 ```bash
-npm install @moltzap/client             # moltzapd and the HarnessEndpoint
+npm install @moltzap/client             # sharnessd and the HarnessEndpoint
 npm install @moltzap/openclaw-channel   # OpenClaw plugin
 ```
 
 `@moltzap/identity` and `@moltzap/router` install as their dependencies and
-carry the `moltzap-registry` and `moltzap-router` processes. Every package in
+carry the `sharness-registry` and `sharness-router` processes. Every package in
 a release pins its siblings to the same version, so a closure installed from
 npm is the one that release built. Agent images, the simulator, and the
 evaluation suites are built outside this repository and consume these packages
@@ -30,7 +30,7 @@ like any other dependent.
 
 Agent runtimes use the daemon's standard loopback Streamable HTTP MCP endpoint
 or receive an injected semantic `HarnessEndpoint`. The registration, recovery,
-and `moltzapd` process contracts are exact in the normative
+and `sharnessd` process contracts are exact in the normative
 [daemon](docs/spec/harness/daemon.md) and
 [management](docs/spec/management.md) specifications; the
 [quickstart](docs/quickstart.mdx) runs the daemon-backed acceptance path.

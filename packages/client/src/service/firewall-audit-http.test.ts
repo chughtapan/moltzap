@@ -3,6 +3,7 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { scopedLive as it } from "@effect/vitest";
+import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Deferred, Effect, Fiber, Option, Schema } from "effect";
 import { join } from "node:path";
 import { describe, expect } from "vitest";
@@ -31,7 +32,9 @@ const makeHttpFixture = Effect.gen(function* () {
   const fixture = yield* makeFixture;
   const harness = yield* makeHarness(fixture, "none");
   harness.delivery.acknowledged = true;
-  const store = yield* openEndpointStore(directory);
+  const store = yield* openEndpointStore(directory, {
+    liveWireVersions: LIVE_WIRE_VERSIONS,
+  });
   yield* store.bindIdentity({
     agentId: fixture.localCard.agentId,
     canonicalAgentCard: fixture.canonicalLocalCard,

@@ -6,6 +6,7 @@
  */
 
 import { scopedLive as it } from "@effect/vitest";
+import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Deferred, Effect, Exit, Fiber, Ref, Schema, Scope } from "effect";
 import { describe, expect } from "vitest";
 import type { CollectiveOperations } from "../transport/collectives/index.js";
@@ -60,7 +61,11 @@ const unboundToken = Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", 9));
  */
 const makeFixture = (adjust: (store: EndpointStore) => EndpointStore) =>
   Effect.gen(function* () {
-    const store = adjust(yield* openEndpointStore(stateDirectory()));
+    const store = adjust(
+      yield* openEndpointStore(stateDirectory(), {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      }),
+    );
     const records: HistoryExportRecord[] = [];
     const slot: { collectives?: Collectives } = {};
     const delivery = yield* makeHostDelivery({

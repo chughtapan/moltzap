@@ -31,7 +31,17 @@ export namespace RouterServer {
     "RouterServerStartupError",
   )<{
     readonly phase: "configuration" | "listener";
-  }> {}
+    readonly reason?: "legacy-key";
+    readonly keys?: readonly string[];
+  }> {
+    override get message(): string {
+      const details =
+        this.reason === undefined
+          ? ""
+          : ` (${this.reason}: ${this.keys?.join(", ")})`;
+      return `Router startup failed: ${this.phase}${details}`;
+    }
+  }
 
   const runRouterServer = Effect.gen(function* () {
     const configuration = yield* loadRouterConfiguration.pipe(
@@ -54,7 +64,7 @@ export namespace RouterServer {
    *
    * ```mermaid
    * flowchart LR
-   *   Binary["moltzap-router"] --> Server["RouterServer.layer"]
+   *   Binary["sharness-router"] --> Server["RouterServer.layer"]
    *   Server --> App["buildRouterApp"]
    *   App --> Http["makeRouterHttpApp"]
    *   Http --> Authentication["AuthenticatedHttp"]
@@ -71,11 +81,11 @@ export namespace RouterServer {
     return Effect.gen(function* () {
       const routerInstanceId = yield* Effect.try({
         try: generateRouterInstanceId,
-        catch: configurationFailure,
+        catch: () => new StartupError({ phase: "configuration" }),
       });
       const cursorKey = yield* Effect.try({
         try: generatePollCursorKey,
-        catch: configurationFailure,
+        catch: () => new StartupError({ phase: "configuration" }),
       });
       const feed = yield* makeRouterFeed({
         routerInstanceId,
@@ -125,8 +135,15 @@ export namespace RouterServer {
     }).pipe(Layer.provide(registryLayer));
   }
 
-  function configurationFailure() {
-    return new StartupError({ phase: "configuration" });
+  function configurationFailure(
+    error: Effect.Effect.Error<typeof loadRouterConfiguration>,
+  ) {
+    return new StartupError({
+      phase: "configuration",
+      ...(error._tag === "LegacyConfigurationError"
+        ? { reason: "legacy-key", keys: error.keys }
+        : {}),
+    });
   }
 
   function listenerFailure() {

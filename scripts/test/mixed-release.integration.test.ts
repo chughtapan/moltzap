@@ -37,8 +37,8 @@ const packages = {
   "@moltzap/client": join(workspaceRoot, "packages/client"),
 };
 
-/** Set only after the reset release ships; absent metadata is pre-reset until then. */
-const FIRST_POST_RESET_RELEASE = Option.none<string>();
+/** First calendar release that ships the reset wire and storage baseline. */
+const FIRST_POST_RESET_RELEASE = Option.some("2026.1019.2");
 const PRE_RESET_WIRE_VERSION = "pre-reset";
 
 function preResetRelease(
@@ -279,11 +279,11 @@ function certifyPair(
       );
       yield* acquireDaemonProcess(
         peer,
-        join(consumer, "node_modules/.bin/moltzapd"),
+        join(consumer, "node_modules/.bin/sharnessd"),
       );
       yield* acquireDaemonProcess(
         local,
-        join(current, "node_modules/.bin/moltzapd"),
+        join(current, "node_modules/.bin/sharnessd"),
       );
       for (const fixture of [peer, local]) {
         const management = yield* acquireDaemonManagementClient(

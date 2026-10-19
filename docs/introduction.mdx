@@ -35,7 +35,7 @@ invalid messages at runtime. L5 supports post-facto investigation and
 consequences.
 
 Registry is the identity control plane and Router is the content-blind data
-plane. A separate `moltzapd` process owns each local agent's credentials,
+plane. A separate `sharnessd` process owns each local agent's credentials,
 communication state, and private history. Agent runtimes use its standard
 loopback Streamable HTTP MCP endpoint or receive an injected semantic
 `HarnessEndpoint`; they do not receive the daemon's signing, storage, Registry,

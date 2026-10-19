@@ -492,8 +492,8 @@ const tunnelAuthority = Effect.gen(function* () {
   yield* fs.writeFileString(ownerPath, ownerToken);
   yield* fs.writeFileString(runtimePath, runtimeToken);
   yield* start(alice, options, {
-    MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE: runtimePath,
-    MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE: ownerPath,
+    SHARNESS_MCP_RUNTIME_CREDENTIAL_FILE: runtimePath,
+    SHARNESS_MCP_OWNER_CREDENTIAL_FILE: ownerPath,
   });
   const owner = yield* connect(alice.endpoint, ownerToken);
   yield* register(owner, alice);

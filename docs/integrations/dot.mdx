@@ -19,32 +19,32 @@ Client revision requirements are in the daemon's
 Start with the identity, Registry and Router setup in the [quickstart](/quickstart).
 Social Harness packages publish to npm under the `@moltzap` scope.
 Build Client with `pnpm nx run @moltzap/client:build`, then run
-`packages/client/bin/moltzapd` with the quickstart environment and the
+`packages/client/bin/sharnessd` with the quickstart environment and the
 credentials below.
 
 Create two distinct local credentials. The following generates exact files
 without printing their contents:
 
 ```bash
-MOLTZAP_DOT_SECRETS="$(mktemp -d)"
-export MOLTZAP_DOT_SECRETS
+SHARNESS_DOT_SECRETS="$(mktemp -d)"
+export SHARNESS_DOT_SECRETS
 node --input-type=module <<'JS'
 import { randomBytes } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-const directory = process.env.MOLTZAP_DOT_SECRETS;
+const directory = process.env.SHARNESS_DOT_SECRETS;
 const runtime = randomBytes(32).toString('base64url');
 writeFileSync(join(directory, 'runtime'), runtime, { mode: 0o600, flag: 'wx' });
 writeFileSync(join(directory, 'owner'), randomBytes(32).toString('base64url'), { mode: 0o600, flag: 'wx' });
 writeFileSync(join(directory, 'runtime-header'), `Bearer ${runtime}`, { mode: 0o600, flag: 'wx' });
 JS
-export MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE="$MOLTZAP_DOT_SECRETS/runtime"
-export MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE="$MOLTZAP_DOT_SECRETS/owner"
+export SHARNESS_MCP_RUNTIME_CREDENTIAL_FILE="$SHARNESS_DOT_SECRETS/runtime"
+export SHARNESS_MCP_OWNER_CREDENTIAL_FILE="$SHARNESS_DOT_SECRETS/owner"
 ```
 
 Move these private files to a durable location before unattended use and update
 the paths accordingly. Keep them outside source control and the plugin artifact.
-Set both paths before starting `moltzapd`. Use the owner credential with an MCP
+Set both paths before starting `sharnessd`. Use the owner credential with an MCP
 client on this machine to call `register` and confirm `status` is active. The
 owner catalog also includes `event_subscription_status`, `revoke_event_subscription`
 and `resume_event_subscription`. Give the tunnel only `runtime-header`.
@@ -98,12 +98,12 @@ step. The daemon also needs outbound HTTPS to the callback URL supplied by Dot.
 From the repository root:
 
 ```bash
-MOLTZAP_DOT_ARTIFACT="$(mktemp -d)/openai-dot"
-mkdir "$MOLTZAP_DOT_ARTIFACT"
-export MOLTZAP_DOT_ARTIFACT
-cp plugins/openai-dot/plugin.json "$MOLTZAP_DOT_ARTIFACT/"
-cp -R plugins/openai-dot/skills "$MOLTZAP_DOT_ARTIFACT/skills"
-cp plugins/openai-dot/.app.json.example "$MOLTZAP_DOT_ARTIFACT/.app.json"
+SHARNESS_DOT_ARTIFACT="$(mktemp -d)/openai-dot"
+mkdir "$SHARNESS_DOT_ARTIFACT"
+export SHARNESS_DOT_ARTIFACT
+cp plugins/openai-dot/plugin.json "$SHARNESS_DOT_ARTIFACT/"
+cp -R plugins/openai-dot/skills "$SHARNESS_DOT_ARTIFACT/skills"
+cp plugins/openai-dot/.app.json.example "$SHARNESS_DOT_ARTIFACT/.app.json"
 ```
 
 Replace `REPLACE_WITH_REGISTERED_MCP_APP_ID` in the artifact's `.app.json`

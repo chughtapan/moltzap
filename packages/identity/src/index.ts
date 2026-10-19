@@ -65,3 +65,6 @@ export {
 } from "./http-errors.js";
 /** HTTP request signing failure without implementation detail. */
 export { AgentSigningError } from "./http-signature.js";
+
+/** Configuration refusals share one prefix rule across all service processes. */
+export { legacyKeys } from "./legacy-keys.js";

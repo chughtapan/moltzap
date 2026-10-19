@@ -32,8 +32,8 @@ function startAuditedChild(
       Command.make(process.execPath, "--import", "tsx", program).pipe(
         Command.stderr("inherit"),
         Command.env({
-          MOLTZAP_TEST_AUDIT_DIRECTORY: directory,
-          MOLTZAP_TEST_AUDIT_BLOCK: String(block),
+          SHARNESS_TEST_AUDIT_DIRECTORY: directory,
+          SHARNESS_TEST_AUDIT_BLOCK: String(block),
         }),
       ),
     );

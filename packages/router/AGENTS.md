@@ -6,7 +6,7 @@ the Router representation chapters govern this package.
 
 `@moltzap/router` owns opaque message delivery, the volatile global feed,
 polling, cursors, Router instance identity, authenticated Router HTTP, the
-Router process, and `moltzap-router`. Its only production workspace dependency
+Router process, and `sharness-router`. Its only production workspace dependency
 is `@moltzap/identity`.
 
 Router remains content-blind and volatile. It does not own conversations,

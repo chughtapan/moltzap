@@ -87,7 +87,7 @@ export function issueTestCard(
     const protectedText = canonicalize({
       alg: "Ed25519",
       kid: `urn:ietf:params:oauth:jwk-thumbprint:sha-256:${thumbprint}`,
-      typ: "application/vnd.moltzap.agent-card+jws",
+      typ: "application/vnd.sharness.agent-card+jws",
     });
     const payloadText = canonicalize({
       agentId: Schema.decodeUnknownSync(AgentId)(

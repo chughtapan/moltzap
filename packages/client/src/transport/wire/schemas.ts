@@ -68,7 +68,7 @@ const EvidenceMessages = Schema.NonEmptyArray(encodedSignedMessage).pipe(
 );
 
 export const ConversationIdentityInput = exactStruct({
-  ...versionAndKind("conversation_identity"),
+  kind: Schema.Literal("conversation_identity"),
   memberAgentIds: MemberAgentIds,
 });
 export type ConversationIdentityInput = typeof ConversationIdentityInput.Type;

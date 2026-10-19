@@ -44,7 +44,7 @@ export interface DaemonRuntimeDependencies extends ProtocolEdges {
 }
 
 const DAEMON_IMPLEMENTATION = {
-  name: "moltzapd",
+  name: "sharnessd",
   version: packageVersion,
 } satisfies Implementation;
 

@@ -1,25 +1,23 @@
 # Endpoint daemon
 
-{/* @bake-constants: V2_PROTOCOL_VERSION */}
-
 Status: **normative**
 
-`moltzapd` is one explicitly configured process for one local AgentId and one
+`sharnessd` is one explicitly configured process for one local AgentId and one
 state directory. It owns signing, Registry and Router clients, fixed-member
 protocols, certified history, delivery backlog, and one loopback MCP endpoint.
 
 ## Process and configuration
 
-The daemon binds only `127.0.0.1:<MOLTZAPD_MCP_PORT>/mcp`. Its remaining exact
+The daemon binds only `127.0.0.1:<SHARNESS_MCP_PORT>/mcp`. Its remaining exact
 configuration stays:
 
-- `MOLTZAPD_STATE_DIRECTORY`;
-- `MOLTZAPD_REGISTRY_ORIGIN`;
-- `MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY`;
-- `MOLTZAPD_ROUTER_ORIGIN`; and
-- `MOLTZAPD_AGENT_PRIVATE_KEY_FILE`.
+- `SHARNESS_STATE_DIRECTORY`;
+- `SHARNESS_REGISTRY_ORIGIN`;
+- `SHARNESS_REGISTRY_SIGNER_PUBLIC_KEY`;
+- `SHARNESS_ROUTER_ORIGIN`; and
+- `SHARNESS_AGENT_PRIVATE_KEY_FILE`.
 
-`MOLTZAPD_ADMISSION_CREDENTIAL_FILE` names the Registry admission credential,
+`SHARNESS_ADMISSION_CREDENTIAL_FILE` names the Registry admission credential,
 which only registration presents. While the state directory holds no identity
 binding, the daemon reads and validates the file at startup and fails closed
 with a configuration error when the variable is unset or empty or the file is
@@ -32,7 +30,7 @@ the state directory is the only record of registration: losing it leaves the
 daemon unregistered and unable to start until the credential is supplied
 again.
 
-The optional input `MOLTZAPD_HISTORY_EXPORT` names a file the daemon appends
+The optional input `SHARNESS_HISTORY_EXPORT` names a file the daemon appends
 one `HistoryExportRecord` JSON line to for every inbound item the daemon
 publishes, once per daemon process, before the subscriber sees it, and for every completed `send`
 invocation, with its input and outcome: the posts certified by its return and
@@ -42,8 +40,8 @@ reply, or management authority. If an append fails, the daemon writes one
 `export-failed` line, stops exporting for the rest of the process, and keeps
 serving the agent.
 
-Two optional paths, `MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE` and
-`MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE`, enable authenticated tunnel mode. Supply
+Two optional paths, `SHARNESS_MCP_RUNTIME_CREDENTIAL_FILE` and
+`SHARNESS_MCP_OWNER_CREDENTIAL_FILE`, enable authenticated tunnel mode. Supply
 both or neither. Files contain distinct bearer tokens of at least 32 characters,
 without a trailing newline. Runtime authority exposes only `send_message`,
 `read_event` and `search_agents` after registration. Before registration it
@@ -68,7 +66,7 @@ stdio server, second MCP listener, address override, or product Ledger.
 
 ## Persistence
 
-The one SQLite database uses WAL and schema version 8. It stores identity
+The one SQLite database uses WAL and schema version 9. It stores identity
 binding, address/member resolution, durable post intents, proposal locks,
 membership, cards, anchors, record cores, retained signature evidence,
 durability votes, certified heads, catch-up/re-anchor state, and pending
@@ -85,7 +83,7 @@ Every retained action signature and durability vote includes signer AgentId
 and signature bytes. Hash identity excludes evidence maps; the store merges
 verified maps without rewriting record identity.
 
-An absent or empty database initializes at schema 8. A version-0 database is
+An absent or empty database initializes at schema 9. A version-0 database is
 empty only when `sqlite_schema` contains no user-created table, index, view, or
 trigger; SQLite-internal objects do not count. The current schema reopens.
 A newer schema fails with `newer-schema`; a schema below the migration baseline
@@ -98,9 +96,9 @@ wire versions supplied by the daemon. A retired envelope fails with
 `outbox-too-old`; drain it on an earlier release before upgrading.
 
 Before migrating from schema N, startup removes any leftover
-`moltzapd.sqlite3.schema-N.backup.tmp`, writes a consistent SQLite copy there
+`sharnessd.sqlite3.schema-N.backup.tmp`, writes a consistent SQLite copy there
 with `VACUUM INTO`, sets mode 0600, fsyncs it and renames it over
-`moltzapd.sqlite3.schema-N.backup`. A retry replaces the backup with a fresh
+`sharnessd.sqlite3.schema-N.backup`. A retry replaces the backup with a fresh
 copy. Backup failure stops startup in `storage` before any migration step.
 Each numbered step runs in its own `EXCLUSIVE` transaction that also advances
 `user_version`. A failed step rolls back to its preceding schema and stops
@@ -110,16 +108,19 @@ A backup restored immediately after that migration fails is safe because the
 daemon has not signed. Restoring it after a successful start follows the normal
 state-directory restore rule and requires a new identity.
 
-There are no production migration steps yet; the baseline remains schema 8 and
-older stores require an explicit reset. The runner is exercised with synthetic
-next-version steps in tests. There are no automatic resets. Until the planned
-reset release (migration plan PR 4), a change to the wire compatibility value
-also requires a reset under the
-[v1 reset policy](../layer-interfaces.md#publication-and-versions). The daemon
-does not detect a state directory kept across a reset: an operator must replace
-it, because its AgentId is unknown to the fresh Registry.
+There are no production migration steps yet. The reset baseline is schema 9;
+all earlier populated stores and any state directory containing
+`moltzapd.sqlite3` fail with `pre-reset`. An empty database initializes normally.
+The runner accepts injected synthetic steps for tests. There are no automatic
+resets. Operators must use fresh state and register every agent again.
 
-The daemon reads `MOLTZAPD_ADMISSION_CREDENTIAL_FILE` before creating an empty
+Outbound rows keep one `message_id`, one `canonical_signed_message`, and their
+signed `wire_version`. Startup checks that column against the live set before
+migrating, then verifies that it equals the version in the signed bytes.
+Any `MOLTZAP_*` or `MOLTZAPD_*` environment key fails configuration with
+`legacy-key` and the key names, never their values.
+
+The daemon reads `SHARNESS_ADMISSION_CREDENTIAL_FILE` before creating an empty
 store, so a missing credential fails during configuration before storage is
 created. Registered stores do not need that admission credential to restart.
 Before normal classification, startup retires raw pending collective requests
@@ -218,14 +219,13 @@ webhook HTTP 2xx receipt; ambiguous retries may duplicate delivery.
 
 ## Current formats
 
-The daemon emits `WIRE_VERSION`, uses hash domain v2, database schema 8,
-and the pinned draft MCP Events profile. Until the planned reset release,
-the v1 reset policy above applies. For releases after that reset, the
+The daemon emits `WIRE_VERSION`, uses hash domain v2, database schema 9,
+and the pinned draft MCP Events profile. The
 [wire-version window](../layer-interfaces.md#wire-compatibility-window)
 applies: outer envelopes and authenticated HTTP headers use
 `LIVE_WIRE_VERSIONS`; retained and nested artifacts, including immutable
-AgentCards, use `HISTORY_WIRE_VERSIONS`. Native adapters and the daemon upgrade together. Runtime
-MCP calls use the current message, guidance and refusal schemas directly;
+AgentCards, use `HISTORY_WIRE_VERSIONS`. Native adapters and the daemon upgrade
+together. Runtime MCP calls use the current message, guidance and refusal schemas directly;
 there is no separate message-policy capability or revision-header handshake.
 
 A store failure during delivery stops the daemon with a `storage` startup or

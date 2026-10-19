@@ -2,7 +2,12 @@
 
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { AgentCard, Ed25519PublicKey, WIRE_VERSION } from "@moltzap/identity";
+import {
+  AgentCard,
+  Ed25519PublicKey,
+  LIVE_WIRE_VERSIONS,
+  WIRE_VERSION,
+} from "@moltzap/identity";
 import { RouterInstanceId } from "@moltzap/router";
 import { Deferred, Effect, Queue, Schema, Scope } from "effect";
 import { generateKeyPairSync } from "node:crypto";
@@ -111,7 +116,9 @@ const identities = Effect.gen(function* () {
   );
   const membership = yield* directMembership([local.card, remote.card], signer);
   const directory = stateDirectory();
-  const store = yield* openEndpointStore(directory);
+  const store = yield* openEndpointStore(directory, {
+    liveWireVersions: LIVE_WIRE_VERSIONS,
+  });
   yield* store.bindIdentity({
     agentId: local.card.agentId,
     canonicalAgentCard: yield* encodeCanonical(AgentCard, local.card),

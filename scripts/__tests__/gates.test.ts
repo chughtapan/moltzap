@@ -26,7 +26,7 @@ import {
   WIRE_VERSION_LITERAL,
   WIRE_VERSION_SOURCE,
   readCompatibilityVersion as readCompatibilityVersionSource,
-} from "../docs/moltzap-version.js";
+} from "../docs/sharness-version.js";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(scriptDir, "..", "..");

@@ -1,6 +1,10 @@
 /** @file Loads the daemon process configuration and its redacted bootstrap material from the environment. */
 
-import { AgentSigningAuthority, Ed25519PublicKey } from "@moltzap/identity";
+import {
+  AgentSigningAuthority,
+  Ed25519PublicKey,
+  legacyKeys,
+} from "@moltzap/identity";
 import { Config, Effect, Redacted, Schema } from "effect";
 import {
   credentialMatches,
@@ -55,32 +59,32 @@ const compactPublicKeyJson = Schema.String.pipe(
 );
 
 const configuredValues = Config.all({
-  stateDirectory: Schema.Config("MOLTZAPD_STATE_DIRECTORY", configuredPath),
-  mcpPort: Schema.Config("MOLTZAPD_MCP_PORT", port),
-  registryOrigin: Schema.Config("MOLTZAPD_REGISTRY_ORIGIN", origin),
+  stateDirectory: Schema.Config("SHARNESS_STATE_DIRECTORY", configuredPath),
+  mcpPort: Schema.Config("SHARNESS_MCP_PORT", port),
+  registryOrigin: Schema.Config("SHARNESS_REGISTRY_ORIGIN", origin),
   registrySignerPublicKey: Schema.Config(
-    "MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY",
+    "SHARNESS_REGISTRY_SIGNER_PUBLIC_KEY",
     compactPublicKeyJson,
   ),
-  routerOrigin: Schema.Config("MOLTZAPD_ROUTER_ORIGIN", origin),
+  routerOrigin: Schema.Config("SHARNESS_ROUTER_ORIGIN", origin),
   agentPrivateKeyFile: Config.redacted(
-    Schema.Config("MOLTZAPD_AGENT_PRIVATE_KEY_FILE", configuredPath),
+    Schema.Config("SHARNESS_AGENT_PRIVATE_KEY_FILE", configuredPath),
   ),
   admissionCredentialFile: Schema.Config(
-    "MOLTZAPD_ADMISSION_CREDENTIAL_FILE",
+    "SHARNESS_ADMISSION_CREDENTIAL_FILE",
     optionalConfiguredPath,
   ).pipe(
     Config.withDefault(""),
     Config.map((path) => (path === "" ? undefined : Redacted.make(path))),
   ),
-  historyExport: Schema.Config("MOLTZAPD_HISTORY_EXPORT", configuredPath).pipe(
+  historyExport: Schema.Config("SHARNESS_HISTORY_EXPORT", configuredPath).pipe(
     Config.withDefault(undefined),
   ),
   mcpRuntimeCredentialFile: Config.redacted(
-    Schema.Config("MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE", configuredPath),
+    Schema.Config("SHARNESS_MCP_RUNTIME_CREDENTIAL_FILE", configuredPath),
   ).pipe(Config.withDefault(undefined)),
   mcpOwnerCredentialFile: Config.redacted(
-    Schema.Config("MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE", configuredPath),
+    Schema.Config("SHARNESS_MCP_OWNER_CREDENTIAL_FILE", configuredPath),
   ).pipe(Config.withDefault(undefined)),
 });
 
@@ -92,11 +96,19 @@ const configurationError = (
 export const loadDaemonProcessConfiguration: Effect.Effect<
   DaemonProcessConfiguration,
   DaemonConfigurationError
-> = configuredValues.pipe(
-  Effect.map((configuration): DaemonProcessConfiguration => configuration),
-  Effect.mapError(() => configurationError("environment")),
-  Effect.withSpan("loadDaemonProcessConfiguration"),
-);
+> = Effect.suspend(() => {
+  // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- Configuration acquisition enumerates unknown legacy keys, which Effect.Config cannot name in advance.
+  const keys = legacyKeys(process.env);
+  return keys.length === 0
+    ? configuredValues.pipe(
+        Effect.map(
+          (configuration): DaemonProcessConfiguration => configuration,
+        ),
+        Effect.mapError(() => configurationError("environment")),
+        Effect.withSpan("loadDaemonProcessConfiguration"),
+      )
+    : Effect.fail(new DaemonConfigurationError({ reason: "legacy-key", keys }));
+});
 
 const credentialFailure =
   (

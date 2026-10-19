@@ -85,7 +85,7 @@ export const retainedIdentityFixture = Effect.gen(function* () {
         .setProtectedHeader({
           alg: "Ed25519",
           kid,
-          typ: "application/vnd.moltzap.agent-card+jws",
+          typ: "application/vnd.sharness.agent-card+jws",
         })
         .sign(),
     catch: () => new AuthenticationFailedError(),

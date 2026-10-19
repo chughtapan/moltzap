@@ -73,7 +73,7 @@ const CHANNEL_DEFAULTS = Object.freeze({
 const INBOUND_TIMESTAMP = "1970-01-01T00:00:00.000Z";
 
 const channelEnv = Config.all({
-  mcpEndpoint: Config.option(Config.string("MOLTZAP_MCP_URL")).pipe(
+  mcpEndpoint: Config.option(Config.string("SHARNESS_MCP_URL")).pipe(
     Config.map(Option.getOrNull),
   ),
 });

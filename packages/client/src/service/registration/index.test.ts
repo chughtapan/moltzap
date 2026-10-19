@@ -37,18 +37,18 @@ MC4CAQAwBQYDK2VwBCIEIHsbmQdBGQFs1eXLEWxKDblLeG//B9s8WmWEMQHvw4f8
 -----END PRIVATE KEY-----`;
 const registryKeyRepresentation = {
   crv: "Ed25519",
+  x: "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
   kty: "OKP",
-  x: "kVwONy_B4JUCO89NL3G63Ha2Bto1o7Niy1qDNNzB5yo",
 } as const;
 const cardRepresentation = {
   payload:
-    "eyJhZ2VudElkIjoiYWd0X0FRRUJBUUVCQVFFQkFRRUJBUUVCQVEiLCJhZ2VudE5hbWUiOiJhZ2VudC1vbmUiLCJpc3N1ZWRBdCI6IjIwMjYtMDgtMTNUMDA6MDA6MDFaIiwia2luZCI6ImFnZW50Q2FyZCIsIm1vbHR6YXBWZXJzaW9uIjoiMjAyNi4xMDA2LjEiLCJwcmluY2lwYWxJZCI6InBybl9Dd3NMQ3dzTEN3c0xDd3NMQ3dzTEN3IiwicHVibGljS2V5Ijp7ImNydiI6IkVkMjU1MTkiLCJrdHkiOiJPS1AiLCJ4IjoiM3JVSjkydElQMERFNGVrbUVUMXptZTZTSVdUcDVHMEtpRjNaakwtQW9LZyJ9fQ",
+    "eyJhZ2VudElkIjoiYWd0X0FRRUJBUUVCQVFFQkFRRUJBUUVCQVEiLCJhZ2VudE5hbWUiOiJhZ2VudC1vbmUiLCJpc3N1ZWRBdCI6IjIwMjYtMDgtMTNUMDA6MDA6MDFaIiwia2luZCI6ImFnZW50Q2FyZCIsIm1vbHR6YXBWZXJzaW9uIjoiMjAyNi4xMDE5LjEiLCJwcmluY2lwYWxJZCI6InBybl9Dd3NMQ3dzTEN3c0xDd3NMQ3dzTEN3IiwicHVibGljS2V5Ijp7ImNydiI6IkVkMjU1MTkiLCJrdHkiOiJPS1AiLCJ4IjoiM3JVSjkydElQMERFNGVrbUVUMXptZTZTSVdUcDVHMEtpRjNaakwtQW9LZyJ9fQ",
   signatures: [
     {
       protected:
-        "eyJhbGciOiJFZDI1NTE5Iiwia2lkIjoidXJuOmlldGY6cGFyYW1zOm9hdXRoOmp3ay10aHVtYnByaW50OnNoYS0yNTY6NlpCdHpOeHRaUzRaYlNENlNuLVJXekpfYlhncmxHWC1RVU1qUE9BMWluWSIsInR5cCI6ImFwcGxpY2F0aW9uL3ZuZC5tb2x0emFwLmFnZW50LWNhcmQrandzIn0",
+        "eyJhbGciOiJFZDI1NTE5Iiwia2lkIjoidXJuOmlldGY6cGFyYW1zOm9hdXRoOmp3ay10aHVtYnByaW50OnNoYS0yNTY6a1ByS19xbXhWV2FZVkE5d3dCRjZJdW8zdlZ6ejdUeEhDVHdYQnlnclM0ayIsInR5cCI6ImFwcGxpY2F0aW9uL3ZuZC5zaGFybmVzcy5hZ2VudC1jYXJkK2p3cyJ9",
       signature:
-        "w7HcWwseXqJsn6FZeDwDATar3D4WF1v5IltDgrYwU4N1LzU41mvWe8OxnhUdOtKH26a2ZqPTA8eX2YafBSs8DA",
+        "dNfwDNXKlrD3odfqyxNV7KyBPEi04g0Mcgu5p6De4OIj8Qb5iqNvWKLPvFbn1yJ8ISFSg4NkNEiCsFXc9RRLAQ",
     },
   ],
 };
@@ -115,7 +115,7 @@ const makeFixture = Effect.gen(function* () {
   );
   const bootstrap: DaemonBootstrap = Object.freeze({
     configuration: {
-      stateDirectory: "/var/lib/moltzapd",
+      stateDirectory: "/var/lib/sharnessd",
       mcpPort: 4319,
       registryOrigin: new URL("https://registry.example"),
       registrySignerPublicKey,

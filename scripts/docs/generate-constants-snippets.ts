@@ -38,7 +38,7 @@ import { fileURLToPath } from "node:url";
 import {
   WIRE_VERSION_SOURCE,
   readCompatibilityVersion,
-} from "./moltzap-version.js";
+} from "./sharness-version.js";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(scriptDir, "..", "..");

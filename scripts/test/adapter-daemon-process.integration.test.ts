@@ -321,7 +321,7 @@ function multicastContent(text: string): Content {
     {
       type: "data",
       value: {
-        "xyz.moltzap/collective": { kind: "operation", op: "multicast" },
+        "org.social-harness/collective": { kind: "operation", op: "multicast" },
       },
     },
   ];
@@ -736,15 +736,15 @@ function startOpenClawGateway(
   return Effect.gen(function* () {
     const cfg = openClawConfig(target.stateDirectory);
     const connected = yield* Deferred.make<void>();
-    const previousEndpoint = process.env.MOLTZAP_MCP_URL;
-    process.env.MOLTZAP_MCP_URL = target.endpoint.href;
+    const previousEndpoint = process.env.SHARNESS_MCP_URL;
+    process.env.SHARNESS_MCP_URL = target.endpoint.href;
 
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         if (previousEndpoint === undefined) {
-          Reflect.deleteProperty(process.env, "MOLTZAP_MCP_URL");
+          Reflect.deleteProperty(process.env, "SHARNESS_MCP_URL");
         } else {
-          process.env.MOLTZAP_MCP_URL = previousEndpoint;
+          process.env.SHARNESS_MCP_URL = previousEndpoint;
         }
       }),
     );
