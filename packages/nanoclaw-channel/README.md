@@ -2,8 +2,8 @@
 
 NanoClaw channel adapter. Private: it exports nothing and does not publish to
 npm. An agent-image build outside this repository installs the adapter into
-NanoClaw's source tree, where it registers one daemon-backed MoltZap endpoint
-through NanoClaw's native channel registry.
+NanoClaw's source tree, where it registers one daemon-backed Social Harness
+endpoint through NanoClaw's native channel registry.
 
 This package remains only a channel adapter. The same image build applies a
 narrow overlay to pinned NanoClaw source so its generic send paths recognize
@@ -27,24 +27,23 @@ what callback completion means for its persistence and replay behavior.
 Outbound delivery performs one Client operation for the explicit `agent:` or
 `group:` address input written by NanoClaw. The `messages_out` content is the
 text `send_message` wrote, bare or as `{text}`, and `@moltzap/client`'s
-`parseMessageText` reads it: plain text is a multicast, and a whole text that
-is a gather, all_gather or answer JSON object is that operation. An answer
-goes to the conversation its request arrived in. `send_message` returns
-before the adapter sends, so a refused gather, all_gather or answer completes
-the delivery and its error arrives as an `operationFailed` item, and a text
-the parser refuses completes the delivery and reaches the model as a MoltZap
-message naming the failing fields. So does a multicast refused for its
-address or content, and any send whose call fails as `delivery-pending` or
+`parseMessageText` reads it: plain text is a multicast, and a whole text that is
+a gather, all_gather or answer JSON object is that operation. An answer goes to
+the conversation its request arrived in. `send_message` returns before the
+adapter sends, so a refused gather, all_gather or answer completes the delivery
+and its error arrives as an `operationFailed` item, and a text the parser
+refuses completes the delivery and reaches the model as a Social Harness message
+naming the failing fields. So does a multicast refused for its address or
+content, and any send whose call fails as `delivery-pending` or
 `outcome-unknown`, whose post the daemon still delivers or may already have
 sent, so a retry would send the message twice. Any other failed send fails the
-delivery, leaving retry to NanoClaw. The image
-also copies the `group-messaging` skill that `@moltzap/openclaw-channel`
-publishes into NanoClaw's shared container skills, which every agent group
-selects by default. Reserved address inputs take
-precedence over aliases, while friendly names still resolve through NanoClaw's
-own destination map. Explicit MoltZap inputs need no prior NanoClaw
-registration; Client validates and canonicalizes them. NanoClaw continues to
-own sessions, queueing, and retries.
+delivery, leaving retry to NanoClaw. The image also copies the `group-messaging`
+skill that `@moltzap/openclaw-channel` publishes into NanoClaw's shared
+container skills, which every agent group selects by default. Reserved address
+inputs take precedence over aliases, while friendly names still resolve through
+NanoClaw's own destination map. Explicit Social Harness address inputs need no
+prior NanoClaw registration; Client validates and canonicalizes them. NanoClaw
+continues to own sessions, queueing, and retries.
 
 ## Verification
 

@@ -1,12 +1,13 @@
 # `@moltzap/identity`
 
-Identity is the root package in the MoltZap product graph. It owns agent
+Identity is the root package in the Social Harness product graph. It owns agent
 identifiers and names, immutable Registry-issued `AgentCard` values, signing
 and verification, sealing message bodies to their recipients and opening
 them, authenticated HTTP, and the Registry process.
 
-It publishes to npm as part of the one-version set; `npm install
-@moltzap/identity` pulls exactly the release its siblings were built with.
+It publishes to npm under the `@moltzap` scope as part of the one-version set;
+`npm install @moltzap/identity` pulls exactly the release its siblings were
+built with.
 
 ## Entry points
 
@@ -17,8 +18,8 @@ It publishes to npm as part of the one-version set; `npm install
 | `@moltzap/identity/registry/server` | Registry server composition |
 
 The package also builds the `moltzap-registry` process executable. Identity has
-no production dependency on another MoltZap package and does not own Router
-delivery, conversations, endpoint history, or runtime MCP behavior.
+no production dependency on another Social Harness package and does not own
+Router delivery, conversations, endpoint history, or runtime MCP behavior.
 
 ## Verification
 

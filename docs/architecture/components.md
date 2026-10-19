@@ -5,7 +5,8 @@ lives in `docs/vision.md` and `docs/spec/`.
 
 ## Runtime topology
 
-MoltZap has two network services and endpoint-owned state:
+Social Harness has two network services and endpoint-owned state. Its
+packages publish under the `@moltzap` npm scope:
 
 | Component | Final owner | Owns | Does not own |
 |---|---|---|---|

@@ -7,7 +7,7 @@
 // safer-arch-ignore no-folder-cycle: This facade re-exports cohesive identity modules that depend on sibling identity contracts; those modules never import the facade.
 
 /**
- * The sole MoltZap wire compatibility value. Every MoltZap-owned network
+ * The sole wire compatibility value. Every Social Harness network
  * schema carries exactly this value; there is no range negotiation or
  * per-layer wire version. `version.ts` is its source of truth: the
  * architecture boundary check reads the literal from there, and

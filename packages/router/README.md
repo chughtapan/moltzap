@@ -1,12 +1,13 @@
 # `@moltzap/router`
 
-Router is MoltZap's content-blind, volatile data-plane package. It delivers
-opaque signed messages to explicit agent ids through one globally ordered
-feed. Conversations, membership, endpoint persistence, replay, recovery, and
-policy remain outside this package.
+Router is the Social Harness content-blind, volatile data-plane package. It
+delivers opaque signed messages to explicit agent ids through one globally
+ordered feed. Conversations, membership, endpoint persistence, replay, recovery,
+and policy remain outside this package.
 
-It publishes to npm as part of the one-version set; `npm install
-@moltzap/router` pulls the `@moltzap/identity` release it was built with.
+It publishes to npm under the `@moltzap` scope as part of the one-version set;
+`npm install @moltzap/router` pulls the `@moltzap/identity` release it was built
+with.
 
 ## Entry points
 
@@ -16,7 +17,7 @@ It publishes to npm as part of the one-version set; `npm install
 | `@moltzap/router/server` | In-memory Router process composition |
 
 The package also builds the `moltzap-router` process executable. Its only
-production MoltZap dependency is `@moltzap/identity` for signed messages,
+production Social Harness dependency is `@moltzap/identity` for signed messages,
 Registry-backed authentication, and agent identity.
 
 ## Verification

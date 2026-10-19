@@ -541,7 +541,7 @@ Together they perform:
 4. Registry resolution, content digest, HTTP signature, card and key
    binding, algorithm, tag, and time checks;
 5. atomic nonce claim;
-6. signed MoltZap version check;
+6. signed wire compatibility value check;
 7. complete closed route-owned request Schema decode; and
 8. domain handler.
 
@@ -574,7 +574,7 @@ Registry performs:
 4. content digest, HTTP signature, submitted-key binding, admission
    credential, algorithm, tag, and time checks;
 5. durable atomic registration-nonce claim;
-6. signed MoltZap version check;
+6. signed wire compatibility value check;
 7. complete closed `RegistryRegisterRequest` Schema decode; and
 8. the Registry private RPC middleware and domain handler.
 
@@ -639,7 +639,7 @@ Registered-agent `AuthenticatedHttp` outcomes after common framing are:
 | 4 | missing or invalid digest, signature fields, covered component, key binding, card, proof, algorithm, tag, or time window | 401 `authentication_failed` |
 | 5 | nonce is already live | 401 `authentication_failed` |
 | 5 | nonce is novel but live-nonce capacity is full | 429 `overloaded`; do not claim it |
-| 6 | the authenticated signed MoltZap version differs | 412 `version_mismatch`; retain the nonce claim |
+| 6 | the authenticated signed wire compatibility value differs | 412 `version_mismatch`; retain the nonce claim |
 | 7 | complete closed route-owned schema fails | 400 `malformed`; retain the nonce claim |
 | 8 | owner admission capacity that is independent of a route-owned domain outcome is unavailable | 429 `overloaded` |
 | 8 | a required domain dependency is unavailable or times out | 503 `unavailable` |
@@ -654,7 +654,7 @@ Registry bootstrap-admission outcomes after common framing are:
 | 5 | nonce is already live | 401 `authentication_failed` |
 | 5 | nonce is novel but live-nonce capacity is full | 429 `overloaded`; do not claim it |
 | 5 | the durable nonce claim is unavailable or times out | 503 `unavailable` |
-| 6 | the bootstrap-signed MoltZap version differs | 412 `version_mismatch`; retain the nonce claim |
+| 6 | the bootstrap-signed wire compatibility value differs | 412 `version_mismatch`; retain the nonce claim |
 | 7 | complete closed `RegistryRegisterRequest` Schema fails | 400 `malformed`; retain the nonce claim |
 | 8 | Registry storage is unavailable or times out | 503 `unavailable` |
 | 8 | an unexpected implementation failure occurs | 500 `internal` |
@@ -830,7 +830,7 @@ types are not standalone parsing Schemas.
 - 204 with no body when ready; or
 - 503 with no body when not ready.
 
-It requires no MoltZap version or request signature.
+It requires no wire compatibility value or request signature.
 
 ## Rejection summary
 
@@ -844,6 +844,6 @@ It requires no MoltZap version or request signature.
 ## Decision evidence
 
 Internal ADRs and their source events live in
-[the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
+[the shared docs repo](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
 This chapter contains the public specification needed to use and maintain the
 package.

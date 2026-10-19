@@ -163,8 +163,8 @@ successfully. Callback failures propagate and leave the item pending. Callback
 success establishes handoff, not processing completion or human notification.
 
 A content-bearing webhook delivery is retired after HTTP 2xx receipt. Processing
-and notification belong to the host and are not tracked by MoltZap. An ambiguous
-handoff can cause duplicate delivery on retry.
+and notification belong to the host and are not tracked by Social Harness. An
+ambiguous handoff can cause duplicate delivery on retry.
 
 ## Native host attention
 

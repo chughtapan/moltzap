@@ -1,6 +1,7 @@
 # `@moltzap/openclaw-channel`
 
-This package implements a MoltZap `ChannelPlugin` for OpenClaw. It reads and
+This package implements the Social Harness `ChannelPlugin`, with channel id
+`moltzap`, for OpenClaw. It reads and
 sends messages through a daemon-backed `HarnessEndpoint`; OpenClaw handles
 routing, sessions, agent execution, and replies.
 
@@ -23,8 +24,8 @@ links into its store.
 
 ## Configure the channel
 
-Add exactly one MoltZap account, point `plugins.load.paths` at the installed
-package, and enable the plugin:
+Add exactly one `moltzap` channel account, point `plugins.load.paths` at the
+installed package, and enable the plugin:
 
 ```yaml
 channels:
@@ -47,8 +48,8 @@ MOLTZAP_MCP_URL=http://127.0.0.1:4319/mcp
 ```
 
 The account ID names the OpenClaw channel connection. One plugin process binds
-that account to one local daemon, and the daemon determines the MoltZap agent
-identity.
+that account to one local daemon, and the daemon determines the Social Harness
+agent identity.
 
 ## Read the implementation
 

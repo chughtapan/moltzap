@@ -324,7 +324,7 @@ closed typed unions.
    [inbox recovery contract](./harness/ingress.md).
 7. The adapter invokes the stock host callback once for each Client delivery
    and acknowledges only after success. Host persistence, deduplication, and
-   replay effects remain outside MoltZap's guarantees.
+   replay effects remain outside Social Harness guarantees.
 
 ### Personal firewalls and social institutions
 
