@@ -533,55 +533,39 @@ function testPublicationGuardsDriftedList(): void {
   restoreAllPlants();
 }
 
-function runBoundaries(): {
-  code: number;
-  stderr: string;
-} {
-  return runNode([
-    resolve(workspaceRoot, "scripts/architecture/check-boundaries.ts"),
-  ]);
-}
-
-function withCompatibilityVersion(next: string) {
-  return (source: string): string =>
-    source.replace(
-      WIRE_VERSION_LITERAL,
-      `export const WIRE_VERSION = "${next}"`,
-    );
-}
+const MALFORMED_BOUNDARY_CASES = [
+  {
+    path: "tsconfig.json",
+    before: '"references": [',
+    after: '"references": [null,',
+  },
+  {
+    path: "tsconfig.json",
+    before: '"references": [',
+    after: '"references": [{"path": 7},',
+  },
+  {
+    path: "tsconfig.json",
+    before: '"references": [',
+    after: '"references": [{},',
+  },
+  {
+    path: "knip.json",
+    before: '"@electric-sql/pglite",',
+    after: '7, "@electric-sql/pglite",',
+  },
+  {
+    path: "packages/identity/tsconfig.json",
+    before: '"references": []',
+    after: '"references": {}',
+  },
+  { path: "packages/identity/tsconfig.json", before: "", after: "" },
+] as const;
 
 /** Malformed additions must fail even when every valid entry remains present. */
 function testMalformedBoundaryInputs(): void {
   console.log("\n# check-boundaries malformed inputs");
-  const cases = [
-    {
-      path: "tsconfig.json",
-      before: '"references": [',
-      after: '"references": [null,',
-    },
-    {
-      path: "tsconfig.json",
-      before: '"references": [',
-      after: '"references": [{"path": 7},',
-    },
-    {
-      path: "tsconfig.json",
-      before: '"references": [',
-      after: '"references": [{},',
-    },
-    {
-      path: "knip.json",
-      before: '"@electric-sql/pglite",',
-      after: '7, "@electric-sql/pglite",',
-    },
-    {
-      path: "packages/identity/tsconfig.json",
-      before: '"references": []',
-      after: '"references": {}',
-    },
-    { path: "packages/identity/tsconfig.json", before: "", after: "" },
-  ];
-  for (const [index, input] of cases.entries()) {
+  for (const [index, input] of MALFORMED_BOUNDARY_CASES.entries()) {
     try {
       plantFile(input.path, (source) => {
         if (input.before === "") {
@@ -602,6 +586,23 @@ function testMalformedBoundaryInputs(): void {
       restoreAllPlants();
     }
   }
+}
+
+function runBoundaries(): {
+  code: number;
+  stderr: string;
+} {
+  return runNode([
+    resolve(workspaceRoot, "scripts/architecture/check-boundaries.ts"),
+  ]);
+}
+
+function withCompatibilityVersion(next: string) {
+  return (source: string): string =>
+    source.replace(
+      WIRE_VERSION_LITERAL,
+      `export const WIRE_VERSION = "${next}"`,
+    );
 }
 
 function testNodeVersionFloorConsistency(): void {
