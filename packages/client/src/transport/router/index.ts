@@ -3,6 +3,7 @@
 import {
   AgentCard,
   type AgentId,
+  type LiveSignedMessage,
   SignedMessage,
   type SignedMessage as SignedMessageValue,
   type VerifiedAgentCard,
@@ -145,7 +146,7 @@ const pollRouterTail = (
 
 interface TransmitInput {
   readonly outbound: StoredOutboundMessage;
-  readonly message: SignedMessageValue;
+  readonly message: LiveSignedMessage;
   readonly instance: RouterInstanceId;
   readonly mode: "initial" | "retry";
   readonly attemptsRemaining: number;
@@ -296,8 +297,11 @@ function transmitOuter<Payload>(
 
 function decodeStoredOutbound(
   outbound: StoredOutboundMessage,
-): Effect.Effect<SignedMessageValue, RouterWorkerProtocolError> {
-  return decodeCanonical(SignedMessage, outbound.canonicalSignedMessage).pipe(
+): Effect.Effect<LiveSignedMessage, RouterWorkerProtocolError> {
+  return decodeCanonical(
+    SignedMessage.live,
+    outbound.canonicalSignedMessage,
+  ).pipe(
     Effect.mapError(mapProtocolError),
     Effect.flatMap((message) =>
       message.messageId === outbound.messageId
@@ -588,12 +592,18 @@ const verifyOuter = <Payload>(
   RouterWorkerAuthenticationError | RouterWorkerPersistenceError
 > =>
   Effect.gen(function* () {
+    const representation = yield* Schema.encode(SignedMessage)(
+      signedMessage,
+    ).pipe(Effect.mapError(mapAuthenticationError));
+    const liveMessage = yield* Schema.decodeUnknown(SignedMessage.live)(
+      representation,
+    ).pipe(Effect.mapError(mapAuthenticationError));
     const senderCard = yield* resolveSenderCard(
       runtime,
       signedMessage.senderAgentId,
     );
     const message = yield* SignedMessage.verify({
-      signedMessage,
+      signedMessage: liveMessage,
       agentCard: senderCard,
     }).pipe(Effect.mapError(mapAuthenticationError));
     return { message, senderCard };

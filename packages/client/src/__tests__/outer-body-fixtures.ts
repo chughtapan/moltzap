@@ -4,7 +4,7 @@ import {
   SignedMessage,
   type SignedMessageVerificationError,
 } from "@moltzap/identity";
-import { Effect } from "effect";
+import { Effect, type ParseResult, Schema } from "effect";
 import type { SigningIdentity } from "./certified-history-fixtures.js";
 import {
   type ClientRepresentationError,
@@ -27,9 +27,15 @@ export const openOuterBody = (
   reader: SigningIdentity = sender,
 ): Effect.Effect<
   DecodedOuterBody,
-  ClientRepresentationError | SignedMessageVerificationError
+  | ClientRepresentationError
+  | SignedMessageVerificationError
+  | ParseResult.ParseError
 > =>
-  SignedMessage.verify({ signedMessage: message, agentCard: sender.card }).pipe(
+  Schema.encode(SignedMessage)(message).pipe(
+    Effect.flatMap(Schema.decodeUnknown(SignedMessage.live)),
+    Effect.flatMap((signedMessage) =>
+      SignedMessage.verify({ signedMessage, agentCard: sender.card }),
+    ),
     Effect.flatMap((verified) =>
       decodeOuterBody({
         message: verified,

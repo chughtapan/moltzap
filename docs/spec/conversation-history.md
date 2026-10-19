@@ -749,9 +749,19 @@ before mutation and require an explicit state-directory reset. There is no
 schema migration or automatic reset. The [daemon storage contract](./harness/daemon.md#persistence)
 defines preflight and startup behavior.
 
-The one source-owned `MOLTZAP_VERSION`/`V2_PROTOCOL_VERSION` value is
-`2026.1006.1`. Client wire peers must carry that exact literal. Mixed versions
-fail with the existing typed version mismatch before semantic state changes.
+Newly signed protocol values carry `WIRE_VERSION`. Only the outer envelope
+uses `SignedMessage.live` and the live set. Every nested artifact, including
+`PostIntent`, `ActionCore`, catch-up frames, `CatchUpPage.item`, certificates,
+evidence, descriptors, AgentCards and store rows, decodes over
+`HISTORY_WIRE_VERSIONS`. Retired live versions remain readable as history;
+signatures and the existing semantic checks still govern their validity.
+
+Pending outbound messages retain their original signed bytes and MessageId;
+they are never re-signed. Startup refuses a pending envelope whose signed
+version has left `LIVE_WIRE_VERSIONS` with `OutboxTooOldError`, surfaced as
+`outbox-too-old`. The operator must drain the outbox on an earlier release.
+The current schema reads that version from the signed bytes.
+
 The external MCP protocol revision remains `2026-07-28`; runtime notifications
 follow the [pinned MCP Events profile](./harness/ingress.md).
 

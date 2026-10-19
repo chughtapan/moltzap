@@ -5,21 +5,26 @@
  * recovery asks of it.
  */
 
-import { type Ed25519PublicKey, SignedMessage } from "@moltzap/identity";
-import { Effect, type ParseResult, Schema } from "effect";
-import type {
-  EndpointRecovery,
-  ProtocolEvidence,
-  StagedRecord,
-  CertifiedRecord as StoredCertifiedRecord,
-  StoredMembership,
-  StoredOutboundMessage,
-} from "../../../store/index.js";
+import {
+  type Ed25519PublicKey,
+  LIVE_WIRE_VERSIONS,
+  SignedMessage,
+} from "@moltzap/identity";
+import { Effect, Encoding, type ParseResult, Schema } from "effect";
 import type {
   EndpointEngineInput,
   EngineConversation,
   EngineRuntime,
 } from "../runtime/index.js";
+import {
+  type EndpointRecovery,
+  OutboxTooOldError,
+  type ProtocolEvidence,
+  type StagedRecord,
+  type CertifiedRecord as StoredCertifiedRecord,
+  type StoredMembership,
+  type StoredOutboundMessage,
+} from "../../../store/index.js";
 import {
   RouterWorkerPersistenceError,
   RouterWorkerRecoveryError,
@@ -295,7 +300,10 @@ export function verifyStoredOutbounds(
   input: EndpointEngineInput,
   outbounds: readonly StoredOutboundMessage[],
   memberships: ReadonlyMap<ConversationIdValue, VerifiedMembership>,
-): Effect.Effect<readonly StoredOutboundMessage[], StoredRowError> {
+): Effect.Effect<
+  readonly StoredOutboundMessage[],
+  StoredRowError | OutboxTooOldError
+> {
   return Effect.forEach(
     outbounds,
     (outbound) => verifyStoredOutbound(input, memberships, outbound),
@@ -647,8 +655,20 @@ function verifyStoredOutbound(
   input: EndpointEngineInput,
   memberships: ReadonlyMap<ConversationIdValue, VerifiedMembership>,
   outbound: StoredOutboundMessage,
-): Effect.Effect<StoredOutboundMessage, StoredRowError> {
+): Effect.Effect<StoredOutboundMessage, StoredRowError | OutboxTooOldError> {
   return Effect.gen(function* () {
+    const representation = yield* Schema.decodeUnknown(
+      Schema.parseJson(Schema.Struct({ payload: Schema.String })),
+    )(new TextDecoder().decode(outbound.canonicalSignedMessage));
+    const payloadBytes = yield* Encoding.decodeBase64Url(
+      representation.payload,
+    ).pipe(Effect.mapError(persistenceFailure));
+    const { moltzapVersion } = yield* Schema.decodeUnknown(
+      Schema.parseJson(Schema.Struct({ moltzapVersion: Schema.String })),
+    )(new TextDecoder().decode(payloadBytes));
+    if (!LIVE_WIRE_VERSIONS.some((version) => version === moltzapVersion)) {
+      return yield* new OutboxTooOldError();
+    }
     const conversationId = yield* Schema.decodeUnknown(ConversationId)(
       outbound.conversationId,
     );
@@ -657,7 +677,7 @@ function verifyStoredOutbound(
       return yield* Effect.fail(persistenceFailure());
     }
     const message = yield* decodeCanonical(
-      SignedMessage,
+      SignedMessage.live,
       outbound.canonicalSignedMessage,
     );
     if (

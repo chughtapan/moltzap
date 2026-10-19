@@ -15,19 +15,14 @@ import {
   Fiber,
   Layer,
   Match,
-  Redacted,
   Ref,
   Schema,
 } from "effect";
 import { httpbis, type VerifyingKey } from "http-message-signatures";
 import { importJWK } from "jose";
-import { generateKeyPairSync, randomBytes, webcrypto } from "node:crypto";
-import { expect, it } from "vitest";
-import {
-  AgentCardIssuedAt,
-  issueAgentCard,
-  type VerifiedAgentCard,
-} from "../agent-card.js";
+import { randomBytes, webcrypto } from "node:crypto";
+import { expect, it, vi } from "vitest";
+import type { VerifiedAgentCard } from "../agent-card.js";
 import {
   AgentSigningAuthority,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
@@ -44,18 +39,25 @@ import {
   contentDigest,
   verifyHttpRequestSignature,
 } from "../http-signature.js";
-import {
-  AgentId,
-  type AgentId as AgentIdValue,
-  AgentName,
-  PrincipalId,
-} from "../identifiers.js";
+import { AgentId, type AgentId as AgentIdValue } from "../identifiers.js";
 import { Registry } from "../registry.js";
 import {
   type RegistryClientService,
   RegistryConnectionError,
   type RegistryLookupResult,
 } from "../registry/contract.js";
+import { WIRE_VERSION } from "../version.js";
+import {
+  type IdentityFixture,
+  makeIdentityFixture,
+  retainedIdentityFixture,
+} from "./authenticated-http-fixtures.js";
+
+vi.mock("../version.js", () => ({
+  WIRE_VERSION: "2026.1006.1",
+  LIVE_WIRE_VERSIONS: ["2026.1006.1"],
+  HISTORY_WIRE_VERSIONS: ["2026.827.1", "2026.1006.1"],
+}));
 
 /* eslint-disable agent-code-guard/no-example-only-tests -- regression-only suite: each case exercises a distinct HTTP proof, replay-ordering, cache, or cancellation contract. The concurrency timelines are not an input domain to generate over. */
 
@@ -81,7 +83,7 @@ const SIGNATURE_PARAMETERS = Object.freeze([
 ]);
 const WRONG_VERSION = "wrong-version";
 /** The MoltZap version before every outer body was sealed. */
-const PRIOR_MOLTZAP_VERSION = "2026.827.1";
+const PRIOR_WIRE_VERSION = "2026.827.1";
 const SIGNATURE_INTERVAL_MILLISECONDS = 300_000;
 const CONCURRENT_REQUEST_COUNT = 4;
 const REGISTRY_LOOKUP_DEADLINE = Duration.millis(20);
@@ -92,11 +94,6 @@ const VERIFIED_PROOF_FIELDS = Object.freeze([
   "callerAgentId",
   "request",
 ]);
-
-interface IdentityFixture {
-  readonly agentCard: VerifiedAgentCard;
-  readonly signingAuthority: AgentSigningAuthorityValue;
-}
 
 interface PreparedRequest {
   readonly bodyBytes: Uint8Array;
@@ -140,29 +137,6 @@ const identifier = (prefix: string, byte: number): string =>
 
 const makeAgentId = (byte: number) =>
   Schema.decodeUnknownSync(AgentId)(identifier("agt_", byte));
-
-const makeSigningAuthority = () => {
-  const { privateKey } = generateKeyPairSync("ed25519");
-  return AgentSigningAuthority.fromPkcs8(
-    Redacted.make(privateKey.export({ format: "pem", type: "pkcs8" })),
-  );
-};
-
-const makeIdentityFixture = Effect.gen(function* () {
-  const registryAuthority = yield* makeSigningAuthority();
-  const signingAuthority = yield* makeSigningAuthority();
-  const agentCard = yield* issueAgentCard({
-    agentId: makeAgentId(1),
-    principalId: Schema.decodeUnknownSync(PrincipalId)(identifier("prn_", 2)),
-    agentName: Schema.decodeUnknownSync(AgentName)("http-signer"),
-    publicKey: AgentSigningAuthority.publicKey(signingAuthority),
-    issuedAt: Schema.decodeUnknownSync(AgentCardIssuedAt)(
-      "2026-07-30T12:00:00Z",
-    ),
-    registrySigningAuthority: registryAuthority,
-  });
-  return { agentCard, signingAuthority } satisfies IdentityFixture;
-});
 
 const requestBodyBytes = (request: HttpClientRequest.HttpClientRequest) =>
   Match.value(request.body).pipe(
@@ -833,7 +807,7 @@ it("returns version mismatch to a peer still on the prior MoltZap version", () =
       const priorVersion = yield* resignWithVersion(
         prepared,
         fixture,
-        PRIOR_MOLTZAP_VERSION,
+        PRIOR_WIRE_VERSION,
       );
 
       const refusal = yield* verifyAgentRequest(priorVersion).pipe(
@@ -842,6 +816,7 @@ it("returns version mismatch to a peer still on the prior MoltZap version", () =
       );
 
       expect(refusal).toBeInstanceOf(VersionMismatchError);
+      expect(refusal).toMatchObject({ supported: [WIRE_VERSION] });
     }),
   ));
 
@@ -1139,3 +1114,26 @@ it("keeps a shared card lookup alive when its first waiter is interrupted", () =
   ));
 
 /* eslint-enable agent-code-guard/no-example-only-tests -- Restore strict defaults after the scoped file-level exception. */
+
+/** The Registry signs the retained card version; the live HTTP proof uses the current version. */
+const authenticatesRetainedCard = Effect.gen(function* () {
+  const fixture = yield* retainedIdentityFixture;
+  const agentCard = fixture.agentCard;
+  const controller = yield* makeLookupController({ kind: "found", agentCard });
+  yield* releaseLookups(controller);
+  const prepared = yield* prepareRequest({
+    fixture: { ...fixture, agentCard },
+  });
+  const verified = yield* verifyAgentRequest(prepared).pipe(
+    Effect.provide(authenticatedHttpLayer(controller)),
+  );
+  return { verified, agentCard };
+});
+
+it("authenticates a history-only AgentCard on a live HTTP request", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const { verified, agentCard } = yield* authenticatesRetainedCard;
+      expect(verified.callerAgentId).toBe(agentCard.agentId);
+    }),
+  ));

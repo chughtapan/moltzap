@@ -30,8 +30,8 @@ import { AuthenticationFailedError } from "../../http-errors.js";
 import {
   AgentCard,
   AgentSigningAuthority,
-  MOLTZAP_VERSION,
   type VerifiedAgentCard,
+  WIRE_VERSION,
 } from "../../index.js";
 import { Registry } from "../../registry.js";
 import { verifyBootstrapRegistration } from "../admission.js";
@@ -237,7 +237,7 @@ const assertDurableReplayBoundary = (input: {
     const request = yield* makeVersionedBootstrapRequest(
       input.origin,
       prepared,
-      MOLTZAP_VERSION,
+      WIRE_VERSION,
     );
     const boundaryClock = yield* makeExpiryBoundaryClock(
       signatureExpiry(request),

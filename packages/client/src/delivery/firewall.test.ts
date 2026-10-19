@@ -3,11 +3,7 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { scopedLive as it } from "@effect/vitest";
-import {
-  AgentCard,
-  Ed25519PublicKey,
-  MOLTZAP_VERSION,
-} from "@moltzap/identity";
+import { AgentCard, Ed25519PublicKey, WIRE_VERSION } from "@moltzap/identity";
 import { RouterInstanceId } from "@moltzap/router";
 import { Deferred, Effect, Fiber, Queue, Schema, Scope } from "effect";
 import { generateKeyPairSync } from "node:crypto";
@@ -127,7 +123,7 @@ const identities = Effect.gen(function* () {
     registryKeys.publicKey.export({ format: "jwk" }),
   );
   const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-    moltzapVersion: MOLTZAP_VERSION,
+    moltzapVersion: WIRE_VERSION,
     kind: "membership_descriptor",
     conversationId: yield* deriveConversationId([
       local.card.agentId,
@@ -804,7 +800,7 @@ function addConversation(subject: Fixture, authoredLocally = false) {
       registryKeys: subject.registryKeys,
     });
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "membership_descriptor",
       conversationId: yield* deriveConversationId([
         subject.local.card.agentId,

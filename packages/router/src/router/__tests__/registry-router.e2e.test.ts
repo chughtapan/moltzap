@@ -7,6 +7,7 @@ import {
   AgentSigningAuthority,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
   AuthenticatedHttp,
+  type LiveSignedMessage,
   MessageId,
   PrincipalId,
   SignedMessage,
@@ -664,7 +665,7 @@ const assertInvalidSignedMessageShapes = (
 
 const signMessage = (
   agents: RegisteredAgents,
-): Effect.Effect<SignedMessageValue, unknown> =>
+): Effect.Effect<LiveSignedMessage, unknown> =>
   SignedMessage.sign({
     agentCard: agents.sender.agentCard,
     signingAuthority: agents.sender.signingAuthority,
@@ -717,7 +718,7 @@ const assertNonceCapacityWithoutEviction = (
   });
 
 const sendInitial = (
-  signedMessage: SignedMessageValue,
+  signedMessage: LiveSignedMessage,
   sender: RegisteredAgent,
   expectedRouterInstanceId: BatchResult["routerInstanceId"],
   runRouter: RouterRunner,

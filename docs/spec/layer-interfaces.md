@@ -410,7 +410,7 @@ Four packages publish to npm as one version set: `@moltzap/identity`,
   `v<version>` release tags, and writes it into every published manifest.
 - `pnpm pack` pins each workspace sibling to that exact version, so an
   installed closure resolves the packages one release built, never a mix.
-- The package version is independent of `MOLTZAP_VERSION`, the MCP revision,
+- The package version is independent of `WIRE_VERSION`, the MCP revision,
   and every persisted-schema version. Advancing one never advances another.
 - Releases run from `main` through `.github/workflows/publish.yml` with npm
   provenance and publish npm packages only. The private
@@ -435,3 +435,20 @@ checks and release pins. Publication does not establish that every consumer
 has migrated. Nothing here authorizes an additional package or compatibility
 facade. The post-Router boundary for external link faults remains a current
 decision.
+
+## Wire compatibility window
+
+Each release emits exactly `WIRE_VERSION`. A release first adds a successor
+version to `LIVE_WIRE_VERSIONS`; a later release may emit it. A version stays
+live for at least six months after the first release that emits its successor.
+It then remains in `HISTORY_WIRE_VERSIONS` until the next protocol reset.
+Endpoints that miss the live window require a reset.
+
+The mixed-release CI gate runs the previous published release and the oldest
+published release whose wire version remains live against the current build,
+using the current Registry and Router. Certified posts must flow in both
+directions. Until a second wire version exists, the oldest-in-window peer is
+the previous release, so it runs once. Golden signed artifacts preserve
+new-reads-old coverage. The gate starts with the first release after the
+reset; before that, it skips with the reason that no post-reset release is
+published. Main is not released between the four reset-preparation PRs.

@@ -19,6 +19,9 @@ export class EndpointStoreError extends Data.TaggedError("EndpointStoreError")<{
   readonly reason: EndpointStoreFailure;
 }> {}
 
+/** Pending signed bytes require an earlier release to drain the outbox. */
+export class OutboxTooOldError extends Data.TaggedError("OutboxTooOldError") {}
+
 /** Internal control-flow signal mapped to the closed store error. */
 export class StoreSignal extends Error {
   readonly reason: EndpointStoreFailure;

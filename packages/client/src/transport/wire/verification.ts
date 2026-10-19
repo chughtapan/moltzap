@@ -4,6 +4,7 @@ import {
   AgentCard,
   type AgentId,
   type Ed25519PublicKey,
+  type LiveSignedMessage,
   SignedMessage,
   type SignedMessage as SignedMessageValue,
   type VerifiedAgentCard,
@@ -132,10 +133,19 @@ export const memberCard = (
   membership.members.find((card) => card.agentId === agentId);
 
 export const verifyOuterMessage = (input: {
-  readonly message: SignedMessageValue;
+  readonly message: LiveSignedMessage;
   readonly membership: VerifiedMembership;
-}): Effect.Effect<VerifiedSignedMessage, ClientRepresentationError> =>
+}): Effect.Effect<
+  LiveSignedMessage & VerifiedSignedMessage,
+  ClientRepresentationError
+> =>
   Effect.gen(function* () {
+    const encoded = yield* Schema.encode(SignedMessage)(input.message).pipe(
+      Effect.mapError(representationFailure),
+    );
+    const live = yield* Schema.decodeUnknown(SignedMessage.live)(encoded).pipe(
+      Effect.mapError(representationFailure),
+    );
     const card = memberCard(input.membership, input.message.senderAgentId);
     const expected = input.membership.members.map((member) => member.agentId);
     if (
@@ -147,10 +157,11 @@ export const verifyOuterMessage = (input: {
     ) {
       return yield* representationFailure();
     }
-    return yield* SignedMessage.verify({
-      signedMessage: input.message,
+    const verified = yield* SignedMessage.verify({
+      signedMessage: live,
       agentCard: card,
     }).pipe(Effect.mapError(representationFailure));
+    return verified;
   }).pipe(Effect.withSpan("verifyOuterMessage"));
 
 export interface VerifiedEvidence {
@@ -201,7 +212,7 @@ export const verifyStableEvidence = (input: {
  * @returns The verified evidence message and its statement.
  */
 export const verifyDeliveredEvidence = (input: {
-  readonly outer: SignedMessageValue;
+  readonly outer: LiveSignedMessage;
   readonly evidence: SignedMessageValue;
   readonly membership: VerifiedMembership;
 }): Effect.Effect<VerifiedEvidence, ClientRepresentationError> =>

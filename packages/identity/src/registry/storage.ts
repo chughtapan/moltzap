@@ -20,7 +20,7 @@ import {
 import { decodeCanonicalJson, encodeCanonicalJson } from "../canonical-json.js";
 import { InternalServerError, UnavailableError } from "../http-errors.js";
 import { AgentId, type AgentId as AgentIdValue } from "../identifiers.js";
-import { MOLTZAP_VERSION } from "../version.js";
+import { WIRE_VERSION } from "../version.js";
 import {
   registerResponseSchema,
   type RegistryListRequest,
@@ -308,7 +308,7 @@ const bindStorageMetadata = (input: {
       yield* input.sql`
         INSERT INTO moltzap_registry_metadata
           (singleton, moltzap_version, signer_thumbprint)
-        VALUES (true, ${MOLTZAP_VERSION}, ${input.signerThumbprint})
+        VALUES (true, ${WIRE_VERSION}, ${input.signerThumbprint})
         ON CONFLICT (singleton) DO NOTHING
       `;
       const rows = yield* input.sql`
@@ -324,7 +324,7 @@ const bindStorageMetadata = (input: {
         { exact: true, onExcessProperty: "error" },
       );
       if (
-        metadata[0].moltzapVersion !== MOLTZAP_VERSION ||
+        metadata[0].moltzapVersion !== WIRE_VERSION ||
         metadata[0].signerThumbprint !== input.signerThumbprint
       ) {
         return yield* Effect.die("Registry metadata mismatch");

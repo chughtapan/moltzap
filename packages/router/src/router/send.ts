@@ -1,9 +1,9 @@
 /** @file Verified opaque-message acceptance into the volatile feed. */
 import {
   InternalServerError,
+  type LiveSignedMessage,
   OverloadedError,
   SignedMessage,
-  type SignedMessage as SignedMessageValue,
   type VerifiedAgentRequest,
   type VerifiedSignedMessage,
 } from "@moltzap/identity";
@@ -98,7 +98,7 @@ const handleDecodedMessage = (
   input: SendDependencies,
   request: RawRouterSendRequest,
   verifiedRequest: VerifiedAgentRequest,
-  signedMessage: SignedMessageValue,
+  signedMessage: LiveSignedMessage,
 ): Effect.Effect<RouterSendResult, OverloadedError | InternalServerError> => {
   if (signedMessage.senderAgentId !== verifiedRequest.callerAgentId) {
     return Effect.succeed(messageInvalid);
@@ -119,7 +119,7 @@ const handleCurrentInstance = (
   request: RawRouterSendRequest,
   verifiedRequest: VerifiedAgentRequest,
 ): Effect.Effect<RouterSendResult, OverloadedError | InternalServerError> =>
-  Schema.decodeUnknown(SignedMessage)(request.signedMessage, {
+  Schema.decodeUnknown(SignedMessage.live)(request.signedMessage, {
     exact: true,
     onExcessProperty: "error",
   }).pipe(

@@ -12,7 +12,7 @@ belong to the endpoint Harness in `@moltzap/client`.
 
 ## Public surface
 
-### [`PollCursor (type)`](./router/contract.ts#L97)
+### [`PollCursor (type)`](./router/contract.ts#L99)
 
 _TypeAlias_
 
@@ -22,7 +22,7 @@ export type PollCursor = typeof PollCursor.Type;
 
 Validated opaque Router poll continuation.
 
-### [`PollCursor (value)`](./router/contract.ts#L85)
+### [`PollCursor (value)`](./router/contract.ts#L87)
 
 _Variable_
 
@@ -76,7 +76,7 @@ export class Router extends Context.Tag("@moltzap/router/Router")<
 
 Opaque message acceptance and endpoint-wide bounded polling.
 
-### [`RouterConnectionError`](./router/contract.ts#L273)
+### [`RouterConnectionError`](./router/contract.ts#L275)
 
 _Class_
 
@@ -88,7 +88,7 @@ export class RouterConnectionError extends Data.TaggedError(
 
 The Router connection could not be established or used.
 
-### [`RouterInstanceId (type)`](./router/contract.ts#L73)
+### [`RouterInstanceId (type)`](./router/contract.ts#L75)
 
 _TypeAlias_
 
@@ -98,7 +98,7 @@ export type RouterInstanceId = typeof RouterInstanceId.Type;
 
 Validated Router process identity.
 
-### [`RouterInstanceId (value)`](./router/contract.ts#L67)
+### [`RouterInstanceId (value)`](./router/contract.ts#L69)
 
 _Variable_
 
@@ -112,7 +112,7 @@ export const RouterInstanceId = canonicalValue(
 
 Identifies one volatile Router process instance.
 
-### [`RouterInvalidResponseError`](./router/contract.ts#L283)
+### [`RouterInvalidResponseError`](./router/contract.ts#L285)
 
 _Class_
 
@@ -124,7 +124,7 @@ export class RouterInvalidResponseError extends Data.TaggedError(
 
 A Router response did not match the selected operation contract.
 
-### [`RouterPollRequest (type)`](./router/contract.ts#L205)
+### [`RouterPollRequest (type)`](./router/contract.ts#L207)
 
 _Interface_
 
@@ -136,7 +136,7 @@ export interface RouterPollRequest {
 
 One authenticated endpoint-wide poll request.
 
-### [`RouterPollRequest (value)`](./router/contract.ts#L214)
+### [`RouterPollRequest (value)`](./router/contract.ts#L216)
 
 _Variable_
 
@@ -151,7 +151,7 @@ export const RouterPollRequest: Schema.Schema<
 
 Exact Schema for one endpoint-wide poll request.
 
-### [`RouterPollResult (type)`](./router/contract.ts#L236)
+### [`RouterPollResult (type)`](./router/contract.ts#L238)
 
 _TypeAlias_
 
@@ -172,7 +172,7 @@ export type RouterPollResult =
 
 Closed outcome of one endpoint-wide bounded poll.
 
-### [`RouterPollResult (value)`](./router/contract.ts#L263)
+### [`RouterPollResult (value)`](./router/contract.ts#L265)
 
 _Variable_
 
@@ -187,7 +187,7 @@ export const RouterPollResult: Schema.Schema<
 
 Exact Schema for every closed poll outcome.
 
-### [`RouterRequestTimeoutError`](./router/contract.ts#L278)
+### [`RouterRequestTimeoutError`](./router/contract.ts#L280)
 
 _Class_
 
@@ -199,7 +199,7 @@ export class RouterRequestTimeoutError extends Data.TaggedError(
 
 The configured complete Router call deadline expired.
 
-### [`RouterSendRequest (type)`](./router/contract.ts#L100)
+### [`RouterSendRequest (type)`](./router/contract.ts#L102)
 
 _Interface_
 
@@ -207,13 +207,13 @@ _Interface_
 export interface RouterSendRequest {
   readonly expectedRouterInstanceId: RouterInstanceId;
   readonly mode: "initial" | "retry";
-  readonly signedMessage: SignedMessageValue;
+  readonly signedMessage: LiveSignedMessage;
 }
 ```
 
 One authenticated request to accept or recover an opaque message.
 
-### [`RouterSendRequest (value)`](./router/contract.ts#L135)
+### [`RouterSendRequest (value)`](./router/contract.ts#L137)
 
 _Variable_
 
@@ -224,13 +224,13 @@ export const RouterSendRequest: Schema.Schema<
 > = closedStruct({
   expectedRouterInstanceId: RouterInstanceId,
   mode: Schema.Literal("initial", "retry"),
-  signedMessage: SignedMessage,
+  signedMessage: SignedMessage.live,
 }).annotations({ identifier: "RouterSendRequest" })
 ```
 
 Exact Schema for one send request.
 
-### [`RouterSendResult (type)`](./router/contract.ts#L164)
+### [`RouterSendResult (type)`](./router/contract.ts#L166)
 
 _TypeAlias_
 
@@ -252,7 +252,7 @@ export type RouterSendResult =
 
 Closed outcome of accepting or recovering an opaque message.
 
-### [`RouterSendResult (value)`](./router/contract.ts#L193)
+### [`RouterSendResult (value)`](./router/contract.ts#L195)
 
 _Variable_
 
@@ -271,7 +271,7 @@ export const RouterSendResult: Schema.Schema<
 
 Exact Schema for every closed send outcome.
 
-### [`SignedMessageDigest (type)`](./router/contract.ts#L82)
+### [`SignedMessageDigest (type)`](./router/contract.ts#L84)
 
 _TypeAlias_
 
@@ -281,7 +281,7 @@ export type SignedMessageDigest = typeof SignedMessageDigest.Type;
 
 Validated SignedMessage equality receipt.
 
-### [`SignedMessageDigest (value)`](./router/contract.ts#L76)
+### [`SignedMessageDigest (value)`](./router/contract.ts#L78)
 
 _Variable_
 

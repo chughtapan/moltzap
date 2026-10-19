@@ -1,7 +1,7 @@
 /** @file Black-box Router binary tests for framing, configuration, bounds, and shutdown. */
 import { HttpClient } from "@effect/platform";
 import { NodeHttpClient } from "@effect/platform-node";
-import { MOLTZAP_VERSION } from "@moltzap/identity";
+import { WIRE_VERSION } from "@moltzap/identity";
 import { Data, Duration, Effect, Option } from "effect";
 import { type ChildProcess, spawn } from "node:child_process";
 import { createPublicKey, generateKeyPairSync } from "node:crypto";
@@ -333,7 +333,7 @@ const chunkedPollRequest = (
     `Host: ${LOOPBACK_HOST}`,
     `Connection: ${connection}`,
     `Content-Type: ${JSON_CONTENT_TYPE}`,
-    `Moltzap-Version: ${MOLTZAP_VERSION}`,
+    `Moltzap-Version: ${WIRE_VERSION}`,
     "Transfer-Encoding: chunked",
     "",
     body.length.toString(16),
@@ -407,7 +407,7 @@ const assertStreamingAdmissionBound = (port: number) =>
           headers: {
             "content-length": String(OVERSIZED_POLL_BODY_LENGTH),
             "content-type": JSON_CONTENT_TYPE,
-            "moltzap-version": MOLTZAP_VERSION,
+            "moltzap-version": WIRE_VERSION,
           },
         });
         expectEnvelope(declaredOversize, envelopes.payloadTooLarge);
@@ -455,7 +455,7 @@ const assertRouteAndFramingEnvelopes = (port: number) =>
       path: "/v1/messages:poll",
       headers: {
         "content-type": [JSON_CONTENT_TYPE, JSON_CONTENT_TYPE],
-        "moltzap-version": MOLTZAP_VERSION,
+        "moltzap-version": WIRE_VERSION,
       },
       body: "{}",
     });
@@ -470,7 +470,7 @@ const assertRouteAndFramingEnvelopes = (port: number) =>
         "Host: duplicate.invalid",
         "Connection: close",
         `Content-Type: ${JSON_CONTENT_TYPE}`,
-        `Moltzap-Version: ${MOLTZAP_VERSION}`,
+        `Moltzap-Version: ${WIRE_VERSION}`,
         "Content-Length: 2",
         "",
         "{}",
@@ -493,7 +493,7 @@ const assertReceivedBodyBound = (
       path,
       headers: {
         "content-type": JSON_CONTENT_TYPE,
-        "moltzap-version": MOLTZAP_VERSION,
+        "moltzap-version": WIRE_VERSION,
       },
       body: "x".repeat(maximumBodyLength),
     });
@@ -506,7 +506,7 @@ const assertReceivedBodyBound = (
       path,
       headers: {
         "content-type": JSON_CONTENT_TYPE,
-        "moltzap-version": MOLTZAP_VERSION,
+        "moltzap-version": WIRE_VERSION,
       },
       body: "x".repeat(maximumBodyLength + 1),
     });
@@ -522,7 +522,7 @@ const assertMediaAndBodyBoundEnvelopes = (port: number) =>
       path: "/v1/messages:poll",
       headers: {
         "content-type": "text/plain",
-        "moltzap-version": MOLTZAP_VERSION,
+        "moltzap-version": WIRE_VERSION,
       },
       body: "{}",
     });
@@ -536,7 +536,7 @@ const assertMediaAndBodyBoundEnvelopes = (port: number) =>
       headers: {
         "content-length": String(OVERSIZED_POLL_BODY_LENGTH),
         "content-type": JSON_CONTENT_TYPE,
-        "moltzap-version": MOLTZAP_VERSION,
+        "moltzap-version": WIRE_VERSION,
       },
     });
     expectEnvelope(declaredOversize, envelopes.payloadTooLarge);

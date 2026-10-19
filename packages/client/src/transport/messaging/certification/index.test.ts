@@ -8,9 +8,9 @@ import {
   AgentCard,
   type AgentSigningAuthority,
   Ed25519PublicKey,
-  MOLTZAP_VERSION,
   SignedMessage,
   type VerifiedAgentCard,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import { RouterInstanceId } from "@moltzap/router";
 import {
@@ -192,7 +192,7 @@ function makeMembership(
       return yield* Effect.dieMessage("N4 card encoding is incomplete");
     }
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "membership_descriptor",
       conversationId,
       members: [firstCard, secondCard, ...encodedCards.slice(2)],
@@ -237,8 +237,11 @@ function decodeIngress(
 ): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> {
   return Effect.gen(function* () {
     const sender = yield* senderOf(identities, message);
+    const live = yield* Schema.encode(SignedMessage)(message).pipe(
+      Effect.flatMap(Schema.decodeUnknown(SignedMessage.live)),
+    );
     const verified = yield* SignedMessage.verify({
-      signedMessage: message,
+      signedMessage: live,
       agentCard: sender.card,
     });
     return {
@@ -750,7 +753,7 @@ function hostileDurabilityMessage(input: {
 }) {
   return signEvidenceMessage({
     statement: {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "durability_vote",
       signerAgentId: input.signer.card.agentId,
       conversationId: input.conversationId,
@@ -783,7 +786,7 @@ function hostileActionSignature(input: {
 }) {
   return signEvidenceMessage({
     statement: {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "action_signature",
       signerAgentId: input.signer.card.agentId,
       actionHash: input.actionHash,
@@ -868,7 +871,7 @@ function restartOverPersistedDurabilityVote(
     );
     const vote = yield* signEvidenceMessage({
       statement: {
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         kind: "durability_vote",
         signerAgentId: voter.card.agentId,
         ...bind(harness.membership),

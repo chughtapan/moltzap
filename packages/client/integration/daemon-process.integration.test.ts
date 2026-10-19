@@ -1,5 +1,9 @@
 /** @file Two real daemons certify, deliver, and recover multicast operations. */
 
+import canonicalize from "canonicalize";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { ProtocolErrorCode } from "@modelcontextprotocol/client";
 import { AgentCard, type AgentName } from "@moltzap/identity";
 import { Effect, Fiber, Option, Schema, Stream } from "effect";
@@ -602,5 +606,119 @@ it(
 it(
   "delivers both ways after the Router restarts while both daemons stay up",
   processTrace(routerRestartBehavior),
+  PROCESS_TEST_TIMEOUT_MS,
+);
+
+/** A retired version in a retained envelope must stop startup before any schema change. */
+const refusesStaleOutbox = Effect.scoped(
+  Effect.gen(function* () {
+    const infrastructure = yield* acquireProcessInfrastructure;
+    const local = yield* makeDaemonProcessFixture(
+      infrastructure,
+      "stale-outbox",
+    );
+    const peer = yield* makeDaemonProcessFixture(infrastructure, "stale-peer");
+    const process = yield* acquireDaemonProcess(local);
+    yield* acquireDaemonProcess(peer);
+    yield* registerFixture(local);
+    yield* registerFixture(peer);
+    yield* deliverDirect({
+      from: local,
+      to: peer,
+      text: "outbox baseline",
+      send: sendOrQueue,
+    });
+    yield* stopProcess(process);
+    const before = yield* Effect.try({
+      try: () => retireStoredOutbound(local.stateDirectory),
+      catch: (cause) =>
+        new ProcessTestError({
+          message: "could not prepare retired outbox",
+          cause,
+        }),
+    });
+    const failed = yield* awaitDaemonStartupFailure(local);
+    expect(failed.exitCode).not.toBe(0);
+    expect(failed.logs).toContain("outbox-too-old");
+    const after = yield* Effect.try({
+      try: () => storedSchema(local.stateDirectory),
+      catch: (cause) =>
+        new ProcessTestError({
+          message: "could not read refused store",
+          cause,
+        }),
+    });
+    expect(after).toEqual(before);
+  }),
+);
+
+/** Capture schema and backup state without depending on a particular schema number. */
+function storedSchema(directory: string) {
+  const database = new DatabaseSync(join(directory, "moltzapd.sqlite3"), {
+    readOnly: true,
+  });
+  try {
+    return {
+      schema: database.prepare("PRAGMA user_version").get(),
+      objects: database
+        .prepare("SELECT sql FROM sqlite_schema ORDER BY name")
+        .all(),
+      backups: readdirSync(directory).filter((name) =>
+        name.includes(".backup"),
+      ),
+    };
+  } finally {
+    database.close();
+  }
+}
+
+/** Fixture corruption retires only the signed version; startup must diagnose it before replay. */
+function retireStoredOutbound(directory: string) {
+  const database = new DatabaseSync(join(directory, "moltzapd.sqlite3"));
+  try {
+    const row = Schema.decodeUnknownSync(
+      Schema.Struct({
+        outbound_id: Schema.String,
+        canonical_current_signed_message: Schema.Uint8ArrayFromSelf,
+      }),
+    )(
+      database
+        .prepare(
+          "SELECT outbound_id, canonical_current_signed_message FROM outbound_messages LIMIT 1",
+        )
+        .get(),
+    );
+    const representation = Schema.decodeUnknownSync(
+      Schema.parseJson(
+        Schema.Struct({
+          payload: Schema.String,
+          signatures: Schema.Unknown,
+        }),
+      ),
+    )(new TextDecoder().decode(row.canonical_current_signed_message));
+    const payload = Schema.decodeUnknownSync(
+      Schema.parseJson(
+        Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+      ),
+    )(Buffer.from(representation.payload, "base64url").toString("utf8"));
+    const retired = canonicalize({ ...payload, moltzapVersion: "2000.101.0" });
+    const envelope = canonicalize({
+      ...representation,
+      payload: Buffer.from(retired ?? "").toString("base64url"),
+    });
+    database
+      .prepare(
+        "UPDATE outbound_messages SET canonical_current_signed_message = ?, disposition = 'pending' WHERE outbound_id = ?",
+      )
+      .run(Buffer.from(envelope ?? ""), row.outbound_id);
+  } finally {
+    database.close();
+  }
+  return storedSchema(directory);
+}
+
+it(
+  "reports outbox-too-old at the process boundary without changing schema or backups",
+  processTrace(refusesStaleOutbox),
   PROCESS_TEST_TIMEOUT_MS,
 );

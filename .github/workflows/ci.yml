@@ -125,3 +125,16 @@ jobs:
       - name: Test every project
         if: github.event_name != 'pull_request'
         run: pnpm exec nx run-many -t typecheck:tests test test:integration
+
+  mixed-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm nx run workspace:test:mixed-release

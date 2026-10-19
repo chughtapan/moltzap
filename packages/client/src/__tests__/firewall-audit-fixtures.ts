@@ -1,6 +1,6 @@
 /** @file Real checker outputs for retained-audit persistence and lifecycle tests. */
 
-import { MOLTZAP_VERSION } from "@moltzap/identity";
+import { WIRE_VERSION } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import { createHash } from "node:crypto";
 import { installFirewall } from "../delivery/index.js";
@@ -42,7 +42,7 @@ const policyOptions = {
 
 const candidates = Effect.all({
   outgoing: Schema.decodeUnknown(PostIntent)({
-    moltzapVersion: MOLTZAP_VERSION,
+    moltzapVersion: WIRE_VERSION,
     kind: "post_intent",
     conversationId: digest("cnv_", 1),
     membershipHash: digest("mbr_", 2),

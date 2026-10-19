@@ -4,6 +4,8 @@ import {
   type AgentSigningError,
   AuthenticationFailedError,
   InternalServerError,
+  LIVE_WIRE_VERSIONS,
+  type LiveSignedMessage,
   MalformedRequestError,
   MethodNotAllowedError,
   OverloadedError,
@@ -100,7 +102,7 @@ export type PollCursor = typeof PollCursor.Type;
 export interface RouterSendRequest {
   readonly expectedRouterInstanceId: RouterInstanceId;
   readonly mode: "initial" | "retry";
-  readonly signedMessage: SignedMessageValue;
+  readonly signedMessage: LiveSignedMessage;
 }
 
 type RouterSendRequestEncoded = Readonly<{
@@ -138,7 +140,7 @@ export const RouterSendRequest: Schema.Schema<
 > = closedStruct({
   expectedRouterInstanceId: RouterInstanceId,
   mode: Schema.Literal("initial", "retry"),
-  signedMessage: SignedMessage,
+  signedMessage: SignedMessage.live,
 }).annotations({ identifier: "RouterSendRequest" });
 
 const accepted = closedStruct({
@@ -334,7 +336,10 @@ const routerHttpErrors = Object.freeze({
   },
   VersionMismatchError: {
     status: 412,
-    body: '{"error":"version_mismatch"}',
+    body: JSON.stringify({
+      error: "version_mismatch",
+      supported: LIVE_WIRE_VERSIONS,
+    }),
     make: () => new VersionMismatchError(),
   },
   PayloadTooLargeError: {
@@ -392,6 +397,18 @@ export const routerHttpErrorFromResponse = (
   status: number,
   body: string,
 ): Option.Option<RouterHttpEnvelopeError> => {
+  if (status === 412) {
+    return Schema.decodeUnknownOption(
+      Schema.parseJson(
+        Schema.Struct({
+          error: Schema.Literal("version_mismatch"),
+          supported: Schema.Array(Schema.String),
+        }),
+      ),
+    )(body, { onExcessProperty: "error" }).pipe(
+      Option.map(({ supported }) => new VersionMismatchError({ supported })),
+    );
+  }
   const representation = Object.values(routerHttpErrors).find(
     (candidate) => candidate.status === status && candidate.body === body,
   );

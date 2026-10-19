@@ -11,6 +11,7 @@ import {
 import { Effect, type ParseResult, Schema } from "effect";
 import type {
   EndpointRecovery,
+  OutboxTooOldError,
   ProtocolEvidence,
   StoredOutboundMessage,
 } from "../../store/index.js";
@@ -74,7 +75,7 @@ interface RecoveredEngineState {
 export const recoverEngineState = (
   input: EndpointEngineInput,
   recovery: EndpointRecovery,
-): Effect.Effect<RecoveredEngineState, StoredRowError> =>
+): Effect.Effect<RecoveredEngineState, StoredRowError | OutboxTooOldError> =>
   Effect.gen(function* () {
     const verifiedMemberships = yield* verifyStoredMemberships(
       recovery.memberships,

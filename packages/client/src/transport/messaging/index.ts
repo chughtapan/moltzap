@@ -71,7 +71,11 @@ export { readStoredHistory, verifyStoredMembership } from "./history/index.js";
 export class EngineInitializationError extends Data.TaggedError(
   "EngineInitializationError",
 )<{
-  readonly reason: "identity" | "persistence" | "representation";
+  readonly reason:
+    | "identity"
+    | "persistence"
+    | "representation"
+    | "outbox-too-old";
 }> {}
 
 /** Sending queued protocol traffic could not complete safely. */
@@ -268,6 +272,8 @@ function recoveryInitializationFailure(
     case "ClientRepresentationError":
     case "ParseError":
       return representationInitializationFailure();
+    case "OutboxTooOldError":
+      return new EngineInitializationError({ reason: "outbox-too-old" });
     case "RouterWorkerPersistenceError":
       return new EngineInitializationError({ reason: "persistence" });
     default: {

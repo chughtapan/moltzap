@@ -1,0 +1,26 @@
+{
+  "provenance": "Synthetic signed retained-version fixture; not captured from a published release.",
+  "registryKey": {
+    "crv": "Ed25519",
+    "x": "eBEatCixYQEW0VTK5NKHc47DnJ5A9G2A7IPOmnzMoUs",
+    "kty": "OKP"
+  },
+  "card": {
+    "payload": "eyJhZ2VudElkIjoiYWd0X0FRRUJBUUVCQVFFQkFRRUJBUUVCQVEiLCJhZ2VudE5hbWUiOiJnb2xkZW4tYWdlbnQiLCJpc3N1ZWRBdCI6IjIwMjYtMDgtMjdUMTI6MDA6MDBaIiwia2luZCI6ImFnZW50Q2FyZCIsIm1vbHR6YXBWZXJzaW9uIjoiMjAyNi44MjcuMSIsInByaW5jaXBhbElkIjoicHJuX0FRRUJBUUVCQVFFQkFRRUJBUUVCQVEiLCJwdWJsaWNLZXkiOnsiY3J2IjoiRWQyNTUxOSIsImt0eSI6Ik9LUCIsIngiOiI4WXJPZHZ6ckFBLTZsUjV3aHdpOHNXTlpZeVBvVlFZUkdEMGZhNjBaU1NJIn19",
+    "signatures": [
+      {
+        "protected": "eyJhbGciOiJFZDI1NTE5Iiwia2lkIjoidXJuOmlldGY6cGFyYW1zOm9hdXRoOmp3ay10aHVtYnByaW50OnNoYS0yNTY6a1puNGNYbWw5SVQyVW9WTnVOY2xfdlJKTXlwbThRWGctNUNYRHRQRXNVYyIsInR5cCI6ImFwcGxpY2F0aW9uL3ZuZC5tb2x0emFwLmFnZW50LWNhcmQrandzIn0",
+        "signature": "fecVTVwPi4jDdN73OFl7Q2TOBD-PcUzWGDpw2Xml-vvVMupVcddNR6Fc6MV-iUhGGnl9BLasjH-m0gIyXfVkAA"
+      }
+    ]
+  },
+  "message": {
+    "payload": "eyJhZ2VudENhcmREaWdlc3QiOiJhY2RfUlJhYjNfdkNfZ0ZjWFJFWVE2WnhlUmV5b2QxVzU5UDliZ1F6ejFMd2RRTSIsImJvZHkiOiJjbVYwWVdsdVpXUWdaMjlzWkdWdUlHVjJhV1JsYm1ObCIsImtpbmQiOiJzaWduZWRNZXNzYWdlIiwibWVzc2FnZUlkIjoibXNnX0FnSUNBZ0lDQWdJQ0FnSUNBZ0lDQWciLCJtb2x0emFwVmVyc2lvbiI6IjIwMjYuODI3LjEiLCJyZWNpcGllbnRBZ2VudElkcyI6WyJhZ3RfQVFFQkFRRUJBUUVCQVFFQkFRRUJBUSJdLCJzZW5kZXJBZ2VudElkIjoiYWd0X0FRRUJBUUVCQVFFQkFRRUJBUUVCQVEifQ",
+    "signatures": [
+      {
+        "protected": "eyJhbGciOiJFZDI1NTE5Iiwia2lkIjoidXJuOmlldGY6cGFyYW1zOm9hdXRoOmp3ay10aHVtYnByaW50OnNoYS0yNTY6Vk1EVldXX2pkZ3lZbmdPMmg4SEdvOER0R0poVkM2ejFhUjFNLS1YaHF2NCIsInR5cCI6ImFwcGxpY2F0aW9uL3ZuZC5tb2x0emFwLnNpZ25lZC1tZXNzYWdlK2p3cyJ9",
+        "signature": "T-xIoPq8CnTzAnOa86l6cItCqILUSAE7OULvurZZinHxTuvovjT3L5D_SEwzs3H0_QL1DXSm_aZ_XsVBXCQgAw"
+      }
+    ]
+  }
+}

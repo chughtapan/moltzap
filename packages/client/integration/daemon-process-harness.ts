@@ -481,13 +481,10 @@ export const makeDaemonProcessFixture = (
 /** Starts one moltzapd and returns only after its guarded loopback port listens. */
 export const acquireDaemonProcess = (
   fixture: DaemonProcessFixture,
+  executable = DAEMON_BINARY,
 ): Effect.Effect<RunningProcess, ProcessTestError, Scope.Scope> =>
   Effect.gen(function* () {
-    const running = yield* managedProcess(
-      DAEMON_BINARY,
-      [],
-      fixture.environment,
-    );
+    const running = yield* managedProcess(executable, [], fixture.environment);
     yield* awaitReady(
       running,
       canConnect(Number(fixture.endpoint.port)),

@@ -6,9 +6,9 @@
 import {
   AgentCard,
   type AgentSigningAuthority,
-  MOLTZAP_VERSION,
   SignedMessage,
   type VerifiedAgentCard,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import type {
@@ -79,7 +79,7 @@ export const buildCertifiedGenesis = (
     const action = yield* genesisAction(remote, membership, routerInstanceId);
     const actionHash = yield* hashAction(action);
     const recordCore: RecordCore = {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "record_core",
       membership: membership.descriptor,
       anchorHash: yield* hashAnchor(action.anchor),
@@ -227,7 +227,7 @@ function genesisAction(
 ) {
   return Effect.gen(function* () {
     const postIntent: PostIntent = {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "post_intent",
       conversationId: membership.descriptor.conversationId,
       membershipHash: membership.hash,
@@ -236,12 +236,12 @@ function genesisAction(
       content: [{ type: "text", text: "certified before restart" }],
     };
     const action: GenesisActionCore = {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "GENESIS",
       conversationId: membership.descriptor.conversationId,
       membership: membership.descriptor,
       anchor: {
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         kind: "genesis_anchor_body",
         conversationId: membership.descriptor.conversationId,
         membershipHash: membership.hash,
@@ -257,7 +257,7 @@ function genesisAction(
 
 function signAction(identity: SigningIdentity, actionHash: ActionHash) {
   return signEvidence(identity, {
-    moltzapVersion: MOLTZAP_VERSION,
+    moltzapVersion: WIRE_VERSION,
     kind: "action_signature",
     signerAgentId: identity.card.agentId,
     actionHash,
@@ -270,7 +270,7 @@ function voteDurable(
   recordHash: RecordHash,
 ) {
   return signEvidence(identity, {
-    moltzapVersion: MOLTZAP_VERSION,
+    moltzapVersion: WIRE_VERSION,
     kind: "durability_vote",
     signerAgentId: identity.card.agentId,
     conversationId: membership.descriptor.conversationId,
@@ -281,23 +281,23 @@ function voteDurable(
 
 function certifiedGenesis(parts: CertifiedGenesisParts): CertifiedRecord {
   return {
-    moltzapVersion: MOLTZAP_VERSION,
+    moltzapVersion: WIRE_VERSION,
     kind: "certified_record",
     actionCertifiedRecord: {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "action_certified_record",
       recordHash: parts.recordHash,
       recordCore: parts.recordCore,
       routerAnchor: parts.anchor,
       actionCertificate: {
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         kind: "action_certificate",
         actionHash: parts.recordCore.actionHash,
         signatures: parts.signatures,
       },
     },
     durabilityCertificate: {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "durability_certificate",
       recordHash: parts.recordHash,
       votes: parts.votes,

@@ -71,13 +71,15 @@ export namespace Daemon {
   /** Closed daemon startup phase without configuration or platform detail. */
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
+    readonly reason?: "outbox-too-old";
   }> {
     /**
-     * Names only the failed phase, so the process log says why startup stopped.
+     * Names the failed phase and any actionable compatibility refusal.
      * @returns The startup failure message.
      */
     override get message(): string {
-      return `moltzapd startup failed in phase ${this.phase}`;
+      const phase = `moltzapd startup failed in phase ${this.phase}`;
+      return this.reason === undefined ? phase : `${phase}: ${this.reason}`;
     }
   }
 
@@ -119,7 +121,13 @@ export namespace Daemon {
       }).pipe(
         Effect.provide(networkContext),
         // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- The public process layer deliberately projects private runtime failures onto its closed startup phase.
-        Effect.mapError((error) => new StartupError({ phase: error.phase })),
+        Effect.mapError(
+          (error) =>
+            new StartupError({
+              phase: error.phase,
+              ...(error.reason === undefined ? {} : { reason: error.reason }),
+            }),
+        ),
       );
     }).pipe(Effect.withSpan("Daemon.layer"));
 

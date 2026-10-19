@@ -180,3 +180,16 @@ logged.
 Acceptance covers single-process store ownership, explicit configuration,
 registration recovery, address-based management, signer-evidence audit,
 pending-delivery replay, exact catalog, and old-format rejection.
+
+## Current formats
+
+New signed artifacts emit `WIRE_VERSION`. Outer envelopes and authenticated
+HTTP headers use `LIVE_WIRE_VERSIONS`; retained and nested artifacts,
+including immutable AgentCards, use `HISTORY_WIRE_VERSIONS`.
+
+A pending outbound envelope is replayed byte for byte with its original
+MessageId while its signed version remains live. Startup refuses an expired
+outbox with `OutboxTooOldError`. `Daemon.StartupError.reason` carries the
+closed reason `outbox-too-old` to the process log, alongside the storage
+phase. Operators drain that outbox using an earlier release before upgrading.
+No schema or backup changes accompany this refusal.

@@ -4,10 +4,10 @@ import type { Router } from "@moltzap/router";
 import { scopedLive as it } from "@effect/vitest";
 import {
   MessageId,
-  MOLTZAP_VERSION,
   SealedBody,
   SignedMessage,
   type VerifiedAgentCard,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import {
@@ -75,7 +75,7 @@ const messageId = (byte: number) =>
   Schema.decodeUnknownSync(MessageId)(identifier("msg_", byte));
 
 const catchUpRequestFrom = (requester: VerifiedAgentCard): CatchUpRequest => ({
-  moltzapVersion: MOLTZAP_VERSION,
+  moltzapVersion: WIRE_VERSION,
   kind: "catch_up_request",
   conversationId: Schema.decodeUnknownSync(ConversationId)(digest("cnv_", 22)),
   membershipHash: Schema.decodeUnknownSync(MembershipHash)(digest("mbr_", 23)),

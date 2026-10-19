@@ -66,6 +66,8 @@ The root exports these type-only trust states:
 
 - `VerifiedAgentCard`;
 - `VerifiedSignedMessage`;
+- `LiveSignedMessage`;
+- `WireVersion`;
 - `VerifiedAgentRequest`.
 
 The Registry subpath exports these type-only capability results:
@@ -74,8 +76,8 @@ The Registry subpath exports these type-only capability results:
 - `RegistryLookupResult`; and
 - `RegistryListResult`.
 
-The remaining root exports are `MOLTZAP_VERSION` (exactly
-`2026.1006.1`), `AgentSigningAuthority`, `SealedBody`,
+The remaining root exports are `WIRE_VERSION`, `LIVE_WIRE_VERSIONS`,
+`HISTORY_WIRE_VERSIONS`, `AgentSigningAuthority`, `SealedBody`,
 `AuthenticatedHttp`, and the shared exact error classes in
 [Error contract](#error-contract).
 The Registry subpath also exports `Registry` and its exact client error
@@ -271,6 +273,20 @@ A conversation's certified records retain its immutable membership
 verification descriptor, which its GENESIS record carries, and a complete
 offline proof chain. Their verification does not depend on cache or live
 Registry state.
+
+## Wire versions
+
+Every new artifact emits `WIRE_VERSION`, currently `2026.1006.1`. `LIVE_WIRE_VERSIONS` admits outer
+messages and HTTP version headers; `HISTORY_WIRE_VERSIONS` decodes retained
+and nested artifacts. Both sets currently contain only the emitted version.
+AgentCards use the history set even during live authentication: immutable
+cards stay valid until a protocol reset, without renewal.
+
+`SignedMessage.live` decodes the exact signed representation and checks the
+live set, producing the branded `LiveSignedMessage`. Router send and Client
+ingress require that brand. `SignedMessage` decodes over the history set for
+stored rows, nested evidence, and catch-up items. A brand does not replace
+signature verification.
 
 ## SignedMessage
 
@@ -588,7 +604,7 @@ The verifier:
 - collapses authentication distinctions to one public failure; and
 - returns the inner request as unknown beside its verified caller proof.
 
-A validly authenticated request with the wrong wire compatibility value consumes
+A validly authenticated request with a version outside the live set consumes
 its nonce and fails before domain processing.
 
 AuthenticatedHttp is not a general HTTP framework. It does not define
@@ -735,6 +751,11 @@ duplicate fields on an error value.
 | 429 | `overloaded` | `OverloadedError` |
 | 503 | `unavailable` | `UnavailableError` |
 | 500 | `internal` | `InternalServerError` |
+
+A 412 body is `{"error":"version_mismatch","supported":[...]}`, where
+`supported` lists the server's live versions. `VersionMismatchError.supported`
+preserves that list. It is diagnostic only: clients fail closed without a
+retry at an older version. Each release emits exactly `WIRE_VERSION`.
 
 `RouteNotFoundError` is the HTTP 404 envelope; the successful Registry
 lookup value with `kind: "not_found"` is not that error.

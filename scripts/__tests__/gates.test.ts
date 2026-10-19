@@ -23,8 +23,8 @@ import {
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  MOLTZAP_VERSION_LITERAL,
-  MOLTZAP_VERSION_SOURCE,
+  WIRE_VERSION_LITERAL,
+  WIRE_VERSION_SOURCE,
   readCompatibilityVersion as readCompatibilityVersionSource,
 } from "../docs/moltzap-version.js";
 
@@ -308,7 +308,7 @@ const testDocImportsResolve = (): void => {
   plantFile(
     target1,
     (s) =>
-      `${s}\n\`\`\`typescript\nimport { MOLTZAP_VERSION } from "@moltzap/identity";\nimport { Registry } from "@moltzap/identity/registry";\nimport "@moltzap/identity/registry/server";\nimport "@moltzap/router/server";\n\`\`\`\n`,
+      `${s}\n\`\`\`typescript\nimport { WIRE_VERSION } from "@moltzap/identity";\nimport { Registry } from "@moltzap/identity/registry";\nimport "@moltzap/identity/registry/server";\nimport "@moltzap/router/server";\n\`\`\`\n`,
   );
   const r6 = runScript(
     "scripts/docs/check-doc-imports-resolve.ts",
@@ -432,14 +432,14 @@ const withCompatibilityVersion =
   (next: string) =>
   (source: string): string =>
     source.replace(
-      MOLTZAP_VERSION_LITERAL,
-      `export const MOLTZAP_VERSION = "${next}"`,
+      WIRE_VERSION_LITERAL,
+      `export const WIRE_VERSION = "${next}"`,
     );
 
 const testCompatibilityVersionFile = (): void => {
   console.log("\n# MoltZap compatibility version source");
 
-  plantFile(MOLTZAP_VERSION_SOURCE, withCompatibilityVersion(""));
+  plantFile(WIRE_VERSION_SOURCE, withCompatibilityVersion(""));
   const empty = runGenerateDirect();
   assert(
     "empty MoltZap version fails closed",
@@ -475,7 +475,7 @@ const testCompatibilityVersionFile = (): void => {
     const original = readFileSync(path, "utf8");
     planted.push({ path, original });
   }
-  plantFile(MOLTZAP_VERSION_SOURCE, withCompatibilityVersion(nextVersion));
+  plantFile(WIRE_VERSION_SOURCE, withCompatibilityVersion(nextVersion));
   const bumped = runGenerateDirect();
   assert(
     "changed MoltZap version regenerates constants",
@@ -616,12 +616,12 @@ const testPublicationGuards = (): void => {
   );
   restoreAllPlants();
 
-  plantFile(MOLTZAP_VERSION_SOURCE, withCompatibilityVersion("1.2.3"));
+  plantFile(WIRE_VERSION_SOURCE, withCompatibilityVersion("1.2.3"));
   const wireSemver = runBoundaries();
   assert(
     "flags a wire compatibility literal that is not a calendar version",
     wireSemver.code !== 0 &&
-      /MOLTZAP_VERSION "1\.2\.3" is not a YYYY\.MDD\.N CalVer/.test(
+      /WIRE_VERSION "1\.2\.3" is not a YYYY\.MDD\.N CalVer/.test(
         wireSemver.stderr,
       ),
     `expected wire-literal failure. exit=${wireSemver.code}, stderr=${wireSemver.stderr.slice(0, 300)}`,

@@ -24,7 +24,7 @@ import {
 import {
   activationFailure,
   type DaemonActivationError,
-  type DaemonRuntimeError,
+  DaemonRuntimeError,
   runtimeFailure,
 } from "../errors.js";
 import {
@@ -115,8 +115,12 @@ interface DaemonAssembly {
 
 const activationRuntimeFailure = (
   error: DaemonActivationError,
-): DaemonRuntimeError =>
-  runtimeFailure(error.reason === "upstream" ? "listener" : "storage");
+): DaemonRuntimeError => {
+  if (error.reason === "outbox-too-old") {
+    return new DaemonRuntimeError({ phase: "storage", reason: error.reason });
+  }
+  return runtimeFailure(error.reason === "upstream" ? "listener" : "storage");
+};
 
 /**
  * Logs why an activation ended, other than by an interrupt, and gives the

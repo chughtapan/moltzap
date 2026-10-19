@@ -4,11 +4,12 @@ import {
   AgentCardDigest,
   AgentId,
   type AgentId as AgentIdValue,
+  type LiveSignedMessage,
   MessageId,
   type MessageId as MessageIdValue,
-  MOLTZAP_VERSION,
   SignedMessage,
   type SignedMessage as SignedMessageValue,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import canonicalize from "canonicalize";
 import { Effect, Either, Encoding, Fiber, Schema } from "effect";
@@ -83,7 +84,7 @@ const makeSignedMessage = (input: {
   return Schema.decodeUnknownSync(SignedMessage)({
     payload: encodedCanonicalJson({
       kind: "signedMessage",
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       senderAgentId: input.senderAgentId,
       agentCardDigest,
       recipientAgentIds: input.recipientAgentIds,
@@ -103,11 +104,11 @@ const makeSignedMessage = (input: {
   });
 };
 
-const makeMaximumSignedMessage = (): SignedMessageValue =>
-  Schema.decodeUnknownSync(SignedMessage)({
+const makeMaximumSignedMessage = (): LiveSignedMessage =>
+  Schema.decodeUnknownSync(SignedMessage.live)({
     payload: encodedCanonicalJson({
       kind: "signedMessage",
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       senderAgentId: makeAgentId(250),
       agentCardDigest: `acd_${Encoding.encodeBase64Url(
         new Uint8Array(32).fill(9),

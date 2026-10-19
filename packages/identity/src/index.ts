@@ -6,18 +6,13 @@
  */
 // safer-arch-ignore no-folder-cycle: This facade re-exports cohesive identity modules that depend on sibling identity contracts; those modules never import the facade.
 
-/**
- * The sole wire compatibility value. Every Social Harness network
- * schema carries exactly this value; there is no range negotiation or
- * per-layer wire version. `version.ts` is its source of truth: the
- * architecture boundary check reads the literal from there, and
- * `scripts/docs/moltzap-version.ts` reads it for the documentation
- * constants generator and its gate tests.
- *
- * The npm package version and the MCP revision are independent namespaces
- * and never imply compatibility with this value.
- */
-export { MOLTZAP_VERSION } from "./version.js";
+/** Emission and admission share one wire namespace, independent of npm and MCP. */
+export {
+  HISTORY_WIRE_VERSIONS,
+  LIVE_WIRE_VERSIONS,
+  WIRE_VERSION,
+  type WireVersion,
+} from "./version.js";
 
 /** Canonical refined values shared by identity and its consumers. */
 export { AgentId, AgentName, PrincipalId } from "./identifiers.js";
@@ -36,6 +31,7 @@ export {
 } from "./agent-card.js";
 /** Opaque attributed payload and endpoint-owned signing operations. */
 export {
+  type LiveSignedMessage,
   MessageId,
   SignedMessage,
   SignedMessageSigningError,

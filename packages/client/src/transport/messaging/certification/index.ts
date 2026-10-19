@@ -3,7 +3,7 @@
  * and the resume of durable dissemination obligations.
  */
 
-import { MOLTZAP_VERSION, type SignedMessage } from "@moltzap/identity";
+import { type SignedMessage, WIRE_VERSION } from "@moltzap/identity";
 import { Deferred, Effect } from "effect";
 import type { SendError } from "../errors.js";
 import {
@@ -342,7 +342,7 @@ function signLocalActionEvidence(
 ): Effect.Effect<SignedMessage, RouterWorkerPersistenceError> {
   return signEvidenceMessage({
     statement: {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "action_signature",
       signerAgentId: runtime.input.localAgentCard.agentId,
       actionHash: fold.actionHash,
@@ -403,7 +403,7 @@ const localDurabilityEvidence = (
       retained ??
       (yield* signEvidenceMessage({
         statement: {
-          moltzapVersion: MOLTZAP_VERSION,
+          moltzapVersion: WIRE_VERSION,
           kind: "durability_vote",
           signerAgentId: localAgentId,
           conversationId: fold.conversation.conversationId,

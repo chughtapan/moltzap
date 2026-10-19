@@ -17,13 +17,13 @@ import {
   InternalServerError,
   MessageId,
   type MessageId as MessageIdValue,
-  MOLTZAP_VERSION,
   OverloadedError,
   PrincipalId,
   SignedMessage,
   type SignedMessage as SignedMessageValue,
   type VerifiedAgentCard,
   type VerifiedAgentRequest,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import canonicalize from "canonicalize";
 import {
@@ -114,7 +114,7 @@ const makeSignedMessage = (input: {
   Schema.decodeUnknownSync(SignedMessage)({
     payload: encodedCanonicalJson({
       kind: "signedMessage",
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       senderAgentId: input.senderAgentId,
       agentCardDigest: `acd_${Encoding.encodeBase64Url(new Uint8Array(32).fill(9))}`,
       recipientAgentIds: input.recipientAgentIds,
@@ -208,7 +208,7 @@ const makeRegisteredSenderFixture = () =>
     const payload = utf8Encoder.encode(
       canonicalText({
         kind: "agentCard",
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         agentId: sender,
         principalId: Schema.decodeUnknownSync(PrincipalId)(
           `prn_${identifierPayload(6)}`,
@@ -869,7 +869,7 @@ describe("public client behavior", () => {
           {
             name: "version mismatch",
             status: 412,
-            body: '{"error":"version_mismatch"}',
+            body: `{"error":"version_mismatch","supported":["${WIRE_VERSION}"]}`,
             expectedTag: "VersionMismatchError",
           },
           {
