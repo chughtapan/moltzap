@@ -207,7 +207,7 @@ function distinguishesProtocolAndDomainFailures() {
     expect(malformedCause).toMatchObject({
       code: ProtocolErrorCode.InvalidParams,
       data: {
-        issues: [{ path: ["unexpected"], message: "Expected never" }],
+        issues: [{ path: ["unexpected"], message: "Unexpected field" }],
       },
     });
     expect(JSON.stringify(malformedCause.data)).not.toContain(privateInput);

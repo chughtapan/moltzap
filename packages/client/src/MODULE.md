@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](./transport/collectives/forms.ts#L322)
+### [`CollectiveError`](./transport/collectives/forms.ts#L321)
 
 _Class_
 
@@ -573,7 +573,7 @@ names the specific cause when the failing step knows it, such as which
 agent is unknown; the message is what a host hands its model.
 Validation issues expose only field paths and schema expectations.
 
-### [`SendInput (type)`](./transport/collectives/forms.ts#L154)
+### [`SendInput (type)`](./transport/collectives/forms.ts#L153)
 
 _TypeAlias_
 
@@ -583,7 +583,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput (value)`](./transport/collectives/forms.ts#L142)
+### [`SendInput (value)`](./transport/collectives/forms.ts#L141)
 
 _Variable_
 
@@ -606,7 +606,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./transport/collectives/forms.ts#L173)
+### [`SendResult`](./transport/collectives/forms.ts#L172)
 
 _Interface_
 
@@ -1309,7 +1309,6 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `transport/wire/encoding/codec.ts`
 - `transport/wire/encoding/index.ts`
 - `transport/wire/index.ts`
-- `transport/wire/issues.ts`
 - `transport/wire/README.md`
 - `transport/wire/schemas.ts`
 - `transport/wire/values.ts`

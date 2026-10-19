@@ -1,12 +1,11 @@
 /** @file Collective operations, answers and the closed errors of a refused collective send. */
 
-import { Data, type ParseResult, Schema } from "effect";
+import { Data, ParseResult, Schema } from "effect";
 import {
   type SendError,
   sendFailureReasons,
   sendFailureText,
 } from "../messaging/errors.js";
-import { validationIssues } from "../wire/index.js";
 import {
   AgentAddress,
   exactStruct,
@@ -233,13 +232,13 @@ export function closeFailureText(error: SendError): string {
 
 /**
  * One line per issue of a decode failure, each led by its path, such as
- * `requestedSchema.type: Expected "object"`, joined by `; `.
+ * `requestedSchema.type: Expected "object", actual "obj"`, joined by `; `.
  * A model repairs its input from this text alone.
  * @param error The failed decode.
  * @returns The issues as text.
  */
 export const describeIssues = (error: ParseResult.ParseError): string =>
-  validationIssues(error)
+  ParseResult.ArrayFormatter.formatErrorSync(error)
     .map(({ path, message }) =>
       path.length === 0 ? message : `${path.map(String).join(".")}: ${message}`,
     )

@@ -46,7 +46,6 @@ import {
   sendErrorData,
 } from "../../delivery/operations.js";
 import { FirewallSendError } from "../../firewall/runtime.js";
-import { validationIssues } from "../../transport/wire/index.js";
 import {
   authenticateHarnessRequest,
   type HarnessMcpCredentials,
@@ -100,6 +99,7 @@ import {
   harnessReadSendResultJsonSchema,
   harnessSendArgumentsJsonSchema,
   harnessSendResultJsonSchema,
+  validationIssues,
 } from "./schemas.js";
 
 /* eslint-disable agent-code-guard/async-keyword -- Official MCP factories and callbacks are Promise-native. */
