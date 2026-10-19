@@ -83,8 +83,10 @@ The OpenClaw adapter registers the message tool's `send` and `reply` actions
 and adds no tool parameter. Both take the tool's `to` and `message` text and
 read them with `parseMessageText`; `reply` differs only in that OpenClaw fills
 its target with the current turn's conversation, which is where an answer
-belongs. The action returns `{ok: true, to}` once the send completes; the
-operation id stays with the endpoint, since the model has no use for it. A refusal reaches the model as the tool's error: the parser's
+belongs. The action returns `{ok: true, to}` once the send completes, with the
+check's `guidance` when the local firewall admitted the send with an uncertain
+norm judgment; the operation id stays with the endpoint, since the model has
+no use for it. A refusal reaches the model as the tool's error: the parser's
 message naming each failing field, or the Client error's naming each
 unreachable member or failing field. `message.send.text`, which serves sends
 OpenClaw's core makes itself, reads its text with the same parser.

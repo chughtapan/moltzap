@@ -104,7 +104,8 @@ export interface CollectiveAdmission {
   >;
   /**
    * Check a gather, then return the only sender its request posts bind
-   * through: each binds against the admitted check of exactly this content.
+   * through, each against the admitted check of exactly this content, with
+   * the advice that check gave.
    */
   readonly admitGather: (
     gather: GatherCandidate,

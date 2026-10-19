@@ -140,15 +140,16 @@ from an outgoing draft. Outgoing expectations use original history and facts
 without the draft text, id or approval evidence. Conformance then sees the draft
 and the independently established expectations.
 
-An answer is uncertain when its choice is `unresolved` or its probability is
-below `minimumProbability`. An uncertain answer about a safety or autonomy rule
+An answer is uncertain when its choice is `unresolved`, its probability is
+below `minimumProbability`, or another option is more probable. An uncertain answer about a safety or autonomy rule
 holds, its applicability included. One about a norm never holds: an uncertain
 applicability, expectation or conformance answer is an uncertain `pass`, the
 norm is still judged by expectations and conformance, conformance judges only
 the expectations the judge settled, and an uncertain subject reference is left
 out of its expectation. A failed or invalid provider answer holds in every stage.
 A rounded near-tie is valid: in a distribution reported in hundredths, Jev's
-stated choice may trail another option by the same tolerance its sum has.
+stated choice may trail another option by the same tolerance its sum has. Such
+a trailing choice is uncertain.
 
 Every norm checks each admitted, runtime-visible message reference independently.
 Incoming messages may also anchor their own guidance. Private facts, withheld

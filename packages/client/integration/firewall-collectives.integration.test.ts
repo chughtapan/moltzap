@@ -201,27 +201,29 @@ const gatherBehavior = Effect.gen(function* () {
     ],
   });
 
-  const unsettled = yield* collecting(
-    requester,
-    "gather",
-    members,
-    "Which day works for the demo?",
-    ANSWERED_DEADLINE_SECONDS,
-  );
-  expect(yield* nextItem(guided)).toMatchObject({ id: unsettled.operationId });
-  expect(yield* nextItem(strict)).toMatchObject({ id: unsettled.operationId });
-  yield* accept(guided, requester.address, { slot: "mon" });
-  /** An unsettled norm judgment admits under enforcement and advises the sender. */
-  const unsure = yield* accept(strict, requester.address, {
-    slot: "tue",
-    note: "[unsure] maybe",
-  });
   const uncertainAdvice = {
+    middlewareId: "integration-markers",
     ruleId: "marked",
     uncertain: { choice: "none", probability: 0.33 },
     instruction: "Respond to the marked message.",
   };
-  expect(unsure.guidance).toMatchObject({ instructions: [uncertainAdvice] });
+  /** An unsettled norm judgment admits under enforcement and returns only that advice, without the settled expectation. */
+  const unsettled = yield* collecting(
+    requester,
+    "gather",
+    members,
+    "[unsure] Which day works for the demo?",
+    ANSWERED_DEADLINE_SECONDS,
+  );
+  expect(unsettled.guidance?.instructions).toEqual([uncertainAdvice]);
+  expect(yield* nextItem(guided)).toMatchObject({ id: unsettled.operationId });
+  expect(yield* nextItem(strict)).toMatchObject({ id: unsettled.operationId });
+  yield* accept(guided, requester.address, { slot: "mon" });
+  const unsure = yield* accept(strict, requester.address, {
+    slot: "tue",
+    note: "[unsure] maybe",
+  });
+  expect(unsure.guidance?.instructions).toEqual([uncertainAdvice]);
   const unsureResult = yield* Queue.take(requester.inbox);
   yield* unsureResult.acknowledge;
   expect(unsureResult.item).toMatchObject({

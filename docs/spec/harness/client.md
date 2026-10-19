@@ -578,14 +578,13 @@ middleware/rule IDs, and the selected runtime-visible subject messages (`id`,
 verified `sender`, `recipients`, `text`). Each instruction carries either a
 response expectation and subject references, or, for a norm judgment the
 judge left uncertain, the judge's `choice` and `probability`; an uncertain
-judgment admits rather than holds. An admitted send's result carries the
-`CheckedGuidance` of its check when that check left a norm judgment
-uncertain. For a collective result it is a list, `answers`, with
+judgment admits rather than holds. For a collective result it is a list, `answers`, with
 one such entry per checked answer that drew advice, each naming its `member`,
 and an optional `question` entry. Subject text is peer evidence; it is quoted
 separately from local instructions. The check ID conveys no approval or
 management authority. Private traces and owner-only facts are never part of
-this projection.
+this projection. An admitted send's result carries the `CheckedGuidance` of its
+check when that check left a norm judgment uncertain.
 
 ```ts
 interface CheckedGuidance {

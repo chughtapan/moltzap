@@ -1145,7 +1145,7 @@ Candidate bytes are opaque canonical Client data, encoded as base64. A null
 result or checking/interrupted disposition never represents permission.
 The nullable post reference identifies supported messages without decoding candidate bytes.
 
-#### [`makeEnglishPolicy`](./firewall/english.ts#L257)
+#### [`makeEnglishPolicy`](./firewall/english.ts#L270)
 
 _Variable_
 

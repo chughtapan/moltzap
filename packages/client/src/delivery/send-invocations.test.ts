@@ -6,6 +6,7 @@ import { scopedLive as it } from "@effect/vitest";
 import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Deferred, Effect, Fiber, Schema, Scope } from "effect";
 import { describe, expect } from "vitest";
+import { localGuidance } from "../__tests__/message-policy-fixtures.js";
 import { EndpointStoreError, openEndpointStore } from "../store/index.js";
 import { CollectiveId, SendInput } from "../transport/collectives/forms.js";
 import { SendError } from "../transport/messaging/errors.js";
@@ -149,6 +150,44 @@ const replaysAReturnedOutcomeAfterRestart = () =>
     yield* test.invocations.send(onceRequest);
 
     yield* checksRetainedOutcome(test.store, test.scope, onceRequest);
+  }).pipe(Effect.provide(NodeFileSystem.layer));
+
+const replaysReturnedGuidanceAfterRestart = () =>
+  Effect.gen(function* () {
+    const store = yield* temporaryDirectory.pipe(
+      Effect.flatMap((directory) =>
+        openEndpointStore(directory, { liveWireVersions: LIVE_WIRE_VERSIONS }),
+      ),
+    );
+    const scope = yield* Scope.Scope;
+    const result = {
+      operationId,
+      guidance: {
+        ...localGuidance(3),
+        subjects: [],
+        instructions: [
+          {
+            middlewareId: "owner",
+            ruleId: "reply-once",
+            uncertain: { choice: "required", probability: 0.4 },
+            instruction: "Reply once.",
+          },
+        ],
+      },
+    };
+    const first = yield* makeSendInvocations(
+      store,
+      () => Effect.succeed(result),
+      scope,
+    );
+    const restarted = yield* makeSendInvocations(
+      store,
+      () => Effect.dieMessage("retained send executed again"),
+      scope,
+    );
+
+    expect(yield* first.send(onceRequest)).toEqual(result);
+    expect(yield* restarted.send(onceRequest)).toEqual(result);
   }).pipe(Effect.provide(NodeFileSystem.layer));
 
 const executesEverySendWithoutAKey = () =>
@@ -490,3 +529,8 @@ describe("durable send invocations", () => {
       classifiesAFailedReservation(reason, expected, commitOutcome),
   );
 });
+
+it(
+  "replays a returned send's firewall guidance after restart",
+  replaysReturnedGuidanceAfterRestart,
+);

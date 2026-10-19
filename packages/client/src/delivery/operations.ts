@@ -329,7 +329,8 @@ export function decodeHarnessSendErrorData(
 /**
  * Decode one `send_message` result.
  * @param value Untrusted structured tool content.
- * @returns The operation id a gather names, if any.
+ * @returns The operation id a gather names and the local firewall's guidance
+ * on the admitted send, each if any.
  */
 export function decodeHarnessSendResult(
   value: unknown,

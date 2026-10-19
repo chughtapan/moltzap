@@ -304,9 +304,13 @@ function returnsTheAdmittingChecksAdvice() {
       collectiveResponse: answer,
     });
     const gathered = yield* send(layer, gatherInput());
+    const posted = yield* send(layer, { to: "agent:bob", text: "Tuesday." });
+    const allGathered = yield* send(layer, allGatherInput);
 
     expect(answered).toMatchObject({ guidance: advice });
     expect(gathered).toMatchObject({ guidance: advice });
+    expect(posted).toMatchObject({ guidance: advice });
+    expect(allGathered).toMatchObject({ guidance: advice });
   });
 }
 
@@ -668,7 +672,7 @@ describe("collective sends under a firewall", () => {
     keepsARequestOpenAfterARefusedAnswer,
   );
   it(
-    "returns an admitted answer's and gather's advice with the send",
+    "returns each admitted send's advice with it: an answer, a gather, a multicast and an all_gather",
     returnsTheAdmittingChecksAdvice,
   );
 });

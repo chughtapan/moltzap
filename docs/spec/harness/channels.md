@@ -59,7 +59,9 @@ error for every operation, gather, all_gather and answer included, so the
 model can author a revision through a new explicit send. It does not rewrite
 or retry the refused draft. Both hosts render an answer or question the
 firewall withheld through the shared result rendering, naming the check and
-its reason; NanoClaw still refuses a guidance-bearing delivery. Model-prompt
+its reason; NanoClaw still refuses a guidance-bearing delivery. OpenClaw returns
+an admitted send's guidance in the message tool's result; NanoClaw, which has no
+guidance projection, does not report it. Model-prompt
 and repair claims require a real-host qualification run; callback tests
 establish only the adapter projection.
 

@@ -345,8 +345,8 @@ function checkPrepared(
 
 /**
  * Check a gather, rechecking once on stale evidence, and return the sender
- * its request posts bind through. A store failure fails as
- * `persistence-failed` before any post.
+ * its request posts bind through with the advice its admitting check gave.
+ * A store failure fails as `persistence-failed` before any post.
  */
 function admitGather(
   environment: FirewallEnvironment,

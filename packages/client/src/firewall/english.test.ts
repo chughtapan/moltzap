@@ -410,7 +410,7 @@ it("keeps an invalid answer's usage in the trace", () =>
     });
   }));
 
-/** Jev's answer to a relevance question in a collective-norms pilot. */
+/** A rounded near-tie, as Jev reports one: the stated choice trails the maximum by one hundredth. */
 const nearTie = {
   choice: "relevant",
   confidence: 0.25,
@@ -464,17 +464,59 @@ it("admits a group message whose norm applicability is uncertain, advising that 
     expect(requests.map((entry) => entry.stage)).toContain("conformance");
   }));
 
-it("routes by Jev's stated choice when another option leads it within rounding", () =>
+it.each([
+  {
+    name: "a restrictive choice",
+    choice: "prohibited",
+    probabilities: { compliant: 0.51, prohibited: 0.5, unresolved: 0 },
+  },
+  {
+    name: "a permissive choice",
+    choice: "compliant",
+    probabilities: { compliant: 0.5, prohibited: 0.51, unresolved: 0 },
+  },
+])(
+  "holds a safety rule whose stated choice trails another option within rounding: $name",
+  ({ choice, probabilities }) =>
+    Effect.gen(function* () {
+      const result = yield* check(
+        provider({ "safety:privacy:assessment": { choice, probabilities } }),
+      );
+      expect(result.reason).toBe("unresolved-evidence");
+    }),
+);
+
+it("admits a norm whose stated conformance trails a violation within rounding, advising that judgment", () =>
   Effect.gen(function* () {
     const result = yield* check(
       provider({
-        "safety:privacy:assessment": {
-          choice: "prohibited",
-          probabilities: { compliant: 0.51, prohibited: 0.5, unresolved: 0 },
+        "conformance:proposal-acceptance:assessment": {
+          choice: "compliant",
+          probabilities: { compliant: 0.5, violation: 0.51, unresolved: 0 },
         },
       }),
     );
-    expect(result.judgment).toBe("block");
+    expect(result.judgment).toBe("allow");
+    expect(result.guidance).toContainEqual({
+      middlewareId: "owner",
+      ruleId: "proposal-acceptance",
+      uncertain: { choice: "compliant", probability: 0.5 },
+      instruction: reminder,
+    });
+  }));
+
+it("admits a confidently unresolved norm expectation as guidance", () =>
+  Effect.gen(function* () {
+    const result = yield* check(
+      provider({ "expectations:proposal-acceptance:assessment": "unresolved" }),
+    );
+    expect(result.judgment).toBe("allow");
+    expect(result.guidance).toContainEqual({
+      middlewareId: "owner",
+      ruleId: "proposal-acceptance",
+      uncertain: { choice: "unresolved", probability: 1 },
+      instruction: reminder,
+    });
   }));
 
 const replyRule: EnglishRule = {

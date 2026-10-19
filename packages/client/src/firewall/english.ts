@@ -62,7 +62,8 @@ const decideWithinBudget = Effect.fn("EnglishPolicy.decideWithinBudget")(
 /**
  * Each answer must give a probability to exactly its question's choices, sum
  * to one, and state a choice that no other option exceeds, within
- * {@link roundingTolerance}. The policy routes by the stated choice.
+ * {@link roundingTolerance}. The policy routes by the stated choice, and a
+ * stated choice that trails another option is unsettled.
  */
 function validAnswers(
   request: DecisionRequest,
@@ -151,15 +152,27 @@ const runStage = Effect.fn("EnglishPolicy.runStage")(function* (
       response: value,
       uncertainQuestions: Object.entries(value.answers).flatMap(
         ([id, answer]) =>
-          answer.choice === "unresolved" ||
-          (answer.probabilities[answer.choice] ?? 0) <
-            settings.minimumProbability
-            ? [id]
-            : [],
+          unsettled(answer, settings.minimumProbability) ? [id] : [],
       ),
     }),
   });
 });
+
+/**
+ * The judge did not settle an answer that is `unresolved`, below the routing
+ * threshold, or a rounded near-tie whose stated choice trails another option.
+ */
+function unsettled(
+  answer: DecisionResponse["answers"][string],
+  minimumProbability: number,
+): boolean {
+  const selected = answer.probabilities[answer.choice] ?? 0;
+  return (
+    answer.choice === "unresolved" ||
+    selected < minimumProbability ||
+    Object.values(answer.probabilities).some((value) => value > selected)
+  );
+}
 
 /**
  * Conformance judges the draft against the expectations the judge settled;

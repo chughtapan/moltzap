@@ -493,8 +493,9 @@ function gather(
 }
 
 /**
- * The sender a gather's request posts go through: the one the firewall's
- * check of the gather admitted, or the plain post sender without a firewall.
+ * The sender a gather's request posts go through, with the advice of the
+ * firewall's check that admitted the gather, or the plain post sender without
+ * a firewall.
  */
 function admitGather(
   state: CollectiveState,

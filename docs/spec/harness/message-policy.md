@@ -124,11 +124,13 @@ The English middleware runs this fixed internal chain:
 
 All configured stages run even after a semantic rejection, except that a
 dependent stage with invalid input is explicitly unavailable. Diagnostics never
-override a rejection. Missing required evidence, invalid output and provider
-failure cannot produce admission. They remain distinct in the audit.
+override a rejection. Missing required evidence in the context, invalid output
+and provider failure cannot produce admission; an uncertain norm judgment admits
+as described below. They remain distinct in the audit.
 
-An answer is uncertain when its choice is `unresolved` or its probability is
-below `minimumProbability`. An uncertain answer about a safety or autonomy rule
+An answer is uncertain when its choice is `unresolved`, its probability is
+below `minimumProbability`, or another option is more probable, as in a rounded
+near-tie the policy accepts as valid. An uncertain answer about a safety or autonomy rule
 holds the candidate, its applicability included, and a failed judge holds it
 in every stage. Applicability labels never prune active rules. Making
 applicability optional is a later experiment; increasing history length can

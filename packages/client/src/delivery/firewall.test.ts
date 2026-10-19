@@ -191,8 +191,8 @@ function unsettledIncoming() {
   });
 }
 
-/** The judge's answer to one rule's applicability in the collective-norms pilot. */
-const pilotApplicability = {
+/** A rounded near-tie, as Jev reports one: the stated choice trails the maximum by one hundredth. */
+const nearTie = {
   choice: "relevant",
   confidence: 0.25,
   probabilities: { relevant: 0.49, irrelevant: 0.5, unresolved: 0.01 },
@@ -215,7 +215,7 @@ function uncertainNormApplicability() {
     const subject = yield* fixture;
     const delivery = yield* outgoingFixture(
       subject,
-      yield* pilotPolicy(announceOnce),
+      yield* nearTiePolicy(announceOnce),
     );
     const sending = yield* delivery.operations
       .send({
@@ -249,7 +249,7 @@ function uncertainSafetyApplicability() {
     const subject = yield* fixture;
     const delivery = yield* outgoingFixture(
       subject,
-      yield* pilotPolicy({
+      yield* nearTiePolicy({
         id: "privacy",
         kind: "safety",
         text: "Do not disclose private appointments.",
@@ -264,12 +264,12 @@ function uncertainSafetyApplicability() {
   });
 }
 
-/** An English policy of one rule, judged by `pilotJudge`. */
-function pilotPolicy(rule: EnglishRule) {
+/** An English policy of one rule, judged by `nearTieJudge`. */
+function nearTiePolicy(rule: EnglishRule) {
   return makeEnglishPolicy({
     id: "owner",
     rules: [rule],
-    provider: pilotJudge(rule),
+    provider: nearTieJudge(rule),
     settings: {
       minimumProbability: 0.5,
       maximumRequestBytes: 60_000,
@@ -278,8 +278,8 @@ function pilotPolicy(rule: EnglishRule) {
   });
 }
 
-/** A judge certain of everything but `rule`'s applicability, which it answers as in the pilot. */
-function pilotJudge(rule: EnglishRule): DecisionProvider {
+/** A judge certain of everything but `rule`'s applicability, which it answers with a near-tie. */
+function nearTieJudge(rule: EnglishRule): DecisionProvider {
   return {
     decide: (request) =>
       Effect.succeed({
@@ -291,7 +291,7 @@ function pilotJudge(rule: EnglishRule): DecisionProvider {
           Object.entries(request.questions).map(([id, question]) => [
             id,
             request.stage === "applicability" && question.ruleId === rule.id
-              ? pilotApplicability
+              ? nearTie
               : certainAnswer(question),
           ]),
         ),
