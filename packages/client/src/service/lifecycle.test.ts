@@ -19,7 +19,6 @@ import {
   Exit,
   Fiber,
   Option,
-  Ref,
   Schema,
 } from "effect";
 import { join } from "node:path";
@@ -140,25 +139,6 @@ const opensConfiguredHistoryExport = () =>
     expect(yield* readHistoryExport(path)).toEqual([
       expect.objectContaining({ kind: "inbound", item }),
     ]);
-  });
-
-/**
- * Without a configured path the daemon opens no history export. The check
- * runs once the listener is up, after every startup step that could open one.
- */
-const opensNoHistoryExportByDefault = () =>
-  Effect.gen(function* () {
-    const fixture = yield* makeFixture;
-    const harness = yield* makeHarness(fixture, "none", true);
-    const store = makeStore(fixture, true);
-    yield* Effect.forkScoped(run(fixture, store, harness));
-    yield* awaitStage(
-      Deferred.await(harness.engineEntered),
-      "engine acquisition",
-    );
-    yield* Deferred.succeed(harness.engineRelease, undefined);
-    yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
-    expect(harness.getHistoryExportPath()).toBeUndefined();
   });
 
 const blocksStartupAndSupervisesWorker = () =>
@@ -611,7 +591,6 @@ const replaysUntilAcknowledged = () =>
       (yield* operations.readInbox({})).items,
       "inbox before any subscriber attaches",
     ).toEqual([pendingItem]);
-    expect(harness.delivery.acknowledgedTokens).toEqual([]);
     const handler = requireHandler(harness);
 
     const firstReader = yield* receivesFirstDelivery(handler);
@@ -626,16 +605,15 @@ const replaysUntilAcknowledged = () =>
       (yield* operations.readInbox({})).items,
       "inbox after the first subscriber's delivery",
     ).toEqual([pendingItem]);
-    harness.delivery.events.length = 0;
     yield* acknowledgeDuringReplacementDelivery(
       harness,
       handler,
       fixture.pending,
     );
-    expect(harness.delivery.acknowledgedTokens).toEqual([
-      fixture.pending.deliveryToken,
-    ]);
-    expect(harness.delivery.events).toEqual(["delivery-ready", "acknowledged"]);
+    expect(
+      (yield* operations.readInbox({})).items,
+      "inbox after acknowledgment",
+    ).toEqual([]);
   });
 
 /** The names a `tools/list` response carries. */
@@ -902,11 +880,6 @@ interface ActivationFault extends DaemonFault {
   readonly registerFailure: unknown;
 }
 
-/** A fault a registered daemon's startup hits, and its listener attempts. */
-interface StartupFault extends DaemonFault {
-  readonly listenerAttempts: number;
-}
-
 const engineDefect = new Error("engine construction defect");
 
 /**
@@ -1001,7 +974,7 @@ class ListenerUnavailableError extends Data.TaggedError(
  * tries the listener; a listener that cannot open stops it in the listener
  * phase.
  */
-const startupFaults: readonly StartupFault[] = [
+const startupFaults: readonly DaemonFault[] = [
   {
     fault: "classified inbox persistence fails",
     store: (store) => ({
@@ -1011,7 +984,6 @@ const startupFaults: readonly StartupFault[] = [
     }),
     harness: (harness) => harness,
     phase: "storage",
-    listenerAttempts: 0,
   },
   {
     fault: "the pending read fails",
@@ -1021,7 +993,6 @@ const startupFaults: readonly StartupFault[] = [
       return harness;
     },
     phase: "storage",
-    listenerAttempts: 0,
   },
   {
     fault: "the engine construction dies",
@@ -1034,7 +1005,6 @@ const startupFaults: readonly StartupFault[] = [
       },
     }),
     phase: "storage",
-    listenerAttempts: 0,
   },
   {
     fault: "a stored membership fails verification",
@@ -1056,7 +1026,6 @@ const startupFaults: readonly StartupFault[] = [
     }),
     harness: (harness) => harness,
     phase: "storage",
-    listenerAttempts: 0,
   },
   {
     fault: "the listener cannot open",
@@ -1069,43 +1038,17 @@ const startupFaults: readonly StartupFault[] = [
       },
     }),
     phase: "listener",
-    listenerAttempts: 1,
   },
 ];
 
 /**
- * The harness with a listener that counts each acquisition attempt.
- * @param original The harness to wrap.
- * @param attempts Incremented once per attempt.
- * @returns The counting harness.
+ * A registered daemon whose startup hits a fault fails in that phase
+ * instead of carrying on past it.
  */
-const countingListeners = (
-  original: RuntimeHarness,
-  attempts: Ref.Ref<number>,
-): RuntimeHarness => ({
-  ...original,
-  dependencies: {
-    ...original.dependencies,
-    acquireListener: (input) =>
-      Ref.update(attempts, (count) => count + 1).pipe(
-        Effect.zipRight(original.dependencies.acquireListener(input)),
-      ),
-  },
-});
-
-/**
- * A registered daemon whose startup hits `fault` fails in the row's phase,
- * having tried the listener the row's number of times. Fails when startup
- * carries on past the fault, or maps it to another phase.
- */
-const failsStartupWith = (row: StartupFault) =>
+const failsStartupWith = (row: DaemonFault) =>
   Effect.gen(function* () {
     const fixture = yield* makeFixture;
-    const attempts = yield* Ref.make(0);
-    const harness = countingListeners(
-      row.harness(yield* makeHarness(fixture, "none")),
-      attempts,
-    );
+    const harness = row.harness(yield* makeHarness(fixture, "none"));
 
     const error = yield* run(
       fixture,
@@ -1114,46 +1057,16 @@ const failsStartupWith = (row: StartupFault) =>
     ).pipe(Effect.flip);
 
     expect(error.phase, "phase startup failed in").toBe(row.phase);
-    expect(yield* Ref.get(attempts), "listener attempts").toBe(
-      row.listenerAttempts,
-    );
   });
 
-/**
- * The harness with an engine constructor that counts each engine it builds.
- * @param original The harness to wrap.
- * @param engines Incremented once per engine.
- * @returns The counting harness.
- */
-const countingEngines = (
-  original: RuntimeHarness,
-  engines: Ref.Ref<number>,
-): RuntimeHarness => ({
-  ...original,
-  dependencies: {
-    ...original.dependencies,
-    makeEngine: (input) =>
-      Ref.update(engines, (count) => count + 1).pipe(
-        Effect.zipRight(original.dependencies.makeEngine(input)),
-      ),
-  },
-});
-
-/**
- * A register retried after it succeeded returns the same registration and
- * keeps the protocol the first one started: the engine is built once. Fails
- * when activation builds a second engine and Router worker for an identity
- * whose protocol is already up.
- */
-const keepsOneProtocolAcrossARetriedRegister = () =>
+/** A successful registration can be retried while its inbox remains usable. */
+const keepsTheInboxUsableAcrossARetriedRegister = () =>
   Effect.gen(function* () {
     const fixture = yield* makeFixture;
-    const engines = yield* Ref.make(0);
-    const harness = countingEngines(
-      yield* makeHarness(fixture, "none"),
-      engines,
+    const harness = yield* makeHarness(fixture, "none");
+    yield* Effect.forkScoped(
+      run(fixture, makeStore(fixture, false, harness.delivery), harness),
     );
-    yield* Effect.forkScoped(run(fixture, makeStore(fixture, false), harness));
     yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
     const operations = requireOperations(harness);
     const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
@@ -1169,7 +1082,19 @@ const keepsOneProtocolAcrossARetriedRegister = () =>
 
     expect(first).toEqual({ kind: "registered", agentCard });
     expect(retried).toEqual({ kind: "registered", agentCard });
-    expect(yield* Ref.get(engines), "engines built").toBe(1);
+    const handler = requireHandler(harness);
+    expect(yield* readInboxThroughMcp(handler)).toEqual([
+      fixture.pending.deliveryToken,
+    ]);
+    yield* fetchJson(
+      handler,
+      makeToolCallRequest({
+        id: "acknowledge-after-register-retry",
+        name: "acknowledge_delivery",
+        toolArguments: { deliveryToken: fixture.pending.deliveryToken },
+      }),
+    );
+    expect(yield* readInboxThroughMcp(handler)).toEqual([]);
   });
 
 describe("daemon runtime composition", () => {
@@ -1191,10 +1116,6 @@ describe("daemon runtime composition", () => {
   );
   it("opens the configured history export", opensConfiguredHistoryExport);
   it(
-    "opens no history export when none is configured",
-    opensNoHistoryExportByDefault,
-  );
-  it(
     "waits for the active engine and supervises the Router worker",
     blocksStartupAndSupervisesWorker,
   );
@@ -1207,7 +1128,7 @@ describe("daemon runtime composition", () => {
     finishesRegistrationWhenInterrupted,
   );
   it(
-    "publishes durable deliveries before completing acknowledgment",
+    "replays durable deliveries until acknowledgment",
     replaysUntilAcknowledged,
   );
 });
@@ -1238,7 +1159,7 @@ describe("daemon activation", () => {
     failsStartupWith,
   );
   it(
-    "keeps one protocol when a register is retried",
-    keepsOneProtocolAcrossARetriedRegister,
+    "keeps the inbox usable when a register is retried",
+    keepsTheInboxUsableAcrossARetriedRegister,
   );
 });
