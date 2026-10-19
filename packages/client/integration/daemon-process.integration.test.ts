@@ -27,8 +27,8 @@ import {
 } from "./daemon-process-harness.js";
 
 /**
- * Each test starts PGlite, the Registry, the Router and two daemons, and two
- * of them restart a daemon. Beside a second full Client suite and another
+ * Each test starts PGlite, the Registry, the Router and two daemons; two of
+ * them restart a daemon and one restarts the Router. Beside a second full Client suite and another
  * integration file (load average 17 to 32 on 8 cores) the restart test has
  * taken 62 to 163 seconds, most of it process startup. The limit is the only
  * wall-clock bound these traces set themselves.
@@ -239,6 +239,71 @@ const singleRestartBehavior = Effect.gen(function* () {
     { type: "text", text: beforeRestartText },
     { type: "text", text: fromRestartedText },
     { type: "text", text: toRestartedText },
+  ]);
+}).pipe(Effect.scoped);
+
+const beforeRouterRestartText = "sent before the Router restarts";
+const afterRouterRestartText = "sent after the Router restarts";
+const replyAfterRouterRestartText = "reply after the Router restarts";
+
+/**
+ * The Router restarts with every daemon still up, as a network redeploy
+ * replaces it. Both daemons must re-anchor their conversation under the new
+ * Router instance and then deliver in both directions.
+ */
+const routerRestartBehavior = Effect.gen(function* () {
+  const infrastructure = yield* acquireProcessInfrastructure;
+  const [memberFixture, conciergeFixture] = yield* Effect.all(
+    [
+      makeDaemonProcessFixture(infrastructure, "router-restart-member"),
+      makeDaemonProcessFixture(infrastructure, "router-restart-concierge"),
+    ] as const,
+    { concurrency: 2 },
+  );
+  yield* Effect.all(
+    [
+      acquireDaemonProcess(memberFixture),
+      acquireDaemonProcess(conciergeFixture),
+    ] as const,
+    { concurrency: 2 },
+  );
+  yield* registerFixture(memberFixture);
+  yield* registerFixture(conciergeFixture);
+
+  yield* deliverDirect({
+    from: memberFixture,
+    to: conciergeFixture,
+    text: beforeRouterRestartText,
+    send: certifiedSend,
+  });
+
+  yield* infrastructure.restartRouter;
+
+  yield* deliverDirect({
+    from: memberFixture,
+    to: conciergeFixture,
+    text: afterRouterRestartText,
+    send: sendOrQueue,
+  });
+  yield* deliverDirect({
+    from: conciergeFixture,
+    to: memberFixture,
+    text: replyAfterRouterRestartText,
+    send: sendOrQueue,
+  });
+
+  const history = yield* readDurableHistory(
+    memberFixture,
+    directAddress(conciergeFixture.agentName),
+  );
+  expect(
+    history.records.map(
+      ({ recordCore }) => recordCore.action.postIntent.content[0],
+    ),
+  ).toEqual([
+    { type: "text", text: beforeRouterRestartText },
+    { type: "text", text: afterRouterRestartText },
+    { type: "text", text: replyAfterRouterRestartText },
   ]);
 }).pipe(Effect.scoped);
 
@@ -531,5 +596,11 @@ it(
 it(
   "delivers both ways after one real daemon restarts while its peer stays up",
   processTrace(singleRestartBehavior),
+  PROCESS_TEST_TIMEOUT_MS,
+);
+
+it(
+  "delivers both ways after the Router restarts while both daemons stay up",
+  processTrace(routerRestartBehavior),
   PROCESS_TEST_TIMEOUT_MS,
 );
