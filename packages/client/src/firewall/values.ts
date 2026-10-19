@@ -268,16 +268,20 @@ export interface NormGuidance extends NormExpectation {
   readonly instruction: string;
 }
 
-/** A rule's registered guidance beside the judge's unsettled choice, in place of a hold. */
-export interface UncertainNormGuidance {
-  readonly middlewareId: string;
-  readonly ruleId: string;
-  readonly uncertain: {
-    readonly choice: string;
-    readonly probability: number;
-  };
-  readonly instruction: string;
-}
+/* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- The guidance Schema shares its domain name with the value it decodes. */
+
+/** A rule's registered guidance beside the judge's unsettled choice and probability. */
+export const UncertainNormGuidance = Schema.Struct({
+  middlewareId: identifier,
+  ruleId: identifier,
+  uncertain: Schema.Struct({ choice: identifier, probability }),
+  instruction: Schema.NonEmptyString,
+}).annotations({ identifier: "UncertainNormGuidance" });
+
+/** One uncertain norm judgment as composition projects it. */
+export type UncertainNormGuidance = typeof UncertainNormGuidance.Type;
+
+/* eslint-enable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Restore naming after the Schema/type pair. */
 
 /** Private audit is separate from the only fields intended for a runtime. */
 export interface FirewallCheck {
@@ -389,11 +393,7 @@ export class DecisionProviderError extends Data.TaggedError(
    * answered response names it, so the call's cost stays accountable. A
    * failure without a parsed body has none.
    */
-  readonly accounting?: {
-    readonly provider: string;
-    readonly model: string;
-    readonly usage: Readonly<Record<string, number>>;
-  };
+  readonly accounting?: Pick<DecisionResponse, "provider" | "model" | "usage">;
 }> {}
 
 /** Entirely code-based chains have no dependency on this optional capability. */

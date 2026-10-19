@@ -1,11 +1,11 @@
 /** @file Local advice with explicit subject attribution for host transport checks. */
 
 import { Encoding } from "effect";
-import type { LocalGuidance } from "../firewall/runtime.js";
+import type { CheckedGuidance } from "../firewall/runtime.js";
 import { digest } from "./agent-card-fixtures.js";
 
 /** The peer text and registered instruction travel separately through every runtime view. */
-export function localGuidance(byte: number): LocalGuidance {
+export function localGuidance(byte: number): CheckedGuidance {
   const subject = digest("pst_", byte);
   return {
     checkId: `chk_${Encoding.encodeHex(new Uint8Array(32).fill(byte))}`,

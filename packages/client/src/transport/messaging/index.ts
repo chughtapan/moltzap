@@ -114,14 +114,14 @@ export interface EndpointEngine {
    * protocol locks, then `hold` is taken, then the intent binds atomically
    * with the check's evidence comparison. The returned effect completes once
    * the post is certified, so a caller can bound that wait apart from the
-   * check.
+   * check, and carries the `admitted` value of the check that admitted it.
    */
-  readonly bindChecked: <E>(
+  readonly bindChecked: <E, A>(
     input: EngineSendInput,
-    check: PreparedSendCheck,
+    check: PreparedSendCheck<A>,
     hold: BindHold<E>,
   ) => Effect.Effect<
-    Effect.Effect<EngineSentPost, SendError>,
+    Effect.Effect<EngineSentPost & { readonly admitted: A }, SendError>,
     SendError | FirewallSendError | E
   >;
   /**
@@ -580,13 +580,17 @@ const abandonVolatileFolds = (
 
 const endpointEngine = (runtime: EngineRuntime): EndpointEngine =>
   Object.freeze({
-    bindChecked: <E>(
+    bindChecked: <E, A>(
       input: EngineSendInput,
-      check: PreparedSendCheck,
+      check: PreparedSendCheck<A>,
       hold: BindHold<E>,
     ) =>
       prepareCheckedSend(runtime, input, check, hold).pipe(
-        Effect.map((prepared) => finishPreparedSend(runtime, prepared)),
+        Effect.map((prepared) =>
+          finishPreparedSend(runtime, prepared).pipe(
+            Effect.map((post) => ({ ...post, admitted: prepared.admitted })),
+          ),
+        ),
       ),
     sendAdmitted: (input: EngineSendInput, checkId: string) =>
       prepareAdmittedSend(runtime, input, checkId).pipe(

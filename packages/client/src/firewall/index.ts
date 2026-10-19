@@ -34,6 +34,7 @@ export {
   NormExpectation,
   PrivateCheckTrace,
   RuleDescription,
+  UncertainNormGuidance,
 } from "./values.js";
 /** Policy authors exchange validated data; only guidance and feedback are runtime projections. */
 export type {

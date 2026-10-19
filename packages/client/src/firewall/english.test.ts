@@ -84,6 +84,9 @@ const rules: readonly EnglishRule[] = [
     feedback: { text: repair, nextAction: "revise" },
   },
 ];
+/** One answer exactly as a provider reports it. */
+type Answer = DecisionResponse["answers"][string];
+
 const settings: typeof EnglishPolicySettings.Encoded = {
   minimumProbability: 0.5,
   maximumRequestBytes: 60_000,
@@ -98,9 +101,14 @@ const firewallSettings = {
 /** Each generated example runs two full chains alongside other CI workers. */
 const propertyTimeoutMilliseconds = 15_000;
 
+/**
+ * A provider's answers: each question keyed in `choices` by
+ * `stage:ruleId:purpose[:subject]` takes that choice with certainty, or the
+ * full answer given there, and every other question its default choice.
+ */
 function responseFor(
   request: DecisionRequest,
-  choices: Readonly<Record<string, string>> = {},
+  choices: Readonly<Record<string, string | Answer>> = {},
 ): typeof DecisionResponse.Encoded {
   return {
     provider: "test-decisions",
@@ -119,6 +127,9 @@ function responseFor(
           ] ??
           choices[`${request.stage}:${question.ruleId}:${question.purpose}`] ??
           fallback;
+        if (typeof selected !== "string") {
+          return [id, selected];
+        }
         return [
           id,
           {
@@ -137,7 +148,7 @@ function responseFor(
 }
 
 function provider(
-  choices: Readonly<Record<string, string>> = {},
+  choices: Readonly<Record<string, string | Answer>> = {},
   requests: DecisionRequest[] = [],
 ): DecisionProvider {
   return {
@@ -150,44 +161,6 @@ function provider(
 }
 
 const defaultProvider = provider();
-
-/**
- * Answers one stage's assessment questions, or only one rule's, with
- * `answer`, and every other question as `responseFor` would.
- */
-function answering(
-  stage: DecisionRequest["stage"],
-  answer: DecisionResponse["answers"][string],
-  options: {
-    readonly ruleId?: string;
-    readonly choices?: Readonly<Record<string, string>>;
-    readonly requests?: DecisionRequest[];
-  } = {},
-): DecisionProvider {
-  return {
-    decide: (request) =>
-      Effect.sync(() => {
-        options.requests?.push(request);
-        const response = responseFor(request, options.choices);
-        if (request.stage !== stage) {
-          return response;
-        }
-        const answered = (id: string) =>
-          request.questions[id]?.purpose === "assessment" &&
-          (options.ruleId === undefined ||
-            request.questions[id]?.ruleId === options.ruleId);
-        return {
-          ...response,
-          answers: Object.fromEntries(
-            Object.entries(response.answers).map(([id, settled]) => [
-              id,
-              answered(id) ? answer : settled,
-            ]),
-          ),
-        };
-      }),
-  };
-}
 
 /** The norms a request's state hands the judge. */
 const statedNorms = Schema.parseJson(
@@ -396,7 +369,7 @@ it.each(malformedAnswers)(
   ({ choice, probabilities }) =>
     Effect.gen(function* () {
       const result = yield* check(
-        answering("safety", { choice, probabilities }),
+        provider({ "safety:privacy:assessment": { choice, probabilities } }),
       );
       expect(result.reason).toBe("check-unavailable");
       expect(result.guidance).toEqual([]);
@@ -446,7 +419,9 @@ const nearTie = {
 
 it("accepts Jev's rounded near-tie and holds its choice below the routing threshold", () =>
   Effect.gen(function* () {
-    const result = yield* check(answering("applicability", nearTie));
+    const result = yield* check(
+      provider({ "applicability:privacy:assessment": nearTie }),
+    );
     expect(result.reason).toBe("unresolved-evidence");
     expect(result.checks[0]?.trace?.data).toContain(
       JSON.stringify(nearTie.probabilities),
@@ -456,9 +431,11 @@ it("accepts Jev's rounded near-tie and holds its choice below the routing thresh
 it("routes by Jev's stated choice when another option leads it within rounding", () =>
   Effect.gen(function* () {
     const result = yield* check(
-      answering("safety", {
-        choice: "prohibited",
-        probabilities: { compliant: 0.51, prohibited: 0.5, unresolved: 0 },
+      provider({
+        "safety:privacy:assessment": {
+          choice: "prohibited",
+          probabilities: { compliant: 0.51, prohibited: 0.5, unresolved: 0 },
+        },
       }),
     );
     expect(result.judgment).toBe("block");
@@ -475,23 +452,21 @@ it("admits an unsettled expectation as guidance and judges conformance against t
   Effect.gen(function* () {
     const requests: DecisionRequest[] = [];
     const result = yield* check(
-      answering(
-        "expectations",
+      provider(
         {
-          choice: "required",
-          probabilities: {
-            required: 0.4,
-            permitted: 0.3,
-            wait: 0.1,
-            none: 0.1,
-            unresolved: 0.1,
+          "expectations:proposal-acceptance:assessment": {
+            choice: "required",
+            probabilities: {
+              required: 0.4,
+              permitted: 0.3,
+              wait: 0.1,
+              none: 0.1,
+              unresolved: 0.1,
+            },
           },
+          "expectations:reply-once:assessment": "required",
         },
-        {
-          ruleId: "proposal-acceptance",
-          choices: { "expectations:reply-once:assessment": "required" },
-          requests,
-        },
+        requests,
       ),
       { rules: [...rules, replyRule] },
     );
@@ -519,9 +494,11 @@ it("admits an unsettled expectation as guidance and judges conformance against t
 it("admits an unsettled conformance answer as guidance", () =>
   Effect.gen(function* () {
     const result = yield* check(
-      answering("conformance", {
-        choice: "violation",
-        probabilities: { compliant: 0.3, violation: 0.4, unresolved: 0.3 },
+      provider({
+        "conformance:proposal-acceptance:assessment": {
+          choice: "violation",
+          probabilities: { compliant: 0.3, violation: 0.4, unresolved: 0.3 },
+        },
       }),
     );
 
@@ -706,10 +683,12 @@ it.each([
   "preserves $name distributions and routes by selected probability independently of confidence",
   ({ probabilities }) =>
     Effect.gen(function* () {
-      const decisions = answering("safety", {
-        choice: "compliant",
-        probabilities,
-        confidence: 0.01,
+      const decisions = provider({
+        "safety:privacy:assessment": {
+          choice: "compliant",
+          probabilities,
+          confidence: 0.01,
+        },
       });
       const allowed = yield* check(decisions);
       const held = yield* check(decisions, {

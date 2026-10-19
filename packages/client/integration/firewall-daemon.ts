@@ -35,10 +35,14 @@ const markers: MessageMiddleware = {
       feedback: { nextAction: "revise", text: "Remove the marked text." },
     },
   ],
-  check: ({ event }) =>
-    Effect.succeed({
+  check: ({ event }) => {
+    const { text } = event.message;
+    const held = text.includes(
+      event.direction === "incoming" ? INCOMING_HOLD : OUTGOING_HOLD,
+    );
+    return Effect.succeed({
       findings: [
-        event.message.text.includes(UNSURE)
+        text.includes(UNSURE)
           ? {
               ruleId: "marked",
               outcome: "pass",
@@ -46,17 +50,10 @@ const markers: MessageMiddleware = {
               choice: "none",
               probability: 0.33,
             }
-          : {
-              ruleId: "marked",
-              outcome: event.message.text.includes(
-                event.direction === "incoming" ? INCOMING_HOLD : OUTGOING_HOLD,
-              )
-                ? "block"
-                : "pass",
-            },
+          : { ruleId: "marked", outcome: held ? "block" : "pass" },
       ],
       expectations:
-        event.direction === "incoming" && event.message.text.includes(GUIDE)
+        event.direction === "incoming" && text.includes(GUIDE)
           ? [
               {
                 ruleId: "marked",
@@ -65,7 +62,8 @@ const markers: MessageMiddleware = {
               },
             ]
           : [],
-    }),
+    });
+  },
 };
 
 const program = Config.literal(

@@ -239,10 +239,11 @@ function projectGuidance(
     });
     const uncertain = check.findings.flatMap(
       (finding): UncertainNormGuidance[] => {
+        if (!("choice" in finding)) {
+          return [];
+        }
         const instruction = instructionFor(finding.ruleId);
-        return finding.outcome !== "pass" ||
-          !("reason" in finding) ||
-          instruction === undefined
+        return instruction === undefined
           ? []
           : [
               {

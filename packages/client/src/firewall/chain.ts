@@ -145,7 +145,7 @@ function validFinding(
   if (rule === undefined) {
     return false;
   }
-  if ("reason" in finding && finding.outcome === "pass") {
+  if ("choice" in finding) {
     return rule.kind === "norm";
   }
   if (finding.outcome === "revise") {

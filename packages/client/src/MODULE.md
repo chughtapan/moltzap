@@ -729,7 +729,7 @@ export class CheckInputError extends Data.TaggedError("CheckInputError")<{
 
 Invalid construction or evidence is a typed failure, never permission.
 
-#### [`DecisionProviderError`](./firewall/values.ts#L374)
+#### [`DecisionProviderError`](./firewall/values.ts#L378)
 
 _Class_
 
@@ -752,11 +752,7 @@ export class DecisionProviderError extends Data.TaggedError(
    * answered response names it, so the call's cost stays accountable. A
    * failure without a parsed body has none.
    */
-  readonly accounting?: {
-    readonly provider: string;
-    readonly model: string;
-    readonly usage: Readonly<Record<string, number>>;
-  };
+  readonly accounting?: Pick<DecisionResponse, "provider" | "model" | "usage">;
 }> {}
 ```
 
@@ -814,7 +810,7 @@ export interface DecisionProvider {
 
 Entirely code-based chains have no dependency on this optional capability.
 
-#### [`DecisionRequest`](./firewall/values.ts#L338)
+#### [`DecisionRequest`](./firewall/values.ts#L342)
 
 _Interface_
 
@@ -839,7 +835,7 @@ export interface DecisionRequest {
 
 Provider input contains explicit questions and state, never execution authority.
 
-#### [`DecisionResponse`](./firewall/values.ts#L356)
+#### [`DecisionResponse`](./firewall/values.ts#L360)
 
 _Interface_
 
@@ -864,7 +860,7 @@ export class DecisionResponse extends Schema.Class<DecisionResponse>(
 
 Raw distributions and provider confidence survive routing unchanged.
 
-#### [`EnglishPolicySettings`](./firewall/values.ts#L321)
+#### [`EnglishPolicySettings`](./firewall/values.ts#L325)
 
 _Interface_
 
@@ -893,7 +889,7 @@ export class EnglishRule extends Schema.Class<EnglishRule>("EnglishRule")({
 
 Text is interpreted by the provider; it is never compiled into executable code.
 
-#### [`Firewall`](./firewall/values.ts#L309)
+#### [`Firewall`](./firewall/values.ts#L313)
 
 _Interface_
 
@@ -1063,7 +1059,7 @@ export class RuleDescription extends Schema.Class<RuleDescription>(
 
 Runtime advice can only select templates registered by trusted composition.
 
-#### [`FirewallAuditRecord (type)`](./delivery/firewall-values.ts#L177)
+#### [`FirewallAuditRecord (type)`](./delivery/firewall-values.ts#L170)
 
 _TypeAlias_
 
@@ -1073,7 +1069,7 @@ export type FirewallAuditRecord = typeof FirewallAuditRecord.Type;
 
 Completion verifies the snapshot, not completion or delivery of each attempt.
 
-#### [`FirewallAuditRecord (value)`](./delivery/firewall-values.ts#L138)
+#### [`FirewallAuditRecord (value)`](./delivery/firewall-values.ts#L131)
 
 _Variable_
 
@@ -1124,7 +1120,7 @@ Candidate bytes are opaque canonical Client data, encoded as base64. A null
 result or checking/interrupted disposition never represents permission.
 The nullable post reference identifies supported messages without decoding candidate bytes.
 
-#### [`makeEnglishPolicy`](./firewall/english.ts#L257)
+#### [`makeEnglishPolicy`](./firewall/english.ts#L258)
 
 _Variable_
 
@@ -1188,7 +1184,7 @@ flowchart TD
   C --> R[Return all findings and private stage trace]
 ```
 
-#### [`makeFirewall`](./firewall/index.ts#L64)
+#### [`makeFirewall`](./firewall/index.ts#L65)
 
 _Variable_
 

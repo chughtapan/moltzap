@@ -24,7 +24,6 @@ import {
 import { InboundItem } from "../transport/collectives/inbound.js";
 import {
   type AdmittedGather,
-  type AuthoredPost,
   type CollectiveAdmission,
   type GatherCandidate,
   readCollectiveValue,
@@ -38,7 +37,6 @@ import {
   type BindHold,
   type EndpointEngine,
   type EngineSendInput,
-  type EngineSentPost,
   type PreparedSend,
   type ResolvedConversation,
   untilFresh,
@@ -185,9 +183,8 @@ export const collectiveAdmission = (
 });
 
 /**
- * Check and bind one authored post, returning with the certified post the
- * advice of the check that admitted it. The engine commits each check before
- * running another, so the latest check of a bound post is the admitting one.
+ * Check and bind one authored post. The certified post returns with the
+ * guidance of the check that admitted it.
  */
 function bindPost<E>(
   environment: FirewallEnvironment,
@@ -195,42 +192,29 @@ function bindPost<E>(
   input: EngineSendInput,
   hold: BindHold<E>,
 ) {
-  return Effect.suspend(() => {
-    const latest: LatestCheck = {};
-    return engine
-      .bindChecked(input, recordingCheck(environment, latest), hold)
-      .pipe(
-        Effect.map((certified) =>
-          certified.pipe(Effect.map((post) => withGuidance(post, latest))),
+  return engine
+    .bindChecked(
+      input,
+      (prepared: PreparedSend, terminal: boolean) =>
+        checkPrepared(environment, prepared, terminal).pipe(
+          Effect.map((checked) => ({
+            completion: checked.completion,
+            refusal: refusedSend(checked),
+            admitted: checked.guidance,
+          })),
         ),
-      );
-  });
-}
-
-/** The latest check of one post, once one has run. */
-interface LatestCheck {
-  checked?: CheckedMessage;
-}
-
-/** One post's check, which keeps its latest result in `latest`. */
-function recordingCheck(environment: FirewallEnvironment, latest: LatestCheck) {
-  return (prepared: PreparedSend, terminal: boolean) =>
-    checkPrepared(environment, prepared, terminal).pipe(
-      Effect.tap((checked) =>
-        Effect.sync(() => {
-          latest.checked = checked;
-        }),
+      hold,
+    )
+    .pipe(
+      Effect.map((certified) =>
+        certified.pipe(
+          Effect.map(({ admitted, ...post }) => ({
+            ...post,
+            guidance: admitted,
+          })),
+        ),
       ),
-      Effect.map((checked) => ({
-        completion: checked.completion,
-        refusal: refusedSend(checked),
-      })),
     );
-}
-
-function withGuidance(post: EngineSentPost, latest: LatestCheck): AuthoredPost {
-  const guidance = latest.checked?.guidance;
-  return guidance === undefined ? post : { ...post, guidance };
 }
 
 /** Only the immutable certified candidate supplies author and recipient attribution. */
@@ -428,9 +412,7 @@ function admittedSender(
     ? Effect.succeed({
         sendRequest: (input: EngineSendInput) =>
           engine.sendAdmitted(input, checkId),
-        ...(checked.guidance === undefined
-          ? {}
-          : { guidance: checked.guidance }),
+        guidance: checked.guidance,
       })
     : Effect.fail(refusedSend(checked));
 }

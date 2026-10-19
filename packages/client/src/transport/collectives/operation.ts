@@ -301,7 +301,7 @@ function multicast(
       bindAuthoredPost(state, { to, content }, Effect.succeed(Effect.void)),
     ),
     Effect.flatten,
-    Effect.map((post) => ({ postIds: [post.postId], ...adviceOf(post) })),
+    Effect.map((post) => ({ postIds: [post.postId], guidance: post.guidance })),
   );
 }
 
@@ -477,7 +477,10 @@ function gather(
             Effect.tap(() => openGather(state, prepared, false)),
             Effect.flatMap((admitted) =>
               sendRequests(state, prepared, admitted.sendRequest).pipe(
-                Effect.map((sent) => ({ ...sent, ...adviceOf(admitted) })),
+                Effect.map((sent) => ({
+                  ...sent,
+                  guidance: admitted.guidance,
+                })),
               ),
             ),
           )
@@ -684,7 +687,7 @@ function sendGroupRequest(
         ),
       ),
     ),
-    Effect.map((post) => ({ postIds: [post.postId], ...adviceOf(post) })),
+    Effect.map((post) => ({ postIds: [post.postId], guidance: post.guidance })),
     Effect.catchTag("SendError", (error) =>
       Effect.suspend(() =>
         !opened.now || state.gathers.has(prepared.id)
@@ -908,7 +911,7 @@ function respond(
       ),
       Effect.mapError(refused),
     );
-    return { operationId: id, postIds: [post.postId], ...adviceOf(post) };
+    return { operationId: id, postIds: [post.postId], guidance: post.guidance };
   });
 }
 
@@ -927,16 +930,6 @@ function bindAuthoredPost<E>(
   return admission === undefined
     ? hold.pipe(Effect.as(state.ports.sendPost(input)))
     : admission.bindPost(input, hold);
-}
-
-/**
- * The advice a send returns: what the check that admitted its post or its
- * gather gave the agent, if anything.
- */
-function adviceOf(admitted: {
-  readonly guidance?: AuthoredPost["guidance"];
-}): Pick<CollectiveSendOutcome, "guidance"> {
-  return admitted.guidance === undefined ? {} : { guidance: admitted.guidance };
 }
 
 /**

@@ -19,6 +19,7 @@ import {
   type MiddlewareResult,
   NormExpectation,
   type PolicyFinding,
+  type PolicyStage,
   type PolicyStageTrace,
   RuleDescription,
 } from "./values.js";
@@ -344,7 +345,8 @@ function readNorms(trace: PolicyStageTrace): readonly NormExpectation[] {
   if (trace.status !== "answered") {
     return [];
   }
-  const settled = (id: string) => !trace.uncertainQuestions.includes(id);
+  const uncertain = new Set(trace.uncertainQuestions);
+  const settled = (id: string) => !uncertain.has(id);
   const subjects = new Map<string, string[]>();
   Object.entries(trace.request.questions).forEach(([id, question]) => {
     if (
@@ -409,10 +411,17 @@ function stageFindings(
               ? "check-unavailable"
               : "unresolved-evidence",
         }));
-    case "answered":
+    case "answered": {
+      const uncertain = new Set(trace.uncertainQuestions);
       return Object.entries(trace.request.questions).map(([id, question]) =>
-        questionFinding(trace, id, question),
+        questionFinding(
+          trace.stage,
+          question,
+          uncertain.has(id),
+          trace.response.answers[id],
+        ),
       );
+    }
     default:
       return trace satisfies never;
   }
@@ -425,16 +434,16 @@ function stageFindings(
  * drops out of its expectation.
  */
 function questionFinding(
-  trace: Extract<PolicyStageTrace, { readonly status: "answered" }>,
-  id: string,
+  stage: PolicyStage,
   question: DecisionRequest["questions"][string],
+  uncertain: boolean,
+  answer?: DecisionResponse["answers"][string],
 ): PolicyFinding {
   const { ruleId } = question;
-  const answer = trace.response.answers[id];
-  if (!trace.uncertainQuestions.includes(id)) {
+  if (!uncertain) {
     return { ruleId, outcome: answerOutcome(answer?.choice) };
   }
-  if (trace.stage !== "expectations" && trace.stage !== "conformance") {
+  if (stage !== "expectations" && stage !== "conformance") {
     return { ruleId, outcome: "hold", reason: "unresolved-evidence" };
   }
   if (question.purpose === "subject" || answer === undefined) {

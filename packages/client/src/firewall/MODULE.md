@@ -46,7 +46,7 @@ export interface DecisionProvider {
 
 Entirely code-based chains have no dependency on this optional capability.
 
-### [`DecisionProviderError`](./values.ts#L374)
+### [`DecisionProviderError`](./values.ts#L378)
 
 _Class_
 
@@ -69,17 +69,13 @@ export class DecisionProviderError extends Data.TaggedError(
    * answered response names it, so the call's cost stays accountable. A
    * failure without a parsed body has none.
    */
-  readonly accounting?: {
-    readonly provider: string;
-    readonly model: string;
-    readonly usage: Readonly<Record<string, number>>;
-  };
+  readonly accounting?: Pick<DecisionResponse, "provider" | "model" | "usage">;
 }> {}
 ```
 
 The adapter scrubs credentials before retaining optional private diagnostics.
 
-### [`DecisionRequest`](./values.ts#L338)
+### [`DecisionRequest`](./values.ts#L342)
 
 _Interface_
 
@@ -104,7 +100,7 @@ export interface DecisionRequest {
 
 Provider input contains explicit questions and state, never execution authority.
 
-### [`DecisionResponse`](./values.ts#L356)
+### [`DecisionResponse`](./values.ts#L360)
 
 _Interface_
 
@@ -129,7 +125,7 @@ export class DecisionResponse extends Schema.Class<DecisionResponse>(
 
 Raw distributions and provider confidence survive routing unchanged.
 
-### [`EnglishPolicySettings`](./values.ts#L321)
+### [`EnglishPolicySettings`](./values.ts#L325)
 
 _Interface_
 
@@ -158,7 +154,7 @@ export class EnglishRule extends Schema.Class<EnglishRule>("EnglishRule")({
 
 Text is interpreted by the provider; it is never compiled into executable code.
 
-### [`Firewall`](./values.ts#L309)
+### [`Firewall`](./values.ts#L313)
 
 _Interface_
 
@@ -244,7 +240,7 @@ export type LocalGuidance = typeof localGuidanceSchema.Type;
 
 Local advice accompanies the envelope and never changes a certified item.
 
-### [`makeEnglishPolicy`](./english.ts#L257)
+### [`makeEnglishPolicy`](./english.ts#L258)
 
 _Variable_
 
@@ -308,7 +304,7 @@ flowchart TD
   C --> R[Return all findings and private stage trace]
 ```
 
-### [`makeFirewall`](./index.ts#L64)
+### [`makeFirewall`](./index.ts#L65)
 
 _Variable_
 

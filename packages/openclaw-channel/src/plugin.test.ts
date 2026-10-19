@@ -577,18 +577,7 @@ function messageToolSendReturnsOnlyItsAddress() {
 }
 
 function messageToolReplySendsAnswer() {
-  const guidance = {
-    checkId: `chk_${Encoding.encodeHex(new Uint8Array(32).fill(4))}`,
-    subjects: [],
-    instructions: [
-      {
-        middlewareId: "owner",
-        ruleId: "one-gather",
-        uncertain: { choice: "none", probability: 0.33 },
-        instruction: "Answer the open gather once.",
-      },
-    ],
-  };
+  const guidance = testGuidance("mon");
   return withConnectedSend(
     (plugin) =>
       handleMessageAction(plugin, "reply", {

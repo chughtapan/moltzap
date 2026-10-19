@@ -41,6 +41,7 @@ import {
   send,
   slotSchema,
 } from "../../__tests__/collective-operation-fixtures.js";
+import { localGuidance } from "../../__tests__/message-policy-fixtures.js";
 import {
   type CheckedGuidance,
   FirewallSendError,
@@ -288,22 +289,9 @@ function sendsGatherPostsThroughTheAdmittedSender() {
   });
 }
 
-/** The advice an admitting check gives when a test asks for one. */
-const advice: CheckedGuidance = {
-  checkId: refusal.checkId,
-  subjects: [],
-  instructions: [
-    {
-      middlewareId: "owner",
-      ruleId: "one-gather",
-      uncertain: { choice: "none", probability: 0.33 },
-      instruction: "Answer the open gather once.",
-    },
-  ],
-};
-
 function returnsTheAdmittingChecksAdvice() {
   return Effect.gen(function* () {
+    const advice = localGuidance(5);
     const observed = newObserved();
     const firewall = firewallDouble(observed, { guidance: advice });
     const layer = yield* makeLayer(observed, {

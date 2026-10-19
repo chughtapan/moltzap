@@ -673,7 +673,7 @@ function guidanceProjection(
     }
     const selected = new Set(
       instructions.flatMap((entry) =>
-        "subjects" in entry ? entry.subjects : [],
+        "uncertain" in entry ? [] : entry.subjects,
       ),
     );
     const subjects = guidanceSubjects(selected, input, context);
