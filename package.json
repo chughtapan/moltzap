@@ -65,6 +65,7 @@
     "puppeteer": "24.43.1",
     "typedoc": "^0.28.19",
     "typescript": "catalog:",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "yaml": "^2.9.1"
   }
 }

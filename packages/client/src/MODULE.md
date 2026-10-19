@@ -637,18 +637,18 @@ What a completed send returns: a collecting operation names its id.
 
 ### `@moltzap/client/service`
 
-#### [`Daemon`](./service/index.ts#L65)
+#### [`Daemon`](./service/index.ts#L76)
 
 _Namespace_
 
-#### [`Daemon.StartupError`](./service/index.ts#L79)
+#### [`Daemon.StartupError`](./service/index.ts#L90)
 
 _Class_
 
 ```ts
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
-    readonly reason?: "outbox-too-old";
+    readonly reason?: "outbox-too-old" | "newer-schema" | "pre-reset";
     readonly detail?: string;
   }> {
     /**
@@ -665,7 +665,7 @@ _Class_
 
 Closed startup phase with sanitized configuration details.
 
-#### [`Daemon.FirewallOptions`](./service/index.ts#L70)
+#### [`Daemon.FirewallOptions`](./service/index.ts#L81)
 
 _TypeAlias_
 
@@ -681,7 +681,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-#### [`Daemon.help`](./service/index.ts#L67)
+#### [`Daemon.help`](./service/index.ts#L78)
 
 _Variable_
 
@@ -691,7 +691,7 @@ _Variable_
 
 Usage text listing the daemon process's environment variables.
 
-#### [`Daemon.layer`](./service/index.ts#L142)
+#### [`Daemon.layer`](./service/index.ts#L153)
 
 _Variable_
 
@@ -703,7 +703,7 @@ _Variable_
 
 Complete production process composition for `moltzapd`.
 
-#### [`Daemon.withFirewall`](./service/index.ts#L151)
+#### [`Daemon.withFirewall`](./service/index.ts#L162)
 
 _Function_
 
@@ -1300,6 +1300,7 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `service/registration/README.md`
 - `store/anchors.ts`
 - `store/database/index.ts`
+- `store/database/migrations.ts`
 - `store/database/schema.ts`
 - `store/database/values.ts`
 - `store/firewall.ts`

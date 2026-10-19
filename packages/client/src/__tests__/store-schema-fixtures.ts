@@ -12,6 +12,7 @@ import {
   type EndpointStore,
   type EndpointStoreError,
   openEndpointStore,
+  type OutboxTooOldError,
 } from "../store/index.js";
 import { digest } from "./agent-card-fixtures.js";
 
@@ -31,7 +32,7 @@ export function stateDirectory(): string {
 export function withStore<Value, Failure>(
   directory: string,
   use: (store: EndpointStore) => Effect.Effect<Value, Failure>,
-): Effect.Effect<Value, Failure | EndpointStoreError> {
+): Effect.Effect<Value, Failure | EndpointStoreError | OutboxTooOldError> {
   return Effect.scoped(openEndpointStore(directory).pipe(Effect.flatMap(use)));
 }
 
