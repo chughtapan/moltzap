@@ -199,7 +199,7 @@ const testNoHardcodedConstants = (): void => {
   // hide behind a prefix match.
   const compatibilityBakedTarget = "docs/spec/router-representation.md";
   plantFile(compatibilityBakedTarget, (s) =>
-    s.replace(moltzapVersion, `${moltzapVersion}0`),
+    s.replace(compatibilityVersion, `${compatibilityVersion}0`),
   );
   const r3 = runScript(
     "scripts/docs/check-no-hardcoded-constants.ts",

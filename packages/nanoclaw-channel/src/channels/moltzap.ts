@@ -47,10 +47,10 @@ class ChannelError extends Data.TaggedError("ChannelError")<{
   }
 }
 
-const MOLTZAP_CHANNEL = "moltzap";
+const CHANNEL_ID = "moltzap";
 const NANOCLAW_MAIN_CHANNEL = "cli";
 const NANOCLAW_MAIN_PLATFORM_ID = "local";
-const MOLTZAP_CHANNEL_DEFAULTS = Object.freeze({
+const CHANNEL_DEFAULTS = Object.freeze({
   dm: {
     engageMode: "pattern" as const,
     engagePattern: ".",
@@ -70,7 +70,7 @@ const MOLTZAP_CHANNEL_DEFAULTS = Object.freeze({
  * Client exposes no post time, so a fixed placeholder keeps replay payloads
  * identical.
  */
-const MOLTZAP_INBOUND_TIMESTAMP = "1970-01-01T00:00:00.000Z";
+const INBOUND_TIMESTAMP = "1970-01-01T00:00:00.000Z";
 
 const channelEnv = Config.all({
   mcpEndpoint: Config.option(Config.string("MOLTZAP_MCP_URL")).pipe(
@@ -230,7 +230,7 @@ function endpointInbound(input: {
   return {
     id: input.id,
     kind: "chat",
-    timestamp: MOLTZAP_INBOUND_TIMESTAMP,
+    timestamp: INBOUND_TIMESTAMP,
     isMention: true,
     content: {
       text: input.text,
@@ -263,8 +263,8 @@ function endpointInbound(input: {
  * The stream acknowledges after the stock host callback completes.
  */
 class HarnessChannelAdapter {
-  readonly name = MOLTZAP_CHANNEL;
-  readonly channelType = MOLTZAP_CHANNEL;
+  readonly name = CHANNEL_ID;
+  readonly channelType = CHANNEL_ID;
   readonly supportsThreads = false;
 
   private readonly lifecycleGate = Effect.runSync(Effect.makeSemaphore(1));
@@ -603,7 +603,7 @@ class HarnessChannelAdapter {
               content,
             },
             replyTo: {
-              channelType: MOLTZAP_CHANNEL,
+              channelType: CHANNEL_ID,
               platformId: address,
               threadId: null,
             },
@@ -640,8 +640,8 @@ function makeHarnessChannelAdapter(): HarnessChannelAdapter | null {
   return mcpEndpoint === null ? null : new HarnessChannelAdapter(mcpEndpoint);
 }
 
-registerChannelAdapter(MOLTZAP_CHANNEL, {
-  defaults: MOLTZAP_CHANNEL_DEFAULTS,
+registerChannelAdapter(CHANNEL_ID, {
+  defaults: CHANNEL_DEFAULTS,
   factory: makeHarnessChannelAdapter,
 });
 

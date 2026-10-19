@@ -1,4 +1,4 @@
-Breaking: `@moltzap/client/service` exports the daemon process composition as
+**Breaking:** `@moltzap/client/service` exports the daemon process composition as
 `HarnessService` instead of `MoltZapService`, and its startup failure is tagged
 `HarnessServiceStartupError` instead of `MoltZapServiceStartupError`; replace
 `MoltZapService.layer`, `MoltZapService.withFirewall`,
