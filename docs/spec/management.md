@@ -157,7 +157,18 @@ runtime MCP tools directly through its private plugin.
 Every object above rejects missing required fields and excess fields. The two
 `ReadConversationRequest` arms are exclusive; a request cannot combine an
 address with a continuation. A structurally malformed tool request uses MCP
-`InvalidParams` (`-32602`). An expected operation failure uses MCP
+`InvalidParams` (`-32602`) with `data.issues`, an array of field diagnostics.
+Each diagnostic has a `path` array of property names or array indices (empty
+for the root) and a human-readable `message`. Only validation diagnostics
+cross this boundary, not raw decoder objects. Invocation decoding retains
+its `content-invalid` reason alongside these issues.
+
+Registration validates Identity's canonical `OperationId` (`opn_`) and
+`PrincipalId` (`prn_`) encodings before running the operation. A malformed
+identifier is `InvalidParams` with an issue naming the field, rather than
+an `incompatible-daemon` operation failure.
+
+An expected operation failure uses MCP
 `InternalError` (`-32603`) whose `data` is exactly one closed object:
 
 ```ts
@@ -209,7 +220,7 @@ result unions and use the failure-reason types above. Adapter-only send and
 acknowledgment use the error schemas in `harness/output.md` and
 `harness/ingress.md`; management does not rename or widen them. Raw decoders,
 SQL causes, credentials, private keys, protocol folds, and unverified evidence
-never cross MCP.
+never cross MCP; input validation exposes only field paths and messages.
 
 ## Acceptance
 

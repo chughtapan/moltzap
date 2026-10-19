@@ -26,6 +26,8 @@ export const hasCanonicalBase64UrlLength = (
 
 /**
  * Constructs one exact prefixed identity Schema for its semantic owner.
+ * The pattern preserves byte length and zero padding bits in runtime
+ * validation and JSON Schema projections.
  *
  * @param name Nominal Schema and brand name.
  * @param prefix Fixed representation prefix.
@@ -36,28 +38,34 @@ export const canonicalIdentifier = <const Name extends string>(
   name: Name,
   prefix: string,
   byteLength: number,
-) =>
-  Schema.String.pipe(
-    Schema.filter(
-      (value) => {
-        const hasPrefix = value.startsWith(prefix);
-        if (!hasPrefix) {
-          return false;
-        }
-        const payload = value.slice(prefix.length);
-        return hasCanonicalBase64UrlLength(payload, byteLength);
-      },
-      {
-        identifier: name,
-        description: `${name} canonical representation`,
-      },
-    ),
+) => {
+  const alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const wholeCharacters = Math.floor((byteLength * 8) / 6);
+  const remainingBits = (byteLength * 8) % 6;
+  const finalCharacter =
+    remainingBits === 0
+      ? ""
+      : `[${Array.from(alphabet)
+          .filter(
+            (character) =>
+              alphabet.indexOf(character) % 2 ** (6 - remainingBits) === 0,
+          )
+          .join("")}]`;
+  const pattern = new RegExp(
+    `^${prefix}[A-Za-z0-9_-]{${wholeCharacters}}${finalCharacter}$`,
+    "u",
+  );
+  return Schema.String.pipe(
+    Schema.length(prefix.length + Math.ceil((byteLength * 8) / 6)),
+    Schema.pattern(pattern),
     Schema.brand(name),
     Schema.annotations({
       identifier: name,
       description: `${name} canonical representation`,
     }),
   );
+};
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare --
  * Named Effect Schemas share their domain names with the nominal types they decode.

@@ -117,6 +117,13 @@ After registration, the trusted-local and owner catalogs include:
 - owner `event_subscription_status`, `revoke_event_subscription` and
   `resume_event_subscription`.
 
+Every listed tool carries a one-sentence description, and input schemas
+describe identifiers, retry keys, address selectors, and pagination tokens.
+Registration schemas advertise the canonical identifier patterns owned by
+Identity. Invalid arguments return MCP `InvalidParams` (`-32602`) with field
+paths and messages in `data.issues`, as specified in
+[management failures](../management.md#closed-failures).
+
 Receive uses one [draft MCP Events consumer](./ingress.md#mcp-events-and-inbox).
 Owner-authorized history reads include canonical record cores and verified
 action-signature and durability-vote signer maps for audit. They cannot

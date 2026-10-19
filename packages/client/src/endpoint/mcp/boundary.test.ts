@@ -206,7 +206,6 @@ function distinguishesProtocolAndDomainFailures() {
     expect(malformedCause).toMatchObject({
       code: ProtocolErrorCode.InvalidParams,
     });
-    expect(malformedCause.data).toBeUndefined();
     expect(domainCause).toMatchObject({
       code: ProtocolErrorCode.InternalError,
       data: { reason: "incompatible-daemon" },

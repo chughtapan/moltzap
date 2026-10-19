@@ -334,7 +334,6 @@ const processBehavior = Effect.gen(function* () {
         { conversationId: "retired-public-identifier" },
       );
       expect(malformed.code).toBe(ProtocolErrorCode.InvalidParams);
-      expect(malformed.data).toBeUndefined();
     }),
   );
 

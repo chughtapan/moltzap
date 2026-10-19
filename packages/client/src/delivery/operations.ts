@@ -31,7 +31,12 @@ export const eventIdSchema = Schema.String.pipe(
   Schema.pattern(/^evt_[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u),
 );
 /** Read-only content lookup never acknowledges or retries delivery. */
-export const readEventRequestSchema = exactStruct({ eventId: eventIdSchema });
+export const readEventRequestSchema = exactStruct({
+  eventId: Schema.propertySignature(eventIdSchema).annotations({
+    description:
+      "Event identity supplied by a MoltZap notification; retained content remains readable after acknowledgment.",
+  }),
+});
 /** The original classified payload, including after its handoff. */
 export const readEventResultSchema = exactStruct({
   item: InboundItem,
@@ -40,13 +45,19 @@ export const readEventResultSchema = exactStruct({
 
 /** A delivery acknowledgment names the delivery it retires. */
 export const harnessAcknowledgeDeliveryRequestSchema = exactStruct({
-  deliveryToken: DeliveryToken,
+  deliveryToken: Schema.propertySignature(DeliveryToken).annotations({
+    description:
+      "Stable delivery token from the inbox item accepted by the host.",
+  }),
 });
 
 const utf8 = new TextEncoder();
 const invocationKey = Schema.String.pipe(
   Schema.minLength(1),
-  Schema.maxLength(128),
+  Schema.maxLength(128, {
+    description:
+      "Runtime-owned send idempotency key: 1 to 128 UTF-8 bytes without NUL; reuse the exact key for retries and lookup.",
+  }),
   Schema.filter(
     (value) =>
       !value.includes("\u0000") && utf8.encode(value).byteLength <= 128,
@@ -65,7 +76,12 @@ export const harnessSendOptionsSchema = exactStruct({
   }),
 });
 /** The model-visible arguments of one send. */
-export const harnessSendArgumentsSchema = exactStruct({ input: SendInput });
+export const harnessSendArgumentsSchema = exactStruct({
+  input: Schema.propertySignature(SendInput).annotations({
+    description:
+      "One send to agent:<name> or group:<members>: text with an optional collective operation, or a collectiveResponse to an open request.",
+  }),
+});
 const harnessSendRequestSchema = exactStruct({
   ...harnessSendArgumentsSchema.fields,
   ...harnessSendOptionsSchema.fields,
@@ -85,7 +101,13 @@ const harnessMessageReadyEventSchema = exactStruct({
 
 /** One page request over the classified inbox. */
 export const inboxRequestSchema = exactStruct({
-  cursor: Schema.optionalWith(Schema.String, { exact: true }),
+  cursor: Schema.optionalWith(
+    Schema.String.annotations({
+      description:
+        "Opaque nextCursor from the previous inbox page; omit for the first page.",
+    }),
+    { exact: true },
+  ),
 });
 /** One page of classified deliveries and the cursor after it. */
 export const inboxResultSchema = exactStruct({
@@ -97,6 +119,18 @@ export const readSendRequestSchema = exactStruct({
   idempotencyKey: invocationKey,
 });
 
+/** Validation diagnostics remain decodable as a send refusal at the runtime edge. */
+const invocationValidationErrorSchema = exactStruct({
+  reason: Schema.Literal("content-invalid"),
+  detail: Schema.optionalWith(Schema.String, { exact: true }),
+  issues: Schema.Array(
+    exactStruct({
+      path: Schema.Array(Schema.Union(Schema.String, Schema.Number)),
+      message: Schema.String,
+    }),
+  ),
+});
+
 /**
  * The JSON-RPC error data of a refused `send_message`: a `SendError` reason
  * with the detail naming its specific cause, or a refused collective send with its id and the failure naming each
@@ -104,6 +138,7 @@ export const readSendRequestSchema = exactStruct({
  * validates.
  */
 const harnessSendErrorDataSchema = Schema.Union(
+  invocationValidationErrorSchema,
   exactStruct({
     reason: Schema.Literal("firewall-refused"),
     ...firewallRefusalSchema.fields,
@@ -186,6 +221,7 @@ export type HarnessSendRequest = typeof harnessSendRequestSchema.Type;
 
 /** Decoded error data of one refused `send_message` call. */
 export type HarnessSendErrorData =
+  | typeof invocationValidationErrorSchema.Type
   | (typeof firewallRefusalSchema.Type & {
       readonly reason: "firewall-refused";
     })
