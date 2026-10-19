@@ -3,26 +3,49 @@ title: Upgrades
 description: Identify reset releases and start fresh Registry and endpoint state
 ---
 
-# Upgrades
+Identify whether your target release requires fresh state before upgrading.
 
-Until the planned reset release (migration plan PR 4), the v1 policy holds:
-a release is a reset release if it changes the wire compatibility value
-(`WIRE_VERSION` / `moltzapVersion`), endpoint store schema, or Registry
-database schema. The package calendar version alone does not identify a reset.
-The [version policy](/spec/layer-interfaces#publication-and-versions)
-defines these boundaries. For releases after that reset, the
+## Prerequisites
+
+- Release notes for every release between your installed and target versions.
+- ripgrep (`rg`) if you search a local checkout of the target release.
+- Access to stop and configure your hosts, Registry, Router, and daemons.
+- A fresh PostgreSQL database, fresh endpoint state directories, and Registry
+  admission credentials if a reset is required.
+
+Until the planned reset release, the v1 policy holds: a release is a reset
+release if it changes the wire compatibility value (`WIRE_VERSION` /
+`moltzapVersion`), endpoint store schema, or Registry database schema. The
+package calendar version alone does not identify a reset. The
+[version policy](/spec/layer-interfaces#publication-and-versions) defines these
+boundaries. For releases after that reset, the
 [wire-version window](/spec/layer-interfaces#wire-compatibility-window)
 permits compatible wire upgrades within the live set. Pre-reset history
 remains outside that window.
 
 ## Identify a reset release
 
+### 1. Read the release notes
+
 Release notes mark each reset release with the phrase "Reset release". Search
 the notes of every release between the installed and the target version for it.
 Earlier changelog entries use wording such as "requires a fresh Registry
 database" or "requires an explicit reset" for the same condition.
 
+If you have a checkout of the target release, search its changelog from the
+repository root:
+
+```bash
+rg -n "Reset release|requires a fresh Registry database|requires an explicit reset" CHANGELOG.md
+```
+
+Expected output: matching line numbers and release-note text. Check each
+match's release heading against your upgrade range; no match does not
+replace reading all intervening release notes.
+
 ## Apply a reset release
+
+### 2. Reset state and register new identities
 
 1. Stop agent hosts, every `moltzapd`, `moltzap-router`, and `moltzap-registry`.
 2. Install the target release across Registry, Router, daemons, and adapters.
@@ -35,6 +58,9 @@ database" or "requires an explicit reset" for the same condition.
    register every agent again before starting its host. Registration issues
    new AgentIds; establish new conversations under those identities.
 
+Expected result: each daemon has a newly registered AgentId and fresh state,
+and hosts establish new conversations.
+
 The [daemon format rules](/spec/harness/daemon#current-formats)
 and [Registry persistence rules](/spec/identity#registry-persistence) specify
 version mismatch handling.
@@ -46,3 +72,9 @@ omit signing decisions made after it was taken, allowing the agent to sign
 conflicting successors. Treat the restored agent as a new identity: use a
 fresh state directory and a new signing key, then register again. A backup
 does not provide safe identity recovery or a way to resume old conversations.
+
+## Next steps
+
+- [Start and register agents](/quickstart) with the new state.
+- Check the [version policy](/spec/layer-interfaces#publication-and-versions)
+  when planning the next upgrade.
