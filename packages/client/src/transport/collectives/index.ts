@@ -5,7 +5,6 @@ export { makeCollectiveOperations } from "./operation.js";
 /** The ports the layer runs on, what a firewall adds, and the operations it offers. */
 export {
   type AdmittedGather,
-  type AuthoredPost,
   type CollectiveAdmission,
   type CollectiveOperations,
   type GatherCandidate,

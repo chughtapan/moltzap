@@ -128,20 +128,22 @@ override a rejection. Missing required evidence, invalid output and provider
 failure cannot produce admission. They remain distinct in the audit.
 
 An answer is uncertain when its choice is `unresolved` or its probability is
-below `minimumProbability`. In applicability, safety and autonomy an uncertain
-answer holds the candidate, and a failed judge holds it in every stage.
-Applicability labels never prune active rules. Making applicability optional
-is a later experiment; increasing history length can increase holds even when
-the central safety answer is clear.
+below `minimumProbability`. An uncertain answer about a safety or autonomy rule
+holds the candidate, its applicability included, and a failed judge holds it
+in every stage. Applicability labels never prune active rules. Making
+applicability optional is a later experiment; increasing history length can
+increase holds even when the central safety answer is clear.
 
-In the norm stages, expectations and conformance, an uncertain answer never
-holds the candidate:
+An uncertain answer about a norm rule never holds the candidate, in
+applicability, expectations or conformance:
 
+- a norm whose applicability is uncertain is still judged by expectations and
+  conformance;
 - an uncertain expectation is left out of the norms conformance judges, and an
   uncertain subject reference is left out of its expectation;
-- an uncertain expectation or conformance answer is a `pass` finding with
-  reason `uncertain`, the judge's choice and its probability, which the audit
-  retains; and
+- an uncertain applicability, expectation or conformance answer is a `pass`
+  finding with reason `uncertain`, the judge's choice and its probability,
+  which the audit retains; and
 - each uncertain finding whose rule registers guidance reaches the agent as an
   instruction carrying the rule, that choice and probability, and the rule's
   guidance.

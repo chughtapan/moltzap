@@ -417,7 +417,7 @@ const nearTie = {
   probabilities: { relevant: 0.49, irrelevant: 0.5, unresolved: 0.01 },
 };
 
-it("accepts Jev's rounded near-tie and holds its choice below the routing threshold", () =>
+it("accepts Jev's rounded near-tie and holds a safety rule whose applicability it leaves uncertain", () =>
   Effect.gen(function* () {
     const result = yield* check(
       provider({ "applicability:privacy:assessment": nearTie }),
@@ -426,6 +426,42 @@ it("accepts Jev's rounded near-tie and holds its choice below the routing thresh
     expect(result.checks[0]?.trace?.data).toContain(
       JSON.stringify(nearTie.probabilities),
     );
+  }));
+
+it("admits a group message whose norm applicability is uncertain, advising that judgment", () =>
+  Effect.gen(function* () {
+    const requests: DecisionRequest[] = [];
+    const result = yield* check(
+      provider(
+        { "applicability:proposal-acceptance:assessment": nearTie },
+        requests,
+      ),
+      {
+        message: { ...draft, recipients: ["participant-agent", "third-agent"] },
+        context: {
+          ...context,
+          participants: [
+            ...context.participants,
+            { agentId: "third-agent", principal: "third" },
+          ],
+        },
+      },
+    );
+    expect(result.judgment).toBe("allow");
+    expect(result.guidance).toContainEqual({
+      middlewareId: "owner",
+      ruleId: "proposal-acceptance",
+      uncertain: { choice: "relevant", probability: 0.49 },
+      instruction: reminder,
+    });
+    expect(result.checks[0]?.findings).toContainEqual({
+      ruleId: "proposal-acceptance",
+      outcome: "pass",
+      reason: "uncertain",
+      choice: "relevant",
+      probability: 0.49,
+    });
+    expect(requests.map((entry) => entry.stage)).toContain("conformance");
   }));
 
 it("routes by Jev's stated choice when another option leads it within rounding", () =>

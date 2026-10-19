@@ -19,7 +19,6 @@ import {
   type MiddlewareResult,
   NormExpectation,
   type PolicyFinding,
-  type PolicyStage,
   type PolicyStageTrace,
   RuleDescription,
 } from "./values.js";
@@ -413,10 +412,13 @@ function stageFindings(
         }));
     case "answered": {
       const uncertain = new Set(trace.uncertainQuestions);
+      const norms = new Set(
+        rules.filter((rule) => rule.kind === "norm").map((rule) => rule.id),
+      );
       return Object.entries(trace.request.questions).map(([id, question]) =>
         questionFinding(
-          trace.stage,
           question,
+          norms.has(question.ruleId),
           uncertain.has(id),
           trace.response.answers[id],
         ),
@@ -428,14 +430,15 @@ function stageFindings(
 }
 
 /**
- * One answered question's finding. An unsettled answer holds, except in the
- * norm stages: there an unsettled expectation or conformance answer passes
- * with the judge's choice and probability, and an unsettled reference only
- * drops out of its expectation.
+ * One answered question's finding. An unsettled answer about a safety or
+ * autonomy rule holds. One about a norm never holds: its applicability,
+ * expectation or conformance passes with the judge's choice and probability,
+ * so the norm is still judged and the agent advised, and an unsettled
+ * reference only drops out of its expectation.
  */
 function questionFinding(
-  stage: PolicyStage,
   question: DecisionRequest["questions"][string],
+  norm: boolean,
   uncertain: boolean,
   answer?: DecisionResponse["answers"][string],
 ): PolicyFinding {
@@ -443,7 +446,7 @@ function questionFinding(
   if (!uncertain) {
     return { ruleId, outcome: answerOutcome(answer?.choice) };
   }
-  if (stage !== "expectations" && stage !== "conformance") {
+  if (!norm) {
     return { ruleId, outcome: "hold", reason: "unresolved-evidence" };
   }
   if (question.purpose === "subject" || answer === undefined) {

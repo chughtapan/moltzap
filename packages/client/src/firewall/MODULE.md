@@ -240,7 +240,7 @@ export type LocalGuidance = typeof localGuidanceSchema.Type;
 
 Local advice accompanies the envelope and never changes a certified item.
 
-### [`makeEnglishPolicy`](./english.ts#L258)
+### [`makeEnglishPolicy`](./english.ts#L257)
 
 _Variable_
 
