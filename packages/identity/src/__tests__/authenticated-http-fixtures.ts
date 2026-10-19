@@ -72,7 +72,7 @@ export const retainedIdentityFixture = Effect.gen(function* () {
   );
   const payload = yield* encodeCanonicalJson({
     ...fields,
-    moltzapVersion: "2099.101.0",
+    sharnessVersion: "2099.101.0",
   });
   const registrySignerPublicKey = AgentSigningAuthority.publicKey(
     fixture.registryAuthority,
@@ -85,7 +85,7 @@ export const retainedIdentityFixture = Effect.gen(function* () {
         .setProtectedHeader({
           alg: "Ed25519",
           kid,
-          typ: "application/vnd.moltzap.agent-card+jws",
+          typ: "application/vnd.sharness.agent-card+jws",
         })
         .sign(),
     catch: () => new AuthenticationFailedError(),

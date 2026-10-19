@@ -62,8 +62,10 @@ statements, certified records, dissemination evidence, and recovery values.
 
 Every Client protocol value is decoded by a closed Effect Schema with
 `exact: true` and `onExcessProperty: "error"`. Every object below has exactly
-the listed required fields. Each carries the literal
-`moltzapVersion: "2026.1006.1"` and its listed `kind`. Unions discriminate only
+the listed required fields. Each versioned object carries a retained-history
+`sharnessVersion` and its listed `kind`; the types below show the reset version.
+`ConversationIdentityInput` carries only its kind and members, independent
+of wire versions. Unions discriminate only
 on `kind`; unknown fields and kinds fail before semantic state changes.
 
 `AgentId`, `AgentCard`, `MessageId`, `RouterInstanceId`, and `SignedMessage`
@@ -105,13 +107,12 @@ The exact membership and identifier preimages are:
 
 ```ts
 interface ConversationIdentityInput {
-  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "conversation_identity"
   readonly memberAgentIds: readonly [AgentId, AgentId, ...AgentId[]]
 }
 
 interface MembershipDescriptor {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "membership_descriptor"
   readonly conversationId: ConversationId
   readonly members: readonly [
@@ -135,7 +136,7 @@ peer validates its canonical form and rejects changed intent under the same
 
 ```ts
 interface PostIntent {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "post_intent"
   readonly conversationId: ConversationId
   readonly membershipHash: MembershipHash
@@ -145,7 +146,7 @@ interface PostIntent {
 }
 
 interface GenesisAnchorBody {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "genesis_anchor_body"
   readonly conversationId: ConversationId
   readonly membershipHash: MembershipHash
@@ -153,7 +154,7 @@ interface GenesisAnchorBody {
 }
 
 interface ReanchorBody {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "reanchor_body"
   readonly conversationId: ConversationId
   readonly membershipHash: MembershipHash
@@ -165,7 +166,7 @@ interface ReanchorBody {
 type AnchorBody = GenesisAnchorBody | ReanchorBody
 
 interface GenesisActionCore {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "GENESIS"
   readonly conversationId: ConversationId
   readonly membership: MembershipDescriptor
@@ -176,7 +177,7 @@ interface GenesisActionCore {
 }
 
 interface PostActionCore {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "POST"
   readonly conversationId: ConversationId
   readonly membershipHash: MembershipHash
@@ -189,7 +190,7 @@ interface PostActionCore {
 type ActionCore = GenesisActionCore | PostActionCore
 
 interface GenesisRecordCore {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "record_core"
   readonly membership: MembershipDescriptor
   readonly anchorHash: AnchorHash
@@ -198,7 +199,7 @@ interface GenesisRecordCore {
 }
 
 interface PostRecordCore {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "record_core"
   readonly membershipHash: MembershipHash
   readonly anchorHash: AnchorHash
@@ -219,6 +220,13 @@ position carries GENESIS. A POST record whose `MembershipHash` is not the held
 membership's hash fails verification, and a POST record for a conversation the
 member does not hold is ignored.
 
+The initial membership descriptor takes its version from the signed AgentCard
+of the first member in canonical AgentId order. The genesis anchor takes the
+same version from that descriptor. Every member has these same immutable cards,
+so concurrent first sends derive identical membership and anchor hashes even
+when their binaries emit adjacent live versions. The binary's emitted version
+never selects a conversation foundation.
+
 `GENESIS` is the first nonempty post. Its anchor uses the
 `RouterInstanceId` from an omitted-cursor poll. `POST` extends exactly one
 certified predecessor under the current completed anchor.
@@ -232,7 +240,7 @@ equal `JCS(S, v)`. Hashes use:
 ```text
 H(artifact, S, v) =
   SHA-256(
-    UTF8("moltzap/client/v2/" + artifact + "\0") || JCS(S, v)
+    UTF8("org.social-harness/client/v2/" + artifact + "\0") || JCS(S, v)
   )
 ```
 
@@ -263,14 +271,14 @@ sign a bare hash. The exact statement and certificate schemas are:
 
 ```ts
 interface ActionSignatureStatement {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "action_signature"
   readonly signerAgentId: AgentId
   readonly actionHash: ActionHash
 }
 
 interface DurabilityVoteStatement {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "durability_vote"
   readonly signerAgentId: AgentId
   readonly conversationId: ConversationId
@@ -279,7 +287,7 @@ interface DurabilityVoteStatement {
 }
 
 interface ReanchorVoteStatement {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "reanchor_vote"
   readonly signerAgentId: AgentId
   readonly anchorHash: AnchorHash
@@ -292,28 +300,28 @@ type EvidenceMessages = readonly [
 ]
 
 interface ActionCertificate {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "action_certificate"
   readonly actionHash: ActionHash
   readonly signatures: EvidenceMessages
 }
 
 interface DurabilityCertificate {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "durability_certificate"
   readonly recordHash: RecordHash
   readonly votes: EvidenceMessages
 }
 
 interface ReanchorCertificate {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "reanchor_certificate"
   readonly anchorHash: AnchorHash
   readonly votes: EvidenceMessages
 }
 
 interface CompletedReanchor {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "completed_reanchor"
   readonly anchorHash: AnchorHash
   readonly reanchor: ReanchorBody
@@ -323,7 +331,7 @@ interface CompletedReanchor {
 type RouterAnchor = GenesisAnchorBody | CompletedReanchor
 
 interface ActionCertifiedRecord {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "action_certified_record"
   readonly recordHash: RecordHash
   readonly recordCore: RecordCore
@@ -332,7 +340,7 @@ interface ActionCertifiedRecord {
 }
 
 interface CertifiedRecord {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "certified_record"
   readonly actionCertifiedRecord: ActionCertifiedRecord
   readonly durabilityCertificate: DurabilityCertificate
@@ -478,7 +486,7 @@ Catch-up uses these exact closed values:
 
 ```ts
 interface CatchUpRequest {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "catch_up_request"
   readonly conversationId: ConversationId
   readonly membershipHash: MembershipHash
@@ -490,7 +498,7 @@ interface CatchUpRequest {
 type CatchUpItem = CertifiedRecord | CompletedReanchor
 
 interface CatchUpAttestationStatement {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "catch_up_attestation"
   readonly signerAgentId: AgentId
   readonly request: CatchUpRequest
@@ -503,7 +511,7 @@ interface CatchUpAttestationStatement {
 }
 
 interface CatchUpPage {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "catch_up_page"
   readonly request: CatchUpRequest
   readonly item: CatchUpItem
@@ -512,7 +520,7 @@ interface CatchUpPage {
 }
 
 interface CatchUpIncomplete {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "catch_up_incomplete"
   readonly request: CatchUpRequest
   readonly attestation: EncodedSignedMessage
@@ -599,7 +607,7 @@ The exact direct packet union is:
 
 ```ts
 interface ActionProposal {
-  readonly moltzapVersion: "2026.1006.1"
+  readonly sharnessVersion: "2026.1019.2"
   readonly kind: "action_proposal"
   readonly action: ActionCore
 }
@@ -654,7 +662,7 @@ For an evidence statement `s`, its stable inner `MessageId` is:
 
 ```text
 msg_ + base64url(first-16-bytes(SHA-256(
-  UTF8("moltzap/client/v2/evidence-message-id\0") ||
+  UTF8("org.social-harness/client/v2/evidence-message-id\0") ||
   decodedAgentIdBytes(s.signerAgentId) ||
   JCS(EvidenceStatement, s)
 )))
@@ -776,7 +784,13 @@ A migration backup may be restored immediately after that migration fails,
 before the daemon has signed. After a successful start, restoring it requires
 a new identity under the normal state-directory restore rule.
 
-Newly signed protocol values carry `WIRE_VERSION`. Only the outer envelope
+Newly authored intents carry `WIRE_VERSION`. Conversation identity excludes the
+version, and sends reuse their stored membership descriptor. The record core
+copies the author's signed intent version; its wrappers and certificates copy
+that core version, including when reconstructed from storage. Re-anchor bodies
+copy the certified head's version, and an empty conversation's replacement
+anchor copies the preceding anchor's version. These shared values never come
+from the re-anchoring member's binary. Only the outer envelope
 uses `SignedMessage.live` and the live set. Every nested artifact, including
 `PostIntent`, `ActionCore`, catch-up frames, `CatchUpPage.item`, certificates,
 evidence, descriptors, AgentCards and store rows, decodes over
@@ -787,7 +801,8 @@ Pending outbound messages retain their original signed bytes and MessageId;
 they are never re-signed. Startup refuses a pending envelope whose signed
 version has left `LIVE_WIRE_VERSIONS` with `OutboxTooOldError`, surfaced as
 `outbox-too-old`. The operator must drain the outbox on an earlier release.
-The current schema reads that version from the signed bytes.
+The reset schema stores that version in `wire_version`; retained-byte verification
+requires it to equal the version inside the signed envelope.
 
 The external MCP protocol revision remains `2026-07-28`; runtime notifications
 follow the [pinned MCP Events profile](./harness/ingress.md).

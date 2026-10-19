@@ -24,7 +24,7 @@ type StartupPhaseIsExact = Expect<
 type StartupReasonIsExact = Expect<
   Types.Equals<
     StartupValue["reason"],
-    "outbox-too-old" | "newer-schema" | "pre-reset" | undefined
+    "outbox-too-old" | "newer-schema" | "pre-reset" | "legacy-key" | undefined
   >
 >;
 type StartupDetailIsExact = Expect<

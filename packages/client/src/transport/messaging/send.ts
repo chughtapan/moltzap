@@ -1,10 +1,6 @@
 /** @file Address resolution, immutable intent binding, and proposal creation. */
 
-import {
-  AgentCard,
-  type VerifiedAgentCard,
-  WIRE_VERSION,
-} from "@moltzap/identity";
+import { AgentCard, type VerifiedAgentCard } from "@moltzap/identity";
 import {
   Deferred,
   Duration,
@@ -159,23 +155,33 @@ const conversationIdOf = (resolved: ResolvedAddress) => {
       );
 };
 
-const buildMembership = (runtime: EngineRuntime, resolved: ResolvedAddress) =>
+/** The first canonical member’s signed card fixes the foundation version for every peer. */
+const membershipFor = (runtime: EngineRuntime, resolved: ResolvedAddress) =>
   Effect.gen(function* () {
     const conversationId = yield* conversationIdOf(resolved);
+    const stored = runtime.conversations.get(conversationId);
+    if (stored !== undefined) {
+      return stored.membership;
+    }
     const encodedCards = yield* Effect.forEach(
       resolved.memberCards,
       (card) => Schema.encode(AgentCard)(card),
       { concurrency: 1 },
     ).pipe(Effect.mapError(representationFailure));
+    const firstMember = resolved.memberCards[0];
     const firstCard = encodedCards[0];
     const secondCard = encodedCards[1];
-    if (firstCard === undefined || secondCard === undefined) {
+    if (
+      firstMember === undefined ||
+      firstCard === undefined ||
+      secondCard === undefined
+    ) {
       return yield* Effect.fail(
         new SendError({ reason: "membership-invalid" }),
       );
     }
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptorSchema)({
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: AgentCard.wireVersion(firstMember),
       kind: "membership_descriptor",
       conversationId,
       members: [firstCard, secondCard, ...encodedCards.slice(2)],
@@ -234,7 +240,7 @@ export const resolveConversation = (
 
 const resolveMembership = (runtime: EngineRuntime, input: EngineSendInput) =>
   resolveCards(runtime, input.to).pipe(
-    Effect.flatMap((resolved) => buildMembership(runtime, resolved)),
+    Effect.flatMap((resolved) => membershipFor(runtime, resolved)),
   );
 
 const proposalAction = (
@@ -251,7 +257,7 @@ const proposalAction = (
       Effect.mapError(representationFailure),
       Effect.map((postIntentHash) => {
         const action: ActionCore = {
-          moltzapVersion: WIRE_VERSION,
+          sharnessVersion: intent.sharnessVersion,
           kind: "GENESIS",
           conversationId: conversation.conversationId,
           membership: conversation.membership.descriptor,
@@ -268,7 +274,7 @@ const proposalAction = (
     Effect.mapError(representationFailure),
     Effect.map((postIntentHash) => {
       const action: ActionCore = {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: intent.sharnessVersion,
         kind: "POST",
         conversationId: conversation.conversationId,
         membershipHash: conversation.membership.hash,
@@ -395,7 +401,7 @@ function queueProposal(
   return queueHead.pipe(
     Effect.zipRight(
       runtime.outbox.queuePacket(proposal.conversation, {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: proposal.action.sharnessVersion,
         kind: "action_proposal",
         action: proposal.action,
       }),
@@ -526,7 +532,7 @@ const createConversation = (
       Effect.mapError(currentAnchorFailure),
     );
     const anchor = yield* Schema.decodeUnknown(GenesisAnchorBody)({
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: membership.descriptor.sharnessVersion,
       kind: "genesis_anchor_body",
       conversationId: membership.descriptor.conversationId,
       membershipHash: membership.hash,
@@ -566,12 +572,10 @@ function currentAnchorFailure(error: RouterWorkerUnavailableError): SendError {
   return new SendError({ reason: reasonByTag[error._tag] });
 }
 
-// Registration and daemon restart both admit sends before the worker's first
-// successful poll, and every send needs an attached worker: a new conversation
-// reads the current anchor, an existing one transmits through the worker. The
-// wait runs before `activateIntent` takes the engine gate, because the worker
-// reaches `active` only after recovery that needs that same gate; waiting while
-// holding it would stall the attachment awaited.
+/**
+ * Wait before taking the engine gate: worker recovery needs that same gate
+ * before attachment can finish, including immediately after registration.
+ */
 const awaitRouterAttachment = (
   runtime: EngineRuntime,
 ): Effect.Effect<void, SendError> =>
@@ -827,7 +831,7 @@ function prepareIntent(
       Effect.mapError(representationFailure),
     );
     const intent = yield* Schema.decodeUnknown(PostIntentSchema)({
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: runtime.wireVersion,
       kind: "post_intent",
       conversationId: membership.descriptor.conversationId,
       membershipHash: membership.hash,

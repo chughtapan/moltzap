@@ -77,16 +77,23 @@ The Registry subpath exports these type-only capability results:
 - `RegistryListResult`.
 
 The remaining root exports are `WIRE_VERSION`, `LIVE_WIRE_VERSIONS`,
-`HISTORY_WIRE_VERSIONS`, `WireVersions`, `AgentSigningAuthority`, `SealedBody`,
-`AuthenticatedHttp`, and the shared exact error classes in
+`HISTORY_WIRE_VERSIONS`, `wireVersions`, `AgentSigningAuthority`, `SealedBody`,
+`AuthenticatedHttp`, `legacyKeys`, and the shared exact error classes in
 [Error contract](#error-contract).
 The Registry subpath also exports `Registry` and its exact client error
 classes.
 
-`WireVersions` is an optional decoder policy. Its `live` set intersects with
-this binary's `LIVE_WIRE_VERSIONS`; it cannot admit an unknown live version.
-Its `history` set adds to `HISTORY_WIRE_VERSIONS` and cannot remove retained
-versions. Without the service, both decoders use the binary's sets.
+`wireVersions` exposes frozen compatibility operations for the binary's emitted,
+live and retained-history sets. It exposes no configurable service or context
+tag. `@moltzap/identity/test` resolves the internal `WireVersions` tag only when
+the explicit `sharness-test` module-resolution condition is enabled. Normal
+production resolution refuses that subpath. Client tests and their child
+processes opt into the condition to compose adjacent releases; production
+sources cannot import the test-only entry.
+
+`AgentCard.wireVersion` reads the card's retained signed version. Endpoints use
+the first canonical member's card to select a shared conversation foundation
+independently of the binaries' emitted versions.
 
 `SignedMessage.encodedByteLength` and
 `SignedMessage.maximumEncodedByteLength` are nested deep-module
@@ -97,7 +104,7 @@ export.
 
 The `@moltzap/identity/registry/server` subpath exports only `layer`
 and `StartupError`. Its production binary is exactly
-`moltzap-registry`. There is no `RegistryClient`, public service
+`sharness-registry`. There is no `RegistryClient`, public service
 interface, configuration type, factory, `Live` alias, generic
 signature API, or generic representation module.
 
@@ -181,7 +188,7 @@ operation:
 It is not authenticated as an existing AgentId and is not part of
 `AuthenticatedHttp`. It proves possession of the submitted key and
 presents a deployment admission credential before Registry creates an
-identity. Before local registration, `moltzapd` presents this operation through
+identity. Before local registration, `sharnessd` presents this operation through
 the one state-dependent `/mcp` endpoint, then calls Registry directly.
 Registration does not traverse Router or a runtime adapter.
 
@@ -209,11 +216,11 @@ private Registry RPC middleware context, never an authenticated-agent
 context.
 
 Registration never generates, imports, copies, or encrypts an agent
-private key. `moltzapd` uses a pre-existing unencrypted Ed25519 PKCS#8
+private key. `sharnessd` uses a pre-existing unencrypted Ed25519 PKCS#8
 file at an absolute path, derives its public JWK, and requires an exact
 match with the request and issued card. The MCP presentation never exposes key
 material. The daemon receives the absolute path through
-`MOLTZAPD_AGENT_PRIVATE_KEY_FILE`, as specified in
+`SHARNESS_AGENT_PRIVATE_KEY_FILE`, as specified in
 [`harness/daemon.md`](./harness/daemon.md); the registration tool neither owns
 nor exposes it.
 
@@ -281,7 +288,7 @@ Registry state.
 
 ## Wire versions
 
-Every new artifact emits `WIRE_VERSION`, currently `2026.1006.1`. `LIVE_WIRE_VERSIONS` admits outer
+Every new artifact emits `WIRE_VERSION`, currently `2026.1019.2`. `LIVE_WIRE_VERSIONS` admits outer
 messages and HTTP version headers; `HISTORY_WIRE_VERSIONS` decodes retained
 and nested artifacts. Both sets currently contain only the emitted version.
 AgentCards use the history set even during live authentication: immutable
@@ -335,7 +342,7 @@ nominal trust brand. Only `SignedMessage.sign` and
 `SignedMessage.verify` construct it; there is no public constructor or
 standalone decoder.
 
-The complete General JWS has a fixed maximum of 471,673 UTF-8 JCS
+The complete General JWS has a fixed maximum of 471,676 UTF-8 JCS
 bytes under the recipient and body bounds. Identity owns that
 calculation and exposes only
 `SignedMessage.maximumEncodedByteLength` and the total
@@ -392,7 +399,7 @@ key must equal the verified AgentCard key.
 
 `encodedByteLength` is total for a parsed exact SignedMessage and
 returns the UTF-8 JCS byte length of its complete General JWS.
-`maximumEncodedByteLength` is exactly 471,673.
+`maximumEncodedByteLength` is exactly 471,676.
 
 ## Sealed bodies
 
@@ -813,7 +820,7 @@ boundary.
 `StartupError` from `@moltzap/identity/registry/server` is a
 `Data.TaggedError` named
 `RegistryServerStartupError` with `_tag`, `phase`, and an optional closed
-`reason`. Storage failures carry `newer-schema`, `signer-mismatch`, or
+`reason`. Storage failures carry `pre-reset`, `newer-schema`, `signer-mismatch`, or
 `unavailable`, and the error message includes the reason so it reaches the
 process log. Its closed phases are `configuration`, `storage`, and `listener`.
 Configuration covers Effect Config validation, admission credential
@@ -867,7 +874,7 @@ Registry PostgreSQL storage atomically owns:
 - registration operations, exact canonical request bytes, and stable
   exact result bytes;
 - accepted replay nonces through expiry; and
-- metadata binding the Registry signer thumbprint and wire compatibility value
+- metadata binding only the Registry signer thumbprint
   to the database.
 
 The Migrator ledger is the only schema authority. Before running migrations,
@@ -877,8 +884,9 @@ under the ledger lock. An unknown applied id fails closed with
 their ledger entries commit transactionally; a failed migration rolls back.
 Operators run `pg_dump` before upgrading. Downgrades are unsupported.
 
-Startup also fails closed when the configured signer or version differs from the
-database metadata. A signer mismatch carries reason `signer-mismatch`.
+Startup refuses a legacy `moltzap_registry_migrations` ledger with `pre-reset`
+before creating its final `sharness_registry_migrations` ledger. Startup also
+fails closed when the configured signer differs from the database metadata. A signer mismatch carries reason `signer-mismatch`.
 Other storage initialization failures carry reason `unavailable`.
 Registration serializes through the metadata row,
 enforces uniqueness, and commits the card with the operation result.
@@ -898,26 +906,26 @@ executable supplies `ConfigProvider.fromEnv`; tests use
 provider. Configuration failure remains
 `RegistryServerStartupError` with phase `configuration`.
 
-There is no direct `process.env` access, custom environment parser,
-generic public configuration type, mutable singleton, prefix
-enumeration, or hot reload. Tests do not mutate `process.env`. Effect
-Config reads the declared keys and ignores unrelated or unused
-environment values.
+Before loading declared values, `legacyKeys(process.env)` rejects every
+`MOLTZAP_*` or `MOLTZAPD_*` key with `legacy-key` and its name, without
+disclosing values. Effect Config reads the declared keys and ignores other
+unrelated or unused values. There is no custom environment parser, generic
+public configuration type, mutable singleton, or hot reload.
 
 The complete Registry process surface is:
 
 | Exact key | Meaning | Required or default | Range and constraints | Redaction |
 |---|---|---|---|---|
-| `MOLTZAP_REGISTRY_HOST` | listener bind host | `127.0.0.1` | nonempty Node bind host; `0.0.0.0` and `::` allowed | no |
-| `MOLTZAP_REGISTRY_PORT` | listener port | required | integer 1–65535 | no |
-| `MOLTZAP_REGISTRY_POSTGRESQL_URL` | PostgreSQL connection URL | required | absolute PostgreSQL URL naming a database | entire value |
-| `MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL` | bootstrap admission credential | required | 8–512 token68 characters | entire value |
-| `MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH` | AgentCard-signing key | required | absolute path to unencrypted Ed25519 PKCS#8 | entire path and key material |
-| `MOLTZAP_REGISTRY_LIST_PAGE_SIZE` | server-owned identity-list page size | `100` | positive integer; clients cannot override | no |
-| `MOLTZAP_REGISTRY_REQUEST_CONCURRENCY_LIMIT` | active request permits | `256` | positive integer | no |
-| `MOLTZAP_REGISTRY_LIVE_NONCE_CAPACITY` | unexpired accepted registration nonces | `10,000` | positive integer; never evict a live nonce | no |
-| `MOLTZAP_REGISTRY_SQL_POOL_SIZE` | PostgreSQL pool size | `10` | positive integer | no |
-| `MOLTZAP_REGISTRY_SQL_OPERATION_TIMEOUT_MS` | acquisition, execution, and retry deadline | `5,000` | positive milliseconds; expiry is 503 `unavailable` | no |
+| `SHARNESS_REGISTRY_HOST` | listener bind host | `127.0.0.1` | nonempty Node bind host; `0.0.0.0` and `::` allowed | no |
+| `SHARNESS_REGISTRY_PORT` | listener port | required | integer 1–65535 | no |
+| `SHARNESS_REGISTRY_POSTGRESQL_URL` | PostgreSQL connection URL | required | absolute PostgreSQL URL naming a database | entire value |
+| `SHARNESS_REGISTRY_ADMISSION_CREDENTIAL` | bootstrap admission credential | required | 8–512 token68 characters | entire value |
+| `SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH` | AgentCard-signing key | required | absolute path to unencrypted Ed25519 PKCS#8 | entire path and key material |
+| `SHARNESS_REGISTRY_LIST_PAGE_SIZE` | server-owned identity-list page size | `100` | positive integer; clients cannot override | no |
+| `SHARNESS_REGISTRY_REQUEST_CONCURRENCY_LIMIT` | active request permits | `256` | positive integer | no |
+| `SHARNESS_REGISTRY_LIVE_NONCE_CAPACITY` | unexpired accepted registration nonces | `10,000` | positive integer; never evict a live nonce | no |
+| `SHARNESS_REGISTRY_SQL_POOL_SIZE` | PostgreSQL pool size | `10` | positive integer | no |
+| `SHARNESS_REGISTRY_SQL_OPERATION_TIMEOUT_MS` | acquisition, execution, and retry deadline | `5,000` | positive milliseconds; expiry is 503 `unavailable` | no |
 
 Numeric environment values use canonical unsigned decimal with no
 whitespace, sign, fraction, or exponent. Their range is

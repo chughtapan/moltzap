@@ -12,6 +12,7 @@ import {
   ProtocolErrorCode,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
+import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import {
   Deferred,
   Duration,
@@ -583,7 +584,9 @@ function acquireSendEndpoint(
 
 function observeInvocations(directory: string) {
   return Effect.gen(function* () {
-    const store = yield* openEndpointStore(directory);
+    const store = yield* openEndpointStore(directory, {
+      liveWireVersions: LIVE_WIRE_VERSIONS,
+    });
     const scope = yield* Scope.Scope;
     const started = yield* Deferred.make<undefined>();
     const retried = yield* Deferred.make<undefined>();
@@ -688,7 +691,9 @@ function checksRuntimeRetries(directory: string) {
 
 function checksRetainedRuntimeSend(directory: string) {
   return Effect.gen(function* () {
-    const store = yield* openEndpointStore(directory);
+    const store = yield* openEndpointStore(directory, {
+      liveWireVersions: LIVE_WIRE_VERSIONS,
+    });
     const scope = yield* Scope.Scope;
     const invocations = yield* makeSendInvocations(
       store,
@@ -822,7 +827,10 @@ function rejectsSendBookkeepingArguments() {
 function readsRetainedEventThroughSdk() {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const store = yield* openEndpointStore(yield* fs.makeTempDirectoryScoped());
+    const store = yield* openEndpointStore(
+      yield* fs.makeTempDirectoryScoped(),
+      { liveWireVersions: LIVE_WIRE_VERSIONS },
+    );
     const deliveryToken = Schema.decodeUnknownSync(DeliveryToken)(
       digest("dlv_", 7),
     );

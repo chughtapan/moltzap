@@ -1,6 +1,7 @@
 /** @file Repeated process termination exercises the same exclusive store and audit path. */
 
 import { NodeRuntime } from "@effect/platform-node";
+import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Config, ConfigProvider, Effect } from "effect";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -9,9 +10,11 @@ import { openEndpointStore } from "../store/index.js";
 import { makeAuditFixture } from "./firewall-audit-fixtures.js";
 
 const program = Effect.gen(function* () {
-  const directory = yield* Config.string("MOLTZAP_TEST_AUDIT_DIRECTORY");
-  const block = yield* Config.boolean("MOLTZAP_TEST_AUDIT_BLOCK");
-  const store = yield* openEndpointStore(directory);
+  const directory = yield* Config.string("SHARNESS_TEST_AUDIT_DIRECTORY");
+  const block = yield* Config.boolean("SHARNESS_TEST_AUDIT_BLOCK");
+  const store = yield* openEndpointStore(directory, {
+    liveWireVersions: LIVE_WIRE_VERSIONS,
+  });
   const fixture = yield* makeAuditFixture;
   const checkId = randomUUID();
   yield* store.beginFirewallAttempt({

@@ -48,9 +48,9 @@ import {
   signBody,
 } from "./sealed-body-fixtures.js";
 
-const SENDER_HEADER = "xyz.moltzap/sender";
-const MESSAGE_ID_HEADER = "xyz.moltzap/message-id";
-const COMMITMENT_HEADER = "xyz.moltzap/commitment";
+const SENDER_HEADER = "org.social-harness/sender";
+const MESSAGE_ID_HEADER = "org.social-harness/message-id";
+const COMMITMENT_HEADER = "org.social-harness/commitment";
 const SALT_BYTES = 32;
 
 const utf8Encoder = new TextEncoder();

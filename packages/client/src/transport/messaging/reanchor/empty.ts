@@ -1,6 +1,5 @@
 /** @file Empty-conversation foundation replacement after a Router restart. */
 
-import { WIRE_VERSION } from "@moltzap/identity";
 import { Effect } from "effect";
 import type {
   ConversationFoundation,
@@ -11,6 +10,7 @@ import type { EngineRuntime } from "../runtime/index.js";
 import { RouterWorkerPersistenceError } from "../../router/index.js";
 import {
   type ConversationId as ConversationIdValue,
+  decodeCanonical,
   encodeCanonical,
   GenesisAnchorBody,
   type GenesisAnchorBody as GenesisAnchorBodyValue,
@@ -134,29 +134,35 @@ function replacementEmptyFoundation(
   membership: VerifiedMembership,
   expected: ConversationFoundation,
 ): Effect.Effect<ReplacementEmptyFoundation, RouterWorkerPersistenceError> {
-  const anchor: GenesisAnchorBodyValue = {
-    moltzapVersion: WIRE_VERSION,
-    kind: "genesis_anchor_body",
-    conversationId: membership.descriptor.conversationId,
-    membershipHash: membership.hash,
-    routerInstanceId,
-  };
-  return Effect.all({
-    anchorHash: hashAnchor(anchor),
-    canonicalAnchor: encodeCanonical(GenesisAnchorBody, anchor),
-  }).pipe(
-    Effect.mapError(persistenceFailure),
-    Effect.map(({ anchorHash, canonicalAnchor }) => ({
-      anchor,
-      foundation: {
-        conversationId: expected.conversationId,
-        membershipHash: expected.membershipHash,
-        canonicalMembership: expected.canonicalMembership,
-        anchorHash,
-        canonicalAnchor,
-      },
-    })),
-  );
+  return Effect.gen(function* () {
+    const preceding = yield* decodeCanonical(
+      GenesisAnchorBody,
+      expected.canonicalAnchor,
+    ).pipe(Effect.mapError(persistenceFailure));
+    const anchor: GenesisAnchorBodyValue = {
+      sharnessVersion: preceding.sharnessVersion,
+      kind: "genesis_anchor_body",
+      conversationId: membership.descriptor.conversationId,
+      membershipHash: membership.hash,
+      routerInstanceId,
+    };
+    return yield* Effect.all({
+      anchorHash: hashAnchor(anchor),
+      canonicalAnchor: encodeCanonical(GenesisAnchorBody, anchor),
+    }).pipe(
+      Effect.mapError(persistenceFailure),
+      Effect.map(({ anchorHash, canonicalAnchor }) => ({
+        anchor,
+        foundation: {
+          conversationId: expected.conversationId,
+          membershipHash: expected.membershipHash,
+          canonicalMembership: expected.canonicalMembership,
+          anchorHash,
+          canonicalAnchor,
+        },
+      })),
+    );
+  });
 }
 
 interface RestartedEmptyState {

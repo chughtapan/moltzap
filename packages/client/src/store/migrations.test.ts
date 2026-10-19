@@ -1,6 +1,7 @@
 /** @file Migration admission, atomic rollback, replaceable backups, and retained history. */
 
 import { live as it } from "@effect/vitest";
+import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Effect, Exit } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- These tests exercise real SQLite files and directory permissions at the synchronous ownership boundary.
 import {
@@ -26,9 +27,14 @@ import {
   withStore,
 } from "../__tests__/store-schema-fixtures.js";
 import { readStoredHistory } from "../transport/messaging/index.js";
-import { migrations as steps } from "./database/migrations.js";
 import { closeStoreState, openStoreState } from "./database/schema.js";
 import { openEndpointStore } from "./index.js";
+
+const steps: Record<number, (database: DatabaseSync) => void> = {};
+const storeOptions = {
+  liveWireVersions: LIVE_WIRE_VERSIONS,
+  migrations: steps,
+};
 
 afterEach(() => {
   for (const key of Object.keys(steps)) {
@@ -57,10 +63,10 @@ function addMarker(database: DatabaseSync): void {
 
 function openAndClose(
   directory: string,
-  liveWireVersions: readonly string[] = [],
+  liveWireVersions: readonly string[] = LIVE_WIRE_VERSIONS,
 ) {
   return Effect.acquireUseRelease(
-    openStoreState(directory, { liveWireVersions }),
+    openStoreState(directory, { liveWireVersions, migrations: steps }),
     () => Effect.void,
     closeStoreState,
   );
@@ -116,8 +122,10 @@ it("preserves history through a synthetic next-version step and writes a private
     expect(version(subject.path)).toBe(subject.from + 1);
     expect(version(subject.backup)).toBe(subject.from);
     expect(statSync(subject.backup).mode & 0o077).toBe(0);
-    const recovered = yield* withStore(subject.directory, (store) =>
-      store.recover(),
+    const recovered = yield* Effect.scoped(
+      openEndpointStore(subject.directory, storeOptions).pipe(
+        Effect.flatMap((store) => store.recover()),
+      ),
     );
     expect(recovered).toEqual(before);
     expect(
@@ -201,9 +209,9 @@ it("refuses a retired pending envelope before creating a backup or running a ste
     );
     database
       .prepare(
-        `INSERT INTO outbound_messages (outbound_id, conversation_id, current_message_id, canonical_initial_signed_message, canonical_current_signed_message, attempted, disposition) VALUES ('outbound', ?, 'message', ?, ?, 0, 'pending')`,
+        `INSERT INTO outbound_messages (conversation_id, message_id, canonical_signed_message, wire_version, attempted, disposition) VALUES (?, 'message', ?, 'retired', 0, 'pending')`,
       )
-      .run(foundation.conversationId, bytes, bytes);
+      .run(foundation.conversationId, bytes);
     database.close();
     const before = readFileSync(subject.path);
     Object.assign(steps, { [subject.from + 1]: addMarker });
@@ -223,7 +231,10 @@ it("leaves the store untouched when a read-only directory prevents the backup", 
     chmodSync(subject.directory, 0o500);
     const result = yield* Effect.exit(
       Effect.scoped(
-        openEndpointStore(subject.directory, { liveWireVersions: [] }),
+        openStoreState(subject.directory, {
+          liveWireVersions: LIVE_WIRE_VERSIONS,
+          migrations: steps,
+        }).pipe(Effect.tap(closeStoreState)),
       ),
     ).pipe(
       Effect.ensuring(

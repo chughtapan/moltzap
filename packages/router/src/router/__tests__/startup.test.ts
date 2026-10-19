@@ -6,7 +6,7 @@ import { expect } from "vitest";
 import { configurationMessage } from "../../router.js";
 import { RouterServer } from "../../server.js";
 
-const registryOriginVariable = "MOLTZAP_ROUTER_REGISTRY_ORIGIN";
+const registryOriginVariable = "SHARNESS_ROUTER_REGISTRY_ORIGIN";
 const rejectedValue =
   "https://operator:private-password@registry.example/private";
 const environment = ConfigProvider.fromMap(

@@ -272,11 +272,11 @@ stack.
 
 The executable topology has:
 
-- `moltzap-registry`, an Identity-owned Registry HTTP process with durable
+- `sharness-registry`, an Identity-owned Registry HTTP process with durable
   registration storage;
-- `moltzap-router`, a Router-owned HTTP process with bounded volatile delivery
+- `sharness-router`, a Router-owned HTTP process with bounded volatile delivery
   state; and
-- one `moltzapd` process per local agent state directory, owning network
+- one `sharnessd` process per local agent state directory, owning network
   clients, endpoint protocols, durable private history, and loopback MCP.
 
 Registry and Router are independent. Daemons coordinate them and communicate

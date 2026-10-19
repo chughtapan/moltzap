@@ -1,7 +1,11 @@
 /** @file Storage stops preserve send responses and report closed diagnostic causes. */
 
 import { scopedLive as it } from "@effect/vitest";
-import { AgentCard, Ed25519PublicKey } from "@moltzap/identity";
+import {
+  AgentCard,
+  Ed25519PublicKey,
+  LIVE_WIRE_VERSIONS,
+} from "@moltzap/identity";
 import { RouterInstanceId } from "@moltzap/router";
 import { Deferred, Effect, Fiber, Logger, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
@@ -89,7 +93,9 @@ const proposalAnchor = {
 const proposalFailureFixture = Effect.gen(function* () {
   const { fixture, remoteCard } = yield* proposalIdentities;
   const original = yield* makeHarness(fixture, "none");
-  const store = yield* openEndpointStore(stateDirectory());
+  const store = yield* openEndpointStore(stateDirectory(), {
+    liveWireVersions: LIVE_WIRE_VERSIONS,
+  });
   yield* store.bindIdentity({
     agentId: fixture.localCard.agentId,
     canonicalAgentCard: fixture.canonicalLocalCard,

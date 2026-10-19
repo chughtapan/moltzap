@@ -35,7 +35,7 @@
       "{workspaceRoot}/scripts/docs/mintlify-nav.ts",
       "{workspaceRoot}/scripts/docs/modules.ts",
       "{workspaceRoot}/scripts/docs/signature-extract.ts",
-      "{workspaceRoot}/scripts/docs/moltzap-version.ts",
+      "{workspaceRoot}/scripts/docs/sharness-version.ts",
       "{workspaceRoot}/scripts/docs/typedoc-load.ts",
       "{workspaceRoot}/packages/**/*.json",
       "{workspaceRoot}/packages/**/*.ts",

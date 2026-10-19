@@ -314,16 +314,16 @@ function decodeStoredOutbound(
  * Sends one durable current envelope selected by its stable outbox identity.
  *
  * @param runtime Worker capabilities and durable outbox.
- * @param outboundId Stable identity of the initial outer envelope.
+ * @param messageId Stable identity of the signed envelope.
  * @param instance Router instance fence for this attempt.
  * @returns Whether the stored envelope completed or observed a Router restart.
  */
 function transmitOutbound<Payload>(
   runtime: RouterWorkerRuntime<Payload>,
-  outboundId: string,
+  messageId: string,
   instance: RouterInstanceId,
 ): Effect.Effect<RouterWorkerSendOutcome, OutboundTransportError> {
-  return runtime.input.outbox.beginOutbound(outboundId).pipe(
+  return runtime.input.outbox.beginOutbound(messageId).pipe(
     Effect.mapError(mapPersistenceError),
     Effect.flatMap((attempt) => {
       switch (attempt.kind) {
@@ -892,7 +892,7 @@ const makePollOnce = <Payload>(
 
 const makeSend = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
-  outboundId: string,
+  messageId: string,
 ): Effect.Effect<void, RouterWorkerSendError> =>
   Effect.gen(function* () {
     const result = yield* runtime.recoveryGate.withPermits(1)(
@@ -903,7 +903,7 @@ const makeSend = <Payload>(
         }
         const outcome = yield* transmitOutbound(
           runtime,
-          outboundId,
+          messageId,
           state.anchor.routerInstanceId,
         );
         return { outcome, generation: state.generation };
@@ -958,7 +958,7 @@ const makeWorker = <Payload>(
       ),
       { concurrent: true },
     ).pipe(Effect.interruptible),
-    send: (outboundId: string) => makeSend(runtime, outboundId),
+    send: (messageId: string) => makeSend(runtime, messageId),
   });
 };
 

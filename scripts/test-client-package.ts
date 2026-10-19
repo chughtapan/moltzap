@@ -36,6 +36,7 @@ const workspaceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const hostModules: ReadonlySet<string> = new Set([
   "dist/delivery/history-export.js",
   "dist/delivery/operations.js",
+  "dist/endpoint/environment.js",
   "dist/endpoint/harness-endpoint/capability.js",
   "dist/endpoint/harness-endpoint/events.js",
   "dist/endpoint/harness-endpoint/index.js",
@@ -85,11 +86,11 @@ const policyConsumerCheck = `
 const { Effect, Layer, Schema } = await import("effect");
 const decodeAuditLine = Schema.decodeUnknownSync(Schema.parseJson(service.FirewallAuditRecord));
 const auditStart = decodeAuditLine(JSON.stringify({
-  kind: "start", format: "moltzap.firewall-audit/v3", snapshotId: "a".repeat(64),
+  kind: "start", format: "org.social-harness/firewall-audit/v4", snapshotId: "a".repeat(64),
   startedAt: "2026-10-17T00:00:00.000Z",
 }));
 const auditComplete = decodeAuditLine(JSON.stringify({
-  kind: "complete", format: "moltzap.firewall-audit/v3", snapshotId: auditStart.snapshotId,
+  kind: "complete", format: "org.social-harness/firewall-audit/v4", snapshotId: auditStart.snapshotId,
   checkCount: 0, activationCount: 0, sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 }));
 if (auditComplete.kind !== "complete" || auditComplete.snapshotId !== auditStart.snapshotId) {
@@ -200,10 +201,10 @@ function verifyPackedManifest(
       archive,
       temporaryRoot,
     );
-    const daemonTarget = manifest.bin?.moltzapd;
+    const daemonTarget = manifest.bin?.sharnessd;
     yield* requireCondition(
-      daemonTarget === FINAL_PACKAGES.client.bin.moltzapd,
-      "packed client does not expose the moltzapd executable",
+      daemonTarget === FINAL_PACKAGES.client.bin.sharnessd,
+      "packed client does not expose the sharnessd executable",
     );
     const exportEntries = Object.entries(manifest.exports ?? {});
     yield* requireCondition(
@@ -262,16 +263,16 @@ function verifyDaemon(
     const fs = yield* FileSystem.FileSystem;
     const daemon = yield* readText(
       daemonPath,
-      "packed moltzapd executable is missing",
+      "packed sharnessd executable is missing",
     );
     yield* requireCondition(
       daemon.startsWith("#!/usr/bin/env node\n"),
-      "packed moltzapd executable has no Node shebang",
+      "packed sharnessd executable has no Node shebang",
     );
     const info = yield* fs.stat(daemonPath);
     yield* requireCondition(
       (info.mode & 0o111) !== 0,
-      "packed moltzapd executable is not executable",
+      "packed sharnessd executable is not executable",
     );
   });
 }

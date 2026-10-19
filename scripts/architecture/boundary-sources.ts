@@ -242,6 +242,11 @@ function checkProductImport(
     return;
   }
   const subpath = exportSubpath(specifier, root);
+  checkTestOnlyImport(run, site, {
+    testOnly: FINAL_PACKAGES[target].exports[subpath]?.testOnly,
+    specifier,
+    line,
+  });
   if (!Object.hasOwn(FINAL_PACKAGES[target].exports, subpath)) {
     fail(
       run,
@@ -307,6 +312,30 @@ function importSpecifiers(text: string): readonly ImportSpecifier[] {
     specifier: match[1] ?? "",
     index: match.index,
   }));
+}
+
+/** Test overrides may be imported by tests and their process fixtures only. */
+function checkTestOnlyImport(
+  run: BoundaryRun,
+  site: ImportSite,
+  input: {
+    readonly testOnly?: true;
+    readonly specifier: string;
+    readonly line: number;
+  },
+): void {
+  if (
+    input.testOnly === true &&
+    !site.file.endsWith(".test.ts") &&
+    !site.file.includes(`${path.sep}integration${path.sep}`)
+  ) {
+    fail(
+      run,
+      site.file,
+      input.line,
+      `production source must not import test-only export "${input.specifier}"`,
+    );
+  }
 }
 
 /** The package a specifier addresses, ignoring any subpath export. */

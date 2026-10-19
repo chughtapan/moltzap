@@ -126,8 +126,9 @@ AgentId and signature bytes while logical hashes exclude evidence maps.
   advances the shared source-owned `WIRE_VERSION` once for every
   participating process; a path/package rename alone does not change bytes.
 - Client retains hash domain v2. The runtime initializes or reopens database
-  schema 8 and uses the pinned draft MCP Events profile. Earlier state requires
-  an explicit reset; there are no schema migrations.
+  schema 9 and uses the pinned draft MCP Events profile. Earlier state requires
+  an explicit reset; numbered forward migrations follow the
+  [daemon persistence contract](./harness/daemon.md#persistence).
 - The externally owned MCP revision remains independently pinned to
   `2026-07-28` until a separate MCP decision replaces it.
 - The npm package version is a release namespace of its own: four packages

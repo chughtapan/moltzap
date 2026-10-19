@@ -91,7 +91,7 @@ const managedPostgreSql = Effect.acquireRelease(
 const makePostgreSqlRegistrySetup = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const temporaryDirectory = yield* fileSystem.makeTempDirectoryScoped({
-    prefix: "moltzap-registry-postgresql-",
+    prefix: "sharness-registry-postgresql-",
   });
   const privateKeyPem = makePrivateKeyPem();
   const registryKeyPath = join(temporaryDirectory, "registry-key.pem");
@@ -224,7 +224,7 @@ const makeDirectStorage = (input: {
       url: Redacted.make(input.container.getConnectionUri()),
       maxConnections: 2,
       connectTimeout: Duration.seconds(5),
-      applicationName: "moltzap-registry-replay-boundary",
+      applicationName: "sharness-registry-replay-boundary",
     }).pipe(Effect.provide(Reactivity.layer));
     return makeRegistryStorage({
       sql,
@@ -297,7 +297,7 @@ const realPostgreSqlBehavior = Effect.gen(function* () {
   const restartPort = yield* reservePort;
   const restartOrigin = new URL(`http://${LOOPBACK_HOST}:${restartPort}`);
   const restarted = yield* startReadyRegistry(
-    { ...setup.environment, MOLTZAP_REGISTRY_PORT: String(restartPort) },
+    { ...setup.environment, SHARNESS_REGISTRY_PORT: String(restartPort) },
     restartOrigin,
   );
   const lookup = yield* makeRegistryRunner(
@@ -377,10 +377,7 @@ it("reopens a known ledger and serves the same card", () => {
   );
 }, 180_000);
 
-it.each([
-  { mismatch: "wire version", reason: "unavailable" },
-  { mismatch: "signer", reason: "signer-mismatch" },
-])(
+it.each([{ mismatch: "signer", reason: "signer-mismatch" }])(
   "refuses a metadata $mismatch mismatch through storage and process startup",
   ({ mismatch, reason }) => {
     expect.hasAssertions();
@@ -394,9 +391,7 @@ it.each([
           sql,
           registrySignerPublicKey: setup.registrySignerPublicKey,
         });
-        yield* mismatch === "signer"
-          ? sql`UPDATE moltzap_registry_metadata SET signer_thumbprint = 'different-signer'`
-          : sql`UPDATE moltzap_registry_metadata SET moltzap_version = 'different-wire-version'`;
+        yield* sql`UPDATE sharness_registry_metadata SET signer_thumbprint = 'different-signer'`;
 
         const initialized = yield* initializeRegistryStorage({
           sql,
@@ -444,7 +439,7 @@ it("refuses an unknown applied migration with newer-schema through storage and p
         sql,
         registrySignerPublicKey: setup.registrySignerPublicKey,
       });
-      yield* sql`INSERT INTO moltzap_registry_migrations (migration_id, name) VALUES (9999, 'future')`;
+      yield* sql`INSERT INTO sharness_registry_migrations (migration_id, name) VALUES (9999, 'future')`;
 
       const initialized = yield* initializeRegistryStorage({
         sql,
@@ -477,3 +472,40 @@ it("refuses an unknown applied migration with newer-schema through storage and p
     }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
   );
 }, 180_000);
+
+it(
+  "refuses a pre-reset Registry ledger before creating the reset ledger",
+  () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const setup = yield* makePostgreSqlRegistrySetup;
+        const sql = yield* PgClient.make({
+          url: Redacted.make(setup.container.getConnectionUri()),
+        }).pipe(Effect.provide(Reactivity.layer));
+        yield* sql`CREATE TABLE moltzap_registry_migrations (migration_id integer PRIMARY KEY)`;
+        const initialized = yield* initializeRegistryStorage({
+          sql,
+          registrySignerPublicKey: setup.registrySignerPublicKey,
+        }).pipe(Effect.either);
+        const preResetReason = "pre-reset";
+        expect(
+          Either.match(initialized, {
+            onLeft: (error) => error.reason,
+            onRight: () => undefined,
+          }),
+        ).toBe(preResetReason);
+        const ledger =
+          yield* sql`SELECT to_regclass('sharness_registry_migrations')::text AS ledger`;
+        expect(ledger[0]?.ledger).toBeNull();
+        const process = yield* managedProcess(
+          REGISTRY_BINARY,
+          [],
+          setup.environment,
+        );
+        yield* waitForExit(process);
+        expect(process.child.exitCode).not.toBe(0);
+        expect(process.logs()).toContain(preResetReason);
+      }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+    ),
+  180_000,
+);

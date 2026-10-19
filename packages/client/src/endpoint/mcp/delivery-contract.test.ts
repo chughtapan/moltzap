@@ -1,6 +1,7 @@
 /** @file Durable delivery behaviour through the loopback MCP tools and native endpoint. */
 
 import { scopedLive as it } from "@effect/vitest";
+import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Chunk, Effect, Schema, Scope, Stream } from "effect";
 import { describe, expect } from "vitest";
 import type { EndpointEngine } from "../../transport/messaging/index.js";
@@ -76,7 +77,9 @@ const callTool =
 
 /** Real delivery, collective classification and storage behind the MCP boundary. */
 const fixture = Effect.gen(function* () {
-  const store = yield* openEndpointStore(stateDirectory());
+  const store = yield* openEndpointStore(stateDirectory(), {
+    liveWireVersions: LIVE_WIRE_VERSIONS,
+  });
   const scope = yield* Scope.Scope;
   const slot: { active?: CollectiveOperations } = {};
   const delivery = yield* makeHostDelivery({

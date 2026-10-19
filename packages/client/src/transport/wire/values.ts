@@ -1,13 +1,25 @@
 /** @file Message values every layer above the wire encodes: addresses, post ids, content, and member limits and order. */
 
-import { type AgentId, AgentName } from "@moltzap/identity";
+import { type AgentId, AgentName, WIRE_VERSION } from "@moltzap/identity";
 import canonicalize from "canonicalize";
 import { Either, Encoding, Schema } from "effect";
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Effect Schemas share their domain names with the nominal values they decode. */
 
+/** Client hashes, content bounds and extension keys share one retained profile. */
+export const wireProfiles = {
+  [WIRE_VERSION]: {
+    clientHashDomain: "org.social-harness/client/v2/",
+    collectiveIdDomain: "org.social-harness/collective-id",
+    collectiveDataKey: "org.social-harness/collective",
+    maximumContentBytes: 32_768,
+    maximumMembers: 32,
+  },
+} as const;
+
 /** The canonical JSON byte limit of one message's content. */
-export const maximumContentBytes = 32_768;
+export const maximumContentBytes =
+  wireProfiles[WIRE_VERSION].maximumContentBytes;
 const HASH_BYTE_LENGTH = 32;
 const utf8Encoder = new TextEncoder();
 
@@ -143,7 +155,7 @@ function contentFits(
 }
 
 /** The largest group membership a conversation address or descriptor admits. */
-export const maximumMembers = 32;
+export const maximumMembers = wireProfiles[WIRE_VERSION].maximumMembers;
 
 /**
  * Decode base64url only in its canonical encoding, so one key has one text form.

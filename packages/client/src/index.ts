@@ -65,3 +65,6 @@ export {
   JsonValue,
   PostId,
 } from "./transport/wire/values.js";
+
+/** Host adapters reject retired environment keys before acquiring an endpoint. */
+export { legacyKeys } from "./endpoint/environment.js";

@@ -9,15 +9,19 @@ import {
   renameSync,
   rmSync,
 } from "node:fs";
+import { dirname } from "node:path";
 import { StoreSignal } from "./values.js";
 
 /** Lowest schema admitted to forward upgrades; raising it establishes a reset boundary. */
-export const RESET_SCHEMA = 8;
+export const RESET_SCHEMA = 9;
 
 /** Destination schema numbers map to the one step from their immediate predecessor. */
-export const migrations: Readonly<
+export type MigrationSteps = Readonly<
   Record<number, (database: DatabaseSync) => void>
-> = {};
+>;
+
+/** Forward steps available to the production binary. */
+export const migrations: MigrationSteps = Object.freeze({});
 
 /**
  * Publishes a fresh backup before committing each numbered step independently.
@@ -25,21 +29,23 @@ export const migrations: Readonly<
  * @param database Exclusively owned endpoint database.
  * @param from Persisted schema number already admitted by preflight.
  * @param databasePath Absolute database filename used for adjacent backups.
+ * @param steps Destination-indexed steps, injectable for isolated migration exercises.
  */
 export function migrateStore(
   database: DatabaseSync,
   from: number,
   databasePath: string,
+  steps: MigrationSteps = migrations,
 ): void {
-  const target = Math.max(RESET_SCHEMA, ...Object.keys(migrations).map(Number));
+  const target = Math.max(RESET_SCHEMA, ...Object.keys(steps).map(Number));
   for (let version = from + 1; version <= target; version += 1) {
-    if (migrations[version] === undefined) {
+    if (steps[version] === undefined) {
       throw new StoreSignal("incompatible");
     }
   }
   writeBackup(database, from, databasePath);
   for (let version = from + 1; version <= target; version += 1) {
-    const step = migrations[version];
+    const step = steps[version];
     if (step === undefined) {
       throw new StoreSignal("incompatible");
     }
@@ -72,4 +78,10 @@ function writeBackup(
     closeSync(descriptor);
   }
   renameSync(temporary, backup);
+  const directory = openSync(dirname(backup), "r");
+  try {
+    fsyncSync(directory);
+  } finally {
+    closeSync(directory);
+  }
 }

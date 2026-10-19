@@ -27,7 +27,7 @@ import {
   readCompatibilityVersion as readCompatibilityVersionSource,
   WIRE_VERSION_LITERAL,
   WIRE_VERSION_SOURCE,
-} from "../docs/moltzap-version.ts";
+} from "../docs/sharness-version.ts";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 
@@ -370,6 +370,37 @@ function testPublicationGuards(): void {
   testPublicationGuardsSemver();
   testPublicationGuardsWireSemver();
   testPublicationGuardsDriftedList();
+  testPublicationGuardsTestOnly();
+}
+
+/** Test overrides require an explicit condition and cannot enter production source. */
+function testPublicationGuardsTestOnly(): void {
+  plantFile("packages/identity/package.json", (source) =>
+    source.replace('"sharness-test": {', '"default": {'),
+  );
+  const unconditional = runBoundaries();
+  test(
+    "rejects a test override exposed to production resolution",
+    unconditional.code !== 0 &&
+      /test-only export.*conditions drifted/.test(unconditional.stderr),
+    `expected conditional-export failure. exit=${unconditional.code}, stderr=${unconditional.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+  plantFile(
+    "packages/client/src/transport/messaging/index.ts",
+    (source) =>
+      'import { WireVersions } from "@moltzap/identity/test";\n' + source,
+  );
+  const production = runBoundaries();
+  test(
+    "rejects a production import of the test override",
+    production.code !== 0 &&
+      /production source must not import test-only export/.test(
+        production.stderr,
+      ),
+    `expected production-import failure. exit=${production.code}, stderr=${production.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
 }
 
 function testPublicationGuardsClean(): void {

@@ -193,7 +193,7 @@ export interface RouterWorker {
    */
   readonly run: Effect.Effect<never, RouterWorkerPollError>;
   readonly send: (
-    outboundId: string,
+    messageId: string,
   ) => Effect.Effect<void, RouterWorkerSendError>;
 }
 

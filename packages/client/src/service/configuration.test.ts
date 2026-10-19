@@ -36,13 +36,13 @@ const temporaryDirectory = (): string => {
 
 const requiredConfiguration = (directory: string) =>
   new Map([
-    ["MOLTZAPD_STATE_DIRECTORY", join(directory, "state")],
-    ["MOLTZAPD_MCP_PORT", "4319"],
-    ["MOLTZAPD_REGISTRY_ORIGIN", "https://registry.example"],
-    ["MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY", registrySigner],
-    ["MOLTZAPD_ROUTER_ORIGIN", "http://router.example:4320"],
-    ["MOLTZAPD_AGENT_PRIVATE_KEY_FILE", join(directory, "agent.pem")],
-    ["MOLTZAPD_ADMISSION_CREDENTIAL_FILE", join(directory, "admission")],
+    ["SHARNESS_STATE_DIRECTORY", join(directory, "state")],
+    ["SHARNESS_MCP_PORT", "4319"],
+    ["SHARNESS_REGISTRY_ORIGIN", "https://registry.example"],
+    ["SHARNESS_REGISTRY_SIGNER_PUBLIC_KEY", registrySigner],
+    ["SHARNESS_ROUTER_ORIGIN", "http://router.example:4320"],
+    ["SHARNESS_AGENT_PRIVATE_KEY_FILE", join(directory, "agent.pem")],
+    ["SHARNESS_ADMISSION_CREDENTIAL_FILE", join(directory, "admission")],
   ]);
 
 const loadConfiguration = (
@@ -96,14 +96,14 @@ const rejectsInvalidEnvironment = () =>
   Effect.gen(function* () {
     const directory = temporaryDirectory();
     const invalidOverrides = [
-      new Map([["MOLTZAPD_STATE_DIRECTORY", ""]]),
-      new Map([["MOLTZAPD_MCP_PORT", "0"]]),
-      new Map([["MOLTZAPD_MCP_PORT", "01"]]),
-      new Map([["MOLTZAPD_MCP_PORT", "65536"]]),
-      new Map([["MOLTZAPD_REGISTRY_ORIGIN", "https://registry.example/path"]]),
-      new Map([["MOLTZAPD_ROUTER_ORIGIN", "ftp://router.example"]]),
-      new Map([["MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY", `${registrySigner} `]]),
-      new Map([["MOLTZAPD_ADMISSION_CREDENTIAL_FILE", "/run/\u0000admission"]]),
+      new Map([["SHARNESS_STATE_DIRECTORY", ""]]),
+      new Map([["SHARNESS_MCP_PORT", "0"]]),
+      new Map([["SHARNESS_MCP_PORT", "01"]]),
+      new Map([["SHARNESS_MCP_PORT", "65536"]]),
+      new Map([["SHARNESS_REGISTRY_ORIGIN", "https://registry.example/path"]]),
+      new Map([["SHARNESS_ROUTER_ORIGIN", "ftp://router.example"]]),
+      new Map([["SHARNESS_REGISTRY_SIGNER_PUBLIC_KEY", `${registrySigner} `]]),
+      new Map([["SHARNESS_ADMISSION_CREDENTIAL_FILE", "/run/\u0000admission"]]),
     ];
     for (const overrides of invalidOverrides) {
       expect(
@@ -150,7 +150,7 @@ const treatsEmptyAdmissionFileAsUnset = () =>
     writeFileSync(join(directory, "agent.pem"), privateKey);
     const configuration = yield* loadConfiguration(
       directory,
-      new Map([["MOLTZAPD_ADMISSION_CREDENTIAL_FILE", ""]]),
+      new Map([["SHARNESS_ADMISSION_CREDENTIAL_FILE", ""]]),
     );
     expect(configuration.admissionCredentialFile).toBeUndefined();
     const bootstrap = yield* loadDaemonBootstrap(configuration);
@@ -168,7 +168,7 @@ const loadsBootstrapWithAdmissionFileUnset = () =>
         ConfigProvider.fromMap(
           new Map(
             [...requiredConfiguration(directory)].filter(
-              ([name]) => name !== "MOLTZAPD_ADMISSION_CREDENTIAL_FILE",
+              ([name]) => name !== "SHARNESS_ADMISSION_CREDENTIAL_FILE",
             ),
           ),
         ),
@@ -260,7 +260,7 @@ describe("history export configuration", () => {
       const directory = temporaryDirectory();
       const configuration = yield* loadConfiguration(
         directory,
-        new Map([["MOLTZAPD_HISTORY_EXPORT", EXPORT_PATH]]),
+        new Map([["SHARNESS_HISTORY_EXPORT", EXPORT_PATH]]),
       );
       expect(configuration.historyExport).toBe(EXPORT_PATH);
     }));
@@ -272,7 +272,7 @@ describe("history export configuration", () => {
         yield* failureReason(
           loadConfiguration(
             directory,
-            new Map([["MOLTZAPD_HISTORY_EXPORT", ""]]),
+            new Map([["SHARNESS_HISTORY_EXPORT", ""]]),
           ),
         ),
       ).toBe("environment");
@@ -285,8 +285,8 @@ const credentialConfiguration = (directory: string) =>
   loadConfiguration(
     directory,
     new Map([
-      ["MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE", join(directory, "runtime")],
-      ["MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE", join(directory, "owner")],
+      ["SHARNESS_MCP_RUNTIME_CREDENTIAL_FILE", join(directory, "runtime")],
+      ["SHARNESS_MCP_OWNER_CREDENTIAL_FILE", join(directory, "owner")],
     ]),
   );
 const bootstrapFiles = () => {
@@ -337,7 +337,7 @@ const rejectsInvalidAuthority = () =>
     const partial = loadConfiguration(
       directory,
       new Map([
-        ["MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE", join(directory, "runtime")],
+        ["SHARNESS_MCP_RUNTIME_CREDENTIAL_FILE", join(directory, "runtime")],
       ]),
     );
     expect(

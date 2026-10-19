@@ -3,6 +3,7 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { scopedLive as it } from "@effect/vitest";
+import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Clock, Deferred, Effect, Fiber } from "effect";
 import { join } from "node:path";
 import { describe, expect } from "vitest";
@@ -48,7 +49,9 @@ function refusesUnsafeStaging(kind: UnsafeStaging) {
     const staging = `${path}.partial`;
     const target = join(directory, "operator-file");
     const fileSystem = yield* FileSystem.FileSystem;
-    const store = yield* openEndpointStore(directory);
+    const store = yield* openEndpointStore(directory, {
+      liveWireVersions: LIVE_WIRE_VERSIONS,
+    });
     yield* (yield* beginFirewallAudit(path, store)).finish;
     const published = yield* fileSystem.readFileString(path);
     yield* fileSystem.writeFileString(target, RETAINED_CONTENT);
@@ -136,7 +139,9 @@ const preservesClockRollback = () =>
           ),
         ),
     );
-    const store = yield* openEndpointStore(directory);
+    const store = yield* openEndpointStore(directory, {
+      liveWireVersions: LIVE_WIRE_VERSIONS,
+    });
     yield* (yield* beginFirewallAudit(path, store)).finish;
     const fileSystem = yield* FileSystem.FileSystem;
     const snapshot = decodeAudit(yield* fileSystem.readFileString(path));

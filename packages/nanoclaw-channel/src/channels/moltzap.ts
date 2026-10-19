@@ -10,6 +10,7 @@ import {
   type HarnessEndpoint,
   type InboundDelivery,
   type InboundItem,
+  legacyKeys,
   MessageAddressInput,
   parseMessageText,
   renderCollectiveRequest,
@@ -73,7 +74,7 @@ const CHANNEL_DEFAULTS = Object.freeze({
 const INBOUND_TIMESTAMP = "1970-01-01T00:00:00.000Z";
 
 const channelEnv = Config.all({
-  mcpEndpoint: Config.option(Config.string("MOLTZAP_MCP_URL")).pipe(
+  mcpEndpoint: Config.option(Config.string("SHARNESS_MCP_URL")).pipe(
     Config.map(Option.getOrNull),
   ),
 });
@@ -634,6 +635,13 @@ class HarnessChannelAdapter {
 }
 
 function makeHarnessChannelAdapter(): HarnessChannelAdapter | null {
+  // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- Host startup enumerates unknown retired keys, which Effect.Config cannot name in advance.
+  const retiredKeys = legacyKeys(process.env);
+  if (retiredKeys.length > 0) {
+    throw new ChannelError({
+      reason: `Retired environment keys: ${retiredKeys.join(", ")}; use SHARNESS_* keys and restart.`,
+    });
+  }
   const { mcpEndpoint } = Effect.runSync(
     channelEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
   );

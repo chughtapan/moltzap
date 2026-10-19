@@ -14,6 +14,7 @@ import {
 } from "@modelcontextprotocol/server";
 import {
   Cause,
+  type Context,
   Effect,
   Either,
   Exit,
@@ -171,6 +172,7 @@ interface RunOperationOptions<Value extends Readonly<Record<string, unknown>>> {
   readonly fallbackReason: string;
   readonly signal: AbortSignal;
   readonly requestScope: Scope.CloseableScope;
+  readonly context: Context.Context<never>;
 }
 
 const makeStandardSchema = <Value>(jsonSchema: unknown) =>
@@ -334,6 +336,7 @@ const runOperation = async <Value extends Readonly<Record<string, unknown>>>(
     options.operation,
     options.signal,
     options.requestScope,
+    options.context,
   );
   if (Exit.isFailure(outcome)) {
     const expectedFailure = Option.match(Cause.dieOption(outcome.cause), {
@@ -367,6 +370,7 @@ const runOperation = async <Value extends Readonly<Record<string, unknown>>>(
  * @param operation A multicast, collective send or collective response.
  * @param signal The request's abort signal, which interrupts the send.
  * @param requestScope The handler lifetime that joins request finalizers before closing.
+ * @param context The trusted daemon services captured when the handler is acquired.
  * @returns The send's tool result.
  */
 // #ignore-sloppy-code-next-line[async-keyword]: MCP tool handlers are Promise callbacks, so this edge awaits Effect before returning the SDK result.
@@ -377,8 +381,9 @@ const runSendOperation = async (
   >,
   signal: AbortSignal,
   requestScope: Scope.CloseableScope,
+  context: Context.Context<never>,
 ) => {
-  const outcome = await runRequest(operation, signal, requestScope);
+  const outcome = await runRequest(operation, signal, requestScope, context);
   if (Exit.isFailure(outcome)) {
     const data = Option.match(Cause.failureOption(outcome.cause), {
       onNone: (): HarnessSendErrorData => ({ reason: "outcome-unknown" }),
@@ -585,6 +590,7 @@ interface ToolCallInput {
   readonly metadata: unknown;
   readonly signal: AbortSignal;
   readonly requestScope: Scope.CloseableScope;
+  readonly context: Context.Context<never>;
 }
 
 const toolNotFound = (name: string): never => {
@@ -594,10 +600,17 @@ const toolNotFound = (name: string): never => {
   );
 };
 
+const requestRuntime = (input: ToolCallInput) => ({
+  signal: input.signal,
+  requestScope: input.requestScope,
+  context: input.context,
+});
+
 const decodeInvocationInput = <A>(
   input: Effect.Effect<A, ParseResult.ParseError>,
   signal: AbortSignal,
   requestScope: Scope.CloseableScope,
+  context: Context.Context<never>,
 ) =>
   runEventOperation(
     input.pipe(
@@ -612,6 +625,7 @@ const decodeInvocationInput = <A>(
     ),
     signal,
     requestScope,
+    context,
   );
 
 /**
@@ -631,6 +645,7 @@ const handleSendToolCall = async (
     decodeHarnessSendCall(input.toolArguments, input.metadata),
     input.signal,
     input.requestScope,
+    input.context,
   );
   const send = operations
     .send(decoded)
@@ -641,7 +656,12 @@ const handleSendToolCall = async (
     );
   return await validateToolOutput(
     sendOutput,
-    await runSendOperation(send, input.signal, input.requestScope),
+    await runSendOperation(
+      send,
+      input.signal,
+      input.requestScope,
+      input.context,
+    ),
     input.name,
   );
 };
@@ -657,13 +677,13 @@ const handleReadSendToolCall = async (
         decodeHarnessReadSendRequest(input.toolArguments),
         input.signal,
         input.requestScope,
+        input.context,
       ),
     ),
     label: "Send lookup",
     allowedReasons: RUNTIME_READ_REASONS,
     fallbackReason: "persistence-failed",
-    signal: input.signal,
-    requestScope: input.requestScope,
+    ...requestRuntime(input),
   });
 
 const POLICY_REASONS = new Set([
@@ -678,6 +698,7 @@ const POLICY_REASONS = new Set([
 interface ToolOperations extends HarnessMcpOperations {
   readonly events: HarnessEvents;
   readonly requestScope: Scope.CloseableScope;
+  readonly context: Context.Context<never>;
 }
 
 // #ignore-sloppy-code-next-line[async-keyword]: The MCP edge validates its Promise-native tool schema before running the owner operation.
@@ -692,7 +713,12 @@ const handleOwnerOperation = async (
     input.name,
   );
   return toolResult(
-    await runEventOperation(operation, input.signal, input.requestScope),
+    await runEventOperation(
+      operation,
+      input.signal,
+      input.requestScope,
+      input.context,
+    ),
   );
 };
 
@@ -735,8 +761,7 @@ const makeToolHandler =
     return await runValidatedOperation(outputSchema, input.name, {
       ...options,
       operation: options.execute(operations, request),
-      signal: input.signal,
-      requestScope: input.requestScope,
+      ...requestRuntime(input),
     });
   };
 
@@ -938,6 +963,7 @@ const installToolCallHandler = (
       metadata: context.mcpReq._meta,
       signal: context.mcpReq.signal,
       requestScope: operations.requestScope,
+      context: operations.context,
     };
     return handleToolCall(input, operations, role);
   });
@@ -946,10 +972,12 @@ const runtimeOperations = (
   operations: HarnessMcpOperations,
   events: HarnessEvents,
   requestScope: Scope.CloseableScope,
+  context: Context.Context<never>,
 ): ToolOperations => ({
   ...operations,
   events,
   requestScope,
+  context,
   acknowledgeDelivery: (token) =>
     operations
       .acknowledgeDelivery(token)
@@ -961,31 +989,24 @@ const runtimeOperations = (
  */
 const makeServer = (
   options: HarnessMcpHandlerOptions,
-  events: HarnessEvents,
+  operations: ToolOperations,
   role: HarnessMcpRole,
-  requestScope: Scope.CloseableScope,
 ): McpServer => {
-  const capabilities = {
-    tools: {},
-    events: {},
-  };
+  const capabilities = { tools: {}, events: {} };
   const server = new McpServer(options.implementation, { capabilities });
   for (const name of currentTools(role, options.operations)) {
     const listing: ToolListing = toolListings[name];
     server.registerTool(name, listing, () => toolResult({}));
   }
-  installToolCallHandler(
-    server,
-    runtimeOperations(options.operations, events, requestScope),
-    role,
-  );
-  events.install(server.server, role === "local" ? undefined : role);
+  installToolCallHandler(server, operations, role);
+  operations.events.install(server.server, role === "local" ? undefined : role);
   return server;
 };
 const officialHandler = (
   options: HarnessMcpHandlerOptions,
   events: HarnessEvents,
   requestScope: Scope.CloseableScope,
+  effectContext: Context.Context<never>,
 ) =>
   createMcpHandler(
     (context) => {
@@ -997,7 +1018,16 @@ const officialHandler = (
       if (role === undefined) {
         throw new ProtocolError(-32012, "Authentication required");
       }
-      return makeServer(options, events, role, requestScope);
+      return makeServer(
+        options,
+        runtimeOperations(
+          options.operations,
+          events,
+          requestScope,
+          effectContext,
+        ),
+        role,
+      );
     },
     { legacy: "reject", responseMode: "auto", onerror: options.onerror },
   );
@@ -1052,6 +1082,7 @@ const acquireHandler = (
   scope: Scope.CloseableScope,
 ) =>
   Effect.gen(function* () {
+    const context = yield* Effect.context<never>();
     const gate = yield* Effect.makeSemaphore(1);
     const webhook = yield* acquireWebhook(options, scope, gate);
     const events = yield* makeHarnessEvents({
@@ -1064,7 +1095,7 @@ const acquireHandler = (
     });
     return guardedHandler(
       options,
-      officialHandler(options, events, scope),
+      officialHandler(options, events, scope, context),
       events,
       scope,
     );

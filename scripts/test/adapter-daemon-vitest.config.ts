@@ -10,6 +10,7 @@ const WORKSPACE_ROOT = resolve(SCRIPT_DIRECTORY, "..", "..");
 export default defineConfig({
   root: WORKSPACE_ROOT,
   resolve: {
+    conditions: ["sharness-test"],
     alias: {
       "@moltzap/client": resolve(
         WORKSPACE_ROOT,
@@ -21,6 +22,7 @@ export default defineConfig({
       ),
     },
   },
+  ssr: { resolve: { conditions: ["sharness-test"] } },
   test: {
     include: ["scripts/test/adapter-daemon-process.integration.test.ts"],
     maxWorkers: 1,

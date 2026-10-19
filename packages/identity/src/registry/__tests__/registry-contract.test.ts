@@ -61,14 +61,14 @@ const CLIENT_TIMEOUT = Duration.seconds(5);
 const SHORT_CLIENT_TIMEOUT = Duration.millis(5);
 
 const requiredConfiguration = new Map([
-  ["MOLTZAP_REGISTRY_PORT", "4317"],
+  ["SHARNESS_REGISTRY_PORT", "4317"],
   [
-    "MOLTZAP_REGISTRY_POSTGRESQL_URL",
+    "SHARNESS_REGISTRY_POSTGRESQL_URL",
     "postgresql://registry:secret@127.0.0.1:5432/registry?sslmode=disable",
   ],
-  ["MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL", "admission-token="],
+  ["SHARNESS_REGISTRY_ADMISSION_CREDENTIAL", "admission-token="],
   [
-    "MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH",
+    "SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH",
     "/run/secrets/registry-key.pem",
   ],
 ]);
@@ -103,19 +103,19 @@ const effectFails = <A, E, R>(
   );
 
 const invalidConfigurationOverrides = [
-  new Map([["MOLTZAP_REGISTRY_PORT", "0"]]),
-  new Map([["MOLTZAP_REGISTRY_PORT", "01"]]),
-  new Map([["MOLTZAP_REGISTRY_PORT", "65536"]]),
+  new Map([["SHARNESS_REGISTRY_PORT", "0"]]),
+  new Map([["SHARNESS_REGISTRY_PORT", "01"]]),
+  new Map([["SHARNESS_REGISTRY_PORT", "65536"]]),
   // eslint-disable-next-line sonarjs/no-clear-text-protocols -- The configuration boundary must reject this intentionally wrong scheme.
-  new Map([["MOLTZAP_REGISTRY_POSTGRESQL_URL", "http://db/registry"]]),
-  new Map([["MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL", "short"]]),
-  new Map([["MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL", "invalid!token"]]),
-  new Map([["MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH", "relative.pem"]]),
-  new Map([["MOLTZAP_REGISTRY_LIST_PAGE_SIZE", "0"]]),
-  new Map([["MOLTZAP_REGISTRY_REQUEST_CONCURRENCY_LIMIT", "+2"]]),
-  new Map([["MOLTZAP_REGISTRY_LIVE_NONCE_CAPACITY", "1.5"]]),
-  new Map([["MOLTZAP_REGISTRY_SQL_POOL_SIZE", "0"]]),
-  new Map([["MOLTZAP_REGISTRY_SQL_OPERATION_TIMEOUT_MS", "1e3"]]),
+  new Map([["SHARNESS_REGISTRY_POSTGRESQL_URL", "http://db/registry"]]),
+  new Map([["SHARNESS_REGISTRY_ADMISSION_CREDENTIAL", "short"]]),
+  new Map([["SHARNESS_REGISTRY_ADMISSION_CREDENTIAL", "invalid!token"]]),
+  new Map([["SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH", "relative.pem"]]),
+  new Map([["SHARNESS_REGISTRY_LIST_PAGE_SIZE", "0"]]),
+  new Map([["SHARNESS_REGISTRY_REQUEST_CONCURRENCY_LIMIT", "+2"]]),
+  new Map([["SHARNESS_REGISTRY_LIVE_NONCE_CAPACITY", "1.5"]]),
+  new Map([["SHARNESS_REGISTRY_SQL_POOL_SIZE", "0"]]),
+  new Map([["SHARNESS_REGISTRY_SQL_OPERATION_TIMEOUT_MS", "1e3"]]),
 ];
 
 const makePrivateKeyPem = (): string => {
@@ -176,17 +176,17 @@ const assertDefaultConfiguration = Effect.gen(function* () {
   expect(Redacted.isRedacted(configuration.admissionCredential)).toBe(true);
   expect(Redacted.isRedacted(configuration.signingPrivateKeyPath)).toBe(true);
   expect(Redacted.value(configuration.postgresqlUrl)).toBe(
-    requiredConfiguration.get("MOLTZAP_REGISTRY_POSTGRESQL_URL"),
+    requiredConfiguration.get("SHARNESS_REGISTRY_POSTGRESQL_URL"),
   );
 
   const overridden = yield* loadConfiguration(
     new Map([
-      ["MOLTZAP_REGISTRY_HOST", "::"],
-      ["MOLTZAP_REGISTRY_LIST_PAGE_SIZE", "7"],
-      ["MOLTZAP_REGISTRY_REQUEST_CONCURRENCY_LIMIT", "8"],
-      ["MOLTZAP_REGISTRY_LIVE_NONCE_CAPACITY", "9"],
-      ["MOLTZAP_REGISTRY_SQL_POOL_SIZE", "3"],
-      ["MOLTZAP_REGISTRY_SQL_OPERATION_TIMEOUT_MS", "250"],
+      ["SHARNESS_REGISTRY_HOST", "::"],
+      ["SHARNESS_REGISTRY_LIST_PAGE_SIZE", "7"],
+      ["SHARNESS_REGISTRY_REQUEST_CONCURRENCY_LIMIT", "8"],
+      ["SHARNESS_REGISTRY_LIVE_NONCE_CAPACITY", "9"],
+      ["SHARNESS_REGISTRY_SQL_POOL_SIZE", "3"],
+      ["SHARNESS_REGISTRY_SQL_OPERATION_TIMEOUT_MS", "250"],
     ]),
   );
   expect(overridden).toMatchObject({
@@ -207,7 +207,7 @@ const assertInvalidConfigurations = Effect.gen(function* () {
 
 const assertTypedStartupFailure = Effect.gen(function* () {
   const provider = ConfigProvider.fromMap(
-    new Map([...requiredConfiguration, ["MOLTZAP_REGISTRY_PORT", "0"]]),
+    new Map([...requiredConfiguration, ["SHARNESS_REGISTRY_PORT", "0"]]),
   );
   const startupFailure = yield* Layer.build(registryServerLayer).pipe(
     Effect.scoped,

@@ -768,9 +768,9 @@ function groupByConversation(
   outbounds: readonly StoredOutboundMessage[],
 ): Map<string, readonly string[]> {
   const grouped = new Map<string, string[]>();
-  for (const { conversationId, outboundId } of outbounds) {
+  for (const { conversationId, messageId } of outbounds) {
     const held = grouped.get(conversationId) ?? [];
-    held.push(outboundId);
+    held.push(messageId);
     grouped.set(conversationId, held);
   }
   return grouped;

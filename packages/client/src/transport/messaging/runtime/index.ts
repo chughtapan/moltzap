@@ -149,6 +149,7 @@ export function makeActionFold(
 
 /** Shared acquired state used by addressed send and protocol ingress. */
 export interface EngineRuntime {
+  readonly wireVersion: string;
   readonly input: EndpointEngineInput;
   readonly conversations: Map<ConversationId, EngineConversation>;
   readonly intents: Map<string, EnginePostIntent>;
@@ -212,7 +213,7 @@ export interface EngineOutbox {
     conversationId: ConversationId,
     message: SignedMessage,
   ) => Effect.Effect<void, EngineOutboxError>;
-  readonly resume: (outboundIds: readonly string[]) => Effect.Effect<void>;
+  readonly resume: (messageIds: readonly string[]) => Effect.Effect<void>;
   /** Forget every queued identity; the store keeps the envelopes. */
   readonly clear: () => void;
   /** Run `effect` while no drain reads or removes the queue head. */

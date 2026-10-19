@@ -12,8 +12,9 @@ export {
   LIVE_WIRE_VERSIONS,
   WIRE_VERSION,
   type WireVersion,
-  WireVersions,
 } from "./version.js";
+/** Compatibility operations have no injectable context tag in the published API. */
+export { wireVersions } from "./wire-versions.js";
 
 /** Canonical refined values shared by identity and its consumers. */
 export { AgentId, AgentName, PrincipalId } from "./identifiers.js";
@@ -65,3 +66,6 @@ export {
 } from "./http-errors.js";
 /** HTTP request signing failure without implementation detail. */
 export { AgentSigningError } from "./http-signature.js";
+
+/** Configuration refusals share one prefix rule across all service processes. */
+export { legacyKeys } from "./legacy-keys.js";

@@ -38,10 +38,16 @@
     "./registry/server": {
       "types": "./dist/registry/server.d.ts",
       "import": "./dist/registry/server.js"
+    },
+    "./test": {
+      "sharness-test": {
+        "types": "./dist/wire-versions.d.ts",
+        "import": "./dist/wire-versions.js"
+      }
     }
   },
   "bin": {
-    "moltzap-registry": "./bin/moltzap-registry"
+    "sharness-registry": "./bin/sharness-registry"
   },
   "scripts": {
     "build": "nx run @moltzap/identity:build",

@@ -1,6 +1,7 @@
 /** @file Transaction failures retain whether a mutation can have committed. */
 
 import { scopedLive as it } from "@effect/vitest";
+import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Effect } from "effect";
 import { DatabaseSync } from "node:sqlite";
 import { expect, vi } from "vitest";
@@ -19,12 +20,16 @@ it.each(["ABORT", "ROLLBACK"] as const)(
   (action) =>
     Effect.gen(function* () {
       const directory = stateDirectory();
-      yield* Effect.scoped(openEndpointStore(directory));
+      yield* Effect.scoped(
+        openEndpointStore(directory, { liveWireVersions: LIVE_WIRE_VERSIONS }),
+      );
       const database = new DatabaseSync(databasePath(directory));
       database.exec(`CREATE TRIGGER refuse_identity BEFORE INSERT ON identity_binding
       BEGIN SELECT RAISE(${action}, 'secret SQLite diagnostic'); END`);
       database.close();
-      const store = yield* openEndpointStore(directory);
+      const store = yield* openEndpointStore(directory, {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      });
 
       const failure = yield* store
         .bindIdentity({
@@ -44,7 +49,9 @@ it.each(["ABORT", "ROLLBACK"] as const)(
 
 it("reports uncertainty when a persistence failure follows the commit", () =>
   Effect.gen(function* () {
-    const store = yield* openEndpointStore(stateDirectory());
+    const store = yield* openEndpointStore(stateDirectory(), {
+      liveWireVersions: LIVE_WIRE_VERSIONS,
+    });
     // eslint-disable-next-line @typescript-eslint/unbound-method -- The fault injector explicitly calls this driver method with the intercepted database as its receiver.
     const execute = DatabaseSync.prototype.exec;
     const fault = vi
@@ -80,7 +87,9 @@ it("reports uncertainty when a persistence failure follows the commit", () =>
 
 it("reports no commit when transaction acquisition fails", () =>
   Effect.gen(function* () {
-    const store = yield* openEndpointStore(stateDirectory());
+    const store = yield* openEndpointStore(stateDirectory(), {
+      liveWireVersions: LIVE_WIRE_VERSIONS,
+    });
     // eslint-disable-next-line @typescript-eslint/unbound-method -- The fault injector explicitly calls this driver method with the intercepted database as its receiver.
     const execute = DatabaseSync.prototype.exec;
     const fault = vi
@@ -115,12 +124,16 @@ it("reports no commit when transaction acquisition fails", () =>
 it("reports a rolled-back reservation failure without executing or retaining the invocation", () =>
   Effect.gen(function* () {
     const directory = stateDirectory();
-    yield* Effect.scoped(openEndpointStore(directory));
+    yield* Effect.scoped(
+      openEndpointStore(directory, { liveWireVersions: LIVE_WIRE_VERSIONS }),
+    );
     const database = new DatabaseSync(databasePath(directory));
     database.exec(`CREATE TRIGGER refuse_reservation BEFORE INSERT ON runtime_sends
       BEGIN SELECT RAISE(ROLLBACK, 'secret SQLite diagnostic'); END`);
     database.close();
-    const store = yield* openEndpointStore(directory);
+    const store = yield* openEndpointStore(directory, {
+      liveWireVersions: LIVE_WIRE_VERSIONS,
+    });
     const failure = yield* store
       .beginSendAttempt("key", bytes("secret input"))
       .pipe(Effect.flip);

@@ -14,6 +14,7 @@ import {
   AuthenticatedHttp,
   Ed25519PublicKey,
   type Ed25519PublicKey as Ed25519PublicKeyValue,
+  legacyKeys,
   SignedMessage,
 } from "@moltzap/identity";
 import canonicalize from "canonicalize";
@@ -21,6 +22,7 @@ import {
   Config,
   type ConfigError,
   Context,
+  Data,
   Duration,
   Effect,
   Layer,
@@ -344,60 +346,60 @@ const compactPublicKeyJson = Schema.String.pipe(
 );
 
 const configurationFields = {
-  host: setting("MOLTZAP_ROUTER_HOST", bindHost, "127.0.0.1"),
-  port: setting("MOLTZAP_ROUTER_PORT", port),
-  registryOrigin: setting("MOLTZAP_ROUTER_REGISTRY_ORIGIN", registryOrigin),
+  host: setting("SHARNESS_ROUTER_HOST", bindHost, "127.0.0.1"),
+  port: setting("SHARNESS_ROUTER_PORT", port),
+  registryOrigin: setting("SHARNESS_ROUTER_REGISTRY_ORIGIN", registryOrigin),
   registrySignerPublicKey: setting(
-    "MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY",
+    "SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY",
     compactPublicKeyJson,
   ),
   retainedMessageCapacity: setting(
-    "MOLTZAP_ROUTER_RETAINED_MESSAGE_CAPACITY",
+    "SHARNESS_ROUTER_RETAINED_MESSAGE_CAPACITY",
     processInteger,
     4_096,
   ),
   retainedMessageByteCapacity: setting(
-    "MOLTZAP_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY",
+    "SHARNESS_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY",
     processInteger,
     67_108_864,
   ),
   pollMessageLimit: setting(
-    "MOLTZAP_ROUTER_POLL_MESSAGE_LIMIT",
+    "SHARNESS_ROUTER_POLL_MESSAGE_LIMIT",
     processInteger,
     128,
   ),
   pollResponseByteLimit: setting(
-    "MOLTZAP_ROUTER_POLL_RESPONSE_BYTE_LIMIT",
+    "SHARNESS_ROUTER_POLL_RESPONSE_BYTE_LIMIT",
     processInteger,
     1_048_576,
   ),
   requestConcurrencyLimit: setting(
-    "MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT",
+    "SHARNESS_ROUTER_REQUEST_CONCURRENCY_LIMIT",
     processInteger,
     512,
   ),
   heldPollCapacity: setting(
-    "MOLTZAP_ROUTER_HELD_POLL_CAPACITY",
+    "SHARNESS_ROUTER_HELD_POLL_CAPACITY",
     processInteger,
     256,
   ),
   liveNonceCapacity: setting(
-    "MOLTZAP_ROUTER_LIVE_NONCE_CAPACITY",
+    "SHARNESS_ROUTER_LIVE_NONCE_CAPACITY",
     processInteger,
     100_000,
   ),
   agentCardCacheCapacity: setting(
-    "MOLTZAP_ROUTER_AGENT_CARD_CACHE_CAPACITY",
+    "SHARNESS_ROUTER_AGENT_CARD_CACHE_CAPACITY",
     processInteger,
     10_000,
   ),
   registryLookupConcurrencyLimit: setting(
-    "MOLTZAP_ROUTER_REGISTRY_LOOKUP_CONCURRENCY_LIMIT",
+    "SHARNESS_ROUTER_REGISTRY_LOOKUP_CONCURRENCY_LIMIT",
     processInteger,
     32,
   ),
   registryLookupTimeoutMs: setting(
-    "MOLTZAP_ROUTER_REGISTRY_LOOKUP_TIMEOUT_MS",
+    "SHARNESS_ROUTER_REGISTRY_LOOKUP_TIMEOUT_MS",
     processInteger,
     5_000,
   ),
@@ -407,7 +409,7 @@ const configuredValues = Config.all(configurationFields);
 
 /** Usage is generated from the same fields consumed by the process. */
 export const processHelp = [
-  "Usage: moltzap-router [--help]",
+  "Usage: sharness-router [--help]",
   "",
   "Environment:",
   ...Object.values(configurationFields).map((field) => `  ${field.usage}`),
@@ -445,10 +447,10 @@ const heldPollsFit = (candidate: RouterConfiguration): boolean =>
   candidate.heldPollCapacity < candidate.requestConcurrencyLimit;
 
 const resourceLimitMessages = {
-  retention: `MOLTZAP_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY must be at least ${SignedMessage.maximumEncodedByteLength} to retain one maximum-size message`,
-  pollBatch: `MOLTZAP_ROUTER_POLL_RESPONSE_BYTE_LIMIT must be at least ${routerRepresentationLimits.oneMessageBatchBytes} to return one maximum-size message`,
+  retention: `SHARNESS_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY must be at least ${SignedMessage.maximumEncodedByteLength} to retain one maximum-size message`,
+  pollBatch: `SHARNESS_ROUTER_POLL_RESPONSE_BYTE_LIMIT must be at least ${routerRepresentationLimits.oneMessageBatchBytes} to return one maximum-size message`,
   heldPolls:
-    "MOLTZAP_ROUTER_HELD_POLL_CAPACITY must be less than MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT",
+    "SHARNESS_ROUTER_HELD_POLL_CAPACITY must be less than SHARNESS_ROUTER_REQUEST_CONCURRENCY_LIMIT",
 };
 
 const validatedConfiguration = configuredValues.pipe(
@@ -466,8 +468,20 @@ const validatedConfiguration = configuredValues.pipe(
   }),
 );
 
+/** Legacy key names survive configuration mapping without rereading ambient state. */
+class LegacyConfigurationError extends Data.TaggedError(
+  "LegacyConfigurationError",
+)<{
+  readonly keys: readonly string[];
+}> {}
+
 /** Loads and cross-validates the complete private Router process configuration. */
 export const loadRouterConfiguration = Effect.gen(function* () {
+  // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- Configuration acquisition enumerates unknown legacy keys, which Effect.Config cannot name in advance.
+  const keys = legacyKeys(process.env);
+  if (keys.length > 0) {
+    return yield* Effect.fail(new LegacyConfigurationError({ keys }));
+  }
   const configuration: RouterConfiguration = yield* validatedConfiguration;
   return configuration;
 }).pipe(Effect.withSpan("loadRouterConfiguration"));

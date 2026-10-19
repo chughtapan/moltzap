@@ -9,6 +9,7 @@ import type { HarnessMcpCredentials } from "../endpoint/mcp/index.js";
 
 /** Closed reason that daemon configuration cannot become startup authority. */
 export type DaemonConfigurationFailure =
+  | "legacy-key"
   | "environment"
   | "agent-private-key-file"
   | "agent-private-key"
@@ -24,6 +25,7 @@ export class DaemonConfigurationError extends Data.TaggedError(
 )<{
   readonly reason: DaemonConfigurationFailure;
   readonly message: string;
+  readonly keys?: readonly string[];
 }> {}
 
 /** Exact non-secret values and redacted secret-file locations for one daemon. */

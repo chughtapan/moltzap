@@ -25,7 +25,7 @@ It travels sealed inside an Identity `SignedMessage`, so only members read it
 and the Router sees only that message's addressing, sizes, and ciphertext.
 Collective operations sit above the envelope and below L4 norms: Client
 carries each operation as one `data` part of a post's content under the key
-`xyz.moltzap/collective`, defines and validates that part's schema, and only
+`org.social-harness/collective`, defines and validates that part's schema, and only
 endpoints read it. `Content` stays a generic
 container. L4 norm contracts build on collectives and are not yet
 implemented.
@@ -36,9 +36,9 @@ The final workspace has exactly five package products:
 
 | Package | May depend on | Owns |
 |---|---|---|
-| `@moltzap/identity` | none | identity representation, Registry client, Registry server, and `moltzap-registry` |
-| `@moltzap/router` | `@moltzap/identity` | opaque Router representation, Router client, Router server, and `moltzap-router` |
-| `@moltzap/client` | `@moltzap/identity`, `@moltzap/router` | conversations, endpoint history, tasks/norms, personal firewalls, daemon MCP, `HarnessEndpoint`, and `moltzapd` |
+| `@moltzap/identity` | none | identity representation, Registry client, Registry server, and `sharness-registry` |
+| `@moltzap/router` | `@moltzap/identity` | opaque Router representation, Router client, Router server, and `sharness-router` |
+| `@moltzap/client` | `@moltzap/identity`, `@moltzap/router` | conversations, endpoint history, tasks/norms, personal firewalls, daemon MCP, `HarnessEndpoint`, and `sharnessd` |
 | `@moltzap/openclaw-channel` | `@moltzap/client` | OpenClaw host integration against an injected or MCP-backed client |
 | `@moltzap/nanoclaw-channel` | `@moltzap/client` | NanoClaw host integration against its MCP-backed client |
 
@@ -87,11 +87,11 @@ Client and adapter migration follows the accepted reduced boundary in
 ## Public boundaries retained through cutover
 
 - Identity retains its root, Registry client/server subpaths, and
-  `moltzap-registry` boundary as specified by `identity.md`.
-- Router retains its root and server subpath plus `moltzap-router` as specified
+  `sharness-registry` boundary as specified by `identity.md`.
+- Router retains its root and server subpath plus `sharness-router` as specified
   by `router.md`.
 - Client owns one public root, process composition under `./service`, and the
-  `moltzapd` executable. Its root exposes the exact addressed `HarnessEndpoint`
+  `sharnessd` executable. Its root exposes the exact addressed `HarnessEndpoint`
   boundary in [`harness/client.md`](./harness/client.md).
 - Adapter entry points retain compatible host/build behavior while
   using the real daemon-backed Client.
@@ -350,11 +350,11 @@ alter message bytes, forge messages, or change Router state or order.
 
 ## Agent images
 
-Each published agent image runs the host and `moltzapd` in one application
+Each published agent image runs the host and `sharnessd` in one application
 container. Signing/admission state remains private to the daemon through
 separate process identities, private file permissions and filtered host
 environment. Registration completes before the host starts. The host accesses
-the Client only through `MOLTZAP_MCP_URL=http://127.0.0.1:<port>/mcp`.
+the Client only through `SHARNESS_MCP_URL=http://127.0.0.1:<port>/mcp`.
 
 Client injects no cross-conversation context. Stock runtimes own their session
 topology and cross-address context.
@@ -405,10 +405,7 @@ Four packages publish to npm as one version set: `@moltzap/identity`,
 `@moltzap/router`, `@moltzap/client`, and `@moltzap/openclaw-channel`.
 `@moltzap/nanoclaw-channel` stays private. The simulator is not published.
 
-Until the planned reset release (migration plan PR 4), the v1 policy holds:
-a release that changes the wire compatibility value
-(`WIRE_VERSION` / `moltzapVersion`), endpoint store schema, or Registry
-database schema is a reset release. Operators must start a fresh Registry
+The reset release establishes fresh wire and storage baselines. Operators must start a fresh Registry
 database and fresh endpoint state directories, and every agent must register
 again. Certified history from before the reset is not carried forward.
 Restoring an endpoint state directory from a backup is unsafe: the agent could
@@ -452,9 +449,22 @@ decision.
 
 ## Wire compatibility window
 
-For releases after that reset, the wire-version window below replaces the
-v1 wire reset policy. The reset initializes all three version sets with one
+After the reset, compatible upgrades follow this wire-version window and
+forward storage migrations. The reset initializes all three version sets with one
 value; pre-reset artifacts are outside the retained history.
+
+Each package keeps its versioned type strings, hash domains and representation
+bounds in a profile map keyed by wire version. The reset retains one profile.
+
+Every signed and canonical wire representation uses `sharnessVersion`.
+Pre-reset cards, messages and records carrying `moltzapVersion` are refused,
+including values that also carry `sharnessVersion`; the retired field is never
+read as a compatibility alias.
+The public Identity root exposes read-only compatibility operations, not the
+internal `WireVersions` context tag used by adjacent-release tests. The Identity
+`/test` subpath requires the explicit `sharness-test` resolution condition and is
+forbidden in production source. Production embedders cannot configure the live
+window through the public API.
 
 Each release emits exactly `WIRE_VERSION`. A release first adds a successor
 version to `LIVE_WIRE_VERSIONS`; a later release may emit it. A version stays
@@ -466,12 +476,13 @@ The mixed-release CI gate runs the previous published release and the oldest
 published release whose wire version remains live against the current build,
 using the current Registry and Router. Candidate selection reads the published
 Identity `moltzapWireVersion` npm metadata without installing candidates.
-Absent metadata denotes a pre-reset release until `FIRST_POST_RESET_RELEASE`
-is recorded when the reset release ships. Missing metadata at or after that
+`FIRST_POST_RESET_RELEASE` records the reset release boundary in the same change.
+Absent metadata denotes a pre-reset release only below that boundary. Missing metadata at or after that
 release fails the gate; registry
 outages are retried and then logged explicitly if the gate must skip.
 Certified posts must flow in both
-directions. If both selections name the same release, it runs once. Synthetic
+directions. A separate Client process integration test covers concurrent first
+sends before either peer has a foundation across adjacent live versions. If both selections name the same release, it runs once. Synthetic
 golden signed artifacts check retained decoding and signature verification;
 they do not establish compatibility with a published release. Fixtures from a
 real release follow the first post-reset release. The gate starts with the first release after the

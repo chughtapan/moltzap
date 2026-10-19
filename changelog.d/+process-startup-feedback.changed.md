@@ -1,1 +1,1 @@
-Registry, Router, and moltzapd report actionable startup configuration failures without exposing supplied values, announce their listening URL and versions, and support `--help` with environment requirements and defaults derived from runtime configuration definitions.
+Registry, Router, and sharnessd report actionable startup configuration failures without exposing supplied values, announce their listening URL and versions, and support `--help` with environment requirements and defaults derived from runtime configuration definitions.

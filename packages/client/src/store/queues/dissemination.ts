@@ -70,20 +70,20 @@ export function enqueueDisseminationOutbound(
     }
     const outbound = enqueueInTransaction(database, message);
     if (
-      retained.outboundId !== undefined &&
-      retained.outboundId !== outbound.outboundId
+      retained.messageId !== undefined &&
+      retained.messageId !== outbound.messageId
     ) {
       throw new StoreSignal("conflict");
     }
-    if (retained.outboundId === undefined) {
+    if (retained.messageId === undefined) {
       database
         .prepare(
-          `UPDATE dissemination_obligations SET outbound_id = ?
+          `UPDATE dissemination_obligations SET message_id = ?
            WHERE conversation_id = ? AND record_hash = ?
-             AND outbound_id IS NULL`,
+             AND message_id IS NULL`,
         )
         .run(
-          outbound.outboundId,
+          outbound.messageId,
           obligation.conversationId,
           obligation.recordHash,
         );
@@ -106,7 +106,7 @@ export function readPendingDissemination(
     database
       .prepare(
         `SELECT conversation_id, record_hash
-         FROM dissemination_obligations WHERE outbound_id IS NULL ${conversationId === undefined ? "" : "AND conversation_id = ?"}
+         FROM dissemination_obligations WHERE message_id IS NULL ${conversationId === undefined ? "" : "AND conversation_id = ?"}
          ORDER BY obligation_sequence`,
       )
       .all(...(conversationId === undefined ? [] : [conversationId]))
@@ -120,7 +120,7 @@ export function readPendingDissemination(
 }
 
 interface RetainedDissemination {
-  readonly outboundId?: string;
+  readonly messageId?: string;
 }
 
 function findObligation(
@@ -129,15 +129,15 @@ function findObligation(
 ): RetainedDissemination | undefined {
   const row = database
     .prepare(
-      `SELECT outbound_id FROM dissemination_obligations
+      `SELECT message_id FROM dissemination_obligations
        WHERE conversation_id = ? AND record_hash = ?`,
     )
     .get(obligation.conversationId, obligation.recordHash);
   if (row === undefined) {
     return undefined;
   }
-  const outboundId = readOptionalText(row, "outbound_id");
-  return Object.freeze(outboundId === undefined ? {} : { outboundId });
+  const messageId = readOptionalText(row, "message_id");
+  return Object.freeze(messageId === undefined ? {} : { messageId });
 }
 
 function validateObligation(obligation: DisseminationObligation): void {

@@ -5,7 +5,10 @@
     "noEmit": true,
     "incremental": true,
     "rootDir": ".",
-    "tsBuildInfoFile": "./tsconfig.integration.tsbuildinfo"
+    "tsBuildInfoFile": "./tsconfig.integration.tsbuildinfo",
+    "customConditions": [
+      "sharness-test"
+    ]
   },
   "include": [
     "integration/**/*.ts"

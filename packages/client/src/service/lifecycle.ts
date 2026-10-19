@@ -46,7 +46,7 @@ export interface DaemonRuntimeDependencies extends ProtocolEdges {
 }
 
 const DAEMON_IMPLEMENTATION = {
-  name: "moltzapd",
+  name: "sharnessd",
   version: packageVersion,
 } satisfies Implementation;
 
@@ -129,7 +129,7 @@ function runDaemonResources(
         })
         .pipe(Effect.mapError(() => runtimeFailure("listener")));
       yield* Console.log(
-        `moltzapd listening on http://${LOOPBACK_HOST}:${input.bootstrap.configuration.mcpPort}/mcp (package ${packageVersion}; WIRE_VERSION ${WIRE_VERSION})`,
+        `sharnessd listening on http://${LOOPBACK_HOST}:${input.bootstrap.configuration.mcpPort}/mcp (package ${packageVersion}; WIRE_VERSION ${WIRE_VERSION})`,
       );
       return yield* daemon.awaitFailure;
     }).pipe(Effect.raceFirst(daemon.awaitFailure));

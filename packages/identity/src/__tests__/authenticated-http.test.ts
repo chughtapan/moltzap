@@ -46,7 +46,8 @@ import {
   RegistryConnectionError,
   type RegistryLookupResult,
 } from "../registry/contract.js";
-import { WIRE_VERSION, WireVersions } from "../version.js";
+import { WIRE_VERSION } from "../version.js";
+import { WireVersions } from "../wire-versions.js";
 import {
   type IdentityFixture,
   makeIdentityFixture,
@@ -65,7 +66,7 @@ const NORMAL_FIELDS = Object.freeze([
   "@query",
   "content-digest",
   "content-type",
-  "moltzap-version",
+  "sharness-version",
 ]);
 const SIGNATURE_PARAMETERS = Object.freeze([
   "created",
@@ -409,7 +410,7 @@ const changeSignature = (value: string): string => {
 const universalSignatureHeader = (): string => {
   const signature = new Uint8Array(64);
   signature[0] = 1;
-  return `moltzap=:${Buffer.from(signature).toString("base64")}:`;
+  return `sharness=:${Buffer.from(signature).toString("base64")}:`;
 };
 
 const signatureMutations = (
@@ -520,14 +521,14 @@ const structuredFieldDuplicateMutations = (
       ),
     },
     {
-      name: "Signature-Input moltzap label",
+      name: "Signature-Input sharness label",
       prepared: withSignatureInput(
         prepared,
-        `moltzap=("@method");created=0, ${signatureInput}`,
+        `sharness=("@method");created=0, ${signatureInput}`,
       ),
     },
     {
-      name: "Signature moltzap label",
+      name: "Signature sharness label",
       prepared: withSignature(
         prepared,
         `${universalSignatureHeader()}, ${signature}`,
@@ -641,13 +642,13 @@ const signVersionedRequest = (
     try: () =>
       httpbis.signMessage(
         {
-          name: "moltzap",
+          name: "sharness",
           fields: [...NORMAL_FIELDS],
           params: [...SIGNATURE_PARAMETERS],
           paramValues: {
             ...parameters,
             alg: "ed25519",
-            tag: "moltzap-request-v1",
+            tag: "sharness-request-v1",
           },
           key: {
             id: parameters.keyid,
@@ -678,7 +679,7 @@ const resignWithVersion = (
     const request = HttpClientRequest.post(prepared.clientRequest.url, {
       body: prepared.clientRequest.body,
       headers: unsignedHeaders,
-    }).pipe(HttpClientRequest.setHeader("moltzap-version", version));
+    }).pipe(HttpClientRequest.setHeader("sharness-version", version));
     const parameters = yield* makeSignatureParameters(fixture);
     const signed = yield* signVersionedRequest(request, fixture, parameters);
     const clientRequest = request.pipe(

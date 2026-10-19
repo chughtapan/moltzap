@@ -4,6 +4,7 @@ import type { Registry } from "@moltzap/identity/registry";
 import { live as it } from "@effect/vitest";
 import {
   AuthenticationFailedError,
+  LIVE_WIRE_VERSIONS,
   OverloadedError,
   SignedMessage,
   type SignedMessage as SignedMessageValue,
@@ -225,9 +226,11 @@ const withOutbox = <Value, Failure, Requirements>(
   use: (store: EndpointStore) => Effect.Effect<Value, Failure, Requirements>,
 ) =>
   Effect.scoped(
-    Effect.suspend(() => openEndpointStore(stateDirectory())).pipe(
-      Effect.flatMap(use),
-    ),
+    Effect.suspend(() =>
+      openEndpointStore(stateDirectory(), {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      }),
+    ).pipe(Effect.flatMap(use)),
   );
 
 function prepareOutbound(
@@ -244,6 +247,7 @@ function prepareOutbound(
           conversationId,
           messageId: message.messageId,
           canonicalSignedMessage,
+          wireVersion: SignedMessage.wireVersion(message),
         })
         .pipe(Effect.orDie),
     ),
@@ -409,7 +413,7 @@ function sendThroughScript(answers: readonly ScriptedSendAnswer[]) {
         fixture,
       );
       const failure = yield* provide(
-        worker.send(outbound.outboundId).pipe(Effect.flip, Effect.option),
+        worker.send(outbound.messageId).pipe(Effect.flip, Effect.option),
         router.layer,
         fixture,
       );
@@ -695,7 +699,7 @@ const restartedSendRecoversBeforeReturning = () =>
         fixture,
       );
       const error = yield* provide(
-        worker.send(outbound.outboundId).pipe(Effect.flip),
+        worker.send(outbound.messageId).pipe(Effect.flip),
         router.layer,
         fixture,
       );
@@ -916,7 +920,7 @@ const normalSendWaitsForRecovery = () =>
       );
       yield* Deferred.await(recoveryStarted);
       const sending = yield* provide(
-        Effect.fork(worker.send(outbound.outboundId)),
+        Effect.fork(worker.send(outbound.messageId)),
         router.layer,
         fixture,
       );
@@ -1273,7 +1277,7 @@ const outageDetachesAndReattaches = () =>
             new RouterWorkerUnavailableError(),
           );
           expect(
-            yield* worker.send(outbound.outboundId).pipe(Effect.flip),
+            yield* worker.send(outbound.messageId).pipe(Effect.flip),
           ).toStrictEqual(new RouterWorkerUnavailableError());
 
           yield* Ref.set(reachable, true);
@@ -1286,7 +1290,7 @@ const outageDetachesAndReattaches = () =>
             expect.arrayContaining([expect.stringContaining("reattached")]),
           );
           expect(yield* Ref.get(events)).toEqual(["reattached"]);
-          yield* worker.send(outbound.outboundId);
+          yield* worker.send(outbound.messageId);
           expect((yield* store.recover()).outboundMessages).toEqual([]);
           yield* Fiber.interrupt(polling);
         }),
@@ -1455,7 +1459,7 @@ const staleFailureKeepsNewGenerationAttached = () =>
           const polling = yield* Effect.fork(worker.run);
           yield* Deferred.await(staleIssued);
           expect(
-            yield* worker.send(outbound.outboundId).pipe(Effect.flip),
+            yield* worker.send(outbound.messageId).pipe(Effect.flip),
           ).toStrictEqual(new RouterWorkerDiscontinuityError());
           const recovered = {
             routerInstanceId: second,
@@ -1544,7 +1548,7 @@ const outageDuringRecoveryRecovers = () =>
             pollCursor: outageCursor,
           });
           expect(countLogged(lines, "recovery complete")).toBe(2);
-          yield* worker.send(outbound.outboundId);
+          yield* worker.send(outbound.messageId);
           expect((yield* store.recover()).outboundMessages).toEqual([]);
           yield* Fiber.interrupt(polling);
         }),
@@ -1615,7 +1619,7 @@ const coldStartWithRouterDownRecovers = () =>
               expect.stringContaining("recovery complete"),
             ]),
           );
-          yield* worker.send(outbound.outboundId);
+          yield* worker.send(outbound.messageId);
           expect((yield* store.recover()).outboundMessages).toEqual([]);
           yield* Fiber.interrupt(polling);
         }),

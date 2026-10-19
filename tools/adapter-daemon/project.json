@@ -20,10 +20,10 @@
           "runtime": "node --version"
         },
         {
-          "env": "MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES"
+          "env": "SHARNESS_EXPERIMENT_HIDE_COLLECTIVES"
         },
         {
-          "env": "MOLTZAP_MCP_URL"
+          "env": "SHARNESS_MCP_URL"
         },
         "{workspaceRoot}/packages/client/integration/daemon-process-harness.ts",
         "{workspaceRoot}/scripts/test/adapter-daemon-*.ts",

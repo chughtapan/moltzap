@@ -37,7 +37,7 @@ const packages = {
   "@moltzap/client": join(workspaceRoot, "packages/client"),
 };
 
-/** Set only after the reset release ships; absent metadata is pre-reset until then. */
+/** The first reset package version is set at release time. */
 const FIRST_POST_RESET_RELEASE = Option.none<string>();
 const PRE_RESET_WIRE_VERSION = "pre-reset";
 
@@ -279,11 +279,11 @@ function certifyPair(
       );
       yield* acquireDaemonProcess(
         peer,
-        join(consumer, "node_modules/.bin/moltzapd"),
+        join(consumer, "node_modules/.bin/sharnessd"),
       );
       yield* acquireDaemonProcess(
         local,
-        join(current, "node_modules/.bin/moltzapd"),
+        join(current, "node_modules/.bin/sharnessd"),
       );
       for (const fixture of [peer, local]) {
         const management = yield* acquireDaemonManagementClient(

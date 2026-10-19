@@ -4,7 +4,7 @@
  * projects to.
  */
 
-import { type AgentId, SignedMessage, WIRE_VERSION } from "@moltzap/identity";
+import { type AgentId, SignedMessage } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import type {
   InboundDeliveryInput,
@@ -124,7 +124,7 @@ export const makeActionCertifiedRecord = (
     const recordCore: RecordCore =
       fold.action.kind === "GENESIS"
         ? {
-            moltzapVersion: WIRE_VERSION,
+            sharnessVersion: fold.action.postIntent.sharnessVersion,
             kind: "record_core",
             membership: fold.conversation.membership.descriptor,
             anchorHash,
@@ -132,7 +132,7 @@ export const makeActionCertifiedRecord = (
             actionHash: fold.actionHash,
           }
         : {
-            moltzapVersion: WIRE_VERSION,
+            sharnessVersion: fold.action.postIntent.sharnessVersion,
             kind: "record_core",
             membershipHash: fold.conversation.membership.hash,
             anchorHash,

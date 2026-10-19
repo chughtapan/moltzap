@@ -350,7 +350,7 @@ export function multicastContent(text: string): Content {
     {
       type: "data",
       value: {
-        "xyz.moltzap/collective": { kind: "operation", op: "multicast" },
+        "org.social-harness/collective": { kind: "operation", op: "multicast" },
       },
     },
   ];
@@ -919,18 +919,18 @@ function dispatchOpenClawReply(
 function useDaemonEndpoint(endpoint: string) {
   return Effect.gen(function* () {
     // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- The host reads its process-global endpoint; this serial fixture restores it on scope exit.
-    const previousEndpoint = process.env.MOLTZAP_MCP_URL;
+    const previousEndpoint = process.env.SHARNESS_MCP_URL;
     // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- The host reads its process-global endpoint; this serial fixture restores it on scope exit.
-    process.env.MOLTZAP_MCP_URL = endpoint;
+    process.env.SHARNESS_MCP_URL = endpoint;
 
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         if (previousEndpoint === undefined) {
           // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- The host reads its process-global endpoint; this serial fixture restores it on scope exit.
-          Reflect.deleteProperty(process.env, "MOLTZAP_MCP_URL");
+          Reflect.deleteProperty(process.env, "SHARNESS_MCP_URL");
         } else {
           // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- The host reads its process-global endpoint; this serial fixture restores it on scope exit.
-          process.env.MOLTZAP_MCP_URL = previousEndpoint;
+          process.env.SHARNESS_MCP_URL = previousEndpoint;
         }
       }),
     );

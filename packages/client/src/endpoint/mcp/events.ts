@@ -8,6 +8,7 @@ import {
 } from "@modelcontextprotocol/server";
 import {
   Cause,
+  type Context,
   Deferred,
   Effect,
   Exit,
@@ -155,19 +156,21 @@ const notify = (
 /**
  * SDK transport closure can finish before request promises settle. The handler
  * scope owns each operation until its finalizers finish, including after the
- * request aborts. Explicit interruptibility survives uninterruptible acquisition.
+ * request aborts. The captured context preserves composition services across the
+ * SDK Promise boundary. Explicit interruptibility survives uninterruptible acquisition.
  */
 export const runRequest = <Value, Failure>(
   operation: Effect.Effect<Value, Failure>,
   signal: AbortSignal,
   scope: Scope.CloseableScope,
+  context: Context.Context<never>,
 ) =>
   Effect.runPromiseExit(
     Effect.acquireUseRelease(
       Effect.forkIn(Effect.interruptible(operation), scope),
       Fiber.join,
       Fiber.interrupt,
-    ),
+    ).pipe(Effect.provide(context)),
     { signal },
   );
 
@@ -176,6 +179,7 @@ export const runRequest = <Value, Failure>(
  * @param operation Validated Events operation.
  * @param signal Cancellation owned by the MCP request.
  * @param requestScope The lifetime that joins request finalizers before closing.
+ * @param context The trusted daemon services captured when the handler is acquired.
  * @returns The SDK result or a sanitized protocol exception.
  */
 // #ignore-sloppy-code-next-line[async-keyword]: MCP consumes this Promise-native protocol adapter.
@@ -183,8 +187,9 @@ export const runEventOperation = async <A, E>(
   operation: Effect.Effect<A, E>,
   signal: AbortSignal,
   requestScope: Scope.CloseableScope,
+  context: Context.Context<never>,
 ) => {
-  const outcome = await runRequest(operation, signal, requestScope);
+  const outcome = await runRequest(operation, signal, requestScope, context);
   if (Exit.isSuccess(outcome)) {
     return outcome.value;
   }
@@ -199,6 +204,7 @@ export const runEventOperation = async <A, E>(
 /* eslint-enable agent-code-guard/async-keyword -- Remaining operations use Effect. */
 
 interface EventsRuntime {
+  readonly context: Context.Context<never>;
   readonly options: EventsOptions;
   readonly lifetime: Scope.CloseableScope;
   readonly wakeups: Queue.Queue<boolean>;
@@ -399,6 +405,7 @@ const installReadHandlers = (
         streamForPrincipal(runtime, input, context, principal),
         context.mcpReq.signal,
         runtime.lifetime,
+        runtime.context,
       ),
   );
 };
@@ -478,6 +485,7 @@ const install = (
         subscribe(runtime, input, principal),
         context.mcpReq.signal,
         runtime.lifetime,
+        runtime.context,
       ),
   );
   server.setRequestHandler(
@@ -488,6 +496,7 @@ const install = (
         unsubscribe(runtime, input, principal),
         context.mcpReq.signal,
         runtime.lifetime,
+        runtime.context,
       ),
   );
 };
@@ -554,6 +563,7 @@ export const makeHarnessEvents = (
     const lifetime = yield* Scope.make();
     const wakeups = yield* Queue.sliding<boolean>(1);
     const runtime: EventsRuntime = {
+      context: yield* Effect.context<never>(),
       options,
       lifetime,
       wakeups,

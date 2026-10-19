@@ -3,7 +3,11 @@
  * composition, and the assembly that binds the phases into one engine.
  */
 
-import { AgentCard, AgentSigningAuthority } from "@moltzap/identity";
+import {
+  AgentCard,
+  AgentSigningAuthority,
+  wireVersions,
+} from "@moltzap/identity";
 import { Data, Deferred, Duration, Effect, Schema, type Scope } from "effect";
 import type { FirewallSendError } from "../../firewall/runtime.js";
 import type { DeliveryToken, EndpointStoreError } from "../../store/index.js";
@@ -475,6 +479,7 @@ const makeRuntime = (
   Effect.gen(function* () {
     return {
       input,
+      wireVersion: yield* wireVersions.emitted,
       conversations: recovered.conversations,
       intents: new Map(),
       completedPosts: recovered.completedPosts,
@@ -483,7 +488,7 @@ const makeRuntime = (
       gate: yield* Effect.makeSemaphore(1),
       outbox: yield* makeOutbox(
         input,
-        recovered.outboundMessages.map((message) => message.outboundId),
+        recovered.outboundMessages.map((message) => message.messageId),
       ),
       phases: enginePhases,
       scope,

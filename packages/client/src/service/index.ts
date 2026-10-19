@@ -1,15 +1,20 @@
 /** @file Production composition for one explicitly configured endpoint daemon. */
 
 import { NodeHttpClient } from "@effect/platform-node";
-import { LIVE_WIRE_VERSIONS, WireVersions } from "@moltzap/identity";
+import { wireVersions } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
-import { Data, Duration, Effect, Layer, Option } from "effect";
+import { Data, Duration, Effect, Layer } from "effect";
 import {
   type FirewallOptions as InstalledFirewallOptions,
   installEditableFirewall,
 } from "../delivery/index.js";
-import { inspectEndpointStore, openEndpointStore } from "../store/index.js";
+import {
+  type EndpointStoreError,
+  inspectEndpointStore,
+  openEndpointStore,
+  type OutboxTooOldError,
+} from "../store/index.js";
 import {
   DaemonConfigurationError,
   type DaemonProcessConfiguration,
@@ -21,6 +26,8 @@ import {
 } from "./configuration.js";
 import { type DaemonRuntimeError, runDaemonRuntime } from "./lifecycle.js";
 import {
+  type DaemonRegistrationPersistenceError,
+  type DaemonRegistrationRepresentationError,
   readDaemonRegistrationState,
   requireAdmission,
   requireAdmissionToCreate,
@@ -32,15 +39,7 @@ const REGISTRY_REQUEST_TIMEOUT = Duration.seconds(30);
 const ROUTER_SEND_TIMEOUT = Duration.seconds(30);
 const ROUTER_POLL_TIMEOUT = Duration.seconds(35);
 
-const liveWireVersions = Effect.serviceOption(WireVersions).pipe(
-  Effect.map((configuration) =>
-    Option.match(configuration, {
-      onNone: () => LIVE_WIRE_VERSIONS,
-      onSome: (sets) =>
-        LIVE_WIRE_VERSIONS.filter((version) => sets.live.includes(version)),
-    }),
-  ),
-);
+const liveWireVersions = wireVersions.liveSet;
 
 /** Trusted operators decode retained checks without reading private storage schemas. */
 export { FirewallAuditRecord } from "../delivery/index.js";
@@ -89,7 +88,12 @@ export namespace Daemon {
   /** Closed startup phase with sanitized configuration details. */
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
-    readonly reason?: "outbox-too-old" | "newer-schema" | "pre-reset";
+    readonly reason?:
+      | "outbox-too-old"
+      | "newer-schema"
+      | "pre-reset"
+      | "legacy-key";
+    readonly keys?: readonly string[];
     readonly detail?: string;
   }> {
     /**
@@ -99,7 +103,15 @@ export namespace Daemon {
     override get message(): string {
       const reason = this.reason === undefined ? "" : ` (${this.reason})`;
       const detail = this.detail === undefined ? "" : `: ${this.detail}`;
-      return `moltzapd startup failed in phase ${this.phase}${reason}${detail}`;
+      let remedy = "";
+      if (this.reason === "pre-reset") {
+        remedy =
+          ". Start with a fresh state directory and register again; see https://github.com/chughtapan/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release.";
+      } else if (this.reason === "outbox-too-old") {
+        remedy =
+          ". Drain the outbox on the previous release before upgrading, or apply a reset release; see https://github.com/chughtapan/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release.";
+      }
+      return `sharnessd startup failed in phase ${this.phase}${reason}${detail}${remedy}`;
     }
   }
 
@@ -149,7 +161,7 @@ export namespace Daemon {
       );
     }).pipe(Effect.withSpan("Daemon.layer"));
 
-  /** Complete production process composition for `moltzapd`. */
+  /** Complete production process composition for `sharnessd`. */
   export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
     runDaemon(),
   );
@@ -181,25 +193,52 @@ export namespace Daemon {
   function configurationFailure(cause: unknown): StartupError {
     return new StartupError({
       phase: "configuration",
+      ...(cause instanceof DaemonConfigurationError &&
+      cause.reason === "legacy-key"
+        ? { reason: "legacy-key" as const, keys: cause.keys }
+        : {}),
       detail:
         cause instanceof DaemonConfigurationError ? cause.message : undefined,
     });
   }
 
-  function storageFailure(error: {
-    readonly reason?: string;
-    readonly _tag: string;
-  }): StartupError {
-    const reason =
-      error._tag === "OutboxTooOldError" ? "outbox-too-old" : error.reason;
-    return new StartupError({
-      phase: "storage",
-      ...(reason === "newer-schema" ||
-      reason === "pre-reset" ||
-      reason === "outbox-too-old"
-        ? { reason }
-        : {}),
-    });
+  /** Operational failures keep their storage phase; only reset boundaries add a reason. */
+  const storeStartupReasons = {
+    "pre-reset": "pre-reset",
+    "newer-schema": "newer-schema",
+    closed: undefined,
+    conflict: undefined,
+    corrupt: undefined,
+    incompatible: undefined,
+    "invalid-continuation": undefined,
+    "invalid-input": undefined,
+    "not-found": undefined,
+    persistence: undefined,
+  } satisfies Record<EndpointStoreError["reason"], StartupError["reason"]>;
+
+  function storageFailure(
+    error:
+      | EndpointStoreError
+      | OutboxTooOldError
+      | DaemonRegistrationPersistenceError
+      | DaemonRegistrationRepresentationError,
+  ): StartupError {
+    switch (error._tag) {
+      case "DaemonRegistrationPersistenceError":
+      case "DaemonRegistrationRepresentationError":
+        return new StartupError({ phase: "storage" });
+      case "OutboxTooOldError":
+        return new StartupError({ phase: "storage", reason: "outbox-too-old" });
+      case "EndpointStoreError":
+        return new StartupError({
+          phase: "storage",
+          reason: storeStartupReasons[error.reason],
+        });
+      default: {
+        const exhaustive: never = error;
+        return exhaustive;
+      }
+    }
   }
 }
 

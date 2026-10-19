@@ -150,7 +150,7 @@ const SINGLE_VALUE_HEADERS = [
   "content-encoding",
   "content-length",
   "transfer-encoding",
-  "moltzap-version",
+  "sharness-version",
   "content-digest",
   "signature-input",
   "signature",

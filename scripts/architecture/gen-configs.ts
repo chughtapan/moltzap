@@ -377,7 +377,13 @@ const architectureConfigDefinitions: ReadonlyArray<{
           publicTypePackage.effect,
           publicTypePackage.platform,
         ],
-        allowedTestPublicSubpaths: [],
+        allowedTestPublicSubpaths: [
+          {
+            subpath: "./test",
+            reason:
+              "Adjacent-release overrides require the explicit sharness-test resolution condition and are forbidden in production source",
+          },
+        ],
         folderReadmeFileNames: ["README.md", "MODULE.md"],
         folderChildCountOverrides: [
           {
