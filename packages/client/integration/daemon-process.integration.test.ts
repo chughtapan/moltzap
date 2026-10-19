@@ -27,8 +27,8 @@ import {
 } from "./daemon-process-harness.js";
 
 /**
- * Each test starts PGlite, the Registry, the Router and two daemons, and two
- * of them restart a daemon. Beside a second full Client suite and another
+ * Each test starts PGlite, the Registry, the Router and two daemons; two of
+ * them restart a daemon and one restarts the Router. Beside a second full Client suite and another
  * integration file (load average 17 to 32 on 8 cores) the restart test has
  * taken 62 to 163 seconds, most of it process startup. The limit is the only
  * wall-clock bound these traces set themselves.
