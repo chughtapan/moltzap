@@ -1,14 +1,18 @@
 /** @file Durable delivery behaviour through the loopback MCP tools and native endpoint. */
 
 import { scopedLive as it } from "@effect/vitest";
-import { Effect, Option, Schema, Scope, Stream } from "effect";
+import { Chunk, Effect, Schema, Scope, Stream } from "effect";
 import { describe, expect } from "vitest";
+import type { EndpointEngine } from "../../transport/messaging/index.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { makeToolCallRequest } from "../../__tests__/daemon-runtime-harness.js";
 import { loopbackMcpEndpoint } from "../../__tests__/mcp-http-fixtures.js";
 import { pendingMessage } from "../../__tests__/pending-delivery-fixtures.js";
 import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
-import { makeHostDelivery } from "../../delivery/host-delivery.js";
+import {
+  type HostDelivery,
+  makeHostDelivery,
+} from "../../delivery/host-delivery.js";
 import { decodeHarnessReadInboxResult } from "../../delivery/operations.js";
 import { openEndpointStore } from "../../store/index.js";
 import {
@@ -20,6 +24,7 @@ import {
   makeCollectiveOperations,
 } from "../../transport/collectives/index.js";
 import { encodeCollectiveContent } from "../../transport/collectives/part/index.js";
+import { DeliveryAcknowledgeError } from "../../transport/messaging/errors.js";
 import { AgentAddress } from "../../transport/wire/index.js";
 import { acquireHarnessEndpoint } from "../harness-endpoint/index.js";
 import { makeHarnessMcpHttpHandler } from "./tools.js";
@@ -27,6 +32,19 @@ import { makeHarnessMcpHttpHandler } from "./tools.js";
 const unreachable = () =>
   Effect.dieMessage("operation is outside the delivery contract");
 const pending = pendingMessage(1);
+const acknowledgingEngine: Pick<EndpointEngine, "acknowledgeMessage"> = {
+  acknowledgeMessage: () => Effect.void,
+};
+
+/** Supplies committed deliveries and acknowledgment faults behind the real classifier. */
+const deliverPending =
+  (delivery: HostDelivery, collectives: CollectiveOperations) =>
+  (messages = [pending], engine = acknowledgingEngine) =>
+    delivery.runPass(() => ({
+      readPending: Effect.succeed(messages),
+      engine,
+      classify: collectives.classify,
+    }));
 
 /** Only delivery operations are reachable from these MCP transcripts. */
 const deliveryHandler = (
@@ -98,29 +116,50 @@ const fixture = Effect.gen(function* () {
       decodeHarnessReadInboxResult(result.structuredContent),
     ),
   );
-  const deliver = (message = pending) =>
-    delivery.runPass(() => ({
-      readPending: Effect.succeed([message]),
-      engine: { acknowledgeMessage: () => Effect.void },
-      classify: collectives.classify,
-    }));
+  const deliver = deliverPending(delivery, collectives);
   return { url, call, inbox, deliver };
 });
 
 const consumesAnswers = () =>
   Effect.gen(function* () {
     const test = yield* fixture;
+    const answer = pendingMessage(2);
     const content = yield* encodeCollectiveContent({
       kind: "response",
       id: Schema.decodeUnknownSync(CollectiveId)(digest("col_", 2)),
       action: "decline",
     });
-    yield* test.deliver({
-      ...pending,
-      message: { ...pending.message, content },
-    });
+    yield* test.deliver([
+      { ...answer, message: { ...answer.message, content } },
+    ]);
     expect((yield* test.inbox).items).toEqual([]);
     yield* test.deliver();
+    expect((yield* test.inbox).items).toEqual([
+      {
+        deliveryToken: pending.deliveryToken,
+        item: { kind: "multicast", message: pending.message },
+      },
+    ]);
+  });
+
+const continuesAfterAnswerAcknowledgmentFails = () =>
+  Effect.gen(function* () {
+    const test = yield* fixture;
+    const answer = pendingMessage(2);
+    const content = yield* encodeCollectiveContent({
+      kind: "response",
+      id: Schema.decodeUnknownSync(CollectiveId)(digest("col_", 2)),
+      action: "decline",
+    });
+    yield* test.deliver(
+      [{ ...answer, message: { ...answer.message, content } }, pending],
+      {
+        acknowledgeMessage: () =>
+          Effect.fail(
+            new DeliveryAcknowledgeError({ reason: "persistence-failed" }),
+          ),
+      },
+    );
     expect((yield* test.inbox).items).toEqual([
       {
         deliveryToken: pending.deliveryToken,
@@ -168,29 +207,46 @@ const readsFailure = () =>
 const retainsFailedHandoff = () =>
   Effect.gen(function* () {
     const test = yield* fixture;
-    yield* test.deliver();
+    const later = pendingMessage(2);
+    yield* test.deliver([pending, later]);
     const endpoint = yield* acquireHarnessEndpoint(test.url);
     const failure = new Error("host refused handoff");
     const outcome = yield* endpoint.messages.pipe(
-      Stream.mapEffect(() => Effect.fail(failure)),
+      Stream.mapEffect((entry) => Effect.fail({ failure, item: entry.item })),
       Stream.runDrain,
       Effect.flip,
     );
-    expect(outcome).toBe(failure);
-    const replay = yield* endpoint.messages.pipe(Stream.runHead);
-    expect(Option.map(replay, (entry) => entry.item)).toEqual(
-      Option.some({ kind: "multicast", message: pending.message }),
+    expect(outcome).toEqual({
+      failure,
+      item: { kind: "multicast", message: pending.message },
+    });
+    const replay = yield* endpoint.messages.pipe(
+      Stream.take(2),
+      Stream.map((entry) => entry.item),
+      Stream.runCollect,
     );
+    expect(Chunk.toReadonlyArray(replay)).toEqual([
+      { kind: "multicast", message: pending.message },
+      { kind: "multicast", message: later.message },
+    ]);
     expect((yield* test.inbox).items).toEqual([
       {
         deliveryToken: pending.deliveryToken,
         item: { kind: "multicast", message: pending.message },
+      },
+      {
+        deliveryToken: later.deliveryToken,
+        item: { kind: "multicast", message: later.message },
       },
     ]);
   });
 
 // @agent-code-guard/regression-only: MCP conformance requires explicit delivery and failure transcripts.
 describe("MCP delivery contract", () => {
+  it(
+    "delivers a later multicast when acknowledging a consumed answer fails",
+    continuesAfterAnswerAcknowledgmentFails,
+  );
   it(
     "consumes protocol answers without exposing them in the inbox",
     consumesAnswers,
@@ -204,7 +260,7 @@ describe("MCP delivery contract", () => {
     readsFailure,
   );
   it(
-    "retains an item when the native host handoff fails",
+    "replays a refused item before later deliveries when the native handoff fails",
     retainsFailedHandoff,
   );
 });

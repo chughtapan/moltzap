@@ -91,7 +91,7 @@ const signsVerifiesAndRotates = () =>
       const test = scriptedWebhook(store);
       const events = yield* test.acquire;
       const grant = yield* events.subscribe(input, "runtime");
-      const control = verificationPosts(test.posts)[0];
+      const control = test.posts[0];
       expect(control?.headers["webhook-id"]).toMatch(/^msg_verification_/u);
       const expected = createHmac("sha256", Buffer.alloc(32, 1))
         .update(
@@ -405,6 +405,7 @@ const removesRetiredOccurrence = () =>
       const restarted = yield* test.acquire;
       test.status(200);
       yield* restarted.observe();
+      expect(eventPosts(test.posts, 1)).toHaveLength(1);
       expect(eventPosts(test.posts, 2)).toHaveLength(1);
       expect(
         (yield* readRuntimeEvent(store, eventIdOf(token(1)))).item,
