@@ -631,7 +631,7 @@ export type WireVersion = (typeof HISTORY_WIRE_VERSIONS)[number];
 
 A version represented by retained protocol artifacts.
 
-### [`WireVersions`](./version.ts#L18)
+### [`WireVersions`](./version.ts#L21)
 
 _Class_
 
@@ -648,7 +648,9 @@ export class WireVersions extends Context.Tag("@moltzap/identity/WireVersions")<
           Option.match(configuration, {
             onNone: () =>
               HISTORY_WIRE_VERSIONS.some((item) => item === version),
-            onSome: (sets) => sets.history.includes(version),
+            onSome: (sets) =>
+              HISTORY_WIRE_VERSIONS.some((item) => item === version) ||
+              sets.history.includes(version),
           }),
         ),
       ),
@@ -661,14 +663,17 @@ export class WireVersions extends Context.Tag("@moltzap/identity/WireVersions")<
       Effect.map((configuration) =>
         Option.match(configuration, {
           onNone: () => LIVE_WIRE_VERSIONS.some((item) => item === version),
-          onSome: (sets) => sets.live.includes(version),
+          onSome: (sets) =>
+            LIVE_WIRE_VERSIONS.some((item) => item === version) &&
+            sets.live.includes(version),
         }),
       ),
     );
 }
 ```
 
-Optional artifact-decoder configuration; absent services use this binary's sets.
+Optional decoder policy can narrow live admission and extend retained history.
+The binary's live set remains the admission ceiling for every composition.
 
 ## Package subpaths
 
@@ -883,7 +888,7 @@ Closed Registry bootstrap registration request.
 
 ### `@moltzap/identity/registry/server`
 
-#### [`StartupError`](./registry/server.ts#L142)
+#### [`StartupError`](./registry/server.ts#L144)
 
 _Class_
 
@@ -892,12 +897,19 @@ export class StartupError extends Data.TaggedError(
   "RegistryServerStartupError",
 )<{
   readonly phase: "configuration" | "storage" | "listener";
-}> {}
+  readonly reason?: RegistryStorageInitializationError["reason"];
+}> {
+  override get message(): string {
+    return this.reason === undefined
+      ? `Registry startup failed: ${this.phase}`
+      : `Registry startup failed: ${this.phase} (${this.reason})`;
+  }
+}
 ```
 
 Closed Registry startup failure.
 
-#### [`layer`](./registry/server.ts#L182)
+#### [`layer`](./registry/server.ts#L191)
 
 _Variable_
 

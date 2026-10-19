@@ -18,6 +18,7 @@ import {
 import {
   HISTORY_WIRE_VERSIONS,
   LIVE_WIRE_VERSIONS,
+  WIRE_VERSION,
 } from "../../packages/identity/src/version.js";
 import {
   installPackedConsumer,
@@ -36,24 +37,26 @@ const packages = {
   "@moltzap/client": join(workspaceRoot, "packages/client"),
 };
 
-/**
- * Releases through this published calendar version predate wire metadata and
- * the reset. Later releases must publish their emitted version explicitly.
- */
-const LAST_LEGACY_RELEASE = [2026, 1018, 0] as const;
+/** Set only after the reset release ships; absent metadata is pre-reset until then. */
+const FIRST_POST_RESET_RELEASE = Option.none<string>();
+const PRE_RESET_WIRE_VERSION = "pre-reset";
 
-function legacyRelease(version: string): boolean {
+function preResetRelease(
+  version: string,
+  firstPostResetRelease?: string,
+): boolean {
+  if (firstPostResetRelease === undefined) {
+    return true;
+  }
   const parts = version.split(".").map(Number);
-  for (const [index, boundary] of LAST_LEGACY_RELEASE.entries()) {
-    const part = parts[index];
-    if (part === undefined) {
-      return false;
-    }
-    if (part !== boundary) {
-      return part < boundary;
+  const boundary = firstPostResetRelease.split(".").map(Number);
+  for (const [index, part] of parts.entries()) {
+    const minimum = boundary[index];
+    if (minimum !== undefined && part !== minimum) {
+      return part < minimum;
     }
   }
-  return true;
+  return false;
 }
 
 /** Only registry availability failures can waive this network-dependent gate. */
@@ -67,7 +70,11 @@ function npmOutage(error: unknown): boolean {
 }
 
 /** Wire metadata is read without downloading or installing release closures. */
-function releaseWireVersion(version: string, view = npmView) {
+function releaseWireVersion(
+  version: string,
+  view = npmView,
+  firstPostResetRelease = FIRST_POST_RESET_RELEASE,
+) {
   return view([`@moltzap/identity@${version}`]).pipe(
     Effect.flatMap(
       Schema.decodeUnknown(
@@ -82,8 +89,11 @@ function releaseWireVersion(version: string, view = npmView) {
       if (moltzapWireVersion !== undefined) {
         return Effect.succeed(moltzapWireVersion);
       }
-      return legacyRelease(version)
-        ? Effect.succeed("pre-reset")
+      return preResetRelease(
+        version,
+        Option.getOrUndefined(firstPostResetRelease),
+      )
+        ? Effect.succeed(PRE_RESET_WIRE_VERSION)
         : Effect.fail(
             new ProcessTestError({
               message: `@moltzap/identity@${version} is missing published moltzapWireVersion metadata`,
@@ -389,10 +399,14 @@ it("runs a single peer when the previous release is also the oldest live release
 
 it("skips only when the previous release is outside retained history", () =>
   Effect.runPromise(
-    selectReleases(["2099.101.0"], () => Effect.succeed("pre-reset"), {
-      live: ["new"],
-      history: ["new"],
-    }).pipe(
+    selectReleases(
+      ["2099.101.0"],
+      () => Effect.succeed(PRE_RESET_WIRE_VERSION),
+      {
+        live: ["new"],
+        history: ["new"],
+      },
+    ).pipe(
       Effect.provide(NodeContext.layer),
       Effect.tap((releases) =>
         Effect.sync(() => {
@@ -402,17 +416,61 @@ it("skips only when the previous release is outside retained history", () =>
     ),
   ));
 
-it("fails when a release after the legacy range omits wire metadata", () =>
+it.each(["2099.101.0", "2099.102.0"])(
+  "fails when post-reset release %s omits wire metadata",
+  (version) =>
+    Effect.runPromise(
+      releaseWireVersion(
+        version,
+        () => Effect.succeed("{}"),
+        Option.some("2099.101.0"),
+      ).pipe(
+        Effect.flip,
+        Effect.tap((error) =>
+          Effect.sync(() => {
+            expect(error).toMatchObject({
+              _tag: "ProcessTestError",
+              message: `@moltzap/identity@${version} is missing published moltzapWireVersion metadata`,
+            });
+          }),
+        ),
+        Effect.provide(NodeContext.layer),
+        Effect.asVoid,
+      ),
+    ),
+);
+
+it.each([
+  ["2026.1019.1", Option.none<string>()],
+  ["2099.101.0", Option.none<string>()],
+  ["2099.100.0", Option.some("2099.101.0")],
+])(
+  "treats metadata-free %s as pre-reset before boundary %s",
+  (version, boundary) =>
+    Effect.runPromise(
+      releaseWireVersion(version, () => Effect.succeed("{}"), boundary).pipe(
+        Effect.tap((wireVersion) =>
+          Effect.sync(() => {
+            expect(wireVersion).toBe(PRE_RESET_WIRE_VERSION);
+          }),
+        ),
+        Effect.provide(NodeContext.layer),
+        Effect.asVoid,
+      ),
+    ),
+);
+
+it("reads published wire metadata at the reset boundary", () =>
   Effect.runPromise(
-    releaseWireVersion("2099.101.0", () => Effect.succeed("{}")).pipe(
-      Effect.flip,
-      Effect.tap((error) =>
+    releaseWireVersion(
+      "2099.101.0",
+      () =>
+        Effect.succeed(JSON.stringify({ moltzapWireVersion: WIRE_VERSION })),
+      Option.some("2099.101.0"),
+    ).pipe(
+      Effect.tap((wireVersion) =>
         Effect.sync(() => {
-          expect(error).toMatchObject({
-            _tag: "ProcessTestError",
-            message:
-              "@moltzap/identity@2099.101.0 is missing published moltzapWireVersion metadata",
-          });
+          expect(wireVersion).toBe(WIRE_VERSION);
         }),
       ),
       Effect.provide(NodeContext.layer),

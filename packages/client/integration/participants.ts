@@ -15,6 +15,7 @@ import {
   acquireDaemonProcess,
   acquireProcessInfrastructure,
   type DaemonProcessFixture,
+  type FirewallMode,
   makeDaemonProcessFixture,
   makeRegistrationRequest,
   ProcessTestError,
@@ -69,13 +70,19 @@ const registerFixture = (fixture: DaemonProcessFixture) =>
  * Starts PGlite, the Registry, the Router and one daemon per name, registers
  * each daemon, and joins each as a participant.
  * @param names The agent name of each daemon.
+ * @param firewalls The firewall mode of each daemon that installs one, by name.
  * @returns The participants, in `names` order.
  */
-export const acquireParticipants = (names: readonly string[]) =>
+export const acquireParticipants = (
+  names: readonly string[],
+  firewalls: Readonly<Record<string, FirewallMode>> = {},
+) =>
   Effect.gen(function* () {
     const infrastructure = yield* acquireProcessInfrastructure;
     const fixtures = yield* Effect.all(
-      names.map((name) => makeDaemonProcessFixture(infrastructure, name)),
+      names.map((name) =>
+        makeDaemonProcessFixture(infrastructure, name, firewalls[name]),
+      ),
       { concurrency: "unbounded" },
     );
     yield* Effect.forEach(

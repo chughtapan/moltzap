@@ -14,7 +14,10 @@ export const HISTORY_WIRE_VERSIONS = [WIRE_VERSION] as const;
 /** A version represented by retained protocol artifacts. */
 export type WireVersion = (typeof HISTORY_WIRE_VERSIONS)[number];
 
-/** Optional artifact-decoder configuration; absent services use this binary's sets. */
+/**
+ * Optional decoder policy can narrow live admission and extend retained history.
+ * The binary's live set remains the admission ceiling for every composition.
+ */
 export class WireVersions extends Context.Tag("@moltzap/identity/WireVersions")<
   WireVersions,
   { readonly live: readonly string[]; readonly history: readonly string[] }
@@ -27,7 +30,9 @@ export class WireVersions extends Context.Tag("@moltzap/identity/WireVersions")<
           Option.match(configuration, {
             onNone: () =>
               HISTORY_WIRE_VERSIONS.some((item) => item === version),
-            onSome: (sets) => sets.history.includes(version),
+            onSome: (sets) =>
+              HISTORY_WIRE_VERSIONS.some((item) => item === version) ||
+              sets.history.includes(version),
           }),
         ),
       ),
@@ -40,7 +45,9 @@ export class WireVersions extends Context.Tag("@moltzap/identity/WireVersions")<
       Effect.map((configuration) =>
         Option.match(configuration, {
           onNone: () => LIVE_WIRE_VERSIONS.some((item) => item === version),
-          onSome: (sets) => sets.live.includes(version),
+          onSome: (sets) =>
+            LIVE_WIRE_VERSIONS.some((item) => item === version) &&
+            sets.live.includes(version),
         }),
       ),
     );

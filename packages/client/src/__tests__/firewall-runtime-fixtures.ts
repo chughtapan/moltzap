@@ -12,20 +12,26 @@ import type {
   MessageMiddleware,
   MiddlewareResult,
 } from "../firewall/values.js";
+import type { InboundItem } from "../transport/collectives/inbound.js";
 import { beginFirewallAudit } from "../delivery/firewall-audit.js";
 import {
+  collectiveAdmission,
   type FirewallOptions,
   installFirewall,
-  sendWithFirewall,
 } from "../delivery/firewall.js";
 import { noHistoryExport } from "../delivery/history-export.js";
 import { makeHostDelivery } from "../delivery/host-delivery.js";
 import {
   decodeRuntimeValue,
+  DeliveryToken,
+  encodeRuntimeValue,
   type EndpointStore,
   openEndpointStore,
 } from "../store/index.js";
-import { makeCollectiveOperations } from "../transport/collectives/index.js";
+import {
+  makeCollectiveOperations,
+  type ResultProvenance,
+} from "../transport/collectives/index.js";
 import { makeEndpointEngine } from "../transport/messaging/index.js";
 import { InboundMessage } from "../transport/messaging/message.js";
 import {
@@ -37,6 +43,7 @@ import {
   verifyMembershipDescriptor,
 } from "../transport/wire/index.js";
 import {
+  digest,
   identifier,
   issueTestCard,
   makeTestAuthority,
@@ -96,62 +103,49 @@ const anchor = {
 
 const identities = Effect.gen(function* () {
   const registryKeys = generateKeyPairSync("ed25519");
-  const localAuthority = yield* makeTestAuthority();
-  const remoteAuthority = yield* makeTestAuthority();
-  const local = {
-    authority: localAuthority,
-    card: yield* issueTestCard({
-      byte: 1,
-      name: "alice",
-      authority: localAuthority,
-      registryKeys,
-    }),
-  };
-  const remote = {
-    authority: remoteAuthority,
-    card: yield* issueTestCard({
-      byte: 2,
-      name: "bob",
-      authority: remoteAuthority,
-      registryKeys,
-    }),
-  };
+  const local = yield* signingIdentity(1, "alice", registryKeys);
+  const remote = yield* signingIdentity(2, "bob", registryKeys);
+  const third = yield* signingIdentity(3, "carol", registryKeys);
   const signer = yield* Schema.decodeUnknown(Ed25519PublicKey)(
     registryKeys.publicKey.export({ format: "jwk" }),
   );
-  const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-    moltzapVersion: WIRE_VERSION,
-    kind: "membership_descriptor",
-    conversationId: yield* deriveConversationId([
-      local.card.agentId,
-      remote.card.agentId,
-    ]),
-    members: [
-      yield* Schema.encode(AgentCard)(local.card),
-      yield* Schema.encode(AgentCard)(remote.card),
-    ],
-  });
-  const membership = yield* verifyMembershipDescriptor(descriptor, signer);
+  const membership = yield* directMembership([local.card, remote.card], signer);
   const directory = stateDirectory();
   const store = yield* openEndpointStore(directory);
   yield* store.bindIdentity({
     agentId: local.card.agentId,
     canonicalAgentCard: yield* encodeCanonical(AgentCard, local.card),
   });
-  return { local, remote, membership, directory, store, registryKeys, signer };
+  return {
+    local,
+    remote,
+    third,
+    membership,
+    directory,
+    store,
+    registryKeys,
+    signer,
+  };
 });
 
 /** Real storage and send preparation run with a suspended Router send. */
 export const fixture = Effect.gen(function* () {
-  const { local, remote, membership, directory, store, registryKeys, signer } =
-    yield* identities;
+  const known = yield* identities;
+  const { local, remote, third, store, signer } = known;
   const outbound = yield* Deferred.make<undefined>();
   const engine = yield* makeEndpointEngine({
     localAgentCard: local.card,
     signingAuthority: local.authority,
     registrySignerPublicKey: signer,
     registry: {
-      lookup: () => Effect.succeed({ kind: "found", agentCard: remote.card }),
+      lookup: (request) =>
+        Effect.succeed({
+          kind: "found",
+          agentCard:
+            "agentName" in request && request.agentName === third.card.agentName
+              ? third.card
+              : remote.card,
+        }),
     },
     store,
     actionPolicy: () => Effect.succeed("sign"),
@@ -165,17 +159,7 @@ export const fixture = Effect.gen(function* () {
         ),
     },
   });
-  return {
-    local,
-    remote,
-    membership,
-    directory,
-    store,
-    engine,
-    outbound,
-    registryKeys,
-    signer,
-  };
+  return { ...known, engine, outbound };
 }).pipe(Effect.withSpan("fixture"));
 /** The acquired identities and storage remain live for the test scope. */
 export type Fixture = Effect.Effect.Success<typeof fixture>;
@@ -206,20 +190,37 @@ export const installation = (
     ...overrides,
   });
 
-const incomingDelivery = (
+/**
+ * One collective layer with the firewall's admission ports and the delivery
+ * built over it, as the daemon composes them. Requests the layer classifies
+ * wait for admission; items it emits are queued privately and recorded.
+ */
+const firewallRuntime = (
   subject: Fixture,
   installed: Effect.Effect.Success<ReturnType<typeof installation>>,
 ) =>
   Effect.gen(function* () {
-    const { local, store } = subject;
+    const { local, store, engine } = subject;
     const environment = { installed, store, localAgentCard: local.card };
     const scope = yield* Scope.Scope;
+    const emitted: InboundItem[] = [];
+    const slot: {
+      delivery?: Effect.Effect.Success<ReturnType<typeof makeHostDelivery>>;
+    } = {};
+    const emit = (item: InboundItem, provenance?: ResultProvenance) =>
+      Effect.suspend(() => {
+        emitted.push(item);
+        return slot.delivery === undefined
+          ? Effect.void
+          : slot.delivery.queueLocalItem(item, provenance).pipe(Effect.orDie);
+      });
     const collectives = makeCollectiveOperations({
       self: Schema.decodeUnknownSync(AgentAddress)("agent:alice"),
       scope,
-      lookupMember: () => Effect.void,
-      sendPost: () => Effect.dieMessage("no protocol send is expected"),
-      emit: () => Effect.void,
+      lookupMember: (member) => engine.resolveAddress(member),
+      sendPost: (input) => engine.send(input),
+      emit,
+      admission: collectiveAdmission(environment, engine),
     });
     const delivery = yield* makeHostDelivery({
       store,
@@ -229,8 +230,9 @@ const incomingDelivery = (
       firewall: installed,
       firewallEnvironment: () => environment,
     });
-    return { environment, delivery, collectives };
-  });
+    slot.delivery = delivery;
+    return { environment, delivery, collectives, emitted };
+  }).pipe(Effect.withSpan("firewallRuntime"));
 
 /** A seeded incoming candidate runs through the admission worker and inbox. */
 export const incomingFixture = (
@@ -241,10 +243,11 @@ export const incomingFixture = (
 ) =>
   Effect.gen(function* () {
     yield* Effect.when(seedIncoming(subject), () => seed);
-    const { environment, delivery, collectives } = yield* incomingDelivery(
-      subject,
-      yield* installation(middleware, overrides),
-    );
+    const { environment, delivery, collectives, emitted } =
+      yield* firewallRuntime(
+        subject,
+        yield* installation(middleware, overrides),
+      );
     const published: HarnessMessageReadyEvent[] = [];
     const readPending = pendingMessages(subject.store);
     const runPass = delivery.runPass(() => ({
@@ -258,16 +261,7 @@ export const incomingFixture = (
         },
       },
     }));
-    const completed = yield* Queue.unbounded<undefined>();
-    yield* delivery
-      .runAdmission(
-        runPass.pipe(
-          Effect.orDie,
-          Effect.zipRight(Queue.offer(completed, undefined)),
-          Effect.asVoid,
-        ),
-      )
-      .pipe(Effect.forkScoped);
+    const completed = yield* startAdmission(delivery, runPass);
     const pending = yield* readPending;
     const candidate = pending[0];
     if (candidate === undefined) {
@@ -276,6 +270,8 @@ export const incomingFixture = (
     return {
       ...environment,
       delivery,
+      collectives,
+      emitted,
       published,
       runPass,
       completed,
@@ -290,59 +286,20 @@ export function outgoingFixture(
   overrides: Partial<FirewallOptions> = {},
 ) {
   return Effect.gen(function* () {
-    const installed = yield* installation(middleware, overrides);
-    const scope = yield* Scope.Scope;
-    const collectives = makeCollectiveOperations({
-      self: Schema.decodeUnknownSync(AgentAddress)("agent:alice"),
-      scope,
-      lookupMember: subject.engine.resolveAddress,
-      sendPost: subject.engine.send,
-      emit: () => Effect.void,
-    });
-    const environment = {
-      installed,
-      store: subject.store,
-      localAgentCard: subject.local.card,
-    };
-    return yield* makeHostDelivery({
-      store: subject.store,
-      historyExport: noHistoryExport,
-      scope,
-      collectives: () => ({
-        send: (input, failureDelivery) =>
-          sendWithFirewall(environment, subject.engine, collectives, {
-            input,
-            failureDelivery,
-          }),
-      }),
-    });
+    const runtime = yield* firewallRuntime(
+      subject,
+      yield* installation(middleware, overrides),
+    );
+    return runtime.delivery;
   }).pipe(Effect.withSpan("outgoingFixture"));
 }
 
 /** Carol supplies an independent conversation using the same endpoint store. */
 export function addConversation(subject: Fixture, authoredLocally = false) {
   return Effect.gen(function* () {
-    const authority = yield* makeTestAuthority();
-    const card = yield* issueTestCard({
-      byte: 3,
-      name: "carol",
-      authority,
-      registryKeys: subject.registryKeys,
-    });
-    const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-      moltzapVersion: WIRE_VERSION,
-      kind: "membership_descriptor",
-      conversationId: yield* deriveConversationId([
-        subject.local.card.agentId,
-        card.agentId,
-      ]),
-      members: [
-        yield* Schema.encode(AgentCard)(subject.local.card),
-        yield* Schema.encode(AgentCard)(card),
-      ],
-    });
-    const membership = yield* verifyMembershipDescriptor(
-      descriptor,
+    const { authority, card } = subject.third;
+    const membership = yield* directMembership(
+      [subject.local.card, card],
       subject.signer,
     );
     const authors = authoredLocally
@@ -362,6 +319,33 @@ export function addConversation(subject: Fixture, authoredLocally = false) {
     );
     return { membership, record, remote: { card, authority } };
   }).pipe(Effect.withSpan("addConversation"));
+}
+
+/**
+ * A policy that changes the evidence on every call, so each capture it
+ * judges is stale by its commit.
+ * @param subject The fixture whose store the policy writes to.
+ * @returns The middleware and the number of calls it has seen.
+ */
+export function churnPolicy(subject: Fixture) {
+  let calls = 0;
+  return {
+    count: () => calls,
+    middleware: policy(() =>
+      Effect.gen(function* () {
+        calls += 1;
+        yield* subject.store.putInboxItem({
+          deliveryToken: Schema.decodeUnknownSync(DeliveryToken)(
+            digest("dlv_", 120 + calls),
+          ),
+          canonicalItem: yield* encodeRuntimeValue({
+            kind: "evidence changed",
+          }),
+        });
+        return pass;
+      }).pipe(Effect.orDie, Effect.withSpan("churnPolicy")),
+    ),
+  };
 }
 
 /** A complete registered norm delegates only its assessment to the test. */
@@ -406,4 +390,65 @@ function pendingMessages(store: EndpointStore) {
       ),
     ),
   );
+}
+
+/** One test agent's signing authority and the card the test Registry issued it. */
+function signingIdentity(
+  byte: number,
+  name: string,
+  registryKeys: Parameters<typeof issueTestCard>[0]["registryKeys"],
+) {
+  return Effect.gen(function* () {
+    const authority = yield* makeTestAuthority();
+    return {
+      authority,
+      card: yield* issueTestCard({ byte, name, authority, registryKeys }),
+    };
+  });
+}
+
+/** The verified membership of the direct conversation between two cards. */
+function directMembership(
+  cards: readonly [AgentCard, AgentCard],
+  signer: Ed25519PublicKey,
+) {
+  return Effect.gen(function* () {
+    const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
+      moltzapVersion: WIRE_VERSION,
+      kind: "membership_descriptor",
+      conversationId: yield* deriveConversationId([
+        cards[0].agentId,
+        cards[1].agentId,
+      ]),
+      members: [
+        yield* Schema.encode(AgentCard)(cards[0]),
+        yield* Schema.encode(AgentCard)(cards[1]),
+      ],
+    });
+    return yield* verifyMembershipDescriptor(descriptor, signer);
+  });
+}
+
+/**
+ * Run the admission worker for the test scope, publishing through `runPass`
+ * after each committed admission.
+ * @returns A queue that receives one value per completed admission.
+ */
+function startAdmission(
+  delivery: Effect.Effect.Success<ReturnType<typeof makeHostDelivery>>,
+  runPass: Effect.Effect<void, unknown>,
+) {
+  return Effect.gen(function* () {
+    const completed = yield* Queue.unbounded<undefined>();
+    yield* delivery
+      .runAdmission(
+        runPass.pipe(
+          Effect.orDie,
+          Effect.zipRight(Queue.offer(completed, undefined)),
+          Effect.asVoid,
+        ),
+      )
+      .pipe(Effect.forkScoped);
+    return completed;
+  });
 }

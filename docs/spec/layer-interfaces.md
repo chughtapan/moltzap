@@ -466,7 +466,9 @@ The mixed-release CI gate runs the previous published release and the oldest
 published release whose wire version remains live against the current build,
 using the current Registry and Router. Candidate selection reads the published
 Identity `moltzapWireVersion` npm metadata without installing candidates.
-Metadata missing after the recorded legacy range fails the gate; registry
+Absent metadata denotes a pre-reset release until `FIRST_POST_RESET_RELEASE`
+is recorded when the reset release ships. Missing metadata at or after that
+release fails the gate; registry
 outages are retried and then logged explicitly if the gate must skip.
 Certified posts must flow in both
 directions. If both selections name the same release, it runs once. Synthetic

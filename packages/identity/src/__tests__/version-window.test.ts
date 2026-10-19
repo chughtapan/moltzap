@@ -47,3 +47,31 @@ it("verifies golden card and signed bytes without changing their representation"
       }),
     ),
   ));
+
+it("cannot widen live admission even when the supplied live set includes a retained version", () =>
+  Effect.runPromise(
+    Schema.decodeUnknown(SignedMessage.live)(golden.message).pipe(
+      Effect.isFailure,
+      Effect.provideService(WireVersions, {
+        live: ["2099.101.0", WIRE_VERSION],
+        history: ["2099.101.0", WIRE_VERSION],
+      }),
+      Effect.tap((rejected) =>
+        Effect.sync(() => {
+          expect(rejected).toBe(true);
+        }),
+      ),
+    ),
+  ));
+
+it("keeps the binary's retained history when configured history is empty", () =>
+  Effect.runPromise(
+    Schema.decodeUnknown(WireVersions.history)(WIRE_VERSION).pipe(
+      Effect.provideService(WireVersions, { live: [], history: [] }),
+      Effect.tap((version) =>
+        Effect.sync(() => {
+          expect(version).toBe(WIRE_VERSION);
+        }),
+      ),
+    ),
+  ));

@@ -3,9 +3,9 @@
 import {
   type AgentId as AgentIdValue,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
+  type LiveSignedMessage,
   MessageId,
   SignedMessage,
-  type LiveSignedMessage as SignedMessageValue,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
 import {
@@ -143,7 +143,7 @@ export const makeFixture = makeIdentityFixture(1, "worker-local");
  */
 export const signMessage = (
   input: SignMessageInput,
-): Effect.Effect<SignedMessageValue> =>
+): Effect.Effect<LiveSignedMessage> =>
   SignedMessage.sign({
     agentCard: input.card,
     signingAuthority: input.authority,
@@ -264,7 +264,7 @@ export const emptyBatch = (
 export const batch = (
   instance: ReturnType<typeof routerInstanceId>,
   cursor: ReturnType<typeof pollCursor>,
-  signedMessages: readonly SignedMessageValue[],
+  signedMessages: readonly LiveSignedMessage[],
 ): RouterPollResult => ({
   kind: "batch",
   routerInstanceId: instance,

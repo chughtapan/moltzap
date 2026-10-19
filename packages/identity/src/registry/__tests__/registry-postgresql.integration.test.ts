@@ -26,6 +26,7 @@ import {
 } from "effect";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { encodeCanonicalJson } from "../../canonical-json.js";
 import { AuthenticationFailedError } from "../../http-errors.js";
 import {
   AgentCard,
@@ -33,9 +34,9 @@ import {
   type VerifiedAgentCard,
   WIRE_VERSION,
 } from "../../index.js";
-import { Registry } from "../../registry.js";
+import { Registry, RegistryRegisterRequest } from "../../registry.js";
 import { verifyBootstrapRegistration } from "../admission.js";
-import { makeRegistryStorage } from "../storage.js";
+import { initializeRegistryStorage, makeRegistryStorage } from "../storage.js";
 import {
   ADMISSION_CREDENTIAL,
   LOOPBACK_HOST,
@@ -43,19 +44,24 @@ import {
   makeRegistryRunner,
   makeSigningAuthority,
   makeVersionedBootstrapRequest,
+  managedProcess,
   prepareAgent,
   processTestError,
   registerAgent,
+  REGISTRY_BINARY,
   registryEnvironment,
   reservePort,
   startReadyRegistry,
   stopProcess,
+  waitForExit,
   waitForHealthStatus,
 } from "./registry-process.js";
 
 const SERVICE_UNAVAILABLE_STATUS = 503;
 const EMPTY_BODY = "";
 const FOUND_KIND = "found";
+const REGISTERED_KIND = "registered";
+const NEWER_SCHEMA_REASON = "newer-schema";
 
 const stopPostgreSql = (container: StartedPostgreSqlContainer) =>
   Effect.tryPromise({
@@ -106,6 +112,7 @@ const makePostgreSqlRegistrySetup = Effect.gen(function* () {
     environment,
     origin,
     registrySignerPublicKey,
+    signingAuthority,
   };
 });
 
@@ -308,7 +315,153 @@ const realPostgreSqlBehavior = Effect.gen(function* () {
   Effect.provide(NodeHttpClient.layer),
 );
 
+// @agent-code-guard/regression-only: these scenarios cover distinct database restart, outage, and startup refusal contracts against real PostgreSQL.
 it("persists across Registry restart on real PostgreSQL and reports a database outage", () => {
   expect.hasAssertions();
   return Effect.runPromise(realPostgreSqlBehavior);
+}, 180_000);
+
+it("reopens a known ledger and serves the same card", () => {
+  expect.hasAssertions();
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const setup = yield* makePostgreSqlRegistrySetup;
+      const sql = yield* PgClient.make({
+        url: Redacted.make(setup.container.getConnectionUri()),
+      }).pipe(Effect.provide(Reactivity.layer));
+      yield* initializeRegistryStorage({
+        sql,
+        registrySignerPublicKey: setup.registrySignerPublicKey,
+      });
+      const storage = makeRegistryStorage({
+        sql,
+        registrySignerPublicKey: setup.registrySignerPublicKey,
+        listPageSize: 100,
+        operationTimeoutMilliseconds: 5_000,
+      });
+      const prepared = yield* prepareAgent("ledger-authority");
+      const requestBytes = yield* Schema.encode(RegistryRegisterRequest)(
+        prepared.request,
+      ).pipe(Effect.flatMap(encodeCanonicalJson));
+      const registered = yield* storage.register({
+        request: prepared.request,
+        requestBytes,
+        registrySigningAuthority: setup.signingAuthority,
+      });
+      expect(registered.kind).toBe(REGISTERED_KIND);
+      yield* initializeRegistryStorage({
+        sql,
+        registrySignerPublicKey: setup.registrySignerPublicKey,
+      });
+      yield* storage.checkReadiness();
+      const lookup = yield* storage.lookup({
+        agentName: prepared.request.agentName,
+      });
+      expect(lookup.kind).toBe(FOUND_KIND);
+      if (lookup.kind === FOUND_KIND && registered.kind === REGISTERED_KIND) {
+        yield* expectExactCard(lookup.agentCard, registered.agentCard);
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+  );
+}, 180_000);
+
+it.each([
+  { mismatch: "wire version", reason: "unavailable" },
+  { mismatch: "signer", reason: "signer-mismatch" },
+])(
+  "refuses a metadata $mismatch mismatch through storage and process startup",
+  ({ mismatch, reason }) => {
+    expect.hasAssertions();
+    return Effect.runPromise(
+      Effect.gen(function* () {
+        const setup = yield* makePostgreSqlRegistrySetup;
+        const sql = yield* PgClient.make({
+          url: Redacted.make(setup.container.getConnectionUri()),
+        }).pipe(Effect.provide(Reactivity.layer));
+        yield* initializeRegistryStorage({
+          sql,
+          registrySignerPublicKey: setup.registrySignerPublicKey,
+        });
+        yield* mismatch === "signer"
+          ? sql`UPDATE moltzap_registry_metadata SET signer_thumbprint = 'different-signer'`
+          : sql`UPDATE moltzap_registry_metadata SET moltzap_version = 'different-wire-version'`;
+
+        const initialized = yield* initializeRegistryStorage({
+          sql,
+          registrySignerPublicKey: setup.registrySignerPublicKey,
+        }).pipe(Effect.either);
+        Either.match(initialized, {
+          onLeft: (error) => {
+            expect(error.reason).toBe(reason);
+          },
+          onRight: () => {
+            expect.fail(`Registry accepted a metadata ${mismatch} mismatch`);
+          },
+        });
+        const process = yield* managedProcess(
+          REGISTRY_BINARY,
+          [],
+          setup.environment,
+        );
+        yield* waitForExit(process).pipe(
+          Effect.timeoutFail({
+            duration: Duration.seconds(10),
+            onTimeout: () =>
+              processTestError(
+                `Registry did not refuse the metadata mismatch\n${process.logs()}`,
+              ),
+          }),
+        );
+        expect(process.child.exitCode).not.toBe(0);
+        expect(process.logs()).toContain(`storage (${reason})`);
+      }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+    );
+  },
+  180_000,
+);
+
+it("refuses an unknown applied migration with newer-schema through storage and process startup", () => {
+  expect.hasAssertions();
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const setup = yield* makePostgreSqlRegistrySetup;
+      const sql = yield* PgClient.make({
+        url: Redacted.make(setup.container.getConnectionUri()),
+      }).pipe(Effect.provide(Reactivity.layer));
+      yield* initializeRegistryStorage({
+        sql,
+        registrySignerPublicKey: setup.registrySignerPublicKey,
+      });
+      yield* sql`INSERT INTO moltzap_registry_migrations (migration_id, name) VALUES (9999, 'future')`;
+
+      const initialized = yield* initializeRegistryStorage({
+        sql,
+        registrySignerPublicKey: setup.registrySignerPublicKey,
+      }).pipe(Effect.either);
+      Either.match(initialized, {
+        onLeft: (error) => {
+          expect(error.reason).toBe(NEWER_SCHEMA_REASON);
+        },
+        onRight: () => {
+          expect.fail("Registry accepted an unknown applied migration");
+        },
+      });
+      const process = yield* managedProcess(
+        REGISTRY_BINARY,
+        [],
+        setup.environment,
+      );
+      yield* waitForExit(process).pipe(
+        Effect.timeoutFail({
+          duration: Duration.seconds(10),
+          onTimeout: () =>
+            processTestError(
+              `Registry did not refuse the newer schema\n${process.logs()}`,
+            ),
+        }),
+      );
+      expect(process.child.exitCode).not.toBe(0);
+      expect(process.logs()).toContain(NEWER_SCHEMA_REASON);
+    }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+  );
 }, 180_000);

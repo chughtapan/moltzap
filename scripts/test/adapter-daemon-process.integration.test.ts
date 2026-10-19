@@ -1005,7 +1005,7 @@ function runOpenClawGatherScenario() {
       });
       const resultTurn = yield* nextTurn(turns);
       expect(resultTurn).toMatchObject({
-        Body: `gather result for the question sent to ${callerAddress}: ${GATHER_QUESTION}\n- ${callerAddress}: answered {"slot":"mon"}`,
+        Body: `gather result for the question sent to ${callerAddress}: "${GATHER_QUESTION}"\n- ${callerAddress}: answered {"slot":"mon"}`,
         SenderName: "MoltZap",
       });
 
@@ -1129,7 +1129,7 @@ function runOpenClawAllGatherScenario() {
       });
       expect(yield* nextItem(peer.messages)).toEqual(callerResult);
       expect(yield* nextTurn(turns)).toMatchObject({
-        Body: `all_gather result for the question sent to ${group}: ${GATHER_QUESTION}\n- ${peerAddress}: declined\n- ${targetAddress}: answered {"slot":"tue"}`,
+        Body: `all_gather result for the question sent to ${group}: "${GATHER_QUESTION}"\n- ${peerAddress}: declined\n- ${targetAddress}: answered {"slot":"tue"}`,
         ChatType: "group",
         SenderName: "MoltZap",
       });
@@ -1155,7 +1155,7 @@ function runOpenClawAllGatherScenario() {
         collectiveResponse: { action: "decline" },
       });
       expect(yield* nextTurn(turns)).toMatchObject({
-        Body: `all_gather result for the question sent to ${group}: ${GATHER_QUESTION}\n- ${callerAddress}: answered {"slot":"mon"}\n- ${peerAddress}: declined`,
+        Body: `all_gather result for the question sent to ${group}: "${GATHER_QUESTION}"\n- ${callerAddress}: answered {"slot":"mon"}\n- ${peerAddress}: declined`,
         SenderName: "MoltZap",
       });
       const memberResult = yield* nextItem(caller.messages);

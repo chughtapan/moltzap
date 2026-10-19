@@ -8,7 +8,6 @@ import {
   MessageId,
   type MessageId as MessageIdValue,
   SignedMessage,
-  type LiveSignedMessage as SignedMessageValue,
   WIRE_VERSION,
 } from "@moltzap/identity";
 import canonicalize from "canonicalize";
@@ -77,7 +76,7 @@ const makeSignedMessage = (input: {
   readonly recipientAgentIds: readonly AgentIdValue[];
   readonly messageId: MessageIdValue;
   readonly body: string;
-}): SignedMessageValue => {
+}): LiveSignedMessage => {
   const agentCardDigest = Schema.decodeUnknownSync(AgentCardDigest)(
     `acd_${Encoding.encodeBase64Url(new Uint8Array(32).fill(9))}`,
   );
@@ -131,12 +130,12 @@ const makeMaximumSignedMessage = (): LiveSignedMessage =>
     ],
   });
 
-const encodedMessage = (message: SignedMessageValue): string =>
+const encodedMessage = (message: LiveSignedMessage): string =>
   canonicalText(Schema.encodeSync(SignedMessage)(message));
 
 const acceptMessage = (
   feed: RouterFeed,
-  message: SignedMessageValue,
+  message: LiveSignedMessage,
   mode: "initial" | "retry" = "initial",
 ) =>
   feed.accept({

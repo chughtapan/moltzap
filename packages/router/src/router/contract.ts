@@ -12,7 +12,6 @@ import {
   PayloadTooLargeError,
   RouteNotFoundError,
   SignedMessage,
-  type LiveSignedMessage as SignedMessageValue,
   UnavailableError,
   UnsupportedMediaTypeError,
   VersionMismatchError,
@@ -239,7 +238,7 @@ export type RouterPollResult =
   | Readonly<{
       kind: "batch";
       routerInstanceId: RouterInstanceId;
-      signedMessages: readonly SignedMessageValue[];
+      signedMessages: readonly LiveSignedMessage[];
       pollCursor: PollCursor;
     }>
   | Readonly<{

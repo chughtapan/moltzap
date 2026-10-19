@@ -143,7 +143,7 @@ export function decodeReanchorVotes(
   body: ReanchorBodyValue,
   anchorHash: AnchorHashValue,
 ): Effect.Effect<readonly SignedMessageValue[], RouterWorkerPersistenceError> {
-  return runtime.input.store.recover().pipe(
+  return runtime.input.store.recover(body.conversationId).pipe(
     Effect.mapError(persistenceFailure),
     Effect.flatMap((recovery) =>
       Effect.forEach(

@@ -35,7 +35,11 @@ import { registryMigration } from "./migrations/0001_registry.js";
 /** Storage initialization failed before the Registry became ready. */
 export class RegistryStorageInitializationError extends Data.TaggedError(
   "RegistryStorageInitializationError",
-) {}
+)<{
+  readonly reason: "newer-schema" | "signer-mismatch" | "unavailable";
+}> {}
+
+const LEDGER_TABLE = "moltzap_registry_migrations";
 
 type StorageError = UnavailableError | InternalServerError;
 type StorageInput = Readonly<{
@@ -75,7 +79,7 @@ export interface RegistryStorage {
 }
 
 /**
- * Runs migrations and binds the configured signer and version to storage.
+ * Refuses unknown applied migrations and binds the configured signer to storage.
  *
  * @param input Initialization dependencies.
  * @param input.sql Exclusive SQL capability for this Registry process.
@@ -87,10 +91,15 @@ export function initializeRegistryStorage(input: {
   readonly registrySignerPublicKey: Ed25519PublicKey;
 }): Effect.Effect<void, RegistryStorageInitializationError> {
   return runStorageInitialization(input).pipe(
-    // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Startup exposes one empty storage phase error and never leaks database or key details.
-    Effect.mapError(() => new RegistryStorageInitializationError()),
+    Effect.mapError((error) =>
+      error instanceof RegistryStorageInitializationError
+        ? error
+        : new RegistryStorageInitializationError({ reason: "unavailable" }),
+    ),
     Effect.catchAllDefect(() =>
-      Effect.fail(new RegistryStorageInitializationError()),
+      Effect.fail(
+        new RegistryStorageInitializationError({ reason: "unavailable" }),
+      ),
     ),
     Effect.withSpan("initializeRegistryStorage"),
   );
@@ -128,6 +137,9 @@ const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
 const metadataRow = exactStruct({
   moltzapVersion: Schema.String,
   signerThumbprint: Schema.String,
+});
+const ledgerRow = exactStruct({
+  migrationId: Schema.Int,
 });
 const cardRow = exactStruct({
   agentCardBytes: Schema.Uint8ArrayFromSelf,
@@ -290,14 +302,33 @@ function makeCheckReadiness(
     );
 }
 
+/** The PGlite socket closes after Migrator's missing-table probe. */
 const ensureMigrationTable = (sql: SqlClient) =>
-  sql.unsafe(`
-    CREATE TABLE IF NOT EXISTS moltzap_registry_migrations (
+  sql`
+    CREATE TABLE IF NOT EXISTS ${sql(LEDGER_TABLE)} (
       migration_id integer PRIMARY KEY,
       created_at timestamp with time zone NOT NULL DEFAULT now(),
       name text NOT NULL
     )
-  `);
+  `;
+
+/** Migrator skips known ids below the ledger maximum without rejecting unknown ids. */
+function checkLedger(sql: SqlClient) {
+  return Effect.gen(function* () {
+    yield* sql`LOCK TABLE ${sql(LEDGER_TABLE)} IN ACCESS EXCLUSIVE MODE`;
+    const known = yield* migrations;
+    const rows = yield* sql`
+      SELECT migration_id AS "migrationId" FROM ${sql(LEDGER_TABLE)}
+    `;
+    const applied = yield* Schema.decodeUnknown(Schema.Array(ledgerRow))(rows);
+    const knownIds = new Set(known.map(([id]) => id));
+    if (applied.some((row) => !knownIds.has(row.migrationId))) {
+      return yield* new RegistryStorageInitializationError({
+        reason: "newer-schema",
+      });
+    }
+  });
+}
 
 const bindStorageMetadata = (input: {
   readonly sql: SqlClient;
@@ -323,27 +354,33 @@ const bindStorageMetadata = (input: {
         rows,
         { exact: true, onExcessProperty: "error" },
       );
-      if (
-        metadata[0].moltzapVersion !== WIRE_VERSION ||
-        metadata[0].signerThumbprint !== input.signerThumbprint
-      ) {
+      if (metadata[0].moltzapVersion !== WIRE_VERSION) {
         return yield* Effect.die("Registry metadata mismatch");
+      }
+      if (metadata[0].signerThumbprint !== input.signerThumbprint) {
+        return yield* new RegistryStorageInitializationError({
+          reason: "signer-mismatch",
+        });
       }
     }),
   );
 
+/** The ledger lock covers preflight and Migrator's transactional batch together. */
 function runStorageInitialization(input: {
   readonly sql: SqlClient;
   readonly registrySignerPublicKey: Ed25519PublicKey;
 }) {
   return Effect.gen(function* () {
-    // The PGlite socket closes after Migrator's missing-table probe. Creating
-    // Migrator's own table first keeps every supported database on one path.
     yield* ensureMigrationTable(input.sql);
-    yield* Migrator.make({})({
-      loader: migrations,
-      table: "moltzap_registry_migrations",
-    }).pipe(Effect.provideService(SqlClient, input.sql));
+    yield* input.sql.withTransaction(
+      Effect.gen(function* () {
+        yield* checkLedger(input.sql);
+        yield* Migrator.make({})({
+          loader: migrations,
+          table: LEDGER_TABLE,
+        }).pipe(Effect.provideService(SqlClient, input.sql));
+      }),
+    );
     const signerThumbprint = yield* ed25519PublicKeyThumbprintUri(
       input.registrySignerPublicKey,
     );

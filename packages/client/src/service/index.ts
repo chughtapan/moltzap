@@ -6,16 +6,15 @@ import { Router } from "@moltzap/router";
 import { Data, Duration, Effect, Layer } from "effect";
 import type { DaemonProcessConfiguration } from "./bootstrap.js";
 import {
-  type InstalledFirewall,
   type FirewallOptions as InstalledFirewallOptions,
-  installFirewall,
+  installEditableFirewall,
 } from "../delivery/index.js";
 import { inspectEndpointStore, openEndpointStore } from "../store/index.js";
 import {
   loadDaemonBootstrap,
   loadDaemonProcessConfiguration,
 } from "./configuration.js";
-import { runDaemonRuntime } from "./lifecycle.js";
+import { type DaemonRuntimeError, runDaemonRuntime } from "./lifecycle.js";
 import {
   readDaemonRegistrationState,
   requireAdmission,
@@ -35,6 +34,7 @@ export { FirewallAuditRecord } from "../delivery/index.js";
 export {
   CheckInputError,
   DecisionProviderError,
+  FirewallPolicyError,
   makeEnglishPolicy,
   makeFirewall,
   makeJevDecisionProvider,
@@ -59,7 +59,7 @@ export type {
 
 // eslint-disable-next-line @typescript-eslint/no-namespace -- The published service subpath intentionally merges its runtime values with the closed startup-error type.
 export namespace Daemon {
-  /** Trusted fixed process composition; agents receive no policy mutation capability. */
+  /** Trusted process composition fixes code and evidence while owner tools edit English rules. */
   export type FirewallOptions = InstalledFirewallOptions & {
     /**
      * Dedicated file and adjacent `.partial` staging name for this endpoint's
@@ -84,11 +84,10 @@ export namespace Daemon {
   }
 
   const runDaemon = (
-    firewallSetup: Effect.Effect<InstalledFirewall | undefined, StartupError>,
+    firewallOptions?: InstalledFirewallOptions,
     auditExport?: string,
   ) =>
     Effect.gen(function* () {
-      const firewall = yield* firewallSetup;
       const configuration = yield* loadDaemonProcessConfiguration.pipe(
         Effect.mapError(configurationFailure),
       );
@@ -104,6 +103,12 @@ export namespace Daemon {
       const store = yield* openEndpointStore(configuration.stateDirectory).pipe(
         Effect.mapError(storageFailure),
       );
+      const firewall =
+        firewallOptions === undefined
+          ? undefined
+          : yield* installEditableFirewall(firewallOptions, store).pipe(
+              Effect.mapError(configurationFailure),
+            );
       const registration = yield* readDaemonRegistrationState({
         store,
         bootstrap,
@@ -120,40 +125,38 @@ export namespace Daemon {
         ...(auditExport === undefined ? {} : { auditExport }),
       }).pipe(
         Effect.provide(networkContext),
-        // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- The public process layer deliberately projects private runtime failures onto its closed startup phase.
-        Effect.mapError(
-          (error) =>
-            new StartupError({
-              phase: error.phase,
-              ...(error.reason === undefined ? {} : { reason: error.reason }),
-            }),
-        ),
+        Effect.mapError(runtimeStartupFailure),
       );
     }).pipe(Effect.withSpan("Daemon.layer"));
 
   /** Complete production process composition for `moltzapd`. */
   export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
-    runDaemon(Effect.succeed(undefined)),
+    runDaemon(),
   );
 
   /**
-   * Fixed middleware and owner evidence are installed before the daemon accepts host calls.
-   * @param options Trusted process-owned chains and evidence, fixed for this daemon lifetime.
+   * Fixed middleware and persisted English rules are installed before the daemon accepts host calls.
+   * @param options Fixed chains, provider settings and initial editable English documents.
    * @returns The complete daemon layer with both message boundaries checked.
    */
   export const withFirewall = (
     options: FirewallOptions,
   ): Layer.Layer<never, StartupError> => {
     const { auditExport, ...policyOptions } = options;
-    return Layer.scopedDiscard(
-      runDaemon(
-        installFirewall(policyOptions).pipe(
-          Effect.mapError(configurationFailure),
-        ),
-        auditExport,
-      ),
-    );
+    return Layer.scopedDiscard(runDaemon(policyOptions, auditExport));
   };
+
+  /**
+   * Public startup failures retain the phase and actionable compatibility refusal.
+   * @param error Private runtime failure to project onto the process boundary.
+   * @returns The closed startup error without private runtime detail.
+   */
+  function runtimeStartupFailure(error: DaemonRuntimeError): StartupError {
+    return new StartupError({
+      phase: error.phase,
+      ...(error.reason === undefined ? {} : { reason: error.reason }),
+    });
+  }
 
   function configurationFailure(): StartupError {
     return new StartupError({ phase: "configuration" });
