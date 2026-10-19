@@ -69,6 +69,21 @@ const onSteppedClock = <Value, Failure>(
     );
   });
 
+/** Select callbacks by their signed event identity, independently of verification traffic. */
+const eventPosts = (
+  posts: ReturnType<typeof scriptedWebhook>["posts"],
+  byte: number,
+) =>
+  posts.filter((post) => post.headers["webhook-id"] === eventIdOf(token(byte)));
+
+/** Verification challenges have their own signed identity prefix. */
+const verificationPosts = (
+  posts: ReturnType<typeof scriptedWebhook>["posts"],
+) =>
+  posts.filter((post) =>
+    post.headers["webhook-id"]?.startsWith("msg_verification_"),
+  );
+
 const signsVerifiesAndRotates = () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -86,10 +101,12 @@ const signsVerifiesAndRotates = () =>
       expect(control?.headers["webhook-signature"]).toBe(`v1,${expected}`);
       yield* enqueue(store, 1);
       yield* events.observe();
-      expect(decodeOccurrence(test.posts[1]?.body).data).toEqual({
-        kind: "item",
-        item: item(),
-      });
+      expect(decodeOccurrence(eventPosts(test.posts, 1)[0]?.body).data).toEqual(
+        {
+          kind: "item",
+          item: item(),
+        },
+      );
       expect((yield* events.status).pendingCount).toBe(0);
       const rotated = {
         ...input,
@@ -135,7 +152,7 @@ const retainsTerminalRejections = () =>
         yield* stepClock("1 day");
         yield* restarted.subscribe(input, "runtime");
         yield* restarted.observe();
-        expect(test.posts).toHaveLength(4);
+        expect(eventPosts(test.posts, 1)).toHaveLength(1);
         expect((yield* store.readInboxSummary()).pendingCount).toBe(1);
         yield* restarted.revoke;
         yield* restarted.subscribe(input, "runtime");
@@ -159,11 +176,13 @@ it("delivers local guidance and its subject map through a signed webhook", () =>
       });
       yield* events.subscribe(input, "runtime");
       yield* events.observe();
-      expect(decodeOccurrence(test.posts[1]?.body).data).toEqual({
-        kind: "item",
-        item: item(),
-        guidance,
-      });
+      expect(decodeOccurrence(eventPosts(test.posts, 1)[0]?.body).data).toEqual(
+        {
+          kind: "item",
+          item: item(),
+          guidance,
+        },
+      );
       expect(
         (yield* readRuntimeEvent(store, eventIdOf(token(1)))).guidance,
       ).toEqual(guidance);
@@ -188,12 +207,12 @@ const verifiesRotatedSecret = () =>
       expect(
         (yield* events.subscribe(rotated, "runtime").pipe(Effect.flip)).code,
       ).toBe(-32015);
-      expect(test.posts).toHaveLength(2);
+      expect(verificationPosts(test.posts)).toHaveLength(2);
       test.challenge(true);
       expect((yield* events.subscribe(rotated, "runtime")).id).toBe(grant.id);
-      expect(test.posts).toHaveLength(3);
+      expect(verificationPosts(test.posts)).toHaveLength(3);
       yield* events.subscribe(rotated, "runtime");
-      expect(test.posts).toHaveLength(3);
+      expect(verificationPosts(test.posts)).toHaveLength(3);
     }),
   ).pipe(onSteppedClock);
 
@@ -268,7 +287,7 @@ const retriesAcrossRestart = () => {
         yield* events.subscribe(input, "runtime");
         test.status(503);
         yield* events.observe();
-        original = test.posts[1]?.body;
+        original = eventPosts(test.posts, 1)[0]?.body;
         expect((yield* store.readInboxSummary()).pendingCount).toBe(1);
       }),
     );
@@ -279,12 +298,14 @@ const retriesAcrossRestart = () => {
         const test = scriptedWebhook(store);
         const events = yield* test.acquire;
         yield* events.observe();
-        expect(test.posts[0]?.body).toBe(original);
-        expect(test.posts[0]?.headers["webhook-id"]).toBe(eventIdOf(token(1)));
+        expect(eventPosts(test.posts, 1)[0]?.body).toBe(original);
+        expect(eventPosts(test.posts, 1)[0]?.headers["webhook-id"]).toBe(
+          eventIdOf(token(1)),
+        );
         expect((yield* store.readInboxSummary()).pendingCount).toBe(0);
         yield* stepClock("10 minutes");
         yield* events.observe();
-        expect(test.posts).toHaveLength(1);
+        expect(eventPosts(test.posts, 1)).toHaveLength(1);
       }),
     );
     yield* Effect.scoped(
@@ -320,11 +341,13 @@ const resumesExhaustedCallbacks = () =>
       test.status(200);
       yield* stepClock("5 minutes");
       yield* restarted.observe();
-      expect(test.posts).toHaveLength(101);
+      expect(eventPosts(test.posts, 1)).toHaveLength(100);
       yield* restarted.resume;
       yield* restarted.observe();
-      expect(test.posts).toHaveLength(102);
-      expect(test.posts.at(-1)?.body).toBe(test.posts[1]?.body);
+      expect(eventPosts(test.posts, 1)).toHaveLength(101);
+      expect(eventPosts(test.posts, 1).at(-1)?.body).toBe(
+        eventPosts(test.posts, 1)[0]?.body,
+      );
       expect((yield* events.status).pendingCount).toBe(0);
       expect((yield* restarted.status).stalled).toBeNull();
     }),
@@ -343,8 +366,12 @@ const boundsPayloadAndDrains = () =>
       }
       yield* events.subscribe(input, "runtime");
       yield* events.observe();
-      expect(test.posts).toHaveLength(55);
-      const body = test.posts[1]?.body ?? "";
+      expect(
+        test.posts.filter((post) =>
+          post.headers["webhook-id"]?.startsWith("evt_"),
+        ),
+      ).toHaveLength(54);
+      const body = eventPosts(test.posts, 1)[0]?.body ?? "";
       expect(Buffer.byteLength(body)).toBeLessThanOrEqual(maximumEventBytes);
       expect(decodeOccurrence(body).data.kind).toBe("reference");
       expect(
@@ -378,7 +405,8 @@ const removesRetiredOccurrence = () =>
       const restarted = yield* test.acquire;
       test.status(200);
       yield* restarted.observe();
-      expect(test.posts[2]?.headers["webhook-id"]).toBe(eventIdOf(token(2)));
+      expect(eventPosts(test.posts, 1)).toHaveLength(1);
+      expect(eventPosts(test.posts, 2)).toHaveLength(1);
       expect(
         (yield* readRuntimeEvent(store, eventIdOf(token(1)))).item,
       ).toEqual(item());
@@ -432,11 +460,11 @@ const rejectsUnsafeCallbacks = () =>
     expect(
       (yield* events.subscribe(input, "runtime").pipe(Effect.flip)).code,
     ).toBe(-32015);
-    expect(test.posts).toHaveLength(1);
+    expect(verificationPosts(test.posts)).toHaveLength(1);
     expect(events.hasActiveSubscription()).toBe(false);
   }).pipe(Effect.scoped);
 
-// @agent-code-guard/regression-only: these transcripts pin the external MCP draft, callback signatures, crash recovery and trust boundary.
+// @agent-code-guard/regression-only: External callback signatures, crash recovery and trust boundaries require conformance coverage.
 describe("local Dot webhook conformance", () => {
   it(
     "verifies a rotated secret before caching its challenge",
