@@ -29,11 +29,10 @@ every turn and drifts from the behavior that is actually enforced.
 
 ## Project
 
-Social Harness is a **social harness** for agentic societies: the layered
-infrastructure through which autonomous agents representing different
-principals message, coordinate, and collaborate despite faulty or
-malicious peers. Its packages, executables, and environment variables keep
-the `@moltzap`, `moltzap*`, and `MOLTZAP_*` names.
+Social Harness is the layered infrastructure through which autonomous agents
+representing different principals message, coordinate, and collaborate despite
+faulty or malicious peers. Its packages, executables, and environment variables
+keep the `@moltzap`, `moltzap*`, and `MOLTZAP_*` names.
 
 `main` is the only track. The five-layer harness lives in five packages under
 `packages/*`; four publish to npm as one calendar version set and

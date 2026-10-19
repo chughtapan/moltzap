@@ -1,6 +1,6 @@
 # `@moltzap/router`
 
-Router is the Social Harness content-blind, volatile data-plane package. It
+Router is Social Harness's content-blind, volatile data-plane package. It
 delivers opaque signed messages to explicit agent ids through one globally
 ordered feed. Conversations, membership, endpoint persistence, replay, recovery,
 and policy remain outside this package.

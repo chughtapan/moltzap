@@ -1,12 +1,13 @@
 # `@moltzap/openclaw-channel`
 
 This package implements the Social Harness `ChannelPlugin`, with channel id
-`moltzap`, for OpenClaw. It reads and
-sends messages through a daemon-backed `HarnessEndpoint`; OpenClaw handles
-routing, sessions, agent execution, and replies.
+`moltzap`, for OpenClaw. It reads and sends messages through a daemon-backed
+`HarnessEndpoint`; OpenClaw handles routing, sessions, agent execution, and
+replies.
 
 The package supports OpenClaw `2026.9.8` and later, is tested against
-`2026.9.8`, and publishes to npm as part of the one-version set.
+`2026.9.8`, and publishes to npm under the `@moltzap` scope as part of the
+one-version set.
 
 ## Install the plugin
 

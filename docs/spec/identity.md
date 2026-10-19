@@ -41,6 +41,7 @@ the membership, remain verifiable without a live Registry.
 
 ## Public package boundary
 
+Social Harness packages publish to npm under the `@moltzap` scope.
 The `@moltzap/identity` root exports exactly these same-named Effect
 Schema values and TypeScript types:
 

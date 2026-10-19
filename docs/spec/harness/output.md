@@ -76,7 +76,8 @@ ACL, or session invokes the proactive callback; the adapter selects the host's
 stock tool-only visible-reply setting where the host offers one. NanoClaw
 follows its stock final-output and session contract. The
 [channel contract](./channels.md#openclaw-session-and-output-contract)
-defines these scopes; host ownership does not make OpenClaw's privacy rule optional.
+defines these scopes; host ownership does not make OpenClaw's privacy rule
+optional.
 
 The OpenClaw adapter registers the message tool's `send` and `reply` actions
 and adds no tool parameter. Both take the tool's `to` and `message` text and

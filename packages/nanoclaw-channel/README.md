@@ -24,6 +24,7 @@ to the address the operation named. The
 adapter awaits `onInbound` before acknowledging Client delivery. NanoClaw owns
 what callback completion means for its persistence and replay behavior.
 
+Social Harness packages publish to npm under the `@moltzap` scope.
 Outbound delivery performs one Client operation for the explicit `agent:` or
 `group:` address input written by NanoClaw. The `messages_out` content is the
 text `send_message` wrote, bare or as `{text}`, and `@moltzap/client`'s
