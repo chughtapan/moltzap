@@ -288,22 +288,12 @@ const contextFrom = Effect.fn("firewallContext")(function* (
       agentId: card.agentId,
       principal: card.principalId,
     })),
-    history: history.map((entry) => ({
-      id: entry.message.id,
-      sender: entry.message.sender,
-      recipients: entry.message.recipients,
-      text: entry.message.text,
-      visibility: entry.visible ? "runtime" : "assessor",
-      admission:
-        entry.admitted ||
-        entry.message.sender === environment.localAgentCard.agentId
-          ? "admitted"
-          : "withheld",
-    })),
+    history: contextHistory(history, environment.localAgentCard.agentId),
+    earlierHistoryOmitted: evidence.earlierHistoryOmitted,
     facts: environment.installed.configuration.facts,
     gaps: [
       ...(evidence.overflow
-        ? ["Authorized earlier history exceeds the configured evidence bound."]
+        ? ["Authorized earlier history exceeds the 2 MiB evidence byte bound."]
         : []),
       ...(evidence.pendingOutgoing
         ? ["An earlier outgoing intent has not reached certified completion."]
@@ -312,6 +302,25 @@ const contextFrom = Effect.fn("firewallContext")(function* (
     authorization: { kind: "absent" },
   });
 });
+
+function contextHistory(
+  history: ReadonlyArray<
+    Effect.Effect.Success<ReturnType<typeof decodeHistory>>
+  >,
+  localAgentId: string,
+): MessageContext["history"] {
+  return history.map((entry) => ({
+    id: entry.message.id,
+    sender: entry.message.sender,
+    recipients: entry.message.recipients,
+    text: entry.message.text,
+    visibility: entry.visible ? "runtime" : "assessor",
+    admission:
+      entry.admitted || entry.message.sender === localAgentId
+        ? "admitted"
+        : "withheld",
+  }));
+}
 
 interface AssessmentInput {
   readonly direction: "incoming" | "outgoing";
@@ -441,6 +450,7 @@ const checkOutgoing = (
     .withPermits(1)(
       Effect.gen(function* () {
         const evidence = yield* environment.store.readFirewallEvidence({
+          conversationId: candidate.intent.conversationId,
           maximumRecords:
             environment.installed.configuration.maximumHistoryRecords,
         });

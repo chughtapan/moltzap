@@ -76,11 +76,12 @@ export interface FirewallHistoryEntry {
 /** One retained runtime item, including its local guidance, fits in an inbox page. */
 export const MAXIMUM_RUNTIME_ITEM_BYTES = 2 * 1024 * 1024;
 
-/** A bounded complete range; an overflow is explicit and cannot justify admission. */
+/** Older records outside the window are distinct from a byte-bound evidence gap. */
 export interface FirewallEvidence {
   readonly revision: number;
   readonly history: readonly FirewallHistoryEntry[];
   readonly overflow: boolean;
+  readonly earlierHistoryOmitted: boolean;
   readonly pendingOutgoing: boolean;
   readonly candidate?: FirewallHistoryEntry;
 }
@@ -351,6 +352,7 @@ export interface EndpointStore {
   ) => Effect.Effect<readonly FirewallInboxEntry[], EndpointStoreError>;
   readonly readFirewallEvidence: (input: {
     readonly beforeDelivery?: DeliveryToken;
+    readonly conversationId?: string;
     readonly maximumRecords: number;
   }) => Effect.Effect<FirewallEvidence, EndpointStoreError>;
   readonly beginFirewallAttempt: (

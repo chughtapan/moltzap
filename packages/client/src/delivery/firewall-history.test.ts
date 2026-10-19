@@ -1,0 +1,204 @@
+/** @file Conversation windows through real delivery admission and prepared sends. */
+
+import { scopedLive as it } from "@effect/vitest";
+import { Deferred, Effect, Fiber, Queue } from "effect";
+import { expect } from "vitest";
+import type { MiddlewareInput } from "../service/index.js";
+import type { CertifiedRecord } from "../transport/wire/index.js";
+import { appendCertifiedPost } from "../__tests__/certified-history-fixtures.js";
+import {
+  addConversation,
+  auditChecks,
+  destination,
+  fixture,
+  type Fixture,
+  incomingFixture,
+  outgoingFixture,
+  pass,
+  policy,
+  seedIncoming,
+  settings,
+} from "../__tests__/firewall-runtime-fixtures.js";
+
+// @agent-code-guard/regression-only: Exercises conversation-window and byte-bound failures through real certified history.
+
+function extendHistory(
+  subject: Pick<Fixture, "store" | "local" | "remote" | "membership">,
+  previous: CertifiedRecord,
+  texts: readonly string[],
+) {
+  return Effect.reduce(texts, previous, (record, text) =>
+    appendCertifiedPost(subject, record, text, true),
+  );
+}
+
+function recordInputs(seen: MiddlewareInput[]) {
+  return policy((input) =>
+    Effect.sync(() => {
+      seen.push(input);
+      return pass;
+    }),
+  );
+}
+
+function unrelatedHistory(subject: Fixture) {
+  return Effect.gen(function* () {
+    const other = yield* addConversation(subject, true);
+    yield* extendHistory({ ...subject, ...other }, other.record, [
+      "Earlier conversation",
+      "Still another conversation",
+    ]);
+  });
+}
+
+const windowOptions = { maximumHistoryRecords: 2 };
+
+it("admits a fresh incoming conversation despite another conversation exceeding the window", () =>
+  Effect.gen(function* () {
+    const subject = yield* fixture;
+    yield* unrelatedHistory(subject);
+    const seen: MiddlewareInput[] = [];
+    const runtime = yield* incomingFixture(
+      subject,
+      recordInputs(seen),
+      windowOptions,
+    );
+    yield* runtime.runPass;
+    yield* Queue.take(runtime.completed);
+
+    expect(runtime.published).toHaveLength(1);
+    expect(seen[0]?.context).toMatchObject({
+      history: [],
+      facts: [],
+      gaps: [],
+    });
+    expect((yield* auditChecks(subject))[0]?.result).toMatchObject({
+      reason: "eligible",
+    });
+  }));
+
+it("admits a fresh outgoing conversation despite another conversation exceeding the window", () =>
+  Effect.gen(function* () {
+    const subject = yield* fixture;
+    yield* unrelatedHistory(subject);
+    const seen: MiddlewareInput[] = [];
+    const runtime = yield* outgoingFixture(
+      subject,
+      recordInputs(seen),
+      windowOptions,
+    );
+    const sending = yield* runtime.operations
+      .send({ input: { to: destination, text: "New conversation" } })
+      .pipe(Effect.forkScoped);
+    yield* Deferred.await(subject.outbound);
+    yield* Fiber.interrupt(sending);
+
+    expect(seen[0]?.context).toMatchObject({
+      history: [],
+      facts: [],
+      gaps: [],
+    });
+    expect((yield* auditChecks(subject))[0]).toMatchObject({
+      disposition: "admitted",
+      result: { reason: "eligible" },
+    });
+  }));
+
+it("assesses incoming messages with the recent conversation window strictly before the candidate", () =>
+  Effect.gen(function* () {
+    const subject = yield* fixture;
+    const previous = yield* extendHistory(
+      subject,
+      yield* seedIncoming(subject, true),
+      ["Older than the window", "Recent first", "Recent second"],
+    );
+    const candidate = yield* appendCertifiedPost(
+      subject,
+      previous,
+      "Incoming candidate",
+    );
+    yield* extendHistory(subject, candidate, ["Certified after the candidate"]);
+    const seen: MiddlewareInput[] = [];
+    const runtime = yield* incomingFixture(
+      subject,
+      recordInputs(seen),
+      windowOptions,
+      false,
+    );
+    yield* runtime.runPass;
+    yield* Queue.take(runtime.completed);
+
+    expect(seen[0]?.context.history.map((entry) => entry.text)).toEqual([
+      "Recent first",
+      "Recent second",
+    ]);
+    expect(seen[0]?.context.earlierHistoryOmitted).toBe(true);
+    expect(seen[0]?.context.gaps).toEqual([]);
+    expect(runtime.published).toHaveLength(1);
+    expect((yield* auditChecks(subject))[0]?.result).toMatchObject({
+      reason: "eligible",
+    });
+  }));
+
+it("assesses outgoing messages with the recent conversation window and a nonblocking omission", () =>
+  Effect.gen(function* () {
+    const subject = yield* fixture;
+    yield* extendHistory(subject, yield* seedIncoming(subject, true), [
+      "Older than the window",
+      "Recent first",
+      "Recent second",
+    ]);
+    const seen: MiddlewareInput[] = [];
+    const runtime = yield* outgoingFixture(
+      subject,
+      recordInputs(seen),
+      windowOptions,
+    );
+    const sending = yield* runtime.operations
+      .send({ input: { to: destination, text: "Outgoing candidate" } })
+      .pipe(Effect.forkScoped);
+    yield* Deferred.await(subject.outbound);
+    yield* Fiber.interrupt(sending);
+
+    expect(seen[0]?.context.history.map((entry) => entry.text)).toEqual([
+      "Recent first",
+      "Recent second",
+    ]);
+    expect(seen[0]?.context.earlierHistoryOmitted).toBe(true);
+    expect(seen[0]?.context.gaps).toEqual([]);
+    expect((yield* auditChecks(subject))[0]).toMatchObject({
+      disposition: "admitted",
+      result: { reason: "eligible" },
+    });
+  }));
+
+it(
+  "holds a check when its conversation history exceeds the byte bound",
+  () =>
+    Effect.gen(function* () {
+      const subject = yield* fixture;
+      yield* extendHistory(
+        subject,
+        yield* seedIncoming(subject, true),
+        Array.from({ length: 70 }, () => "x".repeat(32_000)),
+      );
+      const seen: MiddlewareInput[] = [];
+      const runtime = yield* outgoingFixture(subject, recordInputs(seen), {
+        maximumHistoryRecords: 100,
+        settings: { ...settings, maximumInputBytes: 4 * 1024 * 1024 },
+      });
+      const intentCount = (yield* subject.store.recover()).postIntents.length;
+      const refusal = yield* Effect.flip(
+        runtime.operations.send({
+          input: { to: destination, text: "Candidate after large history" },
+        }),
+      );
+
+      expect(refusal).toMatchObject({ refusal: "unresolved-evidence" });
+      expect(seen[0]?.context.gaps).not.toEqual([]);
+      expect((yield* subject.store.recover()).postIntents).toHaveLength(
+        intentCount,
+      );
+    }),
+  { timeout: 30_000 },
+);

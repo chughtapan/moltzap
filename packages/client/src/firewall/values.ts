@@ -45,6 +45,8 @@ export class MessageContext extends Schema.Class<MessageContext>(
       admission: Schema.Literal("admitted", "withheld"),
     }),
   ),
+  /** Older certified records outside the configured window are not an evidence gap. */
+  earlierHistoryOmitted: Schema.optional(Schema.Boolean),
   facts: Schema.Array(
     Schema.Struct({
       id: identifier,

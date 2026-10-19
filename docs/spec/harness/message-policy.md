@@ -267,7 +267,7 @@ const daemon = Daemon.withFirewall({
   settings,
   facts: ownerFacts,
   codeDigest: experimentCodeSha256,
-  maximumHistoryRecords: 256,
+  maximumHistoryRecords: 256, // Recent certified records per candidate conversation.
   maximumConcurrentChecks: 4,
 });
 ```
@@ -276,6 +276,8 @@ The supplied code middleware, fixed English rules, provider, settings and facts
 are captured for that process. `english` is optional; its `fixedRules` and
 `initialRules` default to empty arrays. `initialRules` seeds only a missing
 editable document, never an existing document, including an empty one.
+`maximumHistoryRecords` sets the recent certified-record window per candidate
+conversation in both directions (default 256, range 1–1024).
 `codeDigest` is the operator's SHA-256 identifier for the experiment code; it is
 recorded, not independently attested. Approval evidence remains absent.
 
@@ -340,10 +342,14 @@ guarantee scheduling progress, not admission under continuous churn. Range-speci
 revision checks are deferred. Further churn holds enforcement without another provider
 call; guidance records that hold and admits the original without stale advice.
 
-Earlier endpoint-certified history is captured in certification order, strictly
-before an incoming candidate. History is bounded by the configured record count
-and 2 MiB of whole retained record/membership bytes. Exceeding either bound is an
-explicit gap, never silent truncation. Unresolved outgoing intents are also gaps:
+History contains the most recent endpoint-certified records of the candidate's
+own conversation, strictly before the candidate, in certification order. An
+outgoing check uses its outgoing candidate's conversation. The configured record
+window omits older records; when it does, the assessor receives
+`earlierHistoryOmitted: true` in its context. This omission is not
+an evidence gap and does not by itself make a check unresolved. The window also
+has a 2 MiB bound on whole retained record/membership bytes. Exceeding that byte
+bound is an explicit evidence gap. Unresolved outgoing intents are also gaps:
 a concurrent send may have committed without certified history yet. Fixed owner
 facts and verified agent/principal attribution accompany the capture.
 
@@ -374,6 +380,42 @@ and returns outbound feedback through the stock tool error. NanoClaw currently
 refuses guidance-bearing deliveries without acknowledging them and reports send
 refusals through its existing refused-message callback; it is not a qualified
 firewall host.
+
+### History scope
+
+The assessor sees one conversation: the recent window of the candidate's own
+conversation. It does not see the endpoint's other conversations or anything
+outside MoltZap. This scope is a current choice, kept simple while history
+selection is evaluated; it is not a protocol invariant.
+
+The host can see more than the assessor. In OpenClaw's normal shared mode
+([channels](./channels.md#openclaw-session-and-output-contract)), every MoltZap
+DM and group uses one native session. So the model knows other conversations
+that the assessor cannot see. Private mode isolates sessions per conversation,
+which matches the assessor's scope. In shared mode the per-conversation scope
+leaves these cases to the host and its norms:
+
+- **Context from another conversation.** A claim made in one conversation and
+  acted on in another, such as hearsay authority planted earlier, is not in
+  the second check's history.
+- **Probing spread across conversations.** One peer asking in several
+  conversations, or several peers each asking a little, is not assembled into
+  one pattern. A rule that judges each message on its own, such as "no
+  calendar detail to unknown agents", still applies to every message.
+- **Relaying between conversations.** An outgoing check judges the text and
+  recipients against the target conversation only. It cannot tell that the
+  text came from another conversation.
+- **Owner channels.** Owner instructions on another channel, such as Telegram,
+  are not MoltZap history. A rule that depends on what the owner said there
+  needs the owner's confirmation through the host, such as an approval prompt,
+  not firewall history.
+- **Long conversations.** Records older than the window reach the assessor
+  only as `earlierHistoryOmitted`, not as content.
+
+Wider scopes trade these cases against judge cost and crowding. One option is
+the same peer across all conversations; another is the endpoint's most recent
+records overall, which matches shared mode. Changing the scope changes this
+section and the history paragraph above.
 
 ### Operator audit snapshot
 

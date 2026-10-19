@@ -8,7 +8,7 @@ Personal firewall composition for code and English policies.
 
 ## Public surface
 
-### [`CheckInputError`](./values.ts#L199)
+### [`CheckInputError`](./values.ts#L201)
 
 _Class_
 
@@ -20,7 +20,7 @@ export class CheckInputError extends Data.TaggedError("CheckInputError")<{
 
 Invalid construction or evidence is a typed failure, never permission.
 
-### [`DecisionProvider`](./values.ts#L324)
+### [`DecisionProvider`](./values.ts#L326)
 
 _Interface_
 
@@ -36,7 +36,7 @@ export interface DecisionProvider {
 
 Entirely code-based chains have no dependency on this optional capability.
 
-### [`DecisionProviderError`](./values.ts#L308)
+### [`DecisionProviderError`](./values.ts#L310)
 
 _Class_
 
@@ -59,7 +59,7 @@ export class DecisionProviderError extends Data.TaggedError(
 
 The adapter scrubs credentials before retaining optional private diagnostics.
 
-### [`DecisionRequest`](./values.ts#L272)
+### [`DecisionRequest`](./values.ts#L274)
 
 _Interface_
 
@@ -84,7 +84,7 @@ export interface DecisionRequest {
 
 Provider input contains explicit questions and state, never execution authority.
 
-### [`DecisionResponse`](./values.ts#L290)
+### [`DecisionResponse`](./values.ts#L292)
 
 _Interface_
 
@@ -109,7 +109,7 @@ export class DecisionResponse extends Schema.Class<DecisionResponse>(
 
 Raw distributions and provider confidence survive routing unchanged.
 
-### [`EnglishPolicySettings`](./values.ts#L255)
+### [`EnglishPolicySettings`](./values.ts#L257)
 
 _Interface_
 
@@ -125,7 +125,7 @@ export class EnglishPolicySettings extends Schema.Class<EnglishPolicySettings>(
 
 Bytes bound allocation, not tokenizer capacity; probability is a routing setting.
 
-### [`EnglishRule`](./values.ts#L89)
+### [`EnglishRule`](./values.ts#L91)
 
 _Interface_
 
@@ -138,7 +138,7 @@ export class EnglishRule extends Schema.Class<EnglishRule>("EnglishRule")({
 
 Text is interpreted by the provider; it is never compiled into executable code.
 
-### [`Firewall`](./values.ts#L243)
+### [`Firewall`](./values.ts#L245)
 
 _Interface_
 
@@ -157,7 +157,7 @@ export interface Firewall {
 
 Checking returns data; Client separately owns fresh, atomic send/delivery admission.
 
-### [`FirewallPolicyError`](./values.ts#L489)
+### [`FirewallPolicyError`](./values.ts#L491)
 
 _Class_
 
@@ -197,7 +197,7 @@ export class FirewallSendError extends Data.TaggedError("FirewallSendError")<
 A refusal is returned only before an application invocation creates any intent.
 Its opaque check reference survives hosts that retain only the error message.
 
-### [`FirewallSettings`](./values.ts#L189)
+### [`FirewallSettings`](./values.ts#L191)
 
 _Interface_
 
@@ -386,6 +386,8 @@ export class MessageContext extends Schema.Class<MessageContext>(
       admission: Schema.Literal("admitted", "withheld"),
     }),
   ),
+  /** Older certified records outside the configured window are not an evidence gap. */
+  earlierHistoryOmitted: Schema.optional(Schema.Boolean),
   facts: Schema.Array(
     Schema.Struct({
       id: identifier,
@@ -406,7 +408,7 @@ Trusted composition supplies authorized earlier evidence and candidate-specific
 approval. Agent identity and principal identity have different meanings.
 The first live composition supplies absent approval.
 
-### [`MessageMiddleware`](./values.ts#L177)
+### [`MessageMiddleware`](./values.ts#L179)
 
 _Interface_
 
@@ -427,7 +429,7 @@ Code and English policies have the same contract. Registered code is trusted;
 it receives no messaging/store capability and must not retain conversation
 state or perform messaging side effects.
 
-### [`MiddlewareError`](./values.ts#L143)
+### [`MiddlewareError`](./values.ts#L145)
 
 _Class_
 
@@ -444,7 +446,7 @@ export class MiddlewareError extends Data.TaggedError("MiddlewareError")<{
 
 Operational failures carry closed reasons, never arbitrary exception text.
 
-### [`MiddlewareInput`](./values.ts#L164)
+### [`MiddlewareInput`](./values.ts#L166)
 
 _Interface_
 
@@ -460,7 +462,7 @@ export class MiddlewareInput extends Schema.Class<MiddlewareInput>(
 
 Each invocation gets immutable evidence and previously validated observations.
 
-### [`MiddlewareResult`](./values.ts#L134)
+### [`MiddlewareResult`](./values.ts#L136)
 
 _Interface_
 
@@ -476,7 +478,7 @@ export class MiddlewareResult extends Schema.Class<MiddlewareResult>(
 
 A result is atomic: interrupted middleware has no returned partial findings.
 
-### [`RuleDescription`](./values.ts#L73)
+### [`RuleDescription`](./values.ts#L75)
 
 _Interface_
 

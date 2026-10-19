@@ -683,7 +683,7 @@ Fixed middleware and persisted English rules are installed before the daemon acc
 
 **Returns:** The complete daemon layer with both message boundaries checked.
 
-#### [`CheckInputError`](./firewall/values.ts#L199)
+#### [`CheckInputError`](./firewall/values.ts#L201)
 
 _Class_
 
@@ -695,7 +695,7 @@ export class CheckInputError extends Data.TaggedError("CheckInputError")<{
 
 Invalid construction or evidence is a typed failure, never permission.
 
-#### [`DecisionProviderError`](./firewall/values.ts#L308)
+#### [`DecisionProviderError`](./firewall/values.ts#L310)
 
 _Class_
 
@@ -718,7 +718,7 @@ export class DecisionProviderError extends Data.TaggedError(
 
 The adapter scrubs credentials before retaining optional private diagnostics.
 
-#### [`FirewallPolicyError`](./firewall/values.ts#L489)
+#### [`FirewallPolicyError`](./firewall/values.ts#L491)
 
 _Class_
 
@@ -737,7 +737,7 @@ export class FirewallPolicyError extends Data.TaggedError(
 
 A failed edit never replaces the active installation or retained editable document.
 
-#### [`MiddlewareError`](./firewall/values.ts#L143)
+#### [`MiddlewareError`](./firewall/values.ts#L145)
 
 _Class_
 
@@ -754,7 +754,7 @@ export class MiddlewareError extends Data.TaggedError("MiddlewareError")<{
 
 Operational failures carry closed reasons, never arbitrary exception text.
 
-#### [`DecisionProvider`](./firewall/values.ts#L324)
+#### [`DecisionProvider`](./firewall/values.ts#L326)
 
 _Interface_
 
@@ -770,7 +770,7 @@ export interface DecisionProvider {
 
 Entirely code-based chains have no dependency on this optional capability.
 
-#### [`DecisionRequest`](./firewall/values.ts#L272)
+#### [`DecisionRequest`](./firewall/values.ts#L274)
 
 _Interface_
 
@@ -795,7 +795,7 @@ export interface DecisionRequest {
 
 Provider input contains explicit questions and state, never execution authority.
 
-#### [`DecisionResponse`](./firewall/values.ts#L290)
+#### [`DecisionResponse`](./firewall/values.ts#L292)
 
 _Interface_
 
@@ -820,7 +820,7 @@ export class DecisionResponse extends Schema.Class<DecisionResponse>(
 
 Raw distributions and provider confidence survive routing unchanged.
 
-#### [`EnglishPolicySettings`](./firewall/values.ts#L255)
+#### [`EnglishPolicySettings`](./firewall/values.ts#L257)
 
 _Interface_
 
@@ -836,7 +836,7 @@ export class EnglishPolicySettings extends Schema.Class<EnglishPolicySettings>(
 
 Bytes bound allocation, not tokenizer capacity; probability is a routing setting.
 
-#### [`EnglishRule`](./firewall/values.ts#L89)
+#### [`EnglishRule`](./firewall/values.ts#L91)
 
 _Interface_
 
@@ -849,7 +849,7 @@ export class EnglishRule extends Schema.Class<EnglishRule>("EnglishRule")({
 
 Text is interpreted by the provider; it is never compiled into executable code.
 
-#### [`Firewall`](./firewall/values.ts#L243)
+#### [`Firewall`](./firewall/values.ts#L245)
 
 _Interface_
 
@@ -868,7 +868,7 @@ export interface Firewall {
 
 Checking returns data; Client separately owns fresh, atomic send/delivery admission.
 
-#### [`FirewallSettings`](./firewall/values.ts#L189)
+#### [`FirewallSettings`](./firewall/values.ts#L191)
 
 _Interface_
 
@@ -923,6 +923,8 @@ export class MessageContext extends Schema.Class<MessageContext>(
       admission: Schema.Literal("admitted", "withheld"),
     }),
   ),
+  /** Older certified records outside the configured window are not an evidence gap. */
+  earlierHistoryOmitted: Schema.optional(Schema.Boolean),
   facts: Schema.Array(
     Schema.Struct({
       id: identifier,
@@ -943,7 +945,7 @@ Trusted composition supplies authorized earlier evidence and candidate-specific
 approval. Agent identity and principal identity have different meanings.
 The first live composition supplies absent approval.
 
-#### [`MessageMiddleware`](./firewall/values.ts#L177)
+#### [`MessageMiddleware`](./firewall/values.ts#L179)
 
 _Interface_
 
@@ -964,7 +966,7 @@ Code and English policies have the same contract. Registered code is trusted;
 it receives no messaging/store capability and must not retain conversation
 state or perform messaging side effects.
 
-#### [`MiddlewareInput`](./firewall/values.ts#L164)
+#### [`MiddlewareInput`](./firewall/values.ts#L166)
 
 _Interface_
 
@@ -980,7 +982,7 @@ export class MiddlewareInput extends Schema.Class<MiddlewareInput>(
 
 Each invocation gets immutable evidence and previously validated observations.
 
-#### [`MiddlewareResult`](./firewall/values.ts#L134)
+#### [`MiddlewareResult`](./firewall/values.ts#L136)
 
 _Interface_
 
@@ -996,7 +998,7 @@ export class MiddlewareResult extends Schema.Class<MiddlewareResult>(
 
 A result is atomic: interrupted middleware has no returned partial findings.
 
-#### [`RuleDescription`](./firewall/values.ts#L73)
+#### [`RuleDescription`](./firewall/values.ts#L75)
 
 _Interface_
 
