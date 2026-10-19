@@ -62,7 +62,7 @@ jobs:
       # Credentials are not persisted, so nothing that runs before the push
       # (installs, builds, the pack gates' consumer installs) holds a token
       # that can write to main.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
