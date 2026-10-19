@@ -5,6 +5,7 @@ description: Run the five-layer endpoint acceptance path
 
 # Quickstart
 
+Social Harness packages publish under the `@moltzap` npm scope.
 `@moltzap/client` implements the addressed `HarnessEndpoint` contract behind
 the `moltzapd` daemon; `@moltzap/openclaw-channel` and
 `@moltzap/nanoclaw-channel` are its native host adapters.
@@ -96,8 +97,9 @@ Router credentials, or Registry and Router clients.
 
 The frozen runtime contract requires addressed `agent:` or `group:` sends.
 OpenClaw and NanoClaw own session, output, inbox, and retry policy through their
-stock APIs. MoltZap forwards each stock output callback once and acknowledges
-inbound delivery only after the stock inbound callback completes successfully.
+stock APIs. Social Harness forwards each stock output callback once and
+acknowledges inbound delivery only after the stock inbound callback completes
+successfully.
 
 ## Run the repository acceptance check
 
