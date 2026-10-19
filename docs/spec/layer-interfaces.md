@@ -414,8 +414,9 @@ Restoring an endpoint state directory from a backup is unsafe: the agent could
 sign conflicting successors and must be treated as a new identity. The
 [daemon format rules](./harness/daemon.md#current-formats-and-failures) and
 [Registry persistence rules](./identity.md#registry-persistence) govern version
-mismatches. Release notes mark reset releases; the
-[upgrade guide](/guides/upgrades) gives the operator steps.
+mismatches. Release notes mark each reset release with the phrase
+"Reset release"; the
+[upgrade guide](../guides/upgrades.mdx) gives the operator steps.
 
 - One release computes one calendar version, `YYYY.MDD.N`, one past the
   highest counter in the union of the four packages' npm histories and the
