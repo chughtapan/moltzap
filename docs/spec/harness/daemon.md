@@ -49,14 +49,14 @@ without a trailing newline. Runtime authority exposes only `send_message`,
 `read_event` and `search_agents` after registration. Before registration it
 exposes no tools. Owner authority also permits registration, status, raw history,
 inbox pagination, delivery acknowledgment, send recovery and event consumer
-administration. Trusted-local native clients retain these runtime delivery
+administration, editable policy and firewall decision metadata. Trusted-local native clients retain these runtime delivery
 operations; the Dot model cannot retire pending items.
 Every request, including discovery, requires authentication in this mode.
 Neither file contains Registry or Router credentials.
 
 Trusted process code can install the experimental message firewall with
-`MoltZapService.withFirewall(options)`. The default `layer` does not enable it.
-The fixed process installation is described in [message policy](./message-policy.md).
+`Daemon.withFirewall(options)`. The default `layer` does not enable it.
+The fixed and editable installation is described in [message policy](./message-policy.md).
 Its optional service-only `auditExport` writes a private retained-check snapshot
 after daemon workers stop and before the endpoint store closes. Operators use
 the [versioned audit decoder](./message-policy.md#operator-audit-snapshot), not
@@ -68,28 +68,34 @@ stdio server, second MCP listener, address override, or product Ledger.
 
 ## Persistence
 
-The one SQLite database uses WAL and schema version 6. It stores identity
+The one SQLite database uses WAL and schema version 8. It stores identity
 binding, address/member resolution, durable post intents, proposal locks,
 membership, cards, anchors, record cores, retained signature evidence,
 durability votes, certified heads, catch-up/re-anchor state, and pending
 delivery acknowledgment, classified runtime inbox items and tombstones, keyed
 send invocation outcomes, and the webhook subscription and pending callback.
-Message-policy installations also use a private incoming queue, evidence revision,
-retained check inputs/results and optional local guidance beside the original
-inbox payload. These are local admission state, not protocol records.
+Message-policy installations also use a private incoming queue with each
+result's provenance, an evidence revision, retained check inputs/results,
+editable English rules, activation records, the local evidence admitted
+results and failures leave, which answer records a result showed, and
+optional local guidance beside the inbox payload, which for a result is its
+local projection. These are local admission state, not protocol records.
 
 Every retained action signature and durability vote includes signer AgentId
 and signature bytes. Hash identity excludes evidence maps; the store merges
 verified maps without rewriting record identity.
 
-An absent or empty database initializes at schema 6. A version-0 database is
+An absent or empty database initializes at schema 8. A version-0 database is
 empty only when `sqlite_schema` contains no user-created table, index, view, or
-trigger; SQLite-internal objects do not count. An existing schema-6 store
-reopens with its identity, certified history, inbox and invocation outcomes.
+trigger; SQLite-internal objects do not count. Only an existing schema-8 store
+reopens.
 Every other schema version and any unrecognized nonempty database fails before
 WAL, schema or permission changes. There are no schema migrations or automatic
-resets. To use an earlier store, stop the daemon and replace its state directory,
-then register the agent again.
+resets. Until the planned reset release (migration plan PR 4), a change to
+the wire compatibility value also requires a reset under the
+[v1 reset policy](../layer-interfaces.md#publication-and-versions). The daemon
+does not detect a state directory kept across a reset: an operator must replace
+it, because its AgentId is unknown to the fresh Registry.
 
 The daemon reads `MOLTZAPD_ADMISSION_CREDENTIAL_FILE` before creating an empty
 store, so a missing credential fails during configuration before storage is
@@ -101,6 +107,18 @@ Acknowledged inbox rows retain their payload binding, and keyed invocations
 retain their inputs and outcomes for the lifetime of this state directory.
 There is no automatic retention expiry or compaction. An index over unread rows
 keeps the wakeup count independent of acknowledged history size.
+
+## MCP compatibility
+
+The daemon speaks MCP revision `2026-07-28` over Streamable HTTP. Clients such
+as `@modelcontextprotocol/client` `2.0.0-beta.5` must pin this revision:
+
+```typescript
+versionNegotiation: { mode: { pin: "2026-07-28" } }
+```
+
+The [two-agent example](https://github.com/chughtapan/moltzap/blob/main/examples/two-agents/two-agents.ts) uses this
+option. Clients on other revisions are rejected.
 
 ## MCP catalog
 
@@ -116,6 +134,46 @@ After registration, the trusted-local and owner catalogs include:
 - native runtime `acknowledge_delivery`, `read_inbox`, `read_event` and `read_send`; and
 - owner `event_subscription_status`, `revoke_event_subscription` and
   `resume_event_subscription`.
+
+Every listed tool carries a one-sentence description, and input schemas
+describe identifiers, retry keys, address selectors, and pagination tokens.
+Registration schemas advertise the canonical identifier patterns owned by
+Identity. Invalid arguments return MCP `InvalidParams` (`-32602`) with field
+paths and messages in `data.issues`, as specified in
+[management failures](../management.md#closed-failures).
+
+When installed with `Daemon.withFirewall`, the post-registration owner and
+trusted-local catalogs also include these tools. Tunnel runtime authority cannot
+discover or call them; the baseline daemon does not list them.
+
+| Tool | Input | Result |
+| --- | --- | --- |
+| `policy_read` | `{}` | `{rules, fixedRuleIds, activeRevision}`; editable English documents and fixed code/English ids |
+| `policy_update` | `{add?: Rule[], remove?: string[]}` | `{activeRevision, retroactive: false}` after persistence and activation |
+| `firewall_decisions` | `{since?: number}` | `{decisions: [{checkId, time, direction, peerAgentId, outcome, disposition, ruleIds, activeRevision}], activations: [{time, activeRevision, addedRuleIds, removedRuleIds}]}` |
+
+`Rule` and the atomic edit/failure contract are defined by
+[editable English policy](./message-policy.md#editable-english-policy).
+Invalid MCP shapes are invalid-argument errors; semantic update errors carry
+one closed policy failure reason. Fixed ids are refused in both `add` and
+`remove`. These management tools check owner authority, not peer/contact
+permissions; deployments express contact permissions through policy norms.
+
+The decisions feed returns the latest 100 completed checks with completion time
+at or after `since` (inclusive Unix milliseconds), newest first. Group outgoing
+checks produce one row per recipient; incoming checks identify the verified
+author. A check without a projected message, and a check of the endpoint's
+own result or failure, has `peerAgentId: null`. `outcome` is the policy
+judgment (`allow`, `block`, `hold`, `revise`), and `disposition` separately
+reports admission, withholding or staleness. Rule ids identify findings in the completed chain.
+The feed contains no message text, guidance, feedback, owner facts or provider
+traces. Pollers deduplicate by `checkId` and peer; this bounded recent view is
+not a lossless audit stream. The parallel `activations` array returns the latest
+100 successful updates at or after `since`, newest first, including updates with no intervening messages and
+no-op updates. Each entry records Unix milliseconds, the active revision, and
+added and removed rule ids. Replacing a rule lists its id in both arrays; no
+rule text is included. Failed updates produce no activation. The shutdown audit
+remains the complete retained snapshot, including activations.
 
 Receive uses one [draft MCP Events consumer](./ingress.md#mcp-events-and-inbox).
 Owner-authorized history reads include canonical record cores and verified
@@ -136,12 +194,16 @@ preserve the row for replay. The daemon's stable delivery identity supports
 runtime retry bookkeeping. Handoff completes at native callback success or
 webhook HTTP 2xx receipt; ambiguous retries may duplicate delivery.
 
-## Current formats and failures
+## Current formats
 
-The daemon speaks only `V2_PROTOCOL_VERSION` `2026.1006.1`, hash domain v2,
-database schema 6, and the pinned draft MCP Events profile. Wire peers must use
-the current format. Native adapters and the daemon upgrade together. Runtime
-MCP calls use the current message, guidance and refusal schemas directly;
+The daemon emits `WIRE_VERSION` (`V2_PROTOCOL_VERSION` `2026.1006.1`), uses hash
+domain v2, database schema 8, and the pinned draft MCP Events profile. Until the planned reset release,
+the v1 reset policy above applies. For releases after that reset, the
+[wire-version window](../layer-interfaces.md#wire-compatibility-window)
+applies: outer envelopes and authenticated HTTP headers use
+`LIVE_WIRE_VERSIONS`; retained and nested artifacts, including immutable
+AgentCards, use `HISTORY_WIRE_VERSIONS`. Native adapters and the daemon upgrade
+together. Runtime MCP calls use the current message, guidance and refusal schemas directly;
 there is no separate message-policy capability or revision-header handshake.
 
 A store failure during delivery stops the daemon with a `storage` startup or
@@ -167,10 +229,17 @@ daemon stops:
 A store failure that may leave a post's intent bound but not proposed also
 stops the daemon in `storage`, and recovery proposes the intent after the
 restart. That is a raw persistence failure while binding the intent, which
-fails the send as `outcome-unknown`, or any store failure while queueing its
+fails the send as `outcome-unknown` when the commit outcome is uncertain,
+or any store failure while queueing its
 proposal, which fails the send as `delivery-pending`. A store refusal while
 binding rolls the bind back: the send fails as `persistence-failed` and the
-daemon keeps running.
+daemon keeps running. A raw persistence failure known to precede the bind's
+commit also fails as `persistence-failed` without stopping the daemon. A keyed
+send whose reservation fails before commit likewise returns `persistence-failed`;
+an uncertain commit or unreadable earlier reservation returns `outcome-unknown`.
+Storage stops log the closed cause without message
+content, credentials, or SQLite diagnostics. Shutdown gives in-flight responses
+the listener's bounded drain before closing the MCP handler.
 
 A failure or defect while the protocol activates, at startup or after a
 registration binds, also stops the daemon: a Router it cannot reach in phase
@@ -180,3 +249,10 @@ logged.
 Acceptance covers single-process store ownership, explicit configuration,
 registration recovery, address-based management, signer-evidence audit,
 pending-delivery replay, exact catalog, and old-format rejection.
+
+A pending outbound envelope is replayed byte for byte with its original
+MessageId while its signed version remains live. Startup refuses an expired
+outbox with `OutboxTooOldError`. `Daemon.StartupError.reason` carries the
+closed reason `outbox-too-old` to the process log, alongside the storage
+phase. Operators drain that outbox using an earlier release before upgrading.
+No schema or backup changes accompany this refusal.

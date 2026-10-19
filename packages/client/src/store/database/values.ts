@@ -17,7 +17,12 @@ export type EndpointStoreFailure =
 /** One closed endpoint-store failure. */
 export class EndpointStoreError extends Data.TaggedError("EndpointStoreError")<{
   readonly reason: EndpointStoreFailure;
+  /** Absent means the store has no evidence that excludes a commit. */
+  readonly commitOutcome?: "not-committed";
 }> {}
+
+/** Pending signed bytes require an earlier release to drain the outbox. */
+export class OutboxTooOldError extends Data.TaggedError("OutboxTooOldError") {}
 
 /** Internal control-flow signal mapped to the closed store error. */
 export class StoreSignal extends Error {
@@ -40,6 +45,9 @@ export function mapStoreFailure(
   failure: unknown,
   fallback: EndpointStoreFailure,
 ): EndpointStoreError {
+  if (failure instanceof EndpointStoreError) {
+    return failure;
+  }
   return new EndpointStoreError({
     reason: failure instanceof StoreSignal ? failure.reason : fallback,
   });
@@ -196,18 +204,48 @@ export function readInteger(
 }
 
 /**
+ * Requires two optional byte bindings to be both absent or byte-identical.
+ *
+ * @param prior Previously retained bytes, if any.
+ * @param next Candidate bytes, if any.
+ */
+export function requireSameOptionalBytes(
+  prior?: Uint8Array,
+  next?: Uint8Array,
+): void {
+  if (prior === undefined || next === undefined) {
+    if (prior !== next) {
+      throw new StoreSignal("conflict");
+    }
+    return;
+  }
+  requireSameBytes(prior, next);
+}
+
+/**
  * Requires canonical byte equality for idempotent state.
  *
  * @param left Previously retained canonical bytes.
  * @param right Candidate canonical bytes.
  */
 export function requireSameBytes(left: Uint8Array, right: Uint8Array): void {
-  if (
-    left.byteLength !== right.byteLength ||
-    !left.every((value, index) => value === right[index])
-  ) {
+  if (!sameBytes(left, right)) {
     throw new StoreSignal("conflict");
   }
+}
+
+/**
+ * Whether two byte strings are identical.
+ *
+ * @param left One byte string.
+ * @param right The other.
+ * @returns True when both have the same length and bytes.
+ */
+export function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  return (
+    left.byteLength === right.byteLength &&
+    left.every((value, index) => value === right[index])
+  );
 }
 
 /**

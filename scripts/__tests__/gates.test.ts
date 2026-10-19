@@ -23,9 +23,9 @@ import {
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  MOLTZAP_VERSION_LITERAL,
-  MOLTZAP_VERSION_SOURCE,
-  readMoltzapVersion as readMoltzapVersionSource,
+  WIRE_VERSION_LITERAL,
+  WIRE_VERSION_SOURCE,
+  readCompatibilityVersion as readCompatibilityVersionSource,
 } from "../docs/moltzap-version.js";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -178,11 +178,11 @@ const testNoHardcodedConstants = (): void => {
   }
 
   // Planted regression 2: hardcoded MoltZap version in a non-baked doc.
-  const moltzapVersion = readMoltzapVersion();
+  const compatibilityVersion = readCompatibilityVersion();
   plantFile(
     target1,
     (s) =>
-      `${s}\nMoltZap compatibility pinned at ${moltzapVersion} for this run.\n`,
+      `${s}\nMoltZap compatibility pinned at ${compatibilityVersion} for this run.\n`,
   );
   const r2 = runScript(
     "scripts/docs/check-no-hardcoded-constants.ts",
@@ -199,7 +199,7 @@ const testNoHardcodedConstants = (): void => {
   // hide behind a prefix match.
   const compatibilityBakedTarget = "docs/spec/router-representation.md";
   plantFile(compatibilityBakedTarget, (s) =>
-    s.replace(moltzapVersion, `${moltzapVersion}0`),
+    s.replace(compatibilityVersion, `${compatibilityVersion}0`),
   );
   const r3 = runScript(
     "scripts/docs/check-no-hardcoded-constants.ts",
@@ -308,7 +308,7 @@ const testDocImportsResolve = (): void => {
   plantFile(
     target1,
     (s) =>
-      `${s}\n\`\`\`typescript\nimport { MOLTZAP_VERSION } from "@moltzap/identity";\nimport { Registry } from "@moltzap/identity/registry";\nimport "@moltzap/identity/registry/server";\nimport "@moltzap/router/server";\n\`\`\`\n`,
+      `${s}\n\`\`\`typescript\nimport { WIRE_VERSION } from "@moltzap/identity";\nimport { Registry } from "@moltzap/identity/registry";\nimport "@moltzap/identity/registry/server";\nimport "@moltzap/router/server";\n\`\`\`\n`,
   );
   const r6 = runScript(
     "scripts/docs/check-doc-imports-resolve.ts",
@@ -419,8 +419,8 @@ const testBakeFailureFailClosed = (): void => {
 
 // ─── Tests: MoltZap compatibility authority ──────────────────────────────
 
-const readMoltzapVersion = (): string => {
-  const read = readMoltzapVersionSource(workspaceRoot);
+const readCompatibilityVersion = (): string => {
+  const read = readCompatibilityVersionSource(workspaceRoot);
   if ("error" in read) {
     throw new Error(read.error);
   }
@@ -428,18 +428,18 @@ const readMoltzapVersion = (): string => {
 };
 
 /** Rewrite the literal with the same pattern the readers match. */
-const withMoltzapVersion =
+const withCompatibilityVersion =
   (next: string) =>
   (source: string): string =>
     source.replace(
-      MOLTZAP_VERSION_LITERAL,
-      `export const MOLTZAP_VERSION = "${next}"`,
+      WIRE_VERSION_LITERAL,
+      `export const WIRE_VERSION = "${next}"`,
     );
 
-const testMoltzapVersionFile = (): void => {
+const testCompatibilityVersionFile = (): void => {
   console.log("\n# MoltZap compatibility version source");
 
-  plantFile(MOLTZAP_VERSION_SOURCE, withMoltzapVersion(""));
+  plantFile(WIRE_VERSION_SOURCE, withCompatibilityVersion(""));
   const empty = runGenerateDirect();
   assert(
     "empty MoltZap version fails closed",
@@ -448,7 +448,7 @@ const testMoltzapVersionFile = (): void => {
   );
   restoreAllPlants();
 
-  const currentVersion = readMoltzapVersion();
+  const currentVersion = readCompatibilityVersion();
   const nextVersion = "2099.999.8";
   const marker = "@bake-constants: V2_PROTOCOL_VERSION";
   const consumers = [
@@ -475,7 +475,7 @@ const testMoltzapVersionFile = (): void => {
     const original = readFileSync(path, "utf8");
     planted.push({ path, original });
   }
-  plantFile(MOLTZAP_VERSION_SOURCE, withMoltzapVersion(nextVersion));
+  plantFile(WIRE_VERSION_SOURCE, withCompatibilityVersion(nextVersion));
   const bumped = runGenerateDirect();
   assert(
     "changed MoltZap version regenerates constants",
@@ -616,12 +616,12 @@ const testPublicationGuards = (): void => {
   );
   restoreAllPlants();
 
-  plantFile(MOLTZAP_VERSION_SOURCE, withMoltzapVersion("1.2.3"));
+  plantFile(WIRE_VERSION_SOURCE, withCompatibilityVersion("1.2.3"));
   const wireSemver = runBoundaries();
   assert(
     "flags a wire compatibility literal that is not a calendar version",
     wireSemver.code !== 0 &&
-      /MOLTZAP_VERSION "1\.2\.3" is not a YYYY\.MDD\.N CalVer/.test(
+      /WIRE_VERSION "1\.2\.3" is not a YYYY\.MDD\.N CalVer/.test(
         wireSemver.stderr,
       ),
     `expected wire-literal failure. exit=${wireSemver.code}, stderr=${wireSemver.stderr.slice(0, 300)}`,
@@ -736,7 +736,7 @@ const main = (): void => {
     // rather than the post-clean-runGenerate state — eliminating
     // order-of-test coupling between the two suites.
     testGeneratorIdempotence();
-    testMoltzapVersionFile();
+    testCompatibilityVersionFile();
     testBakeFailureFailClosed();
     testNodeVersionFloorConsistency();
     testPublicationGuards();

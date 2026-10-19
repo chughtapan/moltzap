@@ -93,12 +93,12 @@ const policyConsumerCheck = `
 const { Effect, Layer, Schema } = await import("effect");
 const decodeAuditLine = Schema.decodeUnknownSync(Schema.parseJson(service.FirewallAuditRecord));
 const auditStart = decodeAuditLine(JSON.stringify({
-  kind: "start", format: "moltzap.firewall-audit/v1", snapshotId: "a".repeat(64),
+  kind: "start", format: "moltzap.firewall-audit/v3", snapshotId: "a".repeat(64),
   startedAt: "2026-10-17T00:00:00.000Z",
 }));
 const auditComplete = decodeAuditLine(JSON.stringify({
-  kind: "complete", format: "moltzap.firewall-audit/v1", snapshotId: auditStart.snapshotId,
-  checkCount: 0, sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  kind: "complete", format: "moltzap.firewall-audit/v3", snapshotId: auditStart.snapshotId,
+  checkCount: 0, activationCount: 0, sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 }));
 if (auditComplete.kind !== "complete" || auditComplete.snapshotId !== auditStart.snapshotId) {
   throw new Error("Client operator audit decoder lost snapshot identity");
@@ -149,7 +149,7 @@ const received = await Effect.runPromise(firewall.checkIncoming(incoming, contex
 if (received.judgment !== "allow") {
   throw new Error("Client code middleware could not admit an incoming message");
 }
-const invalidInstallation = service.MoltZapService.withFirewall({
+const invalidInstallation = service.Daemon.withFirewall({
   mode: "enforcement", incoming: [], outgoing: [], facts: [], codeDigest: "0".repeat(64),
   auditExport: "/operator/private/firewall-audit.ndjson",
   settings: { timeoutMilliseconds: 10000, middlewareTimeoutMilliseconds: 5000,
@@ -158,7 +158,7 @@ const invalidInstallation = service.MoltZapService.withFirewall({
 const startupError = await Effect.runPromise(
   Effect.scoped(Layer.build(invalidInstallation)).pipe(Effect.flip),
 );
-if (!(startupError instanceof service.MoltZapService.StartupError) ||
+if (!(startupError instanceof service.Daemon.StartupError) ||
     startupError.phase !== "configuration") {
   throw new Error("Invalid firewall installation did not stop daemon startup");
 }

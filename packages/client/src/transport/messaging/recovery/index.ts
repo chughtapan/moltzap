@@ -18,7 +18,6 @@ import type {
   EndpointRecovery,
   StoredOutboundMessage,
 } from "../../../store/index.js";
-import type { EngineRuntime } from "../runtime/index.js";
 import {
   type RouterIngressDisposition,
   type RouterWorkerIngress,
@@ -52,6 +51,7 @@ import {
   type ReanchorRun,
   startReanchorRun,
 } from "../reanchor/index.js";
+import { type EngineRuntime, evidenceTarget } from "../runtime/index.js";
 import {
   completeRecoveryBarrier,
   currentRecoveryBarrier,
@@ -102,11 +102,12 @@ const catchUpRetryBase = Duration.seconds(1);
 export const catchUpRetryAttempts = 8;
 
 /**
- * A conversation's catch-up retries: doubling jittered delays, at most
+ * A conversation's catch-up retries, and an author's resends of a proposal
+ * whose action certificate is incomplete: doubling jittered delays, at most
  * {@link catchUpRetryAttempts} of them. Recovering the conversation removes
- * its retries from the run, which ends them early.
+ * its catch-up retries from the run, which ends them early.
  */
-const catchUpRetrySchedule = Schedule.exponential(catchUpRetryBase).pipe(
+export const catchUpRetrySchedule = Schedule.exponential(catchUpRetryBase).pipe(
   Schedule.jittered,
   Schedule.intersect(Schedule.recurs(catchUpRetryAttempts)),
 );
@@ -218,6 +219,23 @@ export function rearmPausedCatchUp(
       Effect.asVoid,
     );
   });
+}
+
+/**
+ * Restart catch-up from a newly promoted head while its conversation is fenced.
+ * Before a run starts, its initial request will use the durable head instead.
+ * @param runtime Engine whose protocol phases promoted the record.
+ * @param conversationId Conversation whose head advanced.
+ * @returns Completion once a fresh request and retry schedule are installed.
+ */
+export function recoveryHeadAdvanced(
+  runtime: EngineRuntime,
+  conversationId: ConversationIdValue,
+): Effect.Effect<void, RouterWorkerPersistenceError> {
+  const run = activeRuns.get(runtime);
+  return run !== undefined && isRecovering(runtime, conversationId)
+    ? armCatchUp(run, conversationId)
+    : Effect.void;
 }
 
 /**
@@ -362,7 +380,7 @@ function acceptHistoryPacket(
   const run = activeRuns.get(runtime);
   switch (packet.kind) {
     case "certified_record":
-      return acceptRecoveryRecord(runtime, ingress);
+      return runtime.phases.acceptRecoveryIngress(runtime, ingress);
     case "action_certified_record":
       return run === undefined
         ? Effect.succeed(ignoredDisposition)
@@ -393,9 +411,15 @@ function acceptEvidence(
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   message: SignedMessage,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
+  if (
+    !activeRuns.has(runtime) &&
+    currentRecoveryBarrier(runtime) === undefined
+  ) {
+    return runtime.phases.acceptIngress(runtime, ingress);
+  }
   return decodeCanonical(EvidenceStatement, message.body).pipe(
     Effect.flatMap((statement) => {
-      const conversationId = evidenceConversation(runtime, statement);
+      const conversationId = evidenceTarget(runtime, statement).conversationId;
       return routeEvidence(runtime, ingress, {
         message,
         statement,
@@ -431,10 +455,10 @@ function routeEvidence(
       statement.reanchor.routerInstanceId !==
         run.recovery.anchor.routerInstanceId
       ? noteEarlierReanchor(run, ingress, { message, statement })
-      : acceptRunVote(runtime, ingress, message);
+      : acceptRunVote(runtime, ingress, message, statement);
   }
   if (!evidence.fenced) {
-    return runtime.phases.acceptIngress(runtime, ingress);
+    return runtime.phases.acceptIngress(runtime, ingress, statement);
   }
   return run !== undefined && statement.kind === "durability_vote"
     ? acceptSuccessorVote(run.successor, ingress, { message, statement })
@@ -476,6 +500,7 @@ function noteEarlierReanchor(
     verifyDeliveredEvidence({
       outer: ingress.message,
       evidence: vote.message,
+      statement: vote.statement,
       membership,
     }).pipe(
       Effect.zipRight(hashAnchor(body)),
@@ -494,11 +519,12 @@ function acceptRunVote(
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   message: SignedMessage,
+  statement: EvidenceStatementValue,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
   const run = activeRuns.get(runtime);
   return run === undefined
     ? Effect.succeed(ignoredDisposition)
-    : acceptReanchorVote(run.reanchor, ingress, message);
+    : acceptReanchorVote(run.reanchor, ingress, message, statement);
 }
 
 function acceptRunPacket(
@@ -530,40 +556,6 @@ function acceptRunPacket(
       return exhaustive;
     }
   }
-}
-
-/**
- * Apply a certified record for a fenced conversation, then ask the active
- * run's members for the history after it. While a discontinuity has no run
- * yet, the record is applied, and the run that starts later catches up from
- * the durable position.
- * @param runtime Engine whose store takes the record.
- * @param ingress Verified Router delivery carrying the record.
- * @returns Whether the record was applied or ignored.
- */
-function acceptRecoveryRecord(
-  runtime: EngineRuntime,
-  ingress: RouterWorkerIngress<DecodedOuterBody>,
-): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  return runtime.phases.acceptRecoveryIngress(runtime, ingress).pipe(
-    Effect.tap((disposition) => {
-      if (
-        disposition !== "accepted" ||
-        ingress.payload.kind !== "direct" ||
-        ingress.payload.packet.kind !== "certified_record"
-      ) {
-        return Effect.void;
-      }
-      const run = activeRuns.get(runtime);
-      return run === undefined
-        ? Effect.void
-        : requestCertifiedHistory(
-            run.catchUp,
-            ingress.payload.packet.actionCertifiedRecord.recordCore.action
-              .conversationId,
-          );
-    }),
-  );
 }
 
 /**
@@ -818,7 +810,7 @@ function makeRecoveryRun(
       completedConversations: new Set(),
       scope,
       retries,
-      successor: successorPort(runtime, history, () => run),
+      successor: successorPort(runtime, history),
       catchUp: catchUpPort(
         runtime,
         { recovery, memberships: history.memberships },
@@ -921,20 +913,17 @@ function catchUpResponder(runtime: EngineRuntime): CatchUpResponder {
  * @param runtime Engine the run recovers.
  * @param context The memberships the run reconciles and the conversations it
  *     re-anchors.
- * @param currentRun The run the port belongs to, once it is built.
  * @returns The run's staged-successor port.
  */
 function successorPort(
   runtime: EngineRuntime,
   context: Pick<RecoveryRun, "memberships" | "reanchoring">,
-  currentRun: () => RecoveryRun,
 ): SuccessorRun {
   return {
     runtime,
     pending: new Map(),
     membership: (conversationId) => context.memberships.get(conversationId),
     reanchoring: (conversationId) => context.reanchoring.has(conversationId),
-    armCatchUp: (conversationId) => armCatchUp(currentRun(), conversationId),
   };
 }
 
@@ -1124,27 +1113,6 @@ function packetConversation(packet: DirectPacket): ConversationIdValue {
       return packet.recordCore.action.conversationId;
     default: {
       const exhaustive: never = packet;
-      return exhaustive;
-    }
-  }
-}
-
-function evidenceConversation(
-  runtime: EngineRuntime,
-  statement: EvidenceStatementValue,
-): ConversationIdValue | undefined {
-  switch (statement.kind) {
-    case "action_signature":
-      return runtime.actionFolds.get(statement.actionHash)?.conversation
-        .conversationId;
-    case "durability_vote":
-      return statement.conversationId;
-    case "reanchor_vote":
-      return statement.reanchor.conversationId;
-    case "catch_up_attestation":
-      return statement.request.conversationId;
-    default: {
-      const exhaustive: never = statement;
       return exhaustive;
     }
   }

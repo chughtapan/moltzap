@@ -13,7 +13,6 @@ import {
 } from "../__tests__/pending-delivery-fixtures.js";
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
 import {
-  decodeRuntimeValue,
   DeliveryToken,
   encodeRuntimeValue,
   openEndpointStore,
@@ -55,6 +54,12 @@ const request = Schema.decodeUnknownSync(InboundItem)({
   },
   deadlineAt: 4_000_000_000_000,
 });
+
+/** A collective layer this file's deliveries never send through. */
+const unusedCollectives = {
+  send: () => Effect.dieMessage("unexpected send"),
+  settleRequest: () => Effect.void,
+};
 
 const preservesTokenBindings = () => {
   const path = stateDirectory();
@@ -242,7 +247,7 @@ it(
   holdsRestartReplacement,
 );
 
-it("retires queued requests across pages and behind another conversation item", () => {
+it("retires unseen queued requests across pages and behind another conversation item", () => {
   const path = stateDirectory();
   return Effect.gen(function* () {
     yield* Effect.scoped(
@@ -264,23 +269,11 @@ it("retires queued requests across pages and behind another conversation item", 
     );
     const store = yield* openEndpointStore(path);
     yield* recoverRuntimeInbox(store, true);
-    const first = yield* store.readPendingFirewallItems(0);
-    const last = first.at(-1);
-    expect(last).toBeDefined();
-    const remaining = yield* store.readPendingFirewallItems(
-      last?.sequence ?? 0,
-    );
-    const pending = [...first, ...remaining];
-    expect(pending).toHaveLength(36);
-    const items = yield* Effect.forEach(
-      pending,
-      (entry) => decodeRuntimeValue(InboundItem, entry.canonicalItem),
-      { concurrency: 1 },
-    );
-    expect(items.every((item) => item.kind === "operationFailed")).toBe(true);
-    expect((yield* readRuntimeInbox(store, {})).items).toEqual([]);
+    const pending = yield* store.readPendingFirewallItems(0);
     yield* recoverRuntimeInbox(store, true);
-    expect(yield* store.readPendingFirewallItems(0)).toEqual(first);
+    expect(pending.map((entry) => entry.deliveryToken)).toEqual([token(1)]);
+    expect((yield* readRuntimeInbox(store, {})).items).toEqual([]);
+    expect(yield* store.readPendingFirewallItems(0)).toEqual(pending);
   });
 });
 
@@ -305,7 +298,7 @@ it("replays the admitted envelope across restart and retains it after acknowledg
     const delivery = yield* makeHostDelivery({
       store,
       historyExport: noHistoryExport,
-      collectives: () => ({ send: () => Effect.dieMessage("unexpected send") }),
+      collectives: () => unusedCollectives,
       scope: yield* Scope.Scope,
     });
     const published: HarnessMessageReadyEvent[] = [];

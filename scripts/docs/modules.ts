@@ -765,16 +765,11 @@ function renderPackageSubpaths(
     for (const entry of subpath.exports) {
       nameCounts.set(entry.name, (nameCounts.get(entry.name) ?? 0) + 1);
     }
-    const namespaceName = subpath.exports.find(
-      (entry) =>
-        entry.kind === ReflectionKind.Module ||
-        entry.kind === ReflectionKind.Namespace,
-    )?.name;
     for (const entry of subpath.exports) {
       const qualifiedName =
-        namespaceName === undefined || entry.name === namespaceName
+        entry.namespace === null
           ? entry.name
-          : `${namespaceName}.${entry.name}`;
+          : `${entry.namespace}.${entry.name}`;
       const displayName =
         (nameCounts.get(entry.name) ?? 0) > 1
           ? `${qualifiedName} (${declarationRole(entry)})`

@@ -12,7 +12,7 @@ OpenClaw-specific types.
 
 ## Public surface
 
-### [`default`](./plugin.ts#L1214)
+### [`default`](./plugin.ts#L1258)
 
 _Variable_
 
@@ -23,7 +23,7 @@ const plugin: OpenClawPluginDefinition &
     id: "openclaw-channel",
     name: "MoltZap",
     description: "Agent-to-agent messaging through the local MoltZap endpoint",
-    plugin: createMoltzapChannelPlugin(),
+    plugin: createChannelPlugin(),
   })
 ```
 

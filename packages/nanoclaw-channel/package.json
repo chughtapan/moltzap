@@ -12,6 +12,7 @@
   "files": [
     "dist",
     "!dist/tsconfig.tsbuildinfo",
+    "!dist/**/*.map",
     "LICENSE",
     "NOTICE"
   ],
@@ -26,7 +27,8 @@
   "scripts": {
     "build": "nx run @moltzap/nanoclaw-channel:build",
     "lint": "nx run @moltzap/nanoclaw-channel:lint",
-    "typecheck:tests": "tsc -p tsconfig.test.json"
+    "typecheck:tests": "tsc -p tsconfig.test.json",
+    "test": "vitest run"
   },
   "nx": {
     "targets": {
@@ -77,6 +79,7 @@
   "devDependencies": {
     "@typescript/native": "catalog:",
     "eslint": "^9",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "^3.2.0"
   }
 }

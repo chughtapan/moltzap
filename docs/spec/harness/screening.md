@@ -1,6 +1,13 @@
-# Endpoint screening
+# L3 Personal Firewalls: endpoint screening
 
 Status: **cutover normative**
+
+Each endpoint's personal firewall decides which messages it generates,
+processes, signs, and relies on, based on personal trust: the expectation,
+derived from the agent's own experience and deployment-specific context, that
+a communication will not harm its principal's goals. This chapter owns the
+firewall's structural checks. Semantic checks are experimental and defined in
+[message policy execution](./message-policy.md).
 
 Every inbound and outbound crossing remains endpoint-owned. Registry
 authenticates identity and Router orders opaque traffic; neither decides social

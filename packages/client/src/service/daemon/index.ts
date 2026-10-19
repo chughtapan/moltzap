@@ -9,7 +9,7 @@ import { Router } from "@moltzap/router";
 import { Cause, Deferred, Effect, Option, Queue, Scope } from "effect";
 import type { HistoryExportPort } from "../../delivery/history-export.js";
 import type { HarnessMcpEventHandler } from "../../endpoint/mcp/index.js";
-import type { EndpointStore } from "../../store/index.js";
+import type { EndpointStore, EndpointStoreError } from "../../store/index.js";
 import type { DaemonBootstrap } from "../bootstrap.js";
 import type { DaemonRegistrationState } from "../registration/index.js";
 import {
@@ -17,14 +17,11 @@ import {
   type InstalledFirewall,
   makeHostDelivery,
 } from "../../delivery/index.js";
-import {
-  CollectiveEmitError,
-  type InboundItem,
-} from "../../transport/collectives/index.js";
+import { CollectiveEmitError } from "../../transport/collectives/index.js";
 import {
   activationFailure,
   type DaemonActivationError,
-  type DaemonRuntimeError,
+  DaemonRuntimeError,
   runtimeFailure,
 } from "../errors.js";
 import {
@@ -33,6 +30,7 @@ import {
   failFromBackgroundCause,
   type ProtocolEdges,
   type ProtocolEnvironment,
+  reportStorageFault,
 } from "./protocol.js";
 
 /** The Router worker and engine constructors the lifecycle supplies. */
@@ -47,7 +45,7 @@ export interface DaemonStartup {
 }
 
 /** The running daemon the lifecycle composes into MCP operations. */
-export interface Daemon {
+export interface RunningDaemon {
   /** The registration status reads; active from the bind commit on. */
   readonly readRegistration: () => DaemonRegistrationState;
   /**
@@ -115,8 +113,12 @@ interface DaemonAssembly {
 
 const activationRuntimeFailure = (
   error: DaemonActivationError,
-): DaemonRuntimeError =>
-  runtimeFailure(error.reason === "upstream" ? "listener" : "storage");
+): DaemonRuntimeError => {
+  if (error.reason === "outbox-too-old") {
+    return new DaemonRuntimeError({ phase: "storage", reason: error.reason });
+  }
+  return runtimeFailure(error.reason === "upstream" ? "listener" : "storage");
+};
 
 /**
  * Logs why an activation ended, other than by an interrupt, and gives the
@@ -168,9 +170,9 @@ const publishPendingMessages = (
       };
     })
     .pipe(
-      Effect.catchAll(() => {
+      Effect.catchAll((error) => {
         const failure = runtimeFailure("storage");
-        return Deferred.fail(environment.fatal, failure).pipe(
+        return reportStorageFault(environment, error).pipe(
           Effect.zipRight(Effect.fail(failure)),
         );
       }),
@@ -184,17 +186,17 @@ const publishPendingMessages = (
  * releases the gate.
  * @param environment The daemon's delivery, fatal signal and scope.
  * @param reconciler The publication pass to fork.
- * @param item The emitted result or failure.
+ * @param queued Queues the emitted result, with its provenance, or failure.
  * @returns Completion once the item is durable and the pass is forked.
  */
 const emitLocalItem = (
   environment: DaemonEnvironment,
   reconciler: Effect.Effect<void, DaemonRuntimeError>,
-  item: InboundItem,
+  queued: Effect.Effect<void, EndpointStoreError>,
 ): Effect.Effect<void, CollectiveEmitError> =>
-  environment.delivery.queueLocalItem(item).pipe(
-    Effect.catchAll(() =>
-      Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
+  queued.pipe(
+    Effect.catchAll((error) =>
+      reportStorageFault(environment, error).pipe(
         Effect.zipRight(Effect.fail(new CollectiveEmitError())),
       ),
     ),
@@ -254,7 +256,12 @@ const initializeProtocol = (
               environment.state.handler?.notify.toolsChanged();
             },
             publishPending: Effect.ignore(reconciler),
-            emit: (item) => emitLocalItem(environment, reconciler, item),
+            emit: (item, provenance) =>
+              emitLocalItem(
+                environment,
+                reconciler,
+                environment.delivery.queueLocalItem(item, provenance),
+              ),
           },
           agentCard,
         );
@@ -332,7 +339,7 @@ const assembleDaemon = ({
   changes,
   reconciler,
   initialize,
-}: DaemonAssembly): Daemon => ({
+}: DaemonAssembly): RunningDaemon => ({
   readRegistration: () => environment.state.registration,
   protocolActive: () => environment.state.activeProtocol !== undefined,
   activateRegistered: (agentCard) =>
@@ -361,7 +368,11 @@ const assembleDaemon = ({
  */
 export const makeDaemon = (
   input: DaemonInput,
-): Effect.Effect<Daemon, DaemonRuntimeError, Registry | Router | Scope.Scope> =>
+): Effect.Effect<
+  RunningDaemon,
+  DaemonRuntimeError,
+  Registry | Router | Scope.Scope
+> =>
   Effect.gen(function* () {
     const daemonScope = yield* Scope.Scope;
     const activationGate = yield* Effect.makeSemaphore(1);
@@ -407,7 +418,7 @@ function daemonDelivery(
   return makeHostDelivery({
     store: input.store,
     historyExport: input.historyExport,
-    collectives: () => state.activeProtocol?.application,
+    collectives: () => state.activeProtocol?.collectives,
     ...(input.firewall === undefined
       ? {}
       : {

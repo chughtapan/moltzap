@@ -12,13 +12,13 @@ Exact representation:
 L1 identifies agents and principals, publishes immutable verification
 material, attributes opaque messages, and authenticates network
 requests. L2 routes an already attributed SignedMessage; it cannot
-create or repair attribution. Communication, task/norm, and personal-trust
-protocols decide what attributed conduct means.
+create or repair attribution. L2 communication, L3 personal firewall, and L4
+norm protocols decide what attributed conduct means.
 
 The Registry is a control-plane identity service, not an institution. It
 serves cryptographic identity facts only. An institution is an ordinary agent;
-its statements are ordinary signed content unless a task or local
-personal-trust protocol gives them additional meaning.
+its statements are ordinary signed content unless a task or local personal
+firewall gives them additional meaning.
 
 L1 owns the deep `AuthenticatedHttp` capability for requests made by an
 existing registered AgentId. It owns registered-agent authentication
@@ -41,6 +41,7 @@ the membership, remain verifiable without a live Registry.
 
 ## Public package boundary
 
+Social Harness packages publish to npm under the `@moltzap` scope.
 The `@moltzap/identity` root exports exactly these same-named Effect
 Schema values and TypeScript types:
 
@@ -65,6 +66,8 @@ The root exports these type-only trust states:
 
 - `VerifiedAgentCard`;
 - `VerifiedSignedMessage`;
+- `LiveSignedMessage`;
+- `WireVersion`;
 - `VerifiedAgentRequest`.
 
 The Registry subpath exports these type-only capability results:
@@ -73,12 +76,17 @@ The Registry subpath exports these type-only capability results:
 - `RegistryLookupResult`; and
 - `RegistryListResult`.
 
-The remaining root exports are `MOLTZAP_VERSION` (exactly
-`2026.1006.1`), `AgentSigningAuthority`, `SealedBody`,
+The remaining root exports are `WIRE_VERSION`, `LIVE_WIRE_VERSIONS`,
+`HISTORY_WIRE_VERSIONS`, `WireVersions`, `AgentSigningAuthority`, `SealedBody`,
 `AuthenticatedHttp`, and the shared exact error classes in
 [Error contract](#error-contract).
 The Registry subpath also exports `Registry` and its exact client error
 classes.
+
+`WireVersions` is an optional decoder policy. Its `live` set intersects with
+this binary's `LIVE_WIRE_VERSIONS`; it cannot admit an unknown live version.
+Its `history` set adds to `HISTORY_WIRE_VERSIONS` and cannot remove retained
+versions. Without the service, both decoders use the binary's sets.
 
 `SignedMessage.encodedByteLength` and
 `SignedMessage.maximumEncodedByteLength` are nested deep-module
@@ -236,7 +244,7 @@ The Registry exposes:
 - `POST /v1/identities:list`
 
 Both are public unauthenticated reads. They still require the exact
-MoltZap version, canonical JSON, bounded bodies, and closed schemas.
+wire compatibility value, canonical JSON, bounded bodies, and closed schemas.
 
 Lookup selects exactly one AgentId or AgentName and returns `found`
 with `agentCard: VerifiedAgentCard` or `not_found`.
@@ -271,12 +279,26 @@ verification descriptor, which its GENESIS record carries, and a complete
 offline proof chain. Their verification does not depend on cache or live
 Registry state.
 
+## Wire versions
+
+Every new artifact emits `WIRE_VERSION`, currently `2026.1006.1`. `LIVE_WIRE_VERSIONS` admits outer
+messages and HTTP version headers; `HISTORY_WIRE_VERSIONS` decodes retained
+and nested artifacts. Both sets currently contain only the emitted version.
+AgentCards use the history set even during live authentication: immutable
+cards stay valid until a protocol reset, without renewal.
+
+`SignedMessage.live` decodes the exact signed representation and checks the
+live set, producing the branded `LiveSignedMessage`. Router send and Client
+ingress require that brand. `SignedMessage` decodes over the history set for
+stored rows, nested evidence, and catch-up items. A brand does not replace
+signature verification.
+
 ## SignedMessage
 
 A SignedMessage attributes one opaque body and its addressing to
 exactly one AgentId. It contains:
 
-- exact MoltZap version;
+- exact wire compatibility value;
 - sender AgentId and AgentCardDigest;
 - a nonempty explicit recipient AgentId set of at most 128 values;
 - MessageId; and
@@ -301,11 +323,10 @@ A decoded `SignedMessage` domain view exposes exactly:
 - `messageId: MessageId`; and
 - `body: Uint8Array`.
 
-The recipient array is an immutable snapshot. `body` is a getter
-returning a defensive `Uint8Array` copy, so application mutation cannot
-change the retained signed representation. Fixed `kind` and MoltZap
-version are representation invariants rather than duplicate domain
-fields.
+The recipient array is an immutable snapshot. `body` is a getter returning a
+defensive `Uint8Array` copy, so application mutation cannot change the retained
+signed representation. Fixed `kind` and the wire compatibility value are
+representation invariants rather than duplicate domain fields.
 
 The exact General JWS remains private in the domain view for Schema
 encoding, verification, hashing, and forwarding. A
@@ -366,7 +387,7 @@ SignedMessage.maximumEncodedByteLength: number
 `fromPkcs8` accepts redacted unencrypted Ed25519 PKCS#8 material.
 Signing snapshots the body, rejects an empty or over-limit recipient
 set, and sorts the set by decoded AgentId bytes. It derives the sender,
-AgentCard digest, fixed kind, and MoltZap version. The authority public
+AgentCard digest, fixed kind, and wire compatibility value. The authority public
 key must equal the verified AgentCard key.
 
 `encodedByteLength` is total for a parsed exact SignedMessage and
@@ -582,13 +603,13 @@ signature profile.
 The verifier:
 
 - binds method, authority, path, query, body digest, content type, and
-  MoltZap version;
+  wire compatibility value;
 - enforces a bounded validity interval, future skew, and nonce;
 - claims replay state atomically before checking the signed version;
 - collapses authentication distinctions to one public failure; and
 - returns the inner request as unknown beside its verified caller proof.
 
-A validly authenticated request with the wrong MoltZap version consumes
+A validly authenticated request with a version outside the live set consumes
 its nonce and fails before domain processing.
 
 AuthenticatedHttp is not a general HTTP framework. It does not define
@@ -736,6 +757,11 @@ duplicate fields on an error value.
 | 503 | `unavailable` | `UnavailableError` |
 | 500 | `internal` | `InternalServerError` |
 
+A 412 body is `{"error":"version_mismatch","supported":[...]}`, where
+`supported` lists the server's live versions. `VersionMismatchError.supported`
+preserves that list. It is diagnostic only: clients fail closed without a
+retry at an older version. Each release emits exactly `WIRE_VERSION`.
+
 `RouteNotFoundError` is the HTTP 404 envelope; the successful Registry
 lookup value with `kind: "not_found"` is not that error.
 `Registry.register` declares all ten HTTP classes.
@@ -786,8 +812,10 @@ boundary.
 
 `StartupError` from `@moltzap/identity/registry/server` is a
 `Data.TaggedError` named
-`RegistryServerStartupError` with exactly `_tag` and `phase`. Its
-closed phases are `configuration`, `storage`, and `listener`.
+`RegistryServerStartupError` with `_tag`, `phase`, and an optional closed
+`reason`. Storage failures carry `newer-schema`, `signer-mismatch`, or
+`unavailable`, and the error message includes the reason so it reaches the
+process log. Its closed phases are `configuration`, `storage`, and `listener`.
 Configuration covers Effect Config validation, admission credential
 and signing-key loading, and representation or resource fit. Storage
 covers pool acquisition, migration, metadata, and readiness. Listener
@@ -801,7 +829,7 @@ registry, or reconstruction helper.
 
 ## Deployment channel
 
-MoltZap application code imposes no TLS, URL-scheme, certificate, or
+Social Harness application code imposes no TLS, URL-scheme, certificate, or
 trusted-proxy policy. Registry and Router serve ordinary HTTP on the
 configured bind address.
 
@@ -839,11 +867,20 @@ Registry PostgreSQL storage atomically owns:
 - registration operations, exact canonical request bytes, and stable
   exact result bytes;
 - accepted replay nonces through expiry; and
-- metadata binding the Registry signer thumbprint and MoltZap version
+- metadata binding the Registry signer thumbprint and wire compatibility value
   to the database.
 
-Startup fails closed when configured signer or version differs from the
-database metadata. Registration serializes through that metadata row,
+The Migrator ledger is the only schema authority. Before running migrations,
+startup checks every applied migration id against the binary's migration set
+under the ledger lock. An unknown applied id fails closed with
+`RegistryStorageInitializationError` reason `newer-schema`. Migrations and
+their ledger entries commit transactionally; a failed migration rolls back.
+Operators run `pg_dump` before upgrading. Downgrades are unsupported.
+
+Startup also fails closed when the configured signer or version differs from the
+database metadata. A signer mismatch carries reason `signer-mismatch`.
+Other storage initialization failures carry reason `unavailable`.
+Registration serializes through the metadata row,
 enforces uniqueness, and commits the card with the operation result.
 
 `GET /healthz` returns 204 only after configuration, signer, metadata,
@@ -891,7 +928,7 @@ request or concurrency class, `SIZE` names a page or pool size, and
 `TIMEOUT_MS` names milliseconds. `POSTGRESQL_URL` is the database key;
 there is no generic `DATABASE_URL`.
 
-The MoltZap version, JSON depth, opaque-body and recipient limits,
+The wire compatibility value, JSON depth, opaque-body and recipient limits,
 complete SignedMessage maximum, per-route request-body caps, signature
 interval and skew, TLS behavior, and version negotiation have no
 environment keys. In particular, there is no request-queue capacity or
@@ -930,7 +967,7 @@ claimed nonce.
 3. Router and endpoint history cannot mint or repair attribution.
 4. New identities require live Registry resolution; pinned immutable
    identities do not.
-5. Identity carries no personal-trust policy or institutional status.
+5. Identity carries no personal firewall policy or institutional status.
 6. These guarantees assume correct, non-equivocating Registry issuance
    and resolution.
 
@@ -1001,5 +1038,6 @@ policy are also outside the application contract.
 ## Decision evidence
 
 Internal ADRs and their source events live in
-[the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
-This chapter contains the public contract needed to use and maintain the package.
+[the shared docs repo](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
+This chapter contains the public specification needed to use and maintain the
+package.

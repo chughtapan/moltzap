@@ -20,8 +20,9 @@ import {
   Exit,
   Fiber,
   Redacted,
+  Ref,
   Schema,
-  type Scope,
+  Scope,
 } from "effect";
 import { type ChildProcess, spawn } from "node:child_process";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
@@ -73,6 +74,13 @@ const ROUTER_BINARY = join(
   "packages/router/bin/moltzap-router",
 );
 const DAEMON_BINARY = join(WORKSPACE_ROOT, "packages/client/bin/moltzapd");
+const FIREWALL_DAEMON = join(
+  WORKSPACE_ROOT,
+  "packages/client/integration/firewall-daemon.ts",
+);
+
+/** The mode of the firewall a daemon fixture installs; absent for `moltzapd` itself. */
+export type FirewallMode = "guidance" | "enforcement";
 
 /** One closed process-fixture failure with captured child output when available. */
 export class ProcessTestError extends Data.TaggedError("ProcessTestError")<{
@@ -91,15 +99,26 @@ export interface ProcessInfrastructure {
   readonly routerOrigin: URL;
   readonly registrySignerPublicKeyJson: string;
   readonly temporaryDirectory: string;
+  /**
+   * Stops the Router and starts a fresh one on the same origin. The Router
+   * keeps its state in memory, so the new process has a new
+   * `RouterInstanceId` and no envelopes, as a redeployed Router does.
+   */
+  readonly restartRouter: Effect.Effect<void, ProcessTestError>;
 }
 
-/** Exact reusable process inputs for one daemon identity and state directory. */
+/**
+ * Exact reusable process inputs for one daemon identity and state directory.
+ * A fixture with a `firewall` mode runs `firewall-daemon.ts`, which installs
+ * that firewall; one without runs `moltzapd`.
+ */
 export interface DaemonProcessFixture {
   readonly agentName: AgentName;
   readonly endpoint: URL;
   readonly environment: Readonly<Record<string, string>>;
   readonly stateDirectory: string;
   readonly agentPrivateKeyFile: string;
+  readonly firewall?: FirewallMode;
 }
 
 /** Private management calls used to bootstrap and inspect a real daemon. */
@@ -170,9 +189,10 @@ const startProcess = (
   executable: string,
   arguments_: readonly string[],
   environment: Readonly<Record<string, string>> = {},
+  cwd = WORKSPACE_ROOT,
 ): RunningProcess => {
   const child = spawn(executable, arguments_, {
-    cwd: WORKSPACE_ROOT,
+    cwd,
     env: { PATH: CHILD_PATH, ...environment },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -241,9 +261,10 @@ const managedProcess = (
   executable: string,
   arguments_: readonly string[],
   environment: Readonly<Record<string, string>> = {},
+  cwd = WORKSPACE_ROOT,
 ) =>
   Effect.acquireRelease(
-    Effect.sync(() => startProcess(executable, arguments_, environment)),
+    Effect.sync(() => startProcess(executable, arguments_, environment, cwd)),
     (running, exit) =>
       Exit.isInterrupted(exit)
         ? Console.error(
@@ -396,6 +417,7 @@ export const acquireProcessInfrastructure: Effect.Effect<
     });
     yield* awaitReady(registry, isHealthy(registryOrigin), "health response");
   });
+  const scope = yield* Effect.scope;
   const startRouter = managedProcess(ROUTER_BINARY, [], {
     MOLTZAP_ROUTER_HOST: LOOPBACK_HOST,
     MOLTZAP_ROUTER_PORT: String(routerPort),
@@ -404,20 +426,27 @@ export const acquireProcessInfrastructure: Effect.Effect<
     MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT: "16",
     MOLTZAP_ROUTER_HELD_POLL_CAPACITY: "8",
   }).pipe(
-    Effect.flatMap((router) =>
+    Effect.tap((router) =>
       awaitReady(router, isHealthy(routerOrigin), "health response"),
     ),
+    Scope.extend(scope),
   );
-  yield* Effect.all([startRegistry, startRouter], {
+  const [, firstRouter] = yield* Effect.all([startRegistry, startRouter], {
     concurrency: 2,
-    discard: true,
   });
+  const router = yield* Ref.make(firstRouter);
+  const restartRouter = Ref.get(router).pipe(
+    Effect.flatMap(stopProcess),
+    Effect.zipRight(startRouter),
+    Effect.flatMap((restarted) => Ref.set(router, restarted)),
+  );
 
   return {
     registryOrigin,
     routerOrigin,
     registrySignerPublicKeyJson,
     temporaryDirectory,
+    restartRouter,
   };
 });
 
@@ -425,6 +454,7 @@ export const acquireProcessInfrastructure: Effect.Effect<
 export const makeDaemonProcessFixture = (
   infrastructure: ProcessInfrastructure,
   name: string,
+  firewall?: FirewallMode,
 ): Effect.Effect<DaemonProcessFixture, ProcessTestError> =>
   Effect.gen(function* () {
     const agentName = yield* Schema.decodeUnknown(AgentName)(name).pipe(
@@ -459,20 +489,33 @@ export const makeDaemonProcessFixture = (
         MOLTZAPD_ROUTER_ORIGIN: infrastructure.routerOrigin.origin,
         MOLTZAPD_AGENT_PRIVATE_KEY_FILE: keyPath,
         MOLTZAPD_ADMISSION_CREDENTIAL_FILE: credentialPath,
+        ...(firewall === undefined
+          ? {}
+          : { MOLTZAP_TEST_FIREWALL_MODE: firewall }),
       },
+      ...(firewall === undefined ? {} : { firewall }),
     };
   });
+
+/** The command that runs one fixture's daemon. */
+const daemonCommand = (
+  fixture: DaemonProcessFixture,
+): readonly [string, readonly string[]] =>
+  fixture.firewall === undefined
+    ? [DAEMON_BINARY, []]
+    : [process.execPath, ["--import", "tsx", FIREWALL_DAEMON]];
 
 /** Starts one moltzapd and returns only after its guarded loopback port listens. */
 export const acquireDaemonProcess = (
   fixture: DaemonProcessFixture,
+  executable?: string,
 ): Effect.Effect<RunningProcess, ProcessTestError, Scope.Scope> =>
   Effect.gen(function* () {
-    const running = yield* managedProcess(
-      DAEMON_BINARY,
-      [],
-      fixture.environment,
-    );
+    const [binary, args] =
+      executable === undefined
+        ? daemonCommand(fixture)
+        : ([executable, []] as const);
+    const running = yield* managedProcess(binary, args, fixture.environment);
     yield* awaitReady(
       running,
       canConnect(Number(fixture.endpoint.port)),
@@ -493,12 +536,22 @@ export interface DaemonStartupFailure {
  */
 export const awaitDaemonStartupFailure = (
   fixture: DaemonProcessFixture,
+  command?: {
+    readonly executable: string;
+    readonly args: readonly string[];
+    readonly cwd?: string;
+  },
 ): Effect.Effect<DaemonStartupFailure, ProcessTestError, Scope.Scope> =>
   Effect.gen(function* () {
+    const [executable, arguments_] =
+      command === undefined
+        ? daemonCommand(fixture)
+        : ([command.executable, command.args] as const);
     const running = yield* managedProcess(
-      DAEMON_BINARY,
-      [],
+      executable,
+      arguments_,
       fixture.environment,
+      command?.cwd,
     );
     const listened = yield* awaitReady(
       running,

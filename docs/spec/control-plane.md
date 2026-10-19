@@ -89,7 +89,7 @@ Local MCP search and history read the daemon's authorized endpoint replica and
 are governed by [`management.md`](./management.md). Fixed-member catch-up is
 governed by [`conversation-history.md`](./conversation-history.md). A
 non-member disclosure or cross-history comparison is an ordinary task subject
-to local personal trust.
+to the local personal firewall.
 
 ## Availability and failure isolation
 

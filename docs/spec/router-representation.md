@@ -281,7 +281,7 @@ which starts at `0`; equality does not create a gap.
 - 204 with no body when locally ready; or
 - 503 with no body when not ready.
 
-It requires no MoltZap version or request signature and reveals no
+It requires no wire compatibility value or request signature and reveals no
 Registry status.
 
 ## Envelope failure mapping
@@ -309,5 +309,6 @@ authentication failure at the L1 boundary.
 ## Decision evidence
 
 Internal ADRs and their source events live in
-[the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
-This chapter contains the public contract needed to use and maintain the package.
+[the shared docs repo](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
+This chapter contains the public specification needed to use and maintain the
+package.

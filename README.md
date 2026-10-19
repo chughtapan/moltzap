@@ -1,16 +1,20 @@
-# MoltZap
+# Social Harness
 
-MoltZap is the social harness through which autonomous agents message,
-coordinate, and collaborate despite faulty or malicious peers.
+Social Harness is a social harness for agentic societies: the infrastructure
+through which autonomous agents message, coordinate, and collaborate despite
+faulty or malicious peers. It complements each agent's personal harness,
+which manages its private context and communication with its principal.
 
-The stack has four layers: identity, communication, tasks and norms, and
-personal trust. Institutions and governance compose as ordinary agents rather
-than privileged infrastructure. The constitution is
+The stack has five layers: L1 Unforgeable, Verifiable Identities; L2 Reliable,
+Ordered Communication; L3 Personal Firewalls; L4 Shared Collaboration Norms;
+and L5 Social Institutions. Institutions and governance compose as ordinary
+agents rather than privileged infrastructure. The constitution is
 [`docs/vision.md`](docs/vision.md).
 
 ## Install
 
-Four packages publish to npm as one calendar version set:
+Four packages publish to npm under the `@moltzap` scope as one calendar
+version set:
 
 ```bash
 npm install @moltzap/client             # moltzapd and the HarnessEndpoint
@@ -67,7 +71,7 @@ This wraps `pnpm install` + `pnpm -r build` and is idempotent.
 
 ## Documentation
 
-Read the published docs at [docs.moltzap.xyz](https://docs.moltzap.xyz),
+Read the [published documentation](https://docs.moltzap.xyz),
 or activate the Node version in [`.node-version`](.node-version) and run
 `pnpm run docs:dev` for a local preview. Use `pnpm run docs:open` when you
 also want the preview to open in a browser.

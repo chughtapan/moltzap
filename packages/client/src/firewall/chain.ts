@@ -189,26 +189,13 @@ function unavailable(
     findings: [],
     expectations: [],
     elapsedMilliseconds,
-    failure,
+    failure: new MiddlewareError({
+      reason: Schema.is(failureReason)(failure.reason)
+        ? failure.reason
+        : "unavailable",
+    }),
   };
 }
-
-const boundedCheck = Effect.fn("Firewall.boundedCheck")(function* (
-  middleware: MessageMiddleware,
-  input: MiddlewareInput,
-  settings: FirewallSettings,
-  timeout: number,
-) {
-  return yield* captureResult(
-    invokeMiddleware(middleware, input, settings).pipe(
-      Effect.timeoutFail({
-        duration: timeout,
-        onTimeout: () => new MiddlewareError({ reason: "timeout" }),
-      }),
-    ),
-    () => new MiddlewareError({ reason: "defect" }),
-  );
-});
 
 const runMiddleware = Effect.fn("Firewall.runMiddleware")(function* (
   middleware: MessageMiddleware,
@@ -226,19 +213,18 @@ const runMiddleware = Effect.fn("Firewall.runMiddleware")(function* (
     );
   }
   const timeout = Math.min(remaining, settings.middlewareTimeoutMilliseconds);
-  const returned = yield* boundedCheck(middleware, input, settings, timeout);
+  const returned = yield* captureResult(
+    invokeMiddleware(middleware, input, settings).pipe(
+      Effect.timeoutFail({
+        duration: timeout,
+        onTimeout: () => new MiddlewareError({ reason: "timeout" }),
+      }),
+    ),
+    () => new MiddlewareError({ reason: "defect" }),
+  ).pipe(Effect.withSpan("Firewall.boundedCheck"));
   const elapsedMilliseconds = (yield* Clock.currentTimeMillis) - started;
   return Either.match(returned, {
-    onLeft: (failure) =>
-      unavailable(
-        middleware,
-        new MiddlewareError({
-          reason: Schema.is(failureReason)(failure.reason)
-            ? failure.reason
-            : "unavailable",
-        }),
-        elapsedMilliseconds,
-      ),
+    onLeft: (failure) => unavailable(middleware, failure, elapsedMilliseconds),
     onRight: (result) =>
       elapsedMilliseconds > timeout
         ? unavailable(
@@ -291,10 +277,7 @@ export const makeChain = Effect.fn("Firewall.makeChain")(function* (
   entries: readonly MessageMiddleware[],
   settings: FirewallSettings,
 ) {
-  if (
-    entries.length === 0 ||
-    new Set(entries.map((entry) => entry.id)).size !== entries.length
-  ) {
+  if (new Set(entries.map((entry) => entry.id)).size !== entries.length) {
     return yield* new CheckInputError({ reason: "registration" });
   }
   const captured = yield* Effect.forEach(entries, captureEntry, {

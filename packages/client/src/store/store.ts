@@ -4,6 +4,7 @@ import { Effect, type Scope } from "effect";
 import type { EndpointStore } from "./types.js";
 import {
   applyCatchUpReanchor,
+  bindAdmittedPostIntent,
   bindCheckedPostIntent,
   bindIdentity,
   bindPostIntent,
@@ -25,13 +26,21 @@ import {
 } from "./database/index.js";
 import {
   admitFirewallItem,
+  admitFirewallLocalItem,
+  admitFirewallOperation,
   beginFirewallAttempt,
-  finishFirewallAttempt,
   queueFirewallItem,
+  readFirewallActivations,
   readFirewallAuditPage,
+  readFirewallDecisions,
   readFirewallEvidence,
+  readFirewallEvidenceSlices,
   readFirewallFrontiers,
+  readFirewallPolicy,
+  readFirewallRequestAdmission,
   readPendingFirewallItems,
+  retireFirewallItem,
+  writeFirewallPolicy,
 } from "./firewall.js";
 import {
   acknowledgeInboxItem,
@@ -106,49 +115,71 @@ export const openEndpointStore = (
     Effect.withSpan("openEndpointStore"),
   );
 
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- One typed capability literal detects duplicate operation keys and checks completeness.
 function makeEndpointStore(state: StoreState): EndpointStore {
-  const run = makeStoreRunner(state);
+  const run = <Value>(operation: () => Value) =>
+    runStoreOperation(state, operation);
   const store: EndpointStore = {
-    ...makeHistoryOperations(state, run),
-    ...makeTransportOperations(state, run),
-    ...makeManagementOperations(state, run),
-    ...makeInboxOperations(state, run),
-    ...makeFirewallOperations(state, run),
-  };
-  return Object.freeze(store);
-}
-
-function makeFirewallOperations(state: StoreState, run: StoreRunner) {
-  return {
-    queueFirewallItem: (item) =>
+    readIdentity: () => run(() => bindIdentity.read(state.database)),
+    bindIdentity: (binding) =>
+      run(() => bindIdentity.write(state.database, binding)),
+    bindPostIntent: (binding) =>
+      run(() => bindPostIntent(state.database, binding)),
+    putConversationFoundation: (foundation) =>
+      run(() => putConversationFoundation(state.database, foundation)),
+    lockProposal: (proposal) =>
+      run(() => lockProposal(state.database, proposal)),
+    lockGenesisProposal: (foundation, proposal) =>
+      run(() => lockGenesisProposal(state.database, foundation, proposal)),
+    supersedeProposalLock: (lock, certificate) =>
+      run(() => supersedeProposalLock(state.database, lock, certificate)),
+    stageRecordForDissemination: (record) =>
+      run(() => stageRecordForDissemination(state.database, record)),
+    mergeEvidence: (evidence) =>
+      run(() => mergeEvidence(state.database, evidence)),
+    promoteRecord: (record, delivery) =>
+      run(() => promoteRecord(state.database, record, delivery)),
+    applyCertifiedRecord: (record, delivery) =>
+      run(() => applyCertifiedRecord(state.database, record, delivery)),
+    stageReanchor: (reanchor) =>
+      run(() => stageReanchor(state.database, reanchor)),
+    completeReanchor: (reanchor) =>
+      run(() => completeReanchor(state.database, reanchor)),
+    applyCatchUpReanchor: (reanchor) =>
+      run(() => applyCatchUpReanchor(state.database, reanchor)),
+    readPendingDeliveries: () =>
+      run(() => readPendingDeliveries(state.database)),
+    acknowledgeDelivery: (deliveryToken) =>
+      run(() => acknowledgeDelivery(state.database, deliveryToken)),
+    enqueueOutbound: (message) =>
+      run(() => enqueueOutbound(state.database, message)),
+    enqueueDisseminationOutbound: (obligation, message) =>
+      run(() =>
+        enqueueDisseminationOutbound(
+          state.database,
+          obligation,
+          message,
+          enqueueOutboundInTransaction,
+        ),
+      ),
+    beginOutbound: (outboundId) =>
+      run(() => beginOutbound(state.database, outboundId)),
+    completeOutbound: (outbound) =>
+      run(() => completeOutbound(state.database, outbound)),
+    discardOutbound: (outbounds) =>
+      run(() => discardOutbound(state.database, outbounds)),
+    restartEmptyConversation: (restart) =>
+      run(() => restartEmptyConversation(state.database, restart)),
+    searchConversations: (input = {}) =>
+      run(() => searchStoredConversations(state.database, input)),
+    readConversation: (request) =>
+      run(() => readStoredConversation(state, request)),
+    releaseContinuation: (continuation) =>
       run(() => {
-        queueFirewallItem(state.database, item);
+        releaseStoredContinuation(state, continuation);
       }),
-    readFirewallFrontiers: () =>
-      run(() => readFirewallFrontiers(state.database)),
-    readPendingFirewallItems: (after) =>
-      run(() => readPendingFirewallItems(state.database, after)),
-    readFirewallAuditPage: (after) =>
-      run(() => readFirewallAuditPage(state.database, after)),
-    readFirewallEvidence: (input) =>
-      run(() => readFirewallEvidence(state.database, input)),
-    beginFirewallAttempt: (attempt) =>
-      run(() => {
-        beginFirewallAttempt(state.database, attempt);
-      }),
-    finishFirewallAttempt: (completion) =>
-      run(() => {
-        finishFirewallAttempt(state.database, completion);
-      }),
-    admitFirewallItem: (item, completion) =>
-      run(() => admitFirewallItem(state.database, item, completion)),
-    bindCheckedPostIntent: (binding, completion) =>
-      run(() => bindCheckedPostIntent(state.database, binding, completion)),
-  } satisfies Partial<EndpointStore>;
-}
-
-function makeInboxOperations(state: StoreState, run: StoreRunner) {
-  return {
+    recover: (conversationId) =>
+      run(() => recoverStoredState(state.database, conversationId)),
     readInboxItem: (token) => run(() => readInboxItem(state.database, token)),
     completeWebhookDelivery: (token, value) =>
       run(() => {
@@ -189,87 +220,49 @@ function makeInboxOperations(state: StoreState, run: StoreRunner) {
       run(() => {
         writeEventState(state.database, value);
       }),
-  } satisfies Partial<EndpointStore>;
-}
-
-type StoreRunner = <Value>(
-  operation: () => Value,
-) => Effect.Effect<Value, EndpointStoreError>;
-
-function makeStoreRunner(state: StoreState): StoreRunner {
-  return <Value>(operation: () => Value) => runStoreOperation(state, operation);
-}
-
-function makeHistoryOperations(state: StoreState, run: StoreRunner) {
-  return {
-    readIdentity: () => run(() => bindIdentity.read(state.database)),
-    bindIdentity: (binding) =>
-      run(() => bindIdentity.write(state.database, binding)),
-    bindPostIntent: (binding) =>
-      run(() => bindPostIntent(state.database, binding)),
-    putConversationFoundation: (foundation) =>
-      run(() => putConversationFoundation(state.database, foundation)),
-    lockProposal: (proposal) =>
-      run(() => lockProposal(state.database, proposal)),
-    lockGenesisProposal: (foundation, proposal) =>
-      run(() => lockGenesisProposal(state.database, foundation, proposal)),
-    supersedeProposalLock: (lock, certificate) =>
-      run(() => supersedeProposalLock(state.database, lock, certificate)),
-    stageRecordForDissemination: (record) =>
-      run(() => stageRecordForDissemination(state.database, record)),
-    mergeEvidence: (evidence) =>
-      run(() => mergeEvidence(state.database, evidence)),
-    promoteRecord: (record, delivery) =>
-      run(() => promoteRecord(state.database, record, delivery)),
-    applyCertifiedRecord: (record, delivery) =>
-      run(() => applyCertifiedRecord(state.database, record, delivery)),
-    stageReanchor: (reanchor) =>
-      run(() => stageReanchor(state.database, reanchor)),
-    completeReanchor: (reanchor) =>
-      run(() => completeReanchor(state.database, reanchor)),
-    applyCatchUpReanchor: (reanchor) =>
-      run(() => applyCatchUpReanchor(state.database, reanchor)),
-  } satisfies Partial<EndpointStore>;
-}
-
-function makeTransportOperations(state: StoreState, run: StoreRunner) {
-  return {
-    readPendingDeliveries: () =>
-      run(() => readPendingDeliveries(state.database)),
-    acknowledgeDelivery: (deliveryToken) =>
-      run(() => acknowledgeDelivery(state.database, deliveryToken)),
-    enqueueOutbound: (message) =>
-      run(() => enqueueOutbound(state.database, message)),
-    enqueueDisseminationOutbound: (obligation, message) =>
-      run(() =>
-        enqueueDisseminationOutbound(
-          state.database,
-          obligation,
-          message,
-          enqueueOutboundInTransaction,
-        ),
-      ),
-    beginOutbound: (outboundId) =>
-      run(() => beginOutbound(state.database, outboundId)),
-    completeOutbound: (outbound) =>
-      run(() => completeOutbound(state.database, outbound)),
-    discardOutbound: (outbounds) =>
-      run(() => discardOutbound(state.database, outbounds)),
-    restartEmptyConversation: (restart) =>
-      run(() => restartEmptyConversation(state.database, restart)),
-  } satisfies Partial<EndpointStore>;
-}
-
-function makeManagementOperations(state: StoreState, run: StoreRunner) {
-  return {
-    searchConversations: (input = {}) =>
-      run(() => searchStoredConversations(state.database, input)),
-    readConversation: (request) =>
-      run(() => readStoredConversation(state, request)),
-    releaseContinuation: (continuation) =>
+    queueFirewallItem: (item) =>
       run(() => {
-        releaseStoredContinuation(state, continuation);
+        queueFirewallItem(state.database, item);
       }),
-    recover: () => run(() => recoverStoredState(state.database)),
-  } satisfies Partial<EndpointStore>;
+    readFirewallFrontiers: () =>
+      run(() => readFirewallFrontiers(state.database)),
+    readPendingFirewallItems: (after) =>
+      run(() => readPendingFirewallItems(state.database, after)),
+    readFirewallPolicy: () => run(() => readFirewallPolicy(state.database)),
+    writeFirewallPolicy: (rules, activation) =>
+      run(() => {
+        writeFirewallPolicy(state.database, rules, activation);
+      }),
+    readFirewallActivations: (request) =>
+      run(() => readFirewallActivations(state.database, request)),
+    readFirewallDecisions: (since) =>
+      run(() => readFirewallDecisions(state.database, since)),
+    readFirewallAuditPage: (after) =>
+      run(() => readFirewallAuditPage(state.database, after)),
+    readFirewallEvidence: (input) =>
+      run(() => readFirewallEvidence(state.database, input)),
+    readFirewallEvidenceSlices: (input) =>
+      run(() => readFirewallEvidenceSlices(state.database, input)),
+    readFirewallRequestAdmission: (recordHash) =>
+      run(() => readFirewallRequestAdmission(state.database, recordHash)),
+    beginFirewallAttempt: (attempt) =>
+      run(() => {
+        beginFirewallAttempt(state.database, attempt);
+      }),
+    admitFirewallItem: (item, completion) =>
+      run(() => admitFirewallItem(state.database, item, completion)),
+    admitFirewallLocalItem: (admission) =>
+      run(() => admitFirewallLocalItem(state.database, admission)),
+    retireFirewallItem: (token) =>
+      run(() => {
+        retireFirewallItem(state.database, token);
+      }),
+    admitFirewallOperation: (completion, candidate) =>
+      run(() => admitFirewallOperation(state.database, completion, candidate)),
+    bindCheckedPostIntent: (binding, completion) =>
+      run(() => bindCheckedPostIntent(state.database, binding, completion)),
+    bindAdmittedPostIntent: (binding, operation) =>
+      run(() => bindAdmittedPostIntent(state.database, binding, operation)),
+  };
+  return Object.freeze(store);
 }

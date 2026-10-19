@@ -8,7 +8,7 @@ The collective operations the daemon service composes.
 
 ## Public surface
 
-### [`CollectiveError`](./forms.ts#L321)
+### [`CollectiveError`](./forms.ts#L351)
 
 _Class_
 
@@ -28,7 +28,7 @@ hands its model as the tool error: the failed action and its cause, naming
 each unreachable member or failing field. The operation id stays in the
 error's data, not its message.
 
-### [`groupMembers`](./render.ts#L36)
+### [`groupMembers`](./render.ts#L49)
 
 _Function_
 
@@ -41,7 +41,7 @@ direct address names none. Hosts list them on a group turn.
 
 **Returns:** The group's member addresses, or an empty list.
 
-### [`InboundItem`](./inbound.ts#L111)
+### [`InboundItem`](./inbound.ts#L118)
 
 _TypeAlias_
 
@@ -51,7 +51,7 @@ export type InboundItem = typeof InboundItem.Type;
 
 A validated inbound item.
 
-### [`InboundItem`](./inbound.ts#L102)
+### [`InboundItem`](./inbound.ts#L109)
 
 _Variable_
 
@@ -108,7 +108,7 @@ Read one message text as the send it states.
 **Returns:** The send input, or an error naming each field a stated operation
   gets wrong.
 
-### [`renderCollectiveRequest`](./render.ts#L53)
+### [`renderCollectiveRequest`](./render.ts#L66)
 
 _Function_
 
@@ -125,7 +125,7 @@ by host, since each host's model sends the answer through its own tool.
 
 **Returns:** The text of the model's turn.
 
-### [`renderCollectiveResult`](./render.ts#L75)
+### [`renderCollectiveResult`](./render.ts#L105)
 
 _Function_
 
@@ -134,6 +134,8 @@ export function renderCollectiveResult(item: CollectiveResultItem): string
 ```
 
 A gather's or all_gather's result: the question and one line per member.
+The question is quoted as JSON, so a question a peer asked cannot add
+lines that read as other members' outcomes.
 
 **Returns:** The text of the model's turn.
 
@@ -150,7 +152,7 @@ each data part as JSON, one part per line.
 
 **Returns:** The text a host puts in the model's turn.
 
-### [`SendInput`](./forms.ts#L153)
+### [`SendInput`](./forms.ts#L164)
 
 _TypeAlias_
 
@@ -160,7 +162,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput`](./forms.ts#L141)
+### [`SendInput`](./forms.ts#L152)
 
 _Variable_
 
@@ -183,7 +185,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./forms.ts#L172)
+### [`SendResult`](./forms.ts#L183)
 
 _Interface_
 

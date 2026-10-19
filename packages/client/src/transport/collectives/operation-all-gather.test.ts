@@ -14,7 +14,7 @@ import {
 import { describe, expect } from "vitest";
 import type { EngineSendInput } from "../messaging/index.js";
 import type { InboundItem } from "./inbound.js";
-import type { CollectiveOperations } from "./operation.js";
+import type { CollectiveOperations } from "./ports.js";
 import {
   alice,
   certifyNext,

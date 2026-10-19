@@ -143,7 +143,7 @@ type ServerExportsAreExact = Expect<
 type ServerNamespaceIsExact = Expect<
   Types.Equals<
     keyof typeof RouterServerPackage.RouterServer,
-    "StartupError" | "layer"
+    "StartupError" | "help" | "layer"
   >
 >;
 

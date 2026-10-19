@@ -13,7 +13,6 @@ import type { HistoryExportRecord } from "./history-export.js";
 import type { HarnessMessageReadyEvent } from "./operations.js";
 import { digest } from "../__tests__/agent-card-fixtures.js";
 import {
-  consumeOnly,
   pendingMessage,
   publishEveryPost,
   recordAcknowledgments,
@@ -71,7 +70,10 @@ const makeFixture = (adjust: (store: EndpointStore) => EndpointStore) =>
             records.push(record);
           }),
       },
-      collectives: () => slot.collectives,
+      collectives: () =>
+        slot.collectives === undefined
+          ? undefined
+          : { ...slot.collectives, settleRequest: () => Effect.void },
       scope: yield* Scope.Scope,
     });
     return { delivery, records, slot };
@@ -105,26 +107,6 @@ const refusesUntilRegistered = () =>
       send: () => Effect.succeed({ operationId, postIds: [postId] }),
     };
     expect(yield* operations.send({ input })).toEqual({ operationId });
-  });
-
-/**
- * The host's failure routing reaches the collective layer, which defaults it
- * to returning the error as the send's result.
- */
-const forwardsFailureRouting = () =>
-  Effect.gen(function* () {
-    const { delivery, slot } = yield* deliveryFixture;
-    const routed: string[] = [];
-    slot.collectives = {
-      send: (...[, failureDelivery]) =>
-        Effect.sync(() => {
-          routed.push(failureDelivery);
-          return { postIds: [postId] };
-        }),
-    };
-    yield* delivery.operations.send({ input, failureDelivery: "inbound" });
-    yield* delivery.operations.send({ input });
-    expect(routed).toEqual(["inbound", "result"]);
   });
 
 /**
@@ -267,10 +249,6 @@ describe("host delivery", () => {
   );
   it("records each completed send in the history export", exportsEachSend);
   it(
-    "forwards the host's failure routing to the collective layer",
-    forwardsFailureRouting,
-  );
-  it(
     "exports a queued local item once and forgets it on acknowledgment",
     exportsLocalItemOnceAndForgetsIt,
   );
@@ -352,56 +330,12 @@ describe("host delivery webhook view", () => {
 });
 
 const firstFromBob = pendingMessage(21);
-const secondFromBob = pendingMessage(22);
-const thirdFromBob = pendingMessage(23);
 const emittedFailure = Schema.decodeUnknownSync(InboundItem)({
   kind: "operationFailed",
   id: digest("col_", 24),
   to: "agent:bob",
   error: "collective failed",
 });
-
-/**
- * A refusal stops the pass's publication: a subscriber that refuses the first
- * item and would take later ones is offered nothing after it, so no later item
- * is published ahead of the refused one. A later delivery the collective layer
- * consumes is still acknowledged, and the next pass offers the unpublished
- * items again in order.
- */
-const stopsPublishingAtARefusalButStillConsumesLaterDeliveries = () =>
-  Effect.gen(function* () {
-    const { delivery } = yield* deliveryFixture;
-    const acknowledged: string[] = [];
-    const offered: HarnessMessageReadyEvent[] = [];
-    const taken: HarnessMessageReadyEvent[] = [];
-    yield* delivery.runPass(() => ({
-      readPending: Effect.succeed([firstFromBob, secondFromBob, thirdFromBob]),
-      engine: recordAcknowledgments(acknowledged),
-      classify: consumeOnly(secondFromBob),
-      handler: {
-        publish: (event) => {
-          offered.push(event);
-          return event.deliveryToken !== firstFromBob.deliveryToken;
-        },
-      },
-    }));
-
-    yield* delivery.runPass(() => ({
-      readPending: Effect.succeed([firstFromBob, thirdFromBob]),
-      engine: recordAcknowledgments(acknowledged),
-      classify: consumeOnly(secondFromBob),
-      handler: takeEvery(taken),
-    }));
-
-    expect(offered.map((event) => event.deliveryToken)).toEqual([
-      firstFromBob.deliveryToken,
-    ]);
-    expect(acknowledged).toEqual([secondFromBob.deliveryToken]);
-    expect(taken.map((event) => event.deliveryToken)).toEqual([
-      firstFromBob.deliveryToken,
-      thirdFromBob.deliveryToken,
-    ]);
-  });
 
 /**
  * An item the collective layer emitted is made durable when queued and is
@@ -459,10 +393,6 @@ const recordsEachPublishedItemInTheHistoryExportOnce = () =>
   });
 
 describe("host delivery passes", () => {
-  it(
-    "stops publishing at a refusal but still consumes later deliveries",
-    stopsPublishingAtARefusalButStillConsumesLaterDeliveries,
-  );
   it(
     "publishes the collective layer's own items after durable deliveries",
     publishesTheCollectiveLayerSOwnItemsAfterDurableDeliveries,

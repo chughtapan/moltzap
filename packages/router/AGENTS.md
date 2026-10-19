@@ -1,6 +1,6 @@
 # Router package
 
-Extends the workspace-root `AGENTS.md`. The four-layer constitution in
+Extends the workspace-root `AGENTS.md`. The five-layer constitution in
 `docs/vision.md`, and `docs/spec/router.md` plus
 the Router representation chapters govern this package.
 
@@ -19,4 +19,13 @@ typed failures, and process behavior unless their governing authority changes.
 Publication follows `docs/spec/layer-interfaces.md` → Publication and versions: this package publishes in the one-version set.
 
 Run build, typecheck, test, integration, lint, and architecture checks through
-`pnpm nx run @moltzap/router:<target>`.
+Nx:
+
+```sh
+pnpm nx run @moltzap/router:build
+pnpm nx run @moltzap/router:typecheck:tests
+pnpm nx run @moltzap/router:test
+pnpm nx run @moltzap/router:test:integration
+pnpm nx run @moltzap/router:lint
+pnpm nx run @moltzap/router:arch:check
+```

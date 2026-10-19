@@ -19,13 +19,18 @@ export type {
   EmptyConversationRestart,
   EndpointRecovery,
   EndpointStore,
+  FirewallActivation,
   FirewallAttempt,
   FirewallAuditEntry,
   FirewallCommit,
   FirewallCompletion,
   FirewallEvidence,
+  FirewallEvidenceSlices,
   FirewallHistoryEntry,
   FirewallInboxEntry,
+  FirewallLocalAdmission,
+  FirewallLocalEntry,
+  FirewallRequestAdmission,
   HistoryPage,
   IdentityBinding,
   InboundDeliveryInput,
@@ -56,3 +61,6 @@ export { isSemanticStoreRejection } from "./types.js";
 
 /** Canonical runtime persistence shares the store error vocabulary. */
 export { decodeRuntimeValue, encodeRuntimeValue } from "./runtime-codec.js";
+
+/** Pending envelopes cannot be re-signed when their live window expires. */
+export { OutboxTooOldError } from "./database/values.js";

@@ -7,7 +7,7 @@ import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { CertifiedRecord } from "../types.js";
 import {
-  type EndpointStoreError,
+  EndpointStoreError,
   mapStoreFailure,
   readInteger,
   readText,
@@ -29,8 +29,8 @@ export interface StoreState {
 }
 
 const DATABASE_NAME = "moltzapd.sqlite3";
-/** Persisted layout accepted by this runtime; other layouts require a reset. */
-const SCHEMA_VERSION = 6;
+/** Only this layout can reopen; incompatible endpoint state requires an explicit reset. */
+const SCHEMA_VERSION = 8;
 
 /** An absent or empty database is created; the current schema reopens. */
 export type StoreOpening = "create" | "reopen";
@@ -108,7 +108,9 @@ export function runStoreOperation<Value>(
 }
 
 /**
- * Runs one non-yielding SQLite transaction and preserves its first failure.
+ * Runs one non-yielding SQLite transaction. Explicit or automatic rollback
+ * before a commit attempt excludes a commit. An active failed transaction
+ * and an unconfirmed commit require recovery on a fresh connection.
  * @param database Exclusively owned endpoint database.
  * @param operation Non-yielding transition to commit atomically.
  * @param mode SQLite write-lock mode.
@@ -119,17 +121,37 @@ export function transaction<Value>(
   operation: () => Value,
   mode: "IMMEDIATE" | "EXCLUSIVE" = "IMMEDIATE",
 ): Value {
-  database.exec(`BEGIN ${mode}`);
+  let commitAttempted = false;
   try {
+    database.exec(`BEGIN ${mode}`);
     const value = operation();
+    commitAttempted = true;
     database.exec("COMMIT");
     return value;
   } catch (failure) {
-    try {
-      database.exec("ROLLBACK");
-      // eslint-disable-next-line agent-code-guard/bare-catch, no-empty -- Rollback failure cannot replace or expose the original failure. #ignore-sloppy-code-next-line[bare-catch]: The original persistence failure remains authoritative.
-    } catch {}
-    throw failure;
+    const rolledBack = database.isTransaction && rollback(database);
+    const error = mapStoreFailure(failure, "persistence");
+    if (error.reason !== "persistence") {
+      throw error;
+    }
+    throw new EndpointStoreError({
+      reason: error.reason,
+      commitOutcome:
+        rolledBack || (!commitAttempted && !database.isTransaction)
+          ? "not-committed"
+          : undefined,
+    });
+  }
+}
+
+/** Rollback failure preserves the original error and forces conservative recovery. */
+function rollback(database: DatabaseSync): boolean {
+  try {
+    database.exec("ROLLBACK");
+    return true;
+    // eslint-disable-next-line agent-code-guard/bare-catch -- Rollback failure is outcome evidence, never a replacement diagnostic. #ignore-sloppy-code-next-line[bare-catch]: The transaction reports uncertainty after a failed rollback.
+  } catch {
+    return false;
   }
 }
 
@@ -302,6 +324,9 @@ const firewallSchemaSql = `
     delivery_token TEXT NOT NULL UNIQUE,
     conversation TEXT NOT NULL,
     canonical_item BLOB NOT NULL,
+    canonical_provenance BLOB,
+    anchor INTEGER NOT NULL CHECK (anchor >= 0),
+    check_id TEXT,
     disposition TEXT NOT NULL DEFAULT 'pending'
       CHECK (disposition IN ('pending', 'admitted', 'withheld'))
   ) STRICT;
@@ -317,8 +342,30 @@ const firewallSchemaSql = `
     canonical_input BLOB NOT NULL,
     canonical_result BLOB,
     disposition TEXT NOT NULL DEFAULT 'checking'
-      CHECK (disposition IN ('checking', 'interrupted', 'stale', 'admitted', 'withheld', 'observed'))
+      CHECK (disposition IN ('checking', 'interrupted', 'stale', 'admitted', 'withheld'))
   ) STRICT;
+  CREATE TABLE firewall_local_evidence (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation TEXT NOT NULL,
+    anchor INTEGER NOT NULL CHECK (anchor >= 0),
+    canonical_entry BLOB NOT NULL
+  ) STRICT;
+  CREATE INDEX firewall_local_evidence_window
+    ON firewall_local_evidence(conversation, anchor);
+  CREATE TABLE firewall_answers (
+    conversation_id TEXT NOT NULL,
+    record_hash TEXT NOT NULL,
+    admitted INTEGER NOT NULL CHECK (admitted IN (0, 1)),
+    PRIMARY KEY (conversation_id, record_hash),
+    FOREIGN KEY (conversation_id, record_hash)
+      REFERENCES certified_records(conversation_id, record_hash)
+  ) STRICT;
+  CREATE TRIGGER firewall_local_evidence_changed AFTER INSERT ON firewall_local_evidence BEGIN
+    UPDATE firewall_evidence SET revision = revision + 1 WHERE singleton = 1;
+  END;
+  CREATE TRIGGER firewall_answers_changed AFTER INSERT ON firewall_answers BEGIN
+    UPDATE firewall_evidence SET revision = revision + 1 WHERE singleton = 1;
+  END;
   CREATE TRIGGER firewall_history_changed AFTER INSERT ON certified_records BEGIN
     UPDATE firewall_evidence SET revision = revision + 1 WHERE singleton = 1;
   END;
@@ -415,6 +462,7 @@ const schemaSql = `
     FOREIGN KEY (conversation_id, record_hash)
       REFERENCES staged_records(conversation_id, record_hash)
   ) STRICT;
+  CREATE INDEX certified_records_by_hash ON certified_records(record_hash);
   CREATE TABLE reanchors (
     conversation_id TEXT NOT NULL REFERENCES memberships(conversation_id),
     anchor_hash TEXT NOT NULL,
@@ -442,6 +490,7 @@ const schemaSql = `
     FOREIGN KEY (conversation_id, record_hash)
       REFERENCES certified_records(conversation_id, record_hash)
   ) STRICT;
+  CREATE INDEX pending_deliveries_by_record ON pending_deliveries(record_hash);
   CREATE TABLE outbound_messages (
     outbound_sequence INTEGER PRIMARY KEY,
     outbound_id TEXT NOT NULL UNIQUE,
@@ -466,6 +515,24 @@ const schemaSql = `
   ) STRICT;
 `;
 
+const editablePolicySql = `
+  CREATE TABLE firewall_policy (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    canonical_rules BLOB NOT NULL
+  ) STRICT;
+  CREATE TABLE firewall_activations (
+    sequence INTEGER PRIMARY KEY,
+    activated_at INTEGER NOT NULL,
+    active_revision TEXT NOT NULL,
+    added_rule_ids TEXT NOT NULL,
+    removed_rule_ids TEXT NOT NULL
+  ) STRICT;
+  CREATE INDEX firewall_activations_time ON firewall_activations(activated_at);
+  ALTER TABLE firewall_checks ADD COLUMN decided_at INTEGER;
+  CREATE INDEX firewall_decisions_time ON firewall_checks(decided_at)
+    WHERE decided_at IS NOT NULL;
+`;
+
 /** Creates the current schema atomically in an empty database. */
 function createStore(database: DatabaseSync): void {
   transaction(
@@ -474,6 +541,7 @@ function createStore(database: DatabaseSync): void {
       database.exec(schemaSql);
       database.exec(runtimeSchemaSql);
       database.exec(firewallSchemaSql);
+      database.exec(editablePolicySql);
       database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     },
     "EXCLUSIVE",

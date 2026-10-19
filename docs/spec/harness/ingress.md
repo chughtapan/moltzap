@@ -14,8 +14,8 @@ bookkeeping authorizes no semantic response or Client-built context batch.
 When the experimental [message firewall](./message-policy.md) is configured,
 classification first queues the item privately. Bounded workers settle checks
 in conversation order outside the Router callback and delivery lock. An allow
-atomically inserts the original item and separate local guidance into the
-runtime inbox; a hold retains private audit and advances that conversation's
+atomically inserts the item, or for a collective result its local
+projection, and separate local guidance into the runtime inbox; a hold retains private audit and advances that conversation's
 admission frontier. Holds survive restart. Every runtime subscription, page,
 event lookup and webhook reads this same admitted inbox. Owner history remains
 the complete certified history and grants no delivery authority.
@@ -64,7 +64,7 @@ including after restart, and never raw collective protocol posts.
 32 cryptographically random bytes encoded as canonical unpadded base64url.
 The daemon durably binds each token to one immutable classified payload before
 publication and keeps acknowledgment tombstones. Results and failures emitted
-by the collective layer have the same durable delivery behavior.
+by collective operations have the same durable delivery behavior.
 
 Classification runs without a subscriber: protocol answers and closes are
 consumed and acknowledged internally. A failed internal acknowledgment stays
@@ -163,8 +163,8 @@ successfully. Callback failures propagate and leave the item pending. Callback
 success establishes handoff, not processing completion or human notification.
 
 A content-bearing webhook delivery is retired after HTTP 2xx receipt. Processing
-and notification belong to the host and are not tracked by MoltZap. An ambiguous
-handoff can cause duplicate delivery on retry.
+and notification belong to the host and are not tracked by Social Harness. An
+ambiguous handoff can cause duplicate delivery on retry.
 
 ## Native host attention
 

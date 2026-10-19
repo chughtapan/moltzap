@@ -8,7 +8,11 @@ Production composition for one explicitly configured endpoint daemon.
 
 ## Public surface
 
-### [`FirewallOptions`](./index.ts#L63)
+### [`Daemon`](./index.ts#L65)
+
+_Namespace_
+
+### [`FirewallOptions`](./index.ts#L70)
 
 _TypeAlias_
 
@@ -22,47 +26,55 @@ _TypeAlias_
   };
 ```
 
-Trusted fixed process composition; agents receive no policy mutation capability.
+Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-### [`layer`](./index.ts#L129)
+### [`help`](./index.ts#L67)
+
+_Variable_
+
+```ts
+  export const help = processHelp
+```
+
+Usage text listing the daemon process's environment variables.
+
+### [`layer`](./index.ts#L142)
 
 _Variable_
 
 ```ts
   export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
-    runDaemon(Effect.succeed(undefined)),
+    runDaemon(),
   )
 ```
 
 Complete production process composition for `moltzapd`.
 
-### [`MoltZapService`](./index.ts#L61)
-
-_Namespace_
-
-### [`StartupError`](./index.ts#L72)
+### [`StartupError`](./index.ts#L79)
 
 _Class_
 
 ```ts
-  export class StartupError extends Data.TaggedError(
-    "MoltZapServiceStartupError",
-  )<{
+  export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
+    readonly reason?: "outbox-too-old";
+    readonly detail?: string;
   }> {
     /**
-     * Names only the failed phase, so the process log says why startup stopped.
-     * @returns The startup failure message.
+     * Only closed refusal reasons and sanitized configuration details enter the process log.
+     * @returns The startup phase and any safe operator diagnostic.
      */
     override get message(): string {
-      return `moltzapd startup failed in phase ${this.phase}`;
+      const reason = this.reason === undefined ? "" : ` (${this.reason})`;
+      const detail = this.detail === undefined ? "" : `: ${this.detail}`;
+      return `moltzapd startup failed in phase ${this.phase}${reason}${detail}`;
     }
   }
 ```
 
-Closed daemon startup phase without configuration or platform detail.
+Closed startup phase with sanitized configuration details.
 
-### [`withFirewall`](./index.ts#L138)
+### [`withFirewall`](./index.ts#L151)
 
 _Function_
 
@@ -72,7 +84,7 @@ _Function_
   ): Layer.Layer<never, StartupError>
 ```
 
-Fixed middleware and owner evidence are installed before the daemon accepts host calls.
+Fixed middleware and persisted English rules are installed before the daemon accepts host calls.
 
 **Returns:** The complete daemon layer with both message boundaries checked.
 

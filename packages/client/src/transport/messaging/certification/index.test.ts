@@ -8,9 +8,9 @@ import {
   AgentCard,
   type AgentSigningAuthority,
   Ed25519PublicKey,
-  MOLTZAP_VERSION,
   SignedMessage,
   type VerifiedAgentCard,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import { RouterInstanceId } from "@moltzap/router";
 import {
@@ -192,7 +192,7 @@ function makeMembership(
       return yield* Effect.dieMessage("N4 card encoding is incomplete");
     }
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "membership_descriptor",
       conversationId,
       members: [firstCard, secondCard, ...encodedCards.slice(2)],
@@ -237,8 +237,11 @@ function decodeIngress(
 ): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> {
   return Effect.gen(function* () {
     const sender = yield* senderOf(identities, message);
+    const live = yield* Schema.encode(SignedMessage)(message).pipe(
+      Effect.flatMap(Schema.decodeUnknown(SignedMessage.live)),
+    );
     const verified = yield* SignedMessage.verify({
-      signedMessage: message,
+      signedMessage: live,
       agentCard: sender.card,
     });
     return {
@@ -304,7 +307,7 @@ function restartMember(
     registry: harness.registry,
     store,
     actionPolicy: signEveryAction,
-    reportStorageFault: Effect.void,
+    reportStorageFault: () => Effect.void,
     routerWorker: scriptedRouterWorker(store, harness.outbound),
   });
 }
@@ -440,13 +443,13 @@ function makeProtocolHarness(
     };
     const authorPorts = {
       actionPolicy: options.actionPolicy ?? signEveryAction,
-      reportStorageFault: options.reportStorageFault ?? Effect.void,
+      reportStorageFault: () => options.reportStorageFault ?? Effect.void,
       attachment: options.attachment,
       authorSend: options.authorSend,
     };
     const memberPorts = {
       actionPolicy: signEveryAction,
-      reportStorageFault: Effect.void,
+      reportStorageFault: () => Effect.void,
       attachment: undefined,
       authorSend: undefined,
     };
@@ -750,7 +753,7 @@ function hostileDurabilityMessage(input: {
 }) {
   return signEvidenceMessage({
     statement: {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "durability_vote",
       signerAgentId: input.signer.card.agentId,
       conversationId: input.conversationId,
@@ -783,7 +786,7 @@ function hostileActionSignature(input: {
 }) {
   return signEvidenceMessage({
     statement: {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "action_signature",
       signerAgentId: input.signer.card.agentId,
       actionHash: input.actionHash,
@@ -868,7 +871,7 @@ function restartOverPersistedDurabilityVote(
     );
     const vote = yield* signEvidenceMessage({
       statement: {
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         kind: "durability_vote",
         signerAgentId: voter.card.agentId,
         ...bind(harness.membership),
@@ -959,8 +962,12 @@ function adoptsAnActionCertificateOverItsOwnLock() {
     ]);
     const recovered = yield* laggingStore.recover().pipe(Effect.orDie);
     expect(recovered.certifiedRecords).toHaveLength(3);
-    const releasedSignature = signatures.filter(
-      (message) => message.senderAgentId === laggingIdentity.card.agentId,
+    const releasedSignature = yield* messagesOfKind(
+      harness,
+      signatures.filter(
+        (message) => message.senderAgentId === laggingIdentity.card.agentId,
+      ),
+      "action_signature",
     );
     expect(yield* harness.deliver(releasedSignature, [1])).toEqual(["ignored"]);
 
@@ -2232,12 +2239,12 @@ describe("fixed-post endpoint protocol", () => {
     sealsEveryOuterBodyOfAPost,
     TEST_TIMEOUT_MS,
   );
-  it(
+  itOnTestClock(
     "sends 2 + 3n outer messages for one N4 post: its head's certified record and no copy of its own",
     sendsTwoPlusThreeNMessagesPerPost,
     TEST_TIMEOUT_MS,
   );
-  it(
+  itOnTestClock(
     "certifies from the action-certified copies a post whose signatures a member missed, sending its own copy first",
     certifiesFromActionCertifiedCopiesAfterMissingTheSignatures,
     TEST_TIMEOUT_MS,
@@ -2371,7 +2378,7 @@ describe("fixed-post endpoint protocol", () => {
       }),
     TEST_TIMEOUT_MS,
   );
-  it(
+  itOnTestClock(
     "creates no action vote before ordering concurrent sends by one author",
     () =>
       ordersCompetingProposalsBeforeActionVotes({
@@ -2666,7 +2673,7 @@ function coldStartWithPendingOutboundLeavesOutboundLoopAlive(): Effect.Effect<
       registry: harness.registry,
       store,
       actionPolicy: signEveryAction,
-      reportStorageFault: Effect.void,
+      reportStorageFault: () => Effect.void,
       routerWorker: scriptedRouterWorker(
         store,
         harness.outbound,
@@ -2725,7 +2732,8 @@ const DRAIN_BOUND = Duration.seconds(10);
  * pending one second short of `DRAIN_BOUND` and fails as `delivery-pending`
  * one second past it. The background drain then delivers the envelope the
  * interrupted transmit left begun, exactly once however often the queue
- * drains afterwards.
+ * drains afterwards. No member signs the proposal, so the author also resends
+ * it meanwhile, each time in a new envelope.
  */
 function blackHoledTransmitBoundsTheSend(): Effect.Effect<
   void,
@@ -2746,6 +2754,12 @@ function blackHoledTransmitBoundsTheSend(): Effect.Effect<
       author.send(yield* sendInput(harness, "black-holed transmit")),
     );
     yield* untilLive(Ref.get(transmits).pipe(Effect.map((count) => count > 0)));
+    const [held] = (yield* store.recover().pipe(Effect.orDie)).outboundMessages;
+    if (held === undefined) {
+      return yield* Effect.dieMessage(
+        "the black-holed envelope was not stored",
+      );
+    }
     yield* advanceClock(Duration.subtract(DRAIN_BOUND, Duration.seconds(1)));
     expect(yield* Fiber.poll(sending)).toEqual(Option.none());
     yield* advanceClock(Duration.seconds(2));
@@ -2755,8 +2769,10 @@ function blackHoledTransmitBoundsTheSend(): Effect.Effect<
     yield* superviseOutbound(author, fatal);
     yield* advanceClock(Duration.seconds(1));
     yield* author.drainOutbound.pipe(Effect.orDie);
-    expect(yield* Ref.get(transmits)).toBe(2);
-    expect(yield* Queue.size(harness.outbound)).toBe(1);
+    const delivered = yield* Queue.takeAll(harness.outbound);
+    expect(
+      [...delivered].filter((message) => message.messageId === held.messageId),
+    ).toHaveLength(1);
     expect(
       (yield* store.recover().pipe(Effect.orDie)).outboundMessages,
     ).toEqual([]);
@@ -2831,9 +2847,15 @@ function concurrentDrainsSendEachOutboxOnce(): Effect.Effect<
     yield* untilLive(
       Ref.get(transmits).pipe(Effect.map((count) => count >= 2)),
     );
+    const [held] = (yield* store.recover().pipe(Effect.orDie)).outboundMessages;
+    if (held === undefined) {
+      return yield* Effect.dieMessage("the raced envelope was not stored");
+    }
     yield* advanceClock(Duration.seconds(1));
-    expect(yield* Ref.get(transmits)).toBe(2);
-    expect(yield* Queue.size(harness.outbound)).toBe(1);
+    const delivered = yield* Queue.takeAll(harness.outbound);
+    expect(
+      [...delivered].filter((message) => message.messageId === held.messageId),
+    ).toHaveLength(1);
     expect(
       (yield* store.recover().pipe(Effect.orDie)).outboundMessages,
     ).toEqual([]);
@@ -3166,19 +3188,22 @@ function failsASendWhoseBoundProposalTheStoreRefuses(): Effect.Effect<
  * @param reason The store failure the bind meets.
  * @param expected The send's failure for it.
  * @param expectedFaults Storage faults the author's engine reports for it.
+ * @param commitOutcome Evidence that the failed bind did not commit.
  * @returns The scenario, before its scope closes.
  */
 function failsASendWhoseBindTheStoreFails(
   reason: EndpointStoreError["reason"],
   expected: SendError["reason"],
   expectedFaults: number,
+  commitOutcome?: EndpointStoreError["commitOutcome"],
 ): Effect.Effect<void, never, Scope.Scope> {
   return Effect.gen(function* () {
     const faults = yield* Ref.make(0);
     const harness = yield* makeProtocolHarness({
       wrapStore: (store) => ({
         ...store,
-        bindPostIntent: () => Effect.fail(new EndpointStoreError({ reason })),
+        bindPostIntent: () =>
+          Effect.fail(new EndpointStoreError({ reason, commitOutcome })),
       }),
       reportStorageFault: Ref.update(faults, (count) => count + 1),
     });
@@ -3261,6 +3286,27 @@ function failedRecoveryFailsASendAsDeliveryPending(): Effect.Effect<
   });
 }
 
+const bindFailureCases = [
+  {
+    reason: "persistence",
+    commitOutcome: undefined,
+    expected: "outcome-unknown",
+    faults: 1,
+  },
+  {
+    reason: "persistence",
+    commitOutcome: "not-committed",
+    expected: "persistence-failed",
+    faults: 0,
+  },
+  {
+    reason: "conflict",
+    commitOutcome: undefined,
+    expected: "persistence-failed",
+    faults: 0,
+  },
+] as const;
+
 describe("engine faults while staging and sending", () => {
   it(
     "keeps a staged record's copy and fold together when its acceptance is interrupted",
@@ -3272,13 +3318,10 @@ describe("engine faults while staging and sending", () => {
     failsASendWhoseBoundProposalTheStoreRefuses,
     TEST_TIMEOUT_MS,
   );
-  it.each([
-    { reason: "persistence", expected: "outcome-unknown", faults: 1 },
-    { reason: "conflict", expected: "persistence-failed", faults: 0 },
-  ] as const)(
-    "fails a send whose intent bind meets a $reason store failure as $expected",
-    ({ reason, expected, faults }) =>
-      failsASendWhoseBindTheStoreFails(reason, expected, faults),
+  it.each(bindFailureCases)(
+    "fails a send whose intent bind meets a $reason ($commitOutcome) store failure as $expected",
+    ({ reason, expected, faults, commitOutcome }) =>
+      failsASendWhoseBindTheStoreFails(reason, expected, faults, commitOutcome),
     TEST_TIMEOUT_MS,
   );
   itOnTestClock(

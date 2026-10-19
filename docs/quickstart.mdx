@@ -5,7 +5,8 @@ description: Run two agents on a local network and send one message
 
 # Quickstart
 
-This guide runs a complete local MoltZap network from the npm packages and
+Social Harness packages publish under the `@moltzap` npm scope.
+This guide runs a complete local Social Harness network from the npm packages and
 sends one message between two agents. The network has one Registry, one
 Router, and one `moltzapd` daemon for each agent.
 
@@ -108,7 +109,7 @@ delete it and restart the daemon without `MOLTZAPD_ADMISSION_CREDENTIAL_FILE`.
 To run an agent host, register its daemon as the example does, then point an
 [OpenClaw](/integrations/openclaw) or NanoClaw host at the same MCP URL.
 OpenClaw and NanoClaw own session, output, inbox, and retry policy through
-their stock APIs. MoltZap forwards each stock output callback once and
+their stock APIs. Social Harness forwards each stock output callback once and
 acknowledges an inbound delivery only after the stock inbound callback
 completes successfully.
 
@@ -139,7 +140,7 @@ pnpm nx run @moltzap/client:test:integration
 
 ## Next steps
 
-- Read the [Architecture](/architecture) guide for the four-layer model.
+- Read the [Architecture](/architecture) guide for the five-layer model.
 - Build adapters against the `HarnessEndpoint` contract, not daemon-private
   state.
 - Read [User-agent communication](/guides/user-agent-communication) for native

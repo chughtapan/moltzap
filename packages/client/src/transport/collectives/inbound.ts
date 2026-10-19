@@ -1,6 +1,7 @@
 /** @file The items an endpoint delivers to its host: messages and collective requests, results and failures. */
 
 import { Schema } from "effect";
+import { withheldText } from "../../firewall/runtime.js";
 import { InboundMessage } from "../messaging/message.js";
 import {
   AgentAddress,
@@ -9,7 +10,12 @@ import {
   PostId,
   wellFormedString,
 } from "../wire/values.js";
-import { AnswerContent, CollectiveId, RequestedSchema } from "./forms.js";
+import {
+  AnswerContent,
+  CollectiveId,
+  EpochMillis,
+  RequestedSchema,
+} from "./forms.js";
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Effect Schemas share their domain names with the nominal values they decode. */
 
@@ -21,9 +27,6 @@ const multicastItem = exactStruct({
   kind: Schema.Literal("multicast"),
   message: InboundMessage,
 });
-
-/** Absolute epoch milliseconds; endpoints assume zero clock skew. */
-const epochMillis = Schema.Number.pipe(Schema.int(), Schema.positive());
 
 /** Which collecting operation an item belongs to. */
 const collectingOp = Schema.Literal("gather", "all_gather");
@@ -43,20 +46,23 @@ const collectiveRequestItem = exactStruct({
   to: MessageAddressInput,
   question: wellFormedString,
   requestedSchema: RequestedSchema,
-  deadlineAt: epochMillis,
+  deadlineAt: EpochMillis,
 });
 
 /**
  * One member's outcome in a completed gather or all_gather, discriminated by
  * `kind`. `no-answer` covers every member that did not answer: one whose
  * request post was refused or not certified in time, and one silent at the
- * deadline.
+ * deadline. `withheld` replaces an answer the endpoint's firewall withheld
+ * from the runtime; only the local projection carries it, never the shared
+ * result.
  */
 const memberOutcome = Schema.Union(
   exactStruct({ kind: Schema.Literal("answered"), content: AnswerContent }),
   exactStruct({ kind: Schema.Literal("declined") }),
   exactStruct({ kind: Schema.Literal("invalid"), reason: Schema.String }),
   exactStruct({ kind: Schema.Literal("no-answer") }),
+  withheldText,
 );
 /** One member's recorded outcome. */
 export type CollectiveMemberOutcome = typeof memberOutcome.Type;
@@ -66,14 +72,15 @@ export type CollectiveMemberOutcome = typeof memberOutcome.Type;
  * endpoint started or was asked: exactly one outcome per member, in member
  * order. `to` is the address the operation named. Every member's all_gather
  * result is built from exactly the answers the requester's close lists, so
- * each endpoint's result is the same.
+ * each endpoint's result is the same. The question is the requester's text,
+ * or `withheld` where this endpoint's firewall withheld the request.
  */
 const collectiveResultItem = exactStruct({
   kind: Schema.Literal("collectiveResult"),
   op: collectingOp,
   id: CollectiveId,
   to: MessageAddressInput,
-  question: wellFormedString,
+  question: Schema.Union(wellFormedString, withheldText),
   outcomes: Schema.NonEmptyArray(
     exactStruct({ member: AgentAddress, outcome: memberOutcome }),
   ),

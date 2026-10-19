@@ -1,0 +1,590 @@
+/** @file Adapter behavior through NanoClaw's registry and public endpoint capability. */
+
+import type * as ClientPublic from "@moltzap/client";
+import {
+  type acquireHarnessEndpoint,
+  ConnectError,
+  type HarnessEndpoint,
+  type InboundDelivery,
+  InboundItem,
+  ListenError,
+  renderCollectiveResult,
+  SendError,
+} from "@moltzap/client";
+import { Deferred, Effect, Queue, Schema, Stream } from "effect";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { ChannelRegistration, ChannelSetup } from "./adapter.js";
+import type { registerChannelAdapter } from "./channel-registry.js";
+
+/* eslint-disable agent-code-guard/async-keyword -- NanoClaw's registry, lifecycle, and host callbacks are Promise-native; these tests exercise that public ABI directly. */
+/* eslint-disable agent-code-guard/acquire-release-requires-scope -- The adapter owns and closes the acquisition scope; the fake finalizer verifies release through teardown and stream termination. */
+
+const boundary = vi.hoisted(() => ({
+  register: vi.fn<typeof registerChannelAdapter>(),
+  acquire: vi.fn<typeof acquireHarnessEndpoint>(),
+}));
+
+vi.mock("./channel-registry.js", () => ({
+  registerChannelAdapter: boundary.register,
+}));
+vi.mock("@moltzap/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof ClientPublic>()),
+  acquireHarnessEndpoint: boundary.acquire,
+}));
+
+const POST_ID = `pst_${"A".repeat(43)}`;
+const OPERATION_ID = `col_${"A".repeat(43)}`;
+const GROUP = "group:alice,bob,carol";
+const DEADLINE_TEXT = "2026-09-30T12:00:00.000Z";
+const ANSWER_TEXT = 'Answer with: {"action":"accept","content":{...}}';
+const QUESTION = "Which day?";
+const FORM = {
+  type: "object",
+  properties: { slot: { type: "string" } },
+} as const;
+
+type Adapter = NonNullable<Awaited<ReturnType<ChannelRegistration["factory"]>>>;
+type HostEvent = Parameters<ChannelSetup["onInboundEvent"]>[0];
+
+function makeHost() {
+  return {
+    onInbound: vi.fn<ChannelSetup["onInbound"]>(),
+    onInboundEvent: vi.fn<ChannelSetup["onInboundEvent"]>(),
+    onMetadata: vi.fn<ChannelSetup["onMetadata"]>(),
+    onAction: vi.fn<ChannelSetup["onAction"]>(),
+  };
+}
+
+function makeEndpoint() {
+  const inbox = Effect.runSync(Queue.unbounded<InboundDelivery>());
+  const released = vi.fn<() => void>();
+  const send = vi.fn<HarnessEndpoint["send"]>(() => Effect.succeed({}));
+  const endpoint: HarnessEndpoint = { send, messages: Stream.fromQueue(inbox) };
+  boundary.acquire.mockReturnValue(
+    Effect.acquireRelease(Effect.succeed(endpoint), () =>
+      Effect.sync(() => {
+        released();
+      }),
+    ),
+  );
+  return { inbox, send, released };
+}
+
+function directItem() {
+  return Schema.decodeUnknownSync(InboundItem)({
+    kind: "multicast",
+    message: {
+      kind: "direct",
+      postId: POST_ID,
+      address: "agent:alice",
+      sender: "agent:alice",
+      content: [{ type: "text", text: "hello" }],
+    },
+  });
+}
+
+function enqueue(fake: ReturnType<typeof makeEndpoint>, item: InboundItem) {
+  const acknowledged = vi.fn<() => void>();
+  Effect.runSync(
+    Queue.offer(fake.inbox, {
+      item,
+      acknowledge: Effect.sync(() => {
+        acknowledged();
+      }),
+    }),
+  );
+  return acknowledged;
+}
+
+function eventContent(event: HostEvent) {
+  return Schema.decodeUnknownSync(
+    Schema.parseJson(
+      Schema.Struct({
+        text: Schema.String,
+        address: Schema.String,
+        sender: Schema.String,
+        senderId: Schema.String,
+        members: Schema.optional(Schema.Array(Schema.String)),
+      }),
+    ),
+  )(event.message.content);
+}
+
+let adapter: Adapter | undefined;
+let registration: ChannelRegistration;
+
+beforeEach(async () => {
+  vi.resetModules();
+  boundary.register.mockClear();
+  boundary.acquire.mockReset();
+  vi.stubEnv("MOLTZAP_MCP_URL", "http://127.0.0.1:8321/mcp");
+  await import("./moltzap.js");
+  expect(boundary.register).toHaveBeenCalledWith("moltzap", expect.anything());
+  const entry = boundary.register.mock.calls[0];
+  expect(entry).toBeDefined();
+  if (entry === undefined) {
+    throw new Error("Channel did not register");
+  }
+  registration = entry[1];
+});
+
+afterEach(async () => {
+  const current = adapter;
+  adapter = undefined;
+  await current?.teardown();
+  vi.unstubAllEnvs();
+});
+
+async function createAdapter() {
+  const created = await registration.factory();
+  if (created === null) {
+    throw new Error("Configured channel did not activate");
+  }
+  adapter = created;
+  return created;
+}
+
+// @agent-code-guard/regression-only: The suite pins NanoClaw host handoff and the closed endpoint outcomes; real-host persistence is qualified outside this repository.
+it("stays disabled without an MCP URL", async () => {
+  vi.stubEnv("MOLTZAP_MCP_URL", undefined);
+  expect(await registration.factory()).toBeNull();
+  expect(boundary.acquire).not.toHaveBeenCalled();
+});
+
+it("refuses delivery before setup", async () => {
+  const fake = makeEndpoint();
+  const channel = await createAdapter();
+  expect(channel.isConnected()).toBe(false);
+  await expect(
+    channel.deliver("agent:alice", null, { kind: "chat", content: "hi" }),
+  ).rejects.toThrow("not connected");
+  expect(fake.send).not.toHaveBeenCalled();
+});
+
+it("acquires one endpoint across repeated setup", async () => {
+  makeEndpoint();
+  const channel = await createAdapter();
+  await channel.setup(makeHost());
+  await channel.setup(makeHost());
+  expect(channel.isConnected()).toBe(true);
+  expect(boundary.acquire).toHaveBeenCalledExactlyOnceWith(
+    new URL("http://127.0.0.1:8321/mcp"),
+  );
+});
+
+it("releases the endpoint once across repeated teardown", async () => {
+  const fake = makeEndpoint();
+  const channel = await createAdapter();
+  await channel.setup(makeHost());
+  await channel.teardown();
+  await channel.teardown();
+  expect(channel.isConnected()).toBe(false);
+  expect(fake.released).toHaveBeenCalledTimes(1);
+});
+
+it("refuses delivery after teardown", async () => {
+  const fake = makeEndpoint();
+  const channel = await createAdapter();
+  await channel.setup(makeHost());
+  await channel.teardown();
+  await expect(
+    channel.deliver("agent:alice", null, { kind: "chat", content: "hi" }),
+  ).rejects.toThrow("not connected");
+  expect(fake.send).not.toHaveBeenCalled();
+});
+
+it("reactivates after teardown with a new endpoint acquisition", async () => {
+  const fake = makeEndpoint();
+  const channel = await createAdapter();
+  await channel.setup(makeHost());
+  await channel.teardown();
+  await channel.setup(makeHost());
+  expect(channel.isConnected()).toBe(true);
+  expect(boundary.acquire).toHaveBeenCalledTimes(2);
+  await channel.teardown();
+  expect(fake.released).toHaveBeenCalledTimes(2);
+});
+
+it("propagates acquisition failure without becoming connected", async () => {
+  boundary.acquire.mockReturnValue(
+    Effect.fail(new ConnectError({ reason: "transport-failed" })),
+  );
+  const channel = await createAdapter();
+  await expect(channel.setup(makeHost())).rejects.toThrow("transport-failed");
+  expect(channel.isConnected()).toBe(false);
+});
+
+it.each([
+  { ending: "completion", messages: Stream.empty },
+  {
+    ending: "failure",
+    messages: Stream.fail(new ListenError({ reason: "transport-failed" })),
+  },
+])(
+  "disconnects and releases the endpoint on stream $ending",
+  async ({ messages }) => {
+    const fake = makeEndpoint();
+    const stop = Effect.runSync(Queue.unbounded<undefined>());
+    boundary.acquire.mockReturnValue(
+      Effect.acquireRelease(
+        Effect.succeed({
+          send: fake.send,
+          messages: Stream.fromEffect(Queue.take(stop)).pipe(
+            Stream.flatMap(() => messages),
+          ),
+        }),
+        () =>
+          Effect.sync(() => {
+            fake.released();
+          }),
+      ),
+    );
+    const channel = await createAdapter();
+    await channel.setup(makeHost());
+    Effect.runSync(Queue.offer(stop, undefined));
+    await vi.waitFor(() => {
+      expect(channel.isConnected()).toBe(false);
+    });
+    await channel.teardown();
+    expect(fake.released).toHaveBeenCalledTimes(1);
+  },
+);
+
+it("projects direct metadata before routing and acknowledges only after host success", async () => {
+  const fake = makeEndpoint();
+  const host = makeHost();
+  const accepted = Effect.runSync(Deferred.make<undefined>());
+  host.onInboundEvent.mockImplementation(() => {
+    expect(host.onMetadata).toHaveBeenCalledWith(
+      "agent:alice",
+      "agent:alice",
+      false,
+    );
+    return Effect.runPromise(Deferred.await(accepted));
+  });
+  const channel = await createAdapter();
+  await channel.setup(host);
+  const acknowledged = enqueue(fake, directItem());
+
+  await vi.waitFor(() => {
+    expect(host.onInboundEvent).toHaveBeenCalledTimes(1);
+  });
+  expect(acknowledged).not.toHaveBeenCalled();
+  const event = host.onInboundEvent.mock.calls[0]?.[0];
+  expect(event).toMatchObject({
+    channelType: "cli",
+    instance: "cli",
+    platformId: "local",
+    threadId: null,
+    replyTo: {
+      channelType: "moltzap",
+      platformId: "agent:alice",
+      threadId: null,
+    },
+    message: { id: POST_ID, kind: "chat", isMention: true, isGroup: false },
+  });
+  if (event === undefined) {
+    throw new Error("Host did not receive a turn");
+  }
+  expect(eventContent(event)).toEqual({
+    text: "hello",
+    address: "agent:alice",
+    sender: "agent:alice",
+    senderId: "agent:alice",
+  });
+  Effect.runSync(Deferred.succeed(accepted, undefined));
+  await vi.waitFor(() => {
+    expect(acknowledged).toHaveBeenCalledTimes(1);
+  });
+  expect(fake.send).not.toHaveBeenCalled();
+});
+
+it("leaves delivery unacknowledged and disconnects when the host fails", async () => {
+  const fake = makeEndpoint();
+  const host = makeHost();
+  host.onInboundEvent.mockRejectedValue(new Error("Host persistence failed"));
+  const channel = await createAdapter();
+  await channel.setup(host);
+  const acknowledged = enqueue(fake, directItem());
+  await vi.waitFor(() => {
+    expect(fake.released).toHaveBeenCalledTimes(1);
+  });
+  expect(channel.isConnected()).toBe(false);
+  expect(acknowledged).not.toHaveBeenCalled();
+});
+
+it("preserves canonical group address, sender, exact membership and native group flag", async () => {
+  const fake = makeEndpoint();
+  const host = makeHost();
+  const channel = await createAdapter();
+  await channel.setup(host);
+  const acknowledged = enqueue(
+    fake,
+    Schema.decodeUnknownSync(InboundItem)({
+      kind: "multicast",
+      message: {
+        kind: "group",
+        postId: POST_ID,
+        address: GROUP,
+        sender: "agent:bob",
+        members: ["agent:alice", "agent:bob", "agent:carol"],
+        content: [{ type: "text", text: "group hello" }],
+      },
+    }),
+  );
+  await vi.waitFor(() => {
+    expect(acknowledged).toHaveBeenCalledTimes(1);
+  });
+  expect(host.onMetadata).toHaveBeenCalledWith(GROUP, GROUP, true);
+  const event = host.onInboundEvent.mock.calls[0]?.[0];
+  expect(event).toMatchObject({
+    replyTo: { platformId: GROUP },
+    message: { isGroup: true },
+  });
+  if (event === undefined) {
+    throw new Error("Host did not receive a turn");
+  }
+  expect(eventContent(event)).toEqual({
+    text: "group hello",
+    address: GROUP,
+    sender: "agent:bob",
+    senderId: "agent:bob",
+    members: ["agent:alice", "agent:bob", "agent:carol"],
+  });
+});
+
+it.each([
+  { op: "gather", to: "agent:alice", isGroup: false },
+  { op: "all_gather", to: GROUP, isGroup: true },
+])(
+  "renders a $op request with question, form, deadline and answer instructions",
+  async ({ op, to, isGroup }) => {
+    const fake = makeEndpoint();
+    const host = makeHost();
+    const channel = await createAdapter();
+    await channel.setup(host);
+    const acknowledged = enqueue(
+      fake,
+      Schema.decodeUnknownSync(InboundItem)({
+        kind: "collectiveRequest",
+        op,
+        to,
+        id: OPERATION_ID,
+        postId: POST_ID,
+        from: "agent:alice",
+        question: QUESTION,
+        requestedSchema: FORM,
+        deadlineAt: Date.UTC(2026, 8, 30, 12),
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(acknowledged).toHaveBeenCalledTimes(1);
+    });
+    const event = host.onInboundEvent.mock.calls[0]?.[0];
+    expect(event).toMatchObject({
+      replyTo: { platformId: to },
+      message: { id: POST_ID, isGroup },
+    });
+    if (event === undefined) {
+      throw new Error("Host did not receive a turn");
+    }
+    expect(eventContent(event)).toMatchObject({
+      sender: "agent:alice",
+      address: to,
+    });
+    expect(eventContent(event).text).toContain(QUESTION);
+    const content = eventContent(event);
+    expect(content.text).toContain(op);
+    expect(content.text).toContain(`Form: ${JSON.stringify(FORM)}`);
+    expect(content.text).toContain(DEADLINE_TEXT);
+    expect(content.text).toContain(ANSWER_TEXT);
+    expect(content.text).toContain(`send_message to ${to}`);
+  },
+);
+
+it("attributes a result to MoltZap and lists every member outcome in the addressed conversation", async () => {
+  const fake = makeEndpoint();
+  const host = makeHost();
+  const channel = await createAdapter();
+  await channel.setup(host);
+  const item = Schema.decodeUnknownSync(InboundItem)({
+    kind: "collectiveResult",
+    op: "gather",
+    id: OPERATION_ID,
+    to: GROUP,
+    question: QUESTION,
+    outcomes: [
+      {
+        member: "agent:bob",
+        outcome: { kind: "answered", content: { slot: "mon" } },
+      },
+      { member: "agent:carol", outcome: { kind: "no-answer" } },
+    ],
+  });
+  if (item.kind !== "collectiveResult") {
+    throw new Error("Expected a result fixture");
+  }
+  const acknowledged = enqueue(fake, item);
+  await vi.waitFor(() => {
+    expect(acknowledged).toHaveBeenCalledTimes(1);
+  });
+  const event = host.onInboundEvent.mock.calls[0]?.[0];
+  expect(event).toMatchObject({ replyTo: { platformId: GROUP } });
+  if (event === undefined) {
+    throw new Error("Host did not receive a turn");
+  }
+  const content = eventContent(event);
+  expect(content).toMatchObject({ sender: "MoltZap", address: GROUP });
+  expect(content.text).toBe(renderCollectiveResult(item));
+});
+
+it("delivers an operation failure as a MoltZap turn and acknowledges host acceptance", async () => {
+  const fake = makeEndpoint();
+  const host = makeHost();
+  const channel = await createAdapter();
+  await channel.setup(host);
+  const acknowledged = enqueue(
+    fake,
+    Schema.decodeUnknownSync(InboundItem)({
+      kind: "operationFailed",
+      id: OPERATION_ID,
+      to: "agent:alice",
+      error: "reply failed: no question is open in this conversation",
+    }),
+  );
+  await vi.waitFor(() => {
+    expect(acknowledged).toHaveBeenCalledTimes(1);
+  });
+  const event = host.onInboundEvent.mock.calls[0]?.[0];
+  expect(event).toMatchObject({ replyTo: { platformId: "agent:alice" } });
+  if (event === undefined) {
+    throw new Error("Host did not receive a turn");
+  }
+  expect(eventContent(event)).toMatchObject({
+    sender: "MoltZap",
+    address: "agent:alice",
+    text: "reply failed: no question is open in this conversation",
+  });
+});
+
+it.each(["hello", { text: "hello" }])(
+  "sends explicit agent text without prior discovery: %j",
+  async (content) => {
+    const fake = makeEndpoint();
+    const channel = await createAdapter();
+    await channel.setup(makeHost());
+    await expect(
+      channel.deliver("agent:alice", null, { kind: "chat", content }),
+    ).resolves.toBeUndefined();
+    expect(fake.send).toHaveBeenCalledExactlyOnceWith(
+      { to: "agent:alice", text: "hello" },
+      { failureDelivery: "inbound" },
+    );
+  },
+);
+
+it("rejects a friendly alias before it reaches Client", async () => {
+  const fake = makeEndpoint();
+  const channel = await createAdapter();
+  await channel.setup(makeHost());
+  await expect(
+    channel.deliver("Alice", null, { kind: "chat", content: "hello" }),
+  ).rejects.toThrow("explicit agent or group address");
+  expect(fake.send).not.toHaveBeenCalled();
+});
+
+it("reports parser refusals to the model without sending or failing the delivery", async () => {
+  const fake = makeEndpoint();
+  const host = makeHost();
+  const channel = await createAdapter();
+  await channel.setup(host);
+  await expect(
+    channel.deliver("agent:alice", null, {
+      kind: "chat",
+      content: '{"gather":"Which day?","deadline":0}',
+    }),
+  ).resolves.toBeUndefined();
+  expect(fake.send).not.toHaveBeenCalled();
+  const event = host.onInboundEvent.mock.calls[0]?.[0];
+  if (event === undefined) {
+    throw new Error("Host did not receive the refusal");
+  }
+  expect(eventContent(event)).toMatchObject({
+    sender: "MoltZap",
+    address: "agent:alice",
+  });
+  // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The parser refusal must identify the invalid input field; no public constant names JSON fields.
+  expect(eventContent(event).text).toContain("deadline");
+});
+
+it.each([
+  "invalid-address",
+  "unknown-agent",
+  "membership-invalid",
+  "content-invalid",
+  "delivery-pending",
+  "outcome-unknown",
+] as const)(
+  "reports %s to the model and completes the delivery",
+  async (reason) => {
+    const fake = makeEndpoint();
+    const error = new SendError({ reason });
+    fake.send.mockReturnValue(Effect.fail(error));
+    const host = makeHost();
+    const channel = await createAdapter();
+    await channel.setup(host);
+    await expect(
+      channel.deliver("agent:alice", null, {
+        kind: "chat",
+        content: "hello",
+      }),
+    ).resolves.toBeUndefined();
+    expect(fake.send).toHaveBeenCalledTimes(1);
+    const event = host.onInboundEvent.mock.calls[0]?.[0];
+    expect(event).toMatchObject({ replyTo: { platformId: "agent:alice" } });
+    if (event === undefined) {
+      throw new Error("Host did not receive the refusal");
+    }
+    expect(eventContent(event)).toMatchObject({
+      sender: "MoltZap",
+      text: error.message,
+    });
+  },
+);
+
+it.each(["delivery-pending", "outcome-unknown"] as const)(
+  "does not permit retry of %s even if reporting to the host fails",
+  async (reason) => {
+    const fake = makeEndpoint();
+    fake.send.mockReturnValue(Effect.fail(new SendError({ reason })));
+    const host = makeHost();
+    host.onInboundEvent.mockRejectedValue(new Error("Host unavailable"));
+    const channel = await createAdapter();
+    await channel.setup(host);
+    await expect(
+      channel.deliver("agent:alice", null, {
+        kind: "chat",
+        content: "hello",
+      }),
+    ).resolves.toBeUndefined();
+    expect(fake.send).toHaveBeenCalledTimes(1);
+  },
+);
+
+it("propagates transient failure to NanoClaw's retry without retrying itself", async () => {
+  const fake = makeEndpoint();
+  fake.send.mockReturnValue(
+    Effect.fail(new SendError({ reason: "network-unavailable" })),
+  );
+  const host = makeHost();
+  const channel = await createAdapter();
+  await channel.setup(host);
+  await expect(
+    channel.deliver("agent:alice", null, { kind: "chat", content: "hello" }),
+  ).rejects.toThrow("network unavailable");
+  expect(fake.send).toHaveBeenCalledTimes(1);
+  expect(host.onInboundEvent).not.toHaveBeenCalled();
+});
+
+/* eslint-enable agent-code-guard/async-keyword -- Restore Effect-first defaults after the Promise-native host boundary tests. */
+/* eslint-enable agent-code-guard/acquire-release-requires-scope -- Restore the scope guard after the adapter-owned acquisition fake. */

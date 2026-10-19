@@ -4,7 +4,9 @@ Status: **cutover normative**
 
 Gate 1 ships one built-in endpoint protocol for fixed-member addressed posts.
 It has `GENESIS` and `POST`; there is no turn-grant, contention TTL, pass,
-takeover, or dispute protocol.
+takeover, or dispute protocol. These action rules are the current L4 Shared
+Collaboration Norms. Contracts, meaning formally specified, task-specific
+protocols, are not yet implemented.
 
 ## GENESIS
 

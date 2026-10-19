@@ -11,6 +11,7 @@ import {
 import { Effect, type ParseResult, Schema } from "effect";
 import type {
   EndpointRecovery,
+  OutboxTooOldError,
   ProtocolEvidence,
   StoredOutboundMessage,
 } from "../../store/index.js";
@@ -37,10 +38,6 @@ import {
   verifyStableEvidence,
 } from "../wire/index.js";
 import {
-  evidenceMatchesFold,
-  type EvidenceRoute,
-} from "./certification/index.js";
-import {
   decodeStoredAnchor,
   recordFromStore,
   type StoredRowError,
@@ -52,6 +49,8 @@ import {
   type EndpointEngineInput,
   type EngineActionFold,
   type EngineConversation,
+  evidenceMatchesFold,
+  type EvidenceRoute,
   makeActionFold,
 } from "./runtime/index.js";
 
@@ -74,7 +73,7 @@ interface RecoveredEngineState {
 export const recoverEngineState = (
   input: EndpointEngineInput,
   recovery: EndpointRecovery,
-): Effect.Effect<RecoveredEngineState, StoredRowError> =>
+): Effect.Effect<RecoveredEngineState, StoredRowError | OutboxTooOldError> =>
   Effect.gen(function* () {
     const verifiedMemberships = yield* verifyStoredMemberships(
       recovery.memberships,

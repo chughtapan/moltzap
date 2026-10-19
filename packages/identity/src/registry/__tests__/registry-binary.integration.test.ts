@@ -13,8 +13,8 @@ import {
   AgentCard,
   AgentName,
   AgentSigningAuthority,
-  MOLTZAP_VERSION,
   type VerifiedAgentCard,
+  WIRE_VERSION,
 } from "../../index.js";
 import {
   Registry,
@@ -59,6 +59,7 @@ const IDEMPOTENCY_CONFLICT_KIND = "idempotency_conflict";
 const KEY_ALREADY_REGISTERED_KIND = "key_already_registered";
 const NAME_TAKEN_KIND = "name_taken";
 const FOUND_KIND = "found";
+const NEWER_SCHEMA_REASON = "newer-schema";
 const OK_STATUS = 200;
 const NO_CONTENT_STATUS = 204;
 const BAD_REQUEST_STATUS = 400;
@@ -73,7 +74,10 @@ const MALFORMED_BODY = '{"error":"malformed"}';
 const AUTHENTICATION_FAILED_BODY = '{"error":"authentication_failed"}';
 const NOT_FOUND_BODY = '{"error":"not_found"}';
 const METHOD_NOT_ALLOWED_BODY = '{"error":"method_not_allowed"}';
-const VERSION_MISMATCH_BODY = '{"error":"version_mismatch"}';
+const VERSION_MISMATCH_BODY = JSON.stringify({
+  error: "version_mismatch",
+  supported: [WIRE_VERSION],
+});
 const PAYLOAD_TOO_LARGE_BODY = '{"error":"payload_too_large"}';
 const UNSUPPORTED_MEDIA_TYPE_BODY = '{"error":"unsupported_media_type"}';
 const OVERLOADED_BODY = '{"error":"overloaded"}';
@@ -240,7 +244,7 @@ const makeJsonRequest = (origin: URL, path: string, body: string) =>
       new TextEncoder().encode(body),
       "application/json",
     ),
-    HttpClientRequest.setHeader("moltzap-version", MOLTZAP_VERSION),
+    HttpClientRequest.setHeader("moltzap-version", WIRE_VERSION),
   );
 
 const assertBoundaryResponse = (
@@ -282,8 +286,8 @@ const sharedEnvelopeCases: readonly SharedEnvelopeCase[] = [
       path: "/v1/identities:lookup",
       headers: [
         ["content-type", "application/json"],
-        ["moltzap-version", MOLTZAP_VERSION],
-        ["moltzap-version", MOLTZAP_VERSION],
+        ["moltzap-version", WIRE_VERSION],
+        ["moltzap-version", WIRE_VERSION],
       ],
       body: "{}",
     },
@@ -296,7 +300,7 @@ const sharedEnvelopeCases: readonly SharedEnvelopeCase[] = [
       path: "/v1/identities:lookup",
       headers: [
         ["content-type", "text/plain"],
-        ["moltzap-version", MOLTZAP_VERSION],
+        ["moltzap-version", WIRE_VERSION],
       ],
       body: "{}",
     },
@@ -313,7 +317,7 @@ const sharedEnvelopeCases: readonly SharedEnvelopeCase[] = [
       headers: [
         ["content-type", "application/json"],
         ["content-length", "4096"],
-        ["moltzap-version", MOLTZAP_VERSION],
+        ["moltzap-version", WIRE_VERSION],
       ],
     },
     expected: {
@@ -329,7 +333,7 @@ const assertReceivedOverflow = (port: number) => {
     "POST /v1/identities:register HTTP/1.1",
     `Host: ${LOOPBACK_HOST}:${port}`,
     "Content-Type: application/json",
-    `MoltZap-Version: ${MOLTZAP_VERSION}`,
+    `MoltZap-Version: ${WIRE_VERSION}`,
     "Transfer-Encoding: chunked",
     "Connection: close",
     "",
@@ -407,7 +411,7 @@ const makeIdentityPointForgery = (origin: URL) =>
     const signed = yield* makeVersionedBootstrapRequest(
       origin,
       prepared,
-      MOLTZAP_VERSION,
+      WIRE_VERSION,
     );
     const signatureInput = signed.headers["signature-input"];
     if (signatureInput === undefined) {
@@ -748,8 +752,8 @@ const assertNonceRetention = (input: {
     );
     const [firstRequest, secondRequest] = yield* Effect.all(
       [
-        makeVersionedBootstrapRequest(input.origin, first, MOLTZAP_VERSION),
-        makeVersionedBootstrapRequest(input.origin, second, MOLTZAP_VERSION),
+        makeVersionedBootstrapRequest(input.origin, first, WIRE_VERSION),
+        makeVersionedBootstrapRequest(input.origin, second, WIRE_VERSION),
       ] as const,
       { concurrency: 2 },
     );
@@ -826,7 +830,7 @@ const setupRegistryInfrastructure = Effect.gen(function* () {
 const assertStartupContracts = (input: {
   readonly environment: Readonly<Record<string, string>>;
   readonly wrongKeyPath: string;
-  readonly corruptVersion: Effect.Effect<unknown, unknown>;
+  readonly addUnknownMigration: Effect.Effect<unknown, unknown>;
 }) =>
   Effect.gen(function* () {
     yield* assertStartupRejection({
@@ -837,8 +841,14 @@ const assertStartupContracts = (input: {
       ...input.environment,
       MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH: input.wrongKeyPath,
     });
-    yield* input.corruptVersion;
-    yield* assertStartupRejection(input.environment);
+    yield* input.addUnknownMigration;
+    const process = yield* managedProcess(
+      REGISTRY_BINARY,
+      [],
+      input.environment,
+    );
+    yield* expectStartupFailure(process);
+    expect(process.logs()).toContain(NEWER_SCHEMA_REASON);
   });
 
 const registryBinaryBehavior = Effect.gen(function* () {
@@ -853,6 +863,13 @@ const registryBinaryBehavior = Effect.gen(function* () {
     infrastructure.registryPort,
   );
   yield* stopProcess(registry);
+  expect(registry.logs()).toContain(
+    `moltzap-registry listening on ${infrastructure.origin.origin}`,
+  );
+  expect(registry.logs()).toMatch(/\(package \S+; WIRE_VERSION \S+\)/u);
+  expect(registry.logs().match(/moltzap-registry listening on/gu)).toHaveLength(
+    1,
+  );
   expect(yield* canConnect(infrastructure.registryPort)).toBe(false);
 
   yield* exerciseRestart({
@@ -877,11 +894,10 @@ const registryBinaryBehavior = Effect.gen(function* () {
   yield* assertStartupContracts({
     environment: infrastructure.environment,
     wrongKeyPath: infrastructure.wrongKeyPath,
-    corruptVersion: sql.unsafe(`
-        UPDATE moltzap_registry_metadata
-        SET moltzap_version = 'incompatible'
-        WHERE singleton = true
-      `),
+    addUnknownMigration: sql`
+      INSERT INTO moltzap_registry_migrations (migration_id, name)
+      VALUES (9999, 'future')
+    `,
   });
 }).pipe(
   Effect.scoped,

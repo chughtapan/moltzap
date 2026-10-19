@@ -392,6 +392,22 @@ can open for some members and not others, so a Byzantine author can make one
 proposal a candidate only for some honest members, split their locks for a
 predecessor, and stall that head this way.
 
+An author resends its proposal while its action certificate is incomplete,
+with the same `ActionHash`, preceded by the `CertifiedRecord` of the head it
+extends as on the first send. The resends follow the catch-up retry schedule
+below: jittered exponential backoff, a bounded number of times. They stop
+when the action certificate completes, when a different candidate commits at
+the proposal's predecessor, or when a completed re-anchor replaces the
+proposal. While the conversation recovers, the author sends no resend and
+consumes no resend attempts; an open proposal resumes resending after
+recovery even without a re-anchor. Each resend carries the identical signed
+proposal in a new outer message sealed to the whole fixed membership. A
+member that already signed the proposal deduplicates the resend by its
+`ActionHash` and sends nothing for it. A resend carries the same action bytes,
+so it creates no new candidate and changes no lock. A proposal whose resends
+ran out stalls its head as above until the head moves, a re-anchor replaces it,
+or the daemon restarts and proposes the post again.
+
 Daemon recovery resumes a persisted unfinished intent under its existing
 `PostId`. A later `HarnessEndpoint.send` invocation always mints a new
 `PostId`, including when its address and content equal an earlier call.
@@ -420,7 +436,8 @@ signature bytes.
 The first time a member stages a record, whether from the action signatures
 it received or from a copy, it sends its own `ActionCertifiedRecord` for that
 record once, before its durability vote. A member that proposes sends the
-`CertifiedRecord` of the head its proposal extends once, before the proposal.
+`CertifiedRecord` of the head its proposal extends before the proposal and
+before each resend of it.
 No member otherwise sends a `CertifiedRecord` it assembles: each member
 assembles it from the durability votes it receives, and catch-up pages carry
 certified records to a member that missed Router deliveries.
@@ -436,11 +453,14 @@ certified. A Byzantine member that is not the author cannot stall a head by
 sealing its evidence away from some members. A Byzantine author can still split
 locks and stall a head, as described above.
 
-A post with one proposal costs `2 + 3n` outer messages: the proposer's
-`CertifiedRecord` of its head, the proposal, `n` action signatures, `n`
-action-certified records, and `n` durability votes. Each further proposal at
-the same head adds one `CertifiedRecord`. GENESIS has no head, so it costs
-`1 + 3n`.
+A post with one proposal that loses no message costs `2 + 3n` outer
+messages: the proposer's `CertifiedRecord` of its head, the proposal, `n`
+action signatures, `n` action-certified records, and `n` durability votes.
+Each further proposal at the same head adds one `CertifiedRecord`. GENESIS has
+no head, so it costs `1 + 3n`. Each resend of a proposal adds two outer
+messages, the head's `CertifiedRecord` and the proposal, or one for GENESIS. A
+member that signs only after a resend sends its signature, record, and vote
+once, so they stay within the `3n`.
 
 A record becomes locally certified only after the store atomically promotes
 its staged core and valid `q(n)` durability votes. Semantic send succeeds only
@@ -749,9 +769,19 @@ before mutation and require an explicit state-directory reset. There is no
 schema migration or automatic reset. The [daemon storage contract](./harness/daemon.md#persistence)
 defines preflight and startup behavior.
 
-The one source-owned `MOLTZAP_VERSION`/`V2_PROTOCOL_VERSION` value is
-`2026.1006.1`. Client wire peers must carry that exact literal. Mixed versions
-fail with the existing typed version mismatch before semantic state changes.
+Newly signed protocol values carry `WIRE_VERSION`. Only the outer envelope
+uses `SignedMessage.live` and the live set. Every nested artifact, including
+`PostIntent`, `ActionCore`, catch-up frames, `CatchUpPage.item`, certificates,
+evidence, descriptors, AgentCards and store rows, decodes over
+`HISTORY_WIRE_VERSIONS`. Retired live versions remain readable as history;
+signatures and the existing semantic checks still govern their validity.
+
+Pending outbound messages retain their original signed bytes and MessageId;
+they are never re-signed. Startup refuses a pending envelope whose signed
+version has left `LIVE_WIRE_VERSIONS` with `OutboxTooOldError`, surfaced as
+`outbox-too-old`. The operator must drain the outbox on an earlier release.
+The current schema reads that version from the signed bytes.
+
 The external MCP protocol revision remains `2026-07-28`; runtime notifications
 follow the [pinned MCP Events profile](./harness/ingress.md).
 
@@ -788,10 +818,10 @@ limits. Client fragments nothing.
 
 Acceptance covers address permutation, membership bounds, deterministic
 conversation identity, N2/N3/N4/N10 thresholds, GENESIS unanimity, missing
-author, evidence-independent hashes, proposal locking, stalled quorum,
-recovery rebase, conflicting intent, distinct host invocations, durability
-separation, catch-up, re-anchor, stable delivery replay, callback ordering, and
-exact store/wire rejection.
+author, evidence-independent hashes, proposal locking, proposal resend,
+stalled quorum, recovery rebase, conflicting intent, distinct host
+invocations, durability separation, catch-up, re-anchor, stable delivery
+replay, callback ordering, and exact store/wire rejection.
 
 ## Explicitly deferred
 

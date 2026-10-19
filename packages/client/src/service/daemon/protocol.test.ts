@@ -3,11 +3,12 @@
 import type { Router } from "@moltzap/router";
 import { scopedLive as it } from "@effect/vitest";
 import {
+  type LiveSignedMessage,
   MessageId,
-  MOLTZAP_VERSION,
   SealedBody,
   SignedMessage,
   type VerifiedAgentCard,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import {
@@ -75,7 +76,7 @@ const messageId = (byte: number) =>
   Schema.decodeUnknownSync(MessageId)(identifier("msg_", byte));
 
 const catchUpRequestFrom = (requester: VerifiedAgentCard): CatchUpRequest => ({
-  moltzapVersion: MOLTZAP_VERSION,
+  moltzapVersion: WIRE_VERSION,
   kind: "catch_up_request",
   conversationId: Schema.decodeUnknownSync(ConversationId)(digest("cnv_", 22)),
   membershipHash: Schema.decodeUnknownSync(MembershipHash)(digest("mbr_", 23)),
@@ -129,7 +130,7 @@ const memberOf = (byte: number, name: string): Effect.Effect<SigningIdentity> =>
  * signals `polledAgain` and stays open, as a held long poll does.
  */
 const routerFeeding = (input: {
-  readonly feed: readonly SignedMessage[];
+  readonly feed: readonly LiveSignedMessage[];
   readonly released: Deferred.Deferred<undefined>;
   readonly polledAgain: Deferred.Deferred<undefined>;
   readonly fed: Ref.Ref<boolean>;
@@ -155,8 +156,11 @@ const recordingEngine = (
   accepted: Queue.Queue<DecodedOuterBody>,
 ): EndpointEngine => ({
   send: () => Effect.dieMessage("the daemon sends nothing in this test"),
-  sendChecked: () => Effect.dieMessage("the daemon sends nothing in this test"),
+  bindChecked: () => Effect.dieMessage("the daemon sends nothing in this test"),
+  sendAdmitted: () =>
+    Effect.dieMessage("the daemon sends nothing in this test"),
   resolveAddress: () => Effect.dieMessage("no address is resolved here"),
+  resolveConversation: () => Effect.dieMessage("no address is resolved here"),
   readPendingMessages: () => Effect.succeed([]),
   acknowledgeMessage: () => Effect.dieMessage("nothing is delivered here"),
   acceptRouterIngress: (ingress) =>
@@ -185,7 +189,7 @@ interface RunningProtocol {
 const runProtocol = (input: {
   readonly fixture: Effect.Effect.Success<typeof makeFixture>;
   readonly members: Members;
-  readonly feed: readonly SignedMessage[];
+  readonly feed: readonly LiveSignedMessage[];
   readonly released: Deferred.Deferred<undefined>;
   readonly polledAgain: Deferred.Deferred<undefined>;
 }): Effect.Effect<RunningProtocol, unknown, Scope.Scope> =>

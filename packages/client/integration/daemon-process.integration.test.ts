@@ -1,5 +1,9 @@
 /** @file Two real daemons certify, deliver, and recover multicast operations. */
 
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { DatabaseSync } from "node:sqlite";
 import { ProtocolErrorCode } from "@modelcontextprotocol/client";
 import { AgentCard, type AgentName } from "@moltzap/identity";
 import { Effect, Fiber, Option, Schema, Stream } from "effect";
@@ -27,8 +31,8 @@ import {
 } from "./daemon-process-harness.js";
 
 /**
- * Each test starts PGlite, the Registry, the Router and two daemons, and two
- * of them restart a daemon. Beside a second full Client suite and another
+ * Each test starts PGlite, the Registry, the Router and two daemons; two of
+ * them restart a daemon and one restarts the Router. Beside a second full Client suite and another
  * integration file (load average 17 to 32 on 8 cores) the restart test has
  * taken 62 to 163 seconds, most of it process startup. The limit is the only
  * wall-clock bound these traces set themselves.
@@ -242,6 +246,71 @@ const singleRestartBehavior = Effect.gen(function* () {
   ]);
 }).pipe(Effect.scoped);
 
+const beforeRouterRestartText = "sent before the Router restarts";
+const afterRouterRestartText = "sent after the Router restarts";
+const replyAfterRouterRestartText = "reply after the Router restarts";
+
+/**
+ * The Router restarts with every daemon still up, as a network redeploy
+ * replaces it. Both daemons must re-anchor their conversation under the new
+ * Router instance and then deliver in both directions.
+ */
+const routerRestartBehavior = Effect.gen(function* () {
+  const infrastructure = yield* acquireProcessInfrastructure;
+  const [memberFixture, conciergeFixture] = yield* Effect.all(
+    [
+      makeDaemonProcessFixture(infrastructure, "router-restart-member"),
+      makeDaemonProcessFixture(infrastructure, "router-restart-concierge"),
+    ] as const,
+    { concurrency: 2 },
+  );
+  yield* Effect.all(
+    [
+      acquireDaemonProcess(memberFixture),
+      acquireDaemonProcess(conciergeFixture),
+    ] as const,
+    { concurrency: 2 },
+  );
+  yield* registerFixture(memberFixture);
+  yield* registerFixture(conciergeFixture);
+
+  yield* deliverDirect({
+    from: memberFixture,
+    to: conciergeFixture,
+    text: beforeRouterRestartText,
+    send: certifiedSend,
+  });
+
+  yield* infrastructure.restartRouter;
+
+  yield* deliverDirect({
+    from: memberFixture,
+    to: conciergeFixture,
+    text: afterRouterRestartText,
+    send: sendOrQueue,
+  });
+  yield* deliverDirect({
+    from: conciergeFixture,
+    to: memberFixture,
+    text: replyAfterRouterRestartText,
+    send: sendOrQueue,
+  });
+
+  const history = yield* readDurableHistory(
+    memberFixture,
+    directAddress(conciergeFixture.agentName),
+  );
+  expect(
+    history.records.map(
+      ({ recordCore }) => recordCore.action.postIntent.content[0],
+    ),
+  ).toEqual([
+    { type: "text", text: beforeRouterRestartText },
+    { type: "text", text: afterRouterRestartText },
+    { type: "text", text: replyAfterRouterRestartText },
+  ]);
+}).pipe(Effect.scoped);
+
 const processBehavior = Effect.gen(function* () {
   const infrastructure = yield* acquireProcessInfrastructure;
   const [callerFixture, targetFixture] = yield* Effect.all(
@@ -269,7 +338,14 @@ const processBehavior = Effect.gen(function* () {
         { conversationId: "retired-public-identifier" },
       );
       expect(malformed.code).toBe(ProtocolErrorCode.InvalidParams);
-      expect(malformed.data).toBeUndefined();
+      expect(malformed.data).toMatchObject({
+        issues: expect.arrayContaining([
+          { path: ["conversationId"], message: "Unexpected field" },
+        ]),
+      });
+      expect(JSON.stringify(malformed.data)).not.toContain(
+        "retired-public-identifier",
+      );
     }),
   );
 
@@ -479,6 +555,11 @@ const admissionLifetimeBehavior = Effect.gen(function* () {
   const firstRun = yield* acquireDaemonProcess(registeredFixture);
   yield* registerFixture(registeredFixture);
   yield* stopProcess(firstRun);
+  expect(firstRun.logs()).toContain(
+    `moltzapd listening on ${registeredFixture.endpoint}`,
+  );
+  expect(firstRun.logs()).toMatch(/\(package \S+; WIRE_VERSION \S+\)/u);
+  expect(firstRun.logs().match(/moltzapd listening on/gu)).toHaveLength(1);
 
   const unsetRun = yield* acquireDaemonProcess(
     withoutAdmissionCredential(registeredFixture),
@@ -531,5 +612,118 @@ it(
 it(
   "delivers both ways after one real daemon restarts while its peer stays up",
   processTrace(singleRestartBehavior),
+  PROCESS_TEST_TIMEOUT_MS,
+);
+
+it(
+  "delivers both ways after the Router restarts while both daemons stay up",
+  processTrace(routerRestartBehavior),
+  PROCESS_TEST_TIMEOUT_MS,
+);
+
+/** A retired version in a retained envelope must stop startup before any schema change. */
+const refusesStaleOutbox = Effect.scoped(
+  Effect.gen(function* () {
+    const infrastructure = yield* acquireProcessInfrastructure;
+    const local = yield* makeDaemonProcessFixture(
+      infrastructure,
+      "stale-outbox",
+    );
+    const peer = yield* makeDaemonProcessFixture(infrastructure, "stale-peer");
+    const daemonProcess = yield* acquireDaemonProcess(local);
+    yield* acquireDaemonProcess(peer);
+    yield* registerFixture(local);
+    yield* registerFixture(peer);
+    yield* deliverDirect({
+      from: local,
+      to: peer,
+      text: "outbox baseline",
+      send: sendOrQueue,
+    });
+    yield* stopProcess(daemonProcess);
+    const before = yield* Effect.try({
+      try: () => markStoredOutboundPending(local.stateDirectory),
+      catch: (cause) =>
+        new ProcessTestError({
+          message: "could not prepare retired outbox",
+          cause,
+        }),
+    });
+    const failed = yield* awaitDaemonStartupFailure(local, {
+      executable: process.execPath,
+      args: ["--input-type=module", "-e", retiredWindowDaemon],
+      cwd: fileURLToPath(new URL("../", import.meta.url)),
+    });
+    expect(failed.exitCode).not.toBe(0);
+    expect(failed.logs).toContain("outbox-too-old");
+    const after = yield* Effect.try({
+      try: () => storedSchema(local.stateDirectory),
+      catch: (cause) =>
+        new ProcessTestError({
+          message: "could not read refused store",
+          cause,
+        }),
+    });
+    expect(after).toEqual(before);
+  }),
+);
+
+/** Capture schema and backup state without depending on a particular schema number. */
+function storedSchema(directory: string) {
+  const database = new DatabaseSync(join(directory, "moltzapd.sqlite3"), {
+    readOnly: true,
+  });
+  try {
+    return {
+      schema: database.prepare("PRAGMA user_version").get(),
+      objects: database
+        .prepare("SELECT sql FROM sqlite_schema ORDER BY name")
+        .all(),
+      backups: readdirSync(directory).filter((name) =>
+        name.includes(".backup"),
+      ),
+    };
+  } finally {
+    database.close();
+  }
+}
+
+/**
+ * A release with an empty live window refuses this binary's retained outbound
+ * bytes. The child composes only published service and Identity APIs.
+ */
+const retiredWindowDaemon = `
+  import { NodeRuntime } from "@effect/platform-node";
+  import { WIRE_VERSION, WireVersions } from "@moltzap/identity";
+  import { Daemon } from "@moltzap/client/service";
+  import { ConfigProvider, Effect, Layer } from "effect";
+  Layer.launch(Daemon.layer).pipe(
+    Effect.provideService(WireVersions, { live: [], history: [WIRE_VERSION] }),
+    Effect.withConfigProvider(ConfigProvider.fromEnv()),
+    NodeRuntime.runMain,
+  );
+`;
+
+/** Retry an existing signed envelope unchanged under the narrower release window. */
+function markStoredOutboundPending(directory: string) {
+  const database = new DatabaseSync(join(directory, "moltzapd.sqlite3"));
+  try {
+    const result = database
+      .prepare(
+        "UPDATE outbound_messages SET disposition = 'pending' WHERE outbound_id = (SELECT outbound_id FROM outbound_messages LIMIT 1)",
+      )
+      .run();
+    if (result.changes !== 1) {
+      throw new Error("expected an existing signed outbound envelope");
+    }
+  } finally {
+    database.close();
+  }
+  return storedSchema(directory);
+}
+
+it(
+  "reports outbox-too-old at the process boundary without changing schema or backups",
+  processTrace(refusesStaleOutbox),
   PROCESS_TEST_TIMEOUT_MS,
 );

@@ -121,7 +121,7 @@ beforeAll(async () => {
   );
   writeFixture(
     "packages/client/src/service/index.ts",
-    "/** @file Process composition. */\nexport namespace MoltZapService {}\n",
+    '/** @file Process composition. */\nexport namespace Daemon {\n  export const withFirewall = "layer";\n}\nexport const makeFirewall = "firewall";\n',
   );
 
   writeFixture("docs/modules/legacy/src.mdx", "stale page\n");
@@ -246,9 +246,26 @@ beforeAll(async () => {
               children: [
                 {
                   id: 22,
-                  name: "MoltZapService",
+                  name: "Daemon",
                   kind: ReflectionKind.Namespace,
                   sources: source("packages/client/src/service/index.ts", 2),
+                  children: [
+                    {
+                      id: 23,
+                      name: "withFirewall",
+                      kind: ReflectionKind.Variable,
+                      sources: source(
+                        "packages/client/src/service/index.ts",
+                        3,
+                      ),
+                    },
+                  ],
+                },
+                {
+                  id: 24,
+                  name: "makeFirewall",
+                  kind: ReflectionKind.Variable,
+                  sources: source("packages/client/src/service/index.ts", 5),
                 },
               ],
             },
@@ -409,6 +426,16 @@ describe("module documentation", () => {
         "- `registry/server.ts`",
       ].join("\n"),
     );
+  });
+
+  it("qualifies only namespace members in package subpaths", () => {
+    const clientModule = readFileSync(
+      join(sandbox, "packages/client/src/MODULE.md"),
+      "utf8",
+    );
+
+    expect(clientModule).toContain("#### [`Daemon.withFirewall`]");
+    expect(clientModule).toContain("#### [`makeFirewall`]");
   });
 
   it("uses final package paths and main-branch source links", () => {

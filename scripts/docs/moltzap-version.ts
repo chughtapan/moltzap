@@ -12,38 +12,38 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-/** Workspace-relative source of `MOLTZAP_VERSION`. */
-export const MOLTZAP_VERSION_SOURCE = "packages/identity/src/version.ts";
+/** Workspace-relative source of `WIRE_VERSION`. */
+export const WIRE_VERSION_SOURCE = "packages/identity/src/version.ts";
 
 /** Matches the literal export; group 1 is the value. */
-export const MOLTZAP_VERSION_LITERAL =
-  /export\s+const\s+MOLTZAP_VERSION\s*=\s*["']([^"']*)["']/;
+export const WIRE_VERSION_LITERAL =
+  /export\s+const\s+WIRE_VERSION\s*=\s*["']([^"']*)["']/;
 
 /**
  * Read the literal from the workspace, or explain why it could not be read.
  * @param workspaceRoot Absolute workspace root.
  * @returns The trimmed literal, or an error message.
  */
-export const readMoltzapVersion = (
+export const readCompatibilityVersion = (
   workspaceRoot: string,
 ): { readonly value: string } | { readonly error: string } => {
-  const filePath = resolve(workspaceRoot, MOLTZAP_VERSION_SOURCE);
+  const filePath = resolve(workspaceRoot, WIRE_VERSION_SOURCE);
   let source: string;
   try {
     source = readFileSync(filePath, "utf8");
   } catch (cause) {
     return {
-      error: `could not read ${MOLTZAP_VERSION_SOURCE}: ${cause instanceof Error ? cause.message : String(cause)}`,
+      error: `could not read ${WIRE_VERSION_SOURCE}: ${cause instanceof Error ? cause.message : String(cause)}`,
     };
   }
-  const match = MOLTZAP_VERSION_LITERAL.exec(source);
+  const match = WIRE_VERSION_LITERAL.exec(source);
   if (match === null) {
     return {
-      error: `expected \`export const MOLTZAP_VERSION = "..."\` in ${MOLTZAP_VERSION_SOURCE}`,
+      error: `expected \`export const WIRE_VERSION = "..."\` in ${WIRE_VERSION_SOURCE}`,
     };
   }
   const value = (match[1] ?? "").trim();
   return value.length === 0
-    ? { error: `expected a nonempty version in ${MOLTZAP_VERSION_SOURCE}` }
+    ? { error: `expected a nonempty version in ${WIRE_VERSION_SOURCE}` }
     : { value };
 };

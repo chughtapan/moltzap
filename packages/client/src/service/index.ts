@@ -4,18 +4,21 @@ import { NodeHttpClient } from "@effect/platform-node";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Data, Duration, Effect, Layer } from "effect";
-import type { DaemonProcessConfiguration } from "./bootstrap.js";
 import {
-  type InstalledFirewall,
   type FirewallOptions as InstalledFirewallOptions,
-  installFirewall,
+  installEditableFirewall,
 } from "../delivery/index.js";
 import { inspectEndpointStore, openEndpointStore } from "../store/index.js";
 import {
+  DaemonConfigurationError,
+  type DaemonProcessConfiguration,
+} from "./bootstrap.js";
+import {
   loadDaemonBootstrap,
   loadDaemonProcessConfiguration,
+  processHelp,
 } from "./configuration.js";
-import { runDaemonRuntime } from "./lifecycle.js";
+import { type DaemonRuntimeError, runDaemonRuntime } from "./lifecycle.js";
 import {
   readDaemonRegistrationState,
   requireAdmission,
@@ -35,6 +38,7 @@ export { FirewallAuditRecord } from "../delivery/index.js";
 export {
   CheckInputError,
   DecisionProviderError,
+  FirewallPolicyError,
   makeEnglishPolicy,
   makeFirewall,
   makeJevDecisionProvider,
@@ -58,8 +62,11 @@ export type {
 } from "../firewall/index.js";
 
 // eslint-disable-next-line @typescript-eslint/no-namespace -- The published service subpath intentionally merges its runtime values with the closed startup-error type.
-export namespace MoltZapService {
-  /** Trusted fixed process composition; agents receive no policy mutation capability. */
+export namespace Daemon {
+  /** Usage text listing the daemon process's environment variables. */
+  export const help = processHelp;
+
+  /** Trusted process composition fixes code and evidence while owner tools edit English rules. */
   export type FirewallOptions = InstalledFirewallOptions & {
     /**
      * Dedicated file and adjacent `.partial` staging name for this endpoint's
@@ -68,27 +75,28 @@ export namespace MoltZapService {
     readonly auditExport?: string;
   };
 
-  /** Closed daemon startup phase without configuration or platform detail. */
-  export class StartupError extends Data.TaggedError(
-    "MoltZapServiceStartupError",
-  )<{
+  /** Closed startup phase with sanitized configuration details. */
+  export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
+    readonly reason?: "outbox-too-old";
+    readonly detail?: string;
   }> {
     /**
-     * Names only the failed phase, so the process log says why startup stopped.
-     * @returns The startup failure message.
+     * Only closed refusal reasons and sanitized configuration details enter the process log.
+     * @returns The startup phase and any safe operator diagnostic.
      */
     override get message(): string {
-      return `moltzapd startup failed in phase ${this.phase}`;
+      const reason = this.reason === undefined ? "" : ` (${this.reason})`;
+      const detail = this.detail === undefined ? "" : `: ${this.detail}`;
+      return `moltzapd startup failed in phase ${this.phase}${reason}${detail}`;
     }
   }
 
   const runDaemon = (
-    firewallSetup: Effect.Effect<InstalledFirewall | undefined, StartupError>,
+    firewallOptions?: InstalledFirewallOptions,
     auditExport?: string,
   ) =>
     Effect.gen(function* () {
-      const firewall = yield* firewallSetup;
       const configuration = yield* loadDaemonProcessConfiguration.pipe(
         Effect.mapError(configurationFailure),
       );
@@ -104,6 +112,12 @@ export namespace MoltZapService {
       const store = yield* openEndpointStore(configuration.stateDirectory).pipe(
         Effect.mapError(storageFailure),
       );
+      const firewall =
+        firewallOptions === undefined
+          ? undefined
+          : yield* installEditableFirewall(firewallOptions, store).pipe(
+              Effect.mapError(configurationFailure),
+            );
       const registration = yield* readDaemonRegistrationState({
         store,
         bootstrap,
@@ -120,37 +134,45 @@ export namespace MoltZapService {
         ...(auditExport === undefined ? {} : { auditExport }),
       }).pipe(
         Effect.provide(networkContext),
-        // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- The public process layer deliberately projects private runtime failures onto its closed startup phase.
-        Effect.mapError((error) => new StartupError({ phase: error.phase })),
+        Effect.mapError(runtimeStartupFailure),
       );
-    }).pipe(Effect.withSpan("MoltZapService.layer"));
+    }).pipe(Effect.withSpan("Daemon.layer"));
 
   /** Complete production process composition for `moltzapd`. */
   export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
-    runDaemon(Effect.succeed(undefined)),
+    runDaemon(),
   );
 
   /**
-   * Fixed middleware and owner evidence are installed before the daemon accepts host calls.
-   * @param options Trusted process-owned chains and evidence, fixed for this daemon lifetime.
+   * Fixed middleware and persisted English rules are installed before the daemon accepts host calls.
+   * @param options Fixed chains, provider settings and initial editable English documents.
    * @returns The complete daemon layer with both message boundaries checked.
    */
   export const withFirewall = (
     options: FirewallOptions,
   ): Layer.Layer<never, StartupError> => {
     const { auditExport, ...policyOptions } = options;
-    return Layer.scopedDiscard(
-      runDaemon(
-        installFirewall(policyOptions).pipe(
-          Effect.mapError(configurationFailure),
-        ),
-        auditExport,
-      ),
-    );
+    return Layer.scopedDiscard(runDaemon(policyOptions, auditExport));
   };
 
-  function configurationFailure(): StartupError {
-    return new StartupError({ phase: "configuration" });
+  /**
+   * Public startup failures retain the phase and actionable compatibility refusal.
+   * @param error Private runtime failure to project onto the process boundary.
+   * @returns The closed startup error without private runtime detail.
+   */
+  function runtimeStartupFailure(error: DaemonRuntimeError): StartupError {
+    return new StartupError({
+      phase: error.phase,
+      ...(error.reason === undefined ? {} : { reason: error.reason }),
+    });
+  }
+
+  function configurationFailure(cause: unknown): StartupError {
+    return new StartupError({
+      phase: "configuration",
+      detail:
+        cause instanceof DaemonConfigurationError ? cause.message : undefined,
+    });
   }
 
   function storageFailure(): StartupError {

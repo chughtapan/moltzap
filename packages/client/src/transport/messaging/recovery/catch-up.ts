@@ -3,11 +3,7 @@
  * after its durable position, and any endpoint answers such requests.
  */
 
-import {
-  type AgentId,
-  MOLTZAP_VERSION,
-  SignedMessage,
-} from "@moltzap/identity";
+import { type AgentId, SignedMessage, WIRE_VERSION } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import type { EndpointRecovery, StagedRecord } from "../../../store/index.js";
 import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
@@ -30,6 +26,7 @@ import {
   type ConversationId as ConversationIdValue,
   decodeCanonical,
   type DecodedOuterBody,
+  hashAnchor,
   memberCard,
   quorumThreshold,
   type ReanchorBody,
@@ -452,7 +449,11 @@ function continueAfterPage(
   return Effect.sync(() => {
     run.state.acceptedSuccessors.set(key, successor);
   }).pipe(
-    Effect.zipRight(requestCertifiedHistory(run, page.request.conversationId)),
+    Effect.zipRight(
+      page.item.kind === "completed_reanchor"
+        ? requestCertifiedHistory(run, page.request.conversationId)
+        : Effect.void,
+    ),
   );
 }
 
@@ -471,6 +472,14 @@ function queueCatchUpRequest(
     const membership = run.membership(conversationId);
     if (!run.isActive() || membership === undefined) {
       return;
+    }
+    const pending = run.state.pendingRequests.get(conversationId);
+    if (
+      held === "keep" &&
+      pending !== undefined &&
+      (yield* requestMatchesCurrentPosition(run.runtime, pending))
+    ) {
+      return yield* run.queue(membership, { kind: "direct", packet: pending });
     }
     const { position, recovery } = yield* durablePosition(
       run.runtime,
@@ -503,6 +512,40 @@ function queueCatchUpRequest(
 }
 
 /**
+ * In-memory positions follow durable promotions and completed re-anchors.
+ * An unchanged retry can retain its request and attestations without loading
+ * the conversation's retained records and evidence from the store.
+ * @param runtime Engine whose installed position reflects durable writes.
+ * @param request Pending request to compare with that position.
+ * @returns Whether the pending request still names the installed position.
+ */
+function requestMatchesCurrentPosition(
+  runtime: EngineRuntime,
+  request: CatchUpRequestValue,
+): Effect.Effect<boolean, RouterWorkerPersistenceError> {
+  return Effect.gen(function* () {
+    const conversation = runtime.conversations.get(request.conversationId);
+    if (conversation === undefined) {
+      return false;
+    }
+    const head = conversation.head?.recordHash ?? null;
+    const anchor = conversation.currentAnchor;
+    if (head === null) {
+      return (
+        request.knownRecordHash === null && request.knownAnchorHash === null
+      );
+    }
+    const anchorHash =
+      anchor.kind === "genesis_anchor_body"
+        ? yield* hashAnchor(anchor).pipe(Effect.mapError(persistenceFailure))
+        : anchor.anchorHash;
+    return (
+      request.knownRecordHash === head && request.knownAnchorHash === anchorHash
+    );
+  });
+}
+
+/**
  * Answer a member's request with the certified successor of its position, or
  * say none is held. A responder, recovering or not, that holds a staged,
  * uncertified successor there sends that successor and its durability vote
@@ -531,7 +574,7 @@ function respondToCatchUp(
   const { request } = delivered;
   return Effect.gen(function* () {
     const recovery = yield* responder.runtime.input.store
-      .recover()
+      .recover(request.conversationId)
       .pipe(Effect.mapError(persistenceFailure));
     const successor = yield* decodeCatchUpSuccessor(
       membership,
@@ -790,7 +833,7 @@ function sendCatchUpIncomplete(
     yield* responder.queue(membership, {
       kind: "direct",
       packet: {
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         kind: "catch_up_incomplete",
         request,
         attestation,
@@ -818,7 +861,7 @@ function sendCatchUpPage(
     yield* responder.queue(membership, {
       kind: "direct",
       packet: {
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         kind: "catch_up_page",
         request,
         item: successor.item,
@@ -840,7 +883,7 @@ function signCatchUpAttestation(
 ) {
   return signEvidenceMessage({
     statement: {
-      moltzapVersion: MOLTZAP_VERSION,
+      moltzapVersion: WIRE_VERSION,
       kind: "catch_up_attestation",
       signerAgentId: runtime.input.localAgentCard.agentId,
       request,
@@ -1023,7 +1066,7 @@ function makeCatchUpRequest(
   knownAnchorHash: AnchorHashValue | null,
 ): Effect.Effect<CatchUpRequestValue, RouterWorkerPersistenceError> {
   return Schema.decodeUnknown(CatchUpRequest)({
-    moltzapVersion: MOLTZAP_VERSION,
+    moltzapVersion: WIRE_VERSION,
     kind: "catch_up_request",
     conversationId: membership.descriptor.conversationId,
     membershipHash: membership.hash,

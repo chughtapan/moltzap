@@ -6,7 +6,7 @@ import { scopedLive as it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { join } from "node:path";
 import { describe, expect } from "vitest";
-import type { MoltZapService } from "../service/index.js";
+import type { Daemon } from "../service/index.js";
 import { digest } from "../__tests__/agent-card-fixtures.js";
 import {
   decodeAudit,
@@ -92,11 +92,14 @@ function seedRetainedAttempts(store: EndpointStore, fixture: AuditFixture) {
         revision: 0,
       });
       if (index > 0) {
-        yield* store.finishFirewallAttempt({
-          checkId,
-          admit: index % 2 === 0,
-          canonicalResult: fixture.canonicalResult,
-        });
+        yield* store.admitFirewallOperation(
+          {
+            checkId,
+            admit: index % 2 === 0,
+            canonicalResult: fixture.canonicalResult,
+          },
+          fixture.canonicalCandidate,
+        );
       }
     }
     expect(yield* seedIncoming(store, fixture, 70, false)).toBe("admitted");
@@ -122,7 +125,7 @@ function expectRetainedChecks(
     candidate: fixture.canonicalCandidate,
     post: fixture.post,
   });
-  expect(checks[2]?.disposition).toBe("observed");
+  expect(checks[2]?.disposition).toBe("admitted");
   expect(checks[70]).toMatchObject({
     disposition: "admitted",
     result: { judgment: "block" },
@@ -237,6 +240,7 @@ const failedReadLeavesIncomplete = () =>
       revision: 0,
     });
     const audit = yield* beginFirewallAudit(path, {
+      readFirewallActivations: store.readFirewallActivations,
       readFirewallAuditPage: (after) =>
         after === 0
           ? store.readFirewallAuditPage(after)
@@ -261,6 +265,7 @@ const failedPublicationLeavesIncomplete = () =>
     const fileSystem = yield* FileSystem.FileSystem;
     const store = yield* openEndpointStore(directory);
     const audit = yield* beginFirewallAudit(path, {
+      readFirewallActivations: store.readFirewallActivations,
       readFirewallAuditPage: (after) =>
         fileSystem
           .chmod(directory, 0o500)
@@ -315,7 +320,7 @@ const corruptAttemptLeavesIncomplete = (
 const auditPathDoesNotChangePolicy = () =>
   Effect.gen(function* () {
     const fixture = yield* makeAuditFixture;
-    const options: MoltZapService.FirewallOptions = {
+    const options: Daemon.FirewallOptions = {
       ...fixture.options,
       auditExport: "/operator/audit.ndjson",
     };

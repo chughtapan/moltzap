@@ -6,9 +6,9 @@
 
 import {
   type AgentId,
-  MOLTZAP_VERSION,
   SignedMessage,
   type SignedMessage as SignedMessageValue,
+  WIRE_VERSION,
 } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
@@ -143,7 +143,7 @@ export function decodeReanchorVotes(
   body: ReanchorBodyValue,
   anchorHash: AnchorHashValue,
 ): Effect.Effect<readonly SignedMessageValue[], RouterWorkerPersistenceError> {
-  return runtime.input.store.recover().pipe(
+  return runtime.input.store.recover(body.conversationId).pipe(
     Effect.mapError(persistenceFailure),
     Effect.flatMap((recovery) =>
       Effect.forEach(
@@ -183,12 +183,12 @@ export function assembleCompletedReanchor(
         return Effect.fail(persistenceFailure());
       }
       const completed: CompletedReanchorValue = {
-        moltzapVersion: MOLTZAP_VERSION,
+        moltzapVersion: WIRE_VERSION,
         kind: "completed_reanchor",
         anchorHash,
         reanchor: body,
         certificate: {
-          moltzapVersion: MOLTZAP_VERSION,
+          moltzapVersion: WIRE_VERSION,
           kind: "reanchor_certificate",
           anchorHash,
           votes: ordered,

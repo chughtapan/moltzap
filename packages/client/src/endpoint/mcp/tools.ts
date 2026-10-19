@@ -15,6 +15,7 @@ import {
 import {
   Cause,
   Effect,
+  Either,
   Exit,
   JSONSchema,
   Layer,
@@ -31,6 +32,7 @@ import {
   type DeliveryOperations,
   type EventStore,
   type HarnessAcknowledgeDeliveryRequest,
+  harnessAcknowledgeDeliveryRequestSchema,
   type HarnessReadInboxRequest,
   type HarnessReadInboxResult,
   type HarnessReadSendRequest,
@@ -38,10 +40,19 @@ import {
   type HarnessSendArguments,
   type HarnessSendErrorData,
   type HarnessSendResult,
+  inboxRequestSchema,
   readEventRequestSchema,
   readEventResultSchema,
   sendErrorData,
 } from "../../delivery/operations.js";
+import {
+  firewallDecisionsRequestSchema,
+  firewallDecisionsSchema,
+  type FirewallPolicyOperations,
+  policyReadSchema,
+  policyUpdateResultSchema,
+  policyUpdateSchema,
+} from "../../firewall/index.js";
 import { FirewallSendError } from "../../firewall/runtime.js";
 import {
   authenticateHarnessRequest,
@@ -96,6 +107,7 @@ import {
   harnessReadSendResultJsonSchema,
   harnessSendArgumentsJsonSchema,
   harnessSendResultJsonSchema,
+  validationIssues,
 } from "./schemas.js";
 
 /* eslint-disable agent-code-guard/async-keyword -- Official MCP factories and callbacks are Promise-native. */
@@ -110,6 +122,7 @@ type ClosedOperationError = Readonly<{ readonly reason: string }>;
 
 /** Structural daemon operations projected onto the loopback MCP boundary. */
 export interface HarnessMcpOperations extends DeliveryOperations {
+  readonly policy?: FirewallPolicyOperations;
   /**
    * Whether the daemon's protocol is up. The catalog lists the
    * post-registration tools, and admits their calls and the inbox
@@ -162,7 +175,6 @@ interface RunOperationOptions<Value extends Readonly<Record<string, unknown>>> {
 
 const makeStandardSchema = <Value>(jsonSchema: unknown) =>
   fromJsonSchema<Value>(
-    // Effect and MCP consume the same immutable JSON Schema document here.
     // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- JSONSchema.make emits the exact JsonSchemaType consumed by the pinned MCP SDK.
     jsonSchema as JsonSchemaType,
   );
@@ -185,6 +197,21 @@ const emptyInput = makeStandardSchema<Record<string, never>>(
 );
 const statusOutput = makeStandardSchema<ManagementStatusResult>(
   makeJsonSchema(managementStatusResultSchema),
+);
+const policyReadOutput = makeStandardSchema<typeof policyReadSchema.Type>(
+  makeJsonSchema(policyReadSchema),
+);
+const policyUpdateInput = makeStandardSchema<typeof policyUpdateSchema.Type>(
+  makeJsonSchema(policyUpdateSchema),
+);
+const policyUpdateOutput = makeStandardSchema<
+  typeof policyUpdateResultSchema.Type
+>(makeJsonSchema(policyUpdateResultSchema));
+const decisionsInput = makeStandardSchema<
+  typeof firewallDecisionsRequestSchema.Type
+>(makeJsonSchema(firewallDecisionsRequestSchema));
+const decisionsOutput = makeStandardSchema<typeof firewallDecisionsSchema.Type>(
+  makeJsonSchema(firewallDecisionsSchema),
 );
 const searchAgentsInput = makeStandardSchema<ManagementSearchAgentsRequest>(
   makeJsonSchema(managementSearchAgentsRequestSchema),
@@ -268,17 +295,32 @@ const toolResult = <Value extends Readonly<Record<string, unknown>>>(
   structuredContent,
 });
 
-// #ignore-sloppy-code-next-line[async-keyword]: Standard Schema validation is Promise-capable, and MCP request callbacks consume its result through the SDK's native Promise contract.
-const decodeToolInput = async <Value>(
+/**
+ * JSON Schema decides structural admission; Effect supplies field diagnostics
+ * only for rejected inputs, leaving semantic refusals with their operations.
+ */
+// #ignore-sloppy-code-next-line[async-keyword]: The SDK's Standard Schema validator is Promise-capable at the MCP boundary.
+const decodeToolInput = async <Value, A, I>(
   schema: StandardSchemaV1<unknown, Value>,
+  diagnosticsSchema: Schema.Schema<A, I>,
   value: unknown,
   toolName: string,
 ) => {
   const decoded = await schema["~standard"].validate(value);
   if (!("value" in decoded)) {
+    const diagnostics = Schema.decodeUnknownEither(diagnosticsSchema, {
+      errors: "all",
+    })(value);
+    const issues = Either.match(diagnostics, {
+      onLeft: validationIssues,
+      onRight: () => [{ path: [], message: "Expected tool argument schema" }],
+    });
     throw new ProtocolError(
       ProtocolErrorCode.InvalidParams,
       `Invalid arguments for tool ${toolName}`,
+      {
+        issues,
+      },
     );
   }
   return decoded.value;
@@ -383,7 +425,7 @@ const runValidatedOperation = async <
 
 /** A tool's catalog entry: its description and schemas. */
 interface ToolListing {
-  readonly description?: string;
+  readonly description: string;
   readonly inputSchema: StandardSchemaWithJSON;
   readonly outputSchema?: StandardSchemaWithJSON;
 }
@@ -394,8 +436,36 @@ interface ToolListing {
  * only names a tool and its schemas.
  */
 const toolListings = {
-  [STATUS_TOOL]: { inputSchema: emptyInput, outputSchema: statusOutput },
-  [REGISTER_TOOL]: { inputSchema: registerInput, outputSchema: registerOutput },
+  policy_read: {
+    description:
+      "Read the active editable English rules and fixed rule identifiers.",
+    inputSchema: emptyInput,
+    outputSchema: policyReadOutput,
+  },
+  policy_update: {
+    description:
+      "Update editable English rules. Returns after activation. Changes are not retroactive: admitted guidance, held items and bound sends remain unchanged.",
+    inputSchema: policyUpdateInput,
+    outputSchema: policyUpdateOutput,
+  },
+  firewall_decisions: {
+    description:
+      "Read metadata for the latest 100 completed checks since inclusive Unix milliseconds; no message text. Groups have one row per peer.",
+    inputSchema: decisionsInput,
+    outputSchema: decisionsOutput,
+  },
+  [STATUS_TOOL]: {
+    description:
+      "Inspect whether this daemon is registered and read its bound AgentCard.",
+    inputSchema: emptyInput,
+    outputSchema: statusOutput,
+  },
+  [REGISTER_TOOL]: {
+    description:
+      "Register this daemon's configured key under an immutable agent name for a principal, reusing operationId for retries.",
+    inputSchema: registerInput,
+    outputSchema: registerOutput,
+  },
   event_subscription_status: {
     description:
       "Inspect the runtime consumer and stalled delivery without exposing callback credentials.",
@@ -404,42 +474,59 @@ const toolListings = {
   },
   revoke_event_subscription: {
     description:
-      "Release the active runtime consumer. Pending inbox items remain unread.",
+      "Release the active runtime consumer while leaving pending inbox items unread.",
     inputSchema: emptyInput,
   },
   resume_event_subscription: {
     description:
-      "Resume transient callback retries. Terminal rejection requires revocation and reconfiguration.",
+      "Resume transient callback retries after a recoverable delivery failure. A terminal rejection requires revocation and reconfiguration.",
     inputSchema: emptyInput,
   },
   [SEARCH_AGENTS_TOOL]: {
+    description:
+      "Look up an agent by identity or immutable name, or page through Registry AgentCards.",
     inputSchema: searchAgentsInput,
     outputSchema: searchAgentsOutput,
   },
   [SEARCH_CONVERSATIONS_TOOL]: {
+    description:
+      "List canonical addresses of local conversations in order, optionally after an exclusive address cursor.",
     inputSchema: searchConversationsInput,
     outputSchema: searchConversationsOutput,
   },
   [READ_CONVERSATION_TOOL]: {
+    description:
+      "Read a frozen page of verified local conversation history by address or single-use continuation.",
     inputSchema: readConversationInput,
     outputSchema: readConversationOutput,
   },
   [HARNESS_READ_INBOX_TOOL]: {
+    description:
+      "Read a page of pending classified inbox items without acknowledging delivery.",
     inputSchema: readInboxInput,
     outputSchema: readInboxOutput,
   },
   [HARNESS_READ_SEND_TOOL]: {
+    description:
+      "Look up the retained state and outcome of a send by its runtime idempotency key.",
     inputSchema: readSendInput,
     outputSchema: readSendOutput,
   },
-  [HARNESS_SEND_TOOL]: { inputSchema: sendInput, outputSchema: sendOutput },
+  [HARNESS_SEND_TOOL]: {
+    description:
+      "Send one multicast, gather, all_gather, or collective response to an agent or fixed-member group.",
+    inputSchema: sendInput,
+    outputSchema: sendOutput,
+  },
   [HARNESS_READ_EVENT_TOOL]: {
     description:
-      "Read the original full content of a MoltZap event by eventId. This read has no delivery or acknowledgment side effects.",
+      "Read the original full content of a MoltZap event by eventId without delivery or acknowledgment side effects.",
     inputSchema: readEventInput,
     outputSchema: readEventOutput,
   },
   [HARNESS_ACKNOWLEDGE_DELIVERY_TOOL]: {
+    description:
+      "Acknowledge a delivery token after the host has accepted its item under the host-specific handoff contract.",
     inputSchema: acknowledgeDeliveryInput,
     outputSchema: emptyOutput,
   },
@@ -460,6 +547,9 @@ const ownerEventTools = [
 
 /** The local and owner tools that follow registration, after `status`. */
 const activeTools = [
+  "policy_read",
+  "policy_update",
+  "firewall_decisions",
   SEARCH_AGENTS_TOOL,
   SEARCH_CONVERSATIONS_TOOL,
   READ_CONVERSATION_TOOL,
@@ -511,6 +601,7 @@ const handleStatusToolCall = async (
 ) => {
   const decoded = await decodeToolInput(
     emptyInput,
+    emptyRequestSchema,
     input.toolArguments,
     input.name,
   );
@@ -537,6 +628,7 @@ const handleRegistrationToolCall = async (
 ) => {
   const decoded = await decodeToolInput(
     registerInput,
+    managementRegisterRequestSchema,
     input.toolArguments,
     input.name,
   );
@@ -557,6 +649,7 @@ const handleSearchAgentsToolCall = async (
 ) => {
   const decoded = await decodeToolInput(
     searchAgentsInput,
+    managementSearchAgentsRequestSchema,
     input.toolArguments,
     input.name,
   );
@@ -577,6 +670,7 @@ const handleSearchConversationsToolCall = async (
 ) => {
   const decoded = await decodeToolInput(
     searchConversationsInput,
+    managementSearchConversationsRequestSchema,
     input.toolArguments,
     input.name,
   );
@@ -597,6 +691,7 @@ const handleReadConversationToolCall = async (
 ) => {
   const decoded = await decodeToolInput(
     readConversationInput,
+    managementReadConversationRequestSchema,
     input.toolArguments,
     input.name,
   );
@@ -617,10 +712,11 @@ const decodeInvocationInput = <A>(
 ) =>
   runEventOperation(
     input.pipe(
-      Effect.catchTag("ParseError", () =>
+      Effect.catchTag("ParseError", (error) =>
         Effect.fail(
           new ProtocolError(-32602, "Invalid invocation arguments", {
             reason: "content-invalid",
+            issues: validationIssues(error),
           }),
         ),
       ),
@@ -668,6 +764,7 @@ const handleAcknowledgeDeliveryToolCall = async (
 ) => {
   const decoded = await decodeToolInput(
     acknowledgeDeliveryInput,
+    harnessAcknowledgeDeliveryRequestSchema,
     input.toolArguments,
     input.name,
   );
@@ -690,7 +787,12 @@ const handleReadEventToolCall = async (
 ) =>
   await runValidatedOperation(readEventOutput, input.name, {
     operation: operations.readEvent(
-      await decodeToolInput(readEventInput, input.toolArguments, input.name),
+      await decodeToolInput(
+        readEventInput,
+        readEventRequestSchema,
+        input.toolArguments,
+        input.name,
+      ),
     ),
     label: "Event read",
     allowedReasons: RUNTIME_READ_REASONS,
@@ -706,7 +808,12 @@ const handleReadInboxToolCall = async (
 ) =>
   await runValidatedOperation(readInboxOutput, input.name, {
     operation: operations.readInbox(
-      await decodeToolInput(readInboxInput, input.toolArguments, input.name),
+      await decodeToolInput(
+        readInboxInput,
+        inboxRequestSchema,
+        input.toolArguments,
+        input.name,
+      ),
     ),
     label: "Inbox read",
     allowedReasons: RUNTIME_READ_REASONS,
@@ -735,6 +842,82 @@ const handleReadSendToolCall = async (
     requestScope: input.requestScope,
   });
 
+const POLICY_REASONS = new Set([
+  "not-configured",
+  "invalid-rule",
+  "fixed-rule",
+  "build-failed",
+  "persistence-failed",
+]);
+
+// #ignore-sloppy-code-next-line[async-keyword]: MCP schema validation and request execution are Promise-native.
+const handlePolicyRead = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+) => {
+  await decodeToolInput(
+    emptyInput,
+    emptyRequestSchema,
+    input.toolArguments,
+    input.name,
+  );
+  return await runValidatedOperation(policyReadOutput, input.name, {
+    operation:
+      operations.policy?.read() ?? Effect.fail({ reason: "not-configured" }),
+    label: "Policy read",
+    allowedReasons: POLICY_REASONS,
+    fallbackReason: "persistence-failed",
+    signal: input.signal,
+    requestScope: input.requestScope,
+  });
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: MCP schema validation and request execution are Promise-native.
+const handlePolicyUpdate = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+) => {
+  const request = await decodeToolInput(
+    policyUpdateInput,
+    policyUpdateSchema,
+    input.toolArguments,
+    input.name,
+  );
+  return await runValidatedOperation(policyUpdateOutput, input.name, {
+    operation:
+      operations.policy?.update(request) ??
+      Effect.fail({ reason: "not-configured" }),
+    label: "Policy update",
+    allowedReasons: POLICY_REASONS,
+    fallbackReason: "build-failed",
+    signal: input.signal,
+    requestScope: input.requestScope,
+  });
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: MCP schema validation and request execution are Promise-native.
+const handleDecisions = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+) => {
+  const request = await decodeToolInput(
+    decisionsInput,
+    firewallDecisionsRequestSchema,
+    input.toolArguments,
+    input.name,
+  );
+  return await runValidatedOperation(decisionsOutput, input.name, {
+    operation:
+      operations.policy?.decisions(request) ??
+      Effect.fail({ reason: "not-configured" }),
+    label: "Firewall decisions",
+    allowedReasons: POLICY_REASONS,
+    fallbackReason: "persistence-failed",
+    signal: input.signal,
+    requestScope: input.requestScope,
+  });
+};
+
 /** The operations a tool call runs: the daemon's and the event subscription's. */
 interface ToolOperations extends HarnessMcpOperations {
   readonly events: HarnessEvents;
@@ -746,7 +929,12 @@ const handleOwnerOperation = async (
   operation: Effect.Effect<Readonly<Record<string, unknown>>, ProtocolError>,
   input: ToolCallInput,
 ) => {
-  await decodeToolInput(emptyInput, input.toolArguments, input.name);
+  await decodeToolInput(
+    emptyInput,
+    emptyRequestSchema,
+    input.toolArguments,
+    input.name,
+  );
   return toolResult(
     await runEventOperation(operation, input.signal, input.requestScope),
   );
@@ -764,6 +952,9 @@ type ToolHandler = (
  * so a listed tool without a handler does not compile.
  */
 const toolHandlers = {
+  policy_read: handlePolicyRead,
+  policy_update: handlePolicyUpdate,
+  firewall_decisions: handleDecisions,
   [STATUS_TOOL]: handleStatusToolCall,
   [REGISTER_TOOL]: handleRegistrationToolCall,
   event_subscription_status: (input, operations) =>
@@ -794,7 +985,15 @@ const currentTools = (
   operations: HarnessMcpOperations,
 ): readonly ToolName[] => {
   const catalog = roleCatalogs[role];
-  return operations.protocolActive() ? catalog.active : catalog.inactive;
+  const tools = operations.protocolActive() ? catalog.active : catalog.inactive;
+  return operations.policy === undefined
+    ? tools.filter(
+        (name) =>
+          name !== "policy_read" &&
+          name !== "policy_update" &&
+          name !== "firewall_decisions",
+      )
+    : tools;
 };
 
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP dispatcher awaits the selected Promise-native tool handler.

@@ -227,22 +227,8 @@ function stageRecordInTransaction(
 function promoteRecordInTransaction(
   database: DatabaseSync,
   record: CertifiedRecord,
+  // eslint-disable-next-line agent-code-guard/no-conditional-chaining -- Delivery retention resolves absence against the stored author identity inside this transaction.
   delivery?: InboundDeliveryInput,
-): StoreMutation {
-  if (delivery === undefined) {
-    return promoteResolvedRecordInTransaction(database, record, () =>
-      retainDeliveryInTransaction(database, record),
-    );
-  }
-  return promoteResolvedRecordInTransaction(database, record, () =>
-    retainDeliveryInTransaction(database, record, delivery),
-  );
-}
-
-function promoteResolvedRecordInTransaction(
-  database: DatabaseSync,
-  record: CertifiedRecord,
-  retainDelivery: () => StoreMutation,
 ): StoreMutation {
   const staged = findStagedRecord(
     database,
@@ -255,7 +241,11 @@ function promoteResolvedRecordInTransaction(
   requireSameRecord(staged, record);
   const evidenceMutation = mergeCertifiedEvidence(database, record);
   if (hasCertifiedRecord(database, record.conversationId, record.recordHash)) {
-    const deliveryMutation = retainDelivery();
+    const deliveryMutation = retainDeliveryInTransaction(
+      database,
+      record,
+      delivery,
+    );
     return evidenceMutation === "inserted" || deliveryMutation === "inserted"
       ? "inserted"
       : "existing";
@@ -265,7 +255,7 @@ function promoteResolvedRecordInTransaction(
   requireEqual(position.headRecordHash, record.previousRecordHash);
   insertCertifiedRecord(database, record, position.headOrdinal + 1);
   completeLocalPostIntent(database, record);
-  retainDelivery();
+  retainDeliveryInTransaction(database, record, delivery);
   return "inserted";
 }
 
@@ -274,12 +264,10 @@ function mergeCertifiedEvidence(
   record: CertifiedRecord,
 ): StoreMutation {
   let mutation: StoreMutation = "existing";
-  for (const evidence of record.actionEvidence) {
-    if (mergeEvidenceInTransaction(database, evidence) === "inserted") {
-      mutation = "inserted";
-    }
-  }
-  for (const evidence of record.durabilityEvidence) {
+  for (const evidence of [
+    ...record.actionEvidence,
+    ...record.durabilityEvidence,
+  ]) {
     if (mergeEvidenceInTransaction(database, evidence) === "inserted") {
       mutation = "inserted";
     }
@@ -390,20 +378,13 @@ function requireLocalEvidenceLock(
     return;
   }
   if (evidence.kind === "action") {
-    requireLocalActionEvidenceLock(database, evidence);
+    if (!hasProposalAction(database, evidence)) {
+      throw new StoreSignal("not-found");
+    }
     return;
   }
   if (evidence.kind === "durability") {
     requireLocalDurabilityEvidenceLock(database, evidence);
-  }
-}
-
-function requireLocalActionEvidenceLock(
-  database: DatabaseSync,
-  evidence: ProtocolEvidence,
-): void {
-  if (!hasProposalAction(database, evidence)) {
-    throw new StoreSignal("not-found");
   }
 }
 
