@@ -108,3 +108,5 @@ pnpm nx run @moltzap/openclaw-channel:test:pack
 pnpm nx run @moltzap/openclaw-channel:lint
 pnpm nx run @moltzap/openclaw-channel:arch:check
 ```
+
+Adapters refuse startup when any retired `MOLTZAP_*` or `MOLTZAPD_*` environment key is present, including an empty value. Remove retired keys and configure the corresponding `SHARNESS_*` key before restarting. Diagnostics list key names without values.

@@ -3,7 +3,7 @@
   "constants": [
     {
       "name": "V2_PROTOCOL_VERSION",
-      "value": "2026.1019.1",
+      "value": "2026.1019.2",
       "kind": "string",
       "sourcePath": "packages/identity/src/version.ts",
       "note": "Current wire compatibility value for Identity and Router representations; package release versions are independent of it."

@@ -8,7 +8,7 @@ import {
 } from "@modelcontextprotocol/server";
 import {
   Cause,
-  Context,
+  type Context,
   Deferred,
   Effect,
   Exit,
@@ -152,8 +152,6 @@ const notify = (
     catch: () => new ProtocolError(-32603, "Event transport failed"),
   });
 
-const emptyContext = Context.empty();
-
 /* eslint-disable agent-code-guard/async-keyword -- Official SDK callbacks consume a Promise at this boundary. */
 /**
  * SDK transport closure can finish before request promises settle. The handler
@@ -165,7 +163,7 @@ export const runRequest = <Value, Failure>(
   operation: Effect.Effect<Value, Failure>,
   signal: AbortSignal,
   scope: Scope.CloseableScope,
-  context: Context.Context<never> = emptyContext,
+  context: Context.Context<never>,
 ) =>
   Effect.runPromiseExit(
     Effect.acquireUseRelease(
@@ -189,7 +187,7 @@ export const runEventOperation = async <A, E>(
   operation: Effect.Effect<A, E>,
   signal: AbortSignal,
   requestScope: Scope.CloseableScope,
-  context: Context.Context<never> = emptyContext,
+  context: Context.Context<never>,
 ) => {
   const outcome = await runRequest(operation, signal, requestScope, context);
   if (Exit.isSuccess(outcome)) {

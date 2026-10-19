@@ -7,7 +7,10 @@
     "noEmit": true,
     "incremental": true,
     "rootDir": "../..",
-    "tsBuildInfoFile": "./tsconfig.test.tsbuildinfo"
+    "tsBuildInfoFile": "./tsconfig.test.tsbuildinfo",
+    "customConditions": [
+      "sharness-test"
+    ]
   },
   "include": [
     "src/**/*.ts",

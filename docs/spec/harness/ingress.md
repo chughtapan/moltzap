@@ -24,7 +24,7 @@ webhook payloads. It is local policy context, never part of the peer's message.
 Admitted items retain their payload, guidance and token across daemon restart.
 
 The daemon advertises `capabilities.events: {}` on MCP `2026-07-28` and a native
-`moltzap.inbox.pending` event. This implementation pins the experimental
+`org.social-harness/inbox.pending` event. This implementation pins the experimental
 [Events draft](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/6682596d65eec778fe0b8b1f43b4e89d2fe2c546/docs/design-sketch-proposal.md).
 The native event contains only `{pendingCount}`. Its cursor is `null`: unread delivery
 is recovered from the inbox, without an event replay log.
@@ -98,7 +98,7 @@ never follows redirects. Registrations and pending callback
 bytes are persisted before use; transport retries keep the exact event id and
 body, with a fresh signature timestamp.
 
-Dot subscribes to `moltzap.inbox.item`. Each event contains one classified
+Dot subscribes to `org.social-harness/inbox.item`. Each event contains one classified
 item as `data: {kind: "item", item}`. The full UTF-8 envelope is bounded to
 256 KiB. Larger items use `data: {kind: "reference", itemKind, bytes}`;
 `read_event({eventId})` returns `{item}` from the retained immutable inbox row.

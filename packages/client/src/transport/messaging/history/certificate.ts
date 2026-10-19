@@ -59,13 +59,13 @@ export function actionCertifiedRecord(
   signatures: CertificateSignatures,
 ): ActionCertifiedRecord {
   return {
-    moltzapVersion: recordCore.moltzapVersion,
+    sharnessVersion: recordCore.sharnessVersion,
     kind: "action_certified_record",
     recordHash,
     recordCore,
     routerAnchor,
     actionCertificate: {
-      moltzapVersion: recordCore.moltzapVersion,
+      sharnessVersion: recordCore.sharnessVersion,
       kind: "action_certificate",
       actionHash: recordCore.actionHash,
       signatures,
@@ -84,11 +84,11 @@ export function certifiedRecord(
   votes: CertificateSignatures,
 ): CertifiedRecord {
   return {
-    moltzapVersion: record.recordCore.moltzapVersion,
+    sharnessVersion: record.recordCore.sharnessVersion,
     kind: "certified_record",
     actionCertifiedRecord: record,
     durabilityCertificate: {
-      moltzapVersion: record.recordCore.moltzapVersion,
+      sharnessVersion: record.recordCore.sharnessVersion,
       kind: "durability_certificate",
       recordHash: record.recordHash,
       votes,

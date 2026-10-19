@@ -456,6 +456,16 @@ value; pre-reset artifacts are outside the retained history.
 Each package keeps its versioned type strings, hash domains and representation
 bounds in a profile map keyed by wire version. The reset retains one profile.
 
+Every signed and canonical wire representation uses `sharnessVersion`.
+Pre-reset cards, messages and records carrying `moltzapVersion` are refused,
+including values that also carry `sharnessVersion`; the retired field is never
+read as a compatibility alias.
+The public Identity root exposes read-only compatibility operations, not the
+internal `WireVersions` context tag used by adjacent-release tests. The Identity
+`/test` subpath requires the explicit `sharness-test` resolution condition and is
+forbidden in production source. Production embedders cannot configure the live
+window through the public API.
+
 Each release emits exactly `WIRE_VERSION`. A release first adds a successor
 version to `LIVE_WIRE_VERSIONS`; a later release may emit it. A version stays
 live for at least six months after the first release that emits its successor.
@@ -471,7 +481,8 @@ Absent metadata denotes a pre-reset release only below that boundary. Missing me
 release fails the gate; registry
 outages are retried and then logged explicitly if the gate must skip.
 Certified posts must flow in both
-directions. If both selections name the same release, it runs once. Synthetic
+directions. A separate Client process integration test covers concurrent first
+sends before either peer has a foundation across adjacent live versions. If both selections name the same release, it runs once. Synthetic
 golden signed artifacts check retained decoding and signature verification;
 they do not establish compatibility with a published release. Fixtures from a
 real release follow the first post-reset release. The gate starts with the first release after the

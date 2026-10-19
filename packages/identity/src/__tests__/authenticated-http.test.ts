@@ -46,7 +46,8 @@ import {
   RegistryConnectionError,
   type RegistryLookupResult,
 } from "../registry/contract.js";
-import { WIRE_VERSION, WireVersions } from "../version.js";
+import { WIRE_VERSION } from "../version.js";
+import { WireVersions } from "../wire-versions.js";
 import {
   type IdentityFixture,
   makeIdentityFixture,

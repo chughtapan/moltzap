@@ -13,6 +13,7 @@ import {
   type VerifiedAgentCard,
   WIRE_VERSION,
 } from "@moltzap/identity";
+import { WireVersions } from "@moltzap/identity/test";
 import { RouterInstanceId } from "@moltzap/router";
 import {
   Cause,
@@ -193,7 +194,7 @@ function makeMembership(
       return yield* Effect.dieMessage("N4 card encoding is incomplete");
     }
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "membership_descriptor",
       conversationId,
       members: [firstCard, secondCard, ...encodedCards.slice(2)],
@@ -394,6 +395,7 @@ function drainEngines(
 }
 
 interface HarnessOptions {
+  readonly emittedVersions?: readonly string[];
   /** Members of the conversation; four when omitted. */
   readonly memberCount?: number;
   readonly actionPolicy?: EndpointEngineInput["actionPolicy"];
@@ -480,7 +482,13 @@ function makeProtocolHarness(
                 ports.attachment,
                 ports.authorSend,
               ),
-            });
+            }).pipe(
+              Effect.provideService(WireVersions, {
+                emitted: options.emittedVersions?.[index] ?? WIRE_VERSION,
+                live: options.emittedVersions ?? LIVE_WIRE_VERSIONS,
+                history: options.emittedVersions ?? LIVE_WIRE_VERSIONS,
+              }),
+            );
           }),
         ),
       { concurrency: 1 },
@@ -760,7 +768,7 @@ function hostileDurabilityMessage(input: {
 }) {
   return signEvidenceMessage({
     statement: {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "durability_vote",
       signerAgentId: input.signer.card.agentId,
       conversationId: input.conversationId,
@@ -793,7 +801,7 @@ function hostileActionSignature(input: {
 }) {
   return signEvidenceMessage({
     statement: {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "action_signature",
       signerAgentId: input.signer.card.agentId,
       actionHash: input.actionHash,
@@ -878,7 +886,7 @@ function restartOverPersistedDurabilityVote(
     );
     const vote = yield* signEvidenceMessage({
       statement: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "durability_vote",
         signerAgentId: voter.card.agentId,
         ...bind(harness.membership),
@@ -2406,6 +2414,59 @@ describe("fixed-post endpoint protocol", () => {
   );
 });
 
+/** Both foundations exist before either peer observes the other's GENESIS. */
+function concurrentFirstSends(firstVersion: string, secondVersion: string) {
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness({
+      memberCount: 2,
+      emittedVersions: [firstVersion, secondVersion],
+    });
+    const first = yield* requireAt(harness.engines, 0, "first engine");
+    const second = yield* requireAt(harness.engines, 1, "second engine");
+    const input = yield* sendInput(harness, "concurrent first send");
+    const firstSend = yield* Effect.fork(first.send(input));
+    const firstBatch = yield* takeReadyBatch(harness);
+    const secondSend = yield* Effect.fork(second.send(input));
+    const secondBatch = yield* takeReadyBatch(harness);
+    const left = yield* requireAt(firstBatch, 0, "first GENESIS").pipe(
+      Effect.flatMap((message) => decodeActionProposal(harness, message)),
+    );
+    const right = yield* requireAt(secondBatch, 0, "second GENESIS").pipe(
+      Effect.flatMap((message) => decodeActionProposal(harness, message)),
+    );
+    if (left.action.kind !== "GENESIS" || right.action.kind !== "GENESIS") {
+      return yield* Effect.dieMessage("both first sends must propose GENESIS");
+    }
+    expect(left.action.membership).toEqual(right.action.membership);
+    expect(left.action.anchor).toEqual(right.action.anchor);
+    expect(yield* harness.deliver(firstBatch)).toEqual([
+      "accepted",
+      "accepted",
+    ]);
+    yield* harness.deliver(secondBatch);
+    yield* harness.drain();
+    yield* pump(harness, yield* takeQueued(harness));
+    yield* Fiber.join(firstSend).pipe(Effect.orDie);
+    yield* Fiber.join(secondSend).pipe(Effect.orDie);
+    const recoveries = yield* Effect.forEach(
+      harness.stores,
+      (store) => store.recover().pipe(Effect.orDie),
+      { concurrency: 1 },
+    );
+    expect(recoveries[0]?.certifiedRecords).toEqual(
+      recoveries[1]?.certifiedRecords,
+    );
+    expect(yield* certifiedRecordCounts(harness)).toEqual([2, 2]);
+  }).pipe(
+    Effect.provideService(WireVersions, {
+      emitted: WIRE_VERSION,
+      live: [WIRE_VERSION, "2099.101.1"],
+      history: [WIRE_VERSION, "2099.101.1"],
+    }),
+    Effect.provide(NodeFileSystem.layer),
+  );
+}
+
 /* eslint-enable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- Restore repository defaults. */
 
 /**
@@ -3339,3 +3400,13 @@ describe("engine faults while staging and sending", () => {
     TEST_TIMEOUT_MS,
   );
 });
+
+it.each([
+  { firstVersion: WIRE_VERSION, secondVersion: "2099.101.1" },
+  { firstVersion: "2099.101.1", secondVersion: WIRE_VERSION },
+])(
+  "converges concurrent first sends when $firstVersion authors the first ordered GENESIS",
+  ({ firstVersion, secondVersion }) =>
+    concurrentFirstSends(firstVersion, secondVersion),
+  TEST_TIMEOUT_MS,
+);

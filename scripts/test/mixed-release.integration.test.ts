@@ -37,8 +37,8 @@ const packages = {
   "@moltzap/client": join(workspaceRoot, "packages/client"),
 };
 
-/** First calendar release that ships the reset wire and storage baseline. */
-const FIRST_POST_RESET_RELEASE = Option.some("2026.1019.2");
+/** The first reset package version is set at release time. */
+const FIRST_POST_RESET_RELEASE = Option.none<string>();
 const PRE_RESET_WIRE_VERSION = "pre-reset";
 
 function preResetRelease(

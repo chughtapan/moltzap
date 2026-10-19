@@ -1,10 +1,10 @@
 /** @file The MCP tool, Events, and metadata names hosts and the loopback MCP share. */
 
 /** A content-free wakeup to read the classified runtime inbox. */
-export const INBOX_PENDING_EVENT = "moltzap.inbox.pending";
+export const INBOX_PENDING_EVENT = "org.social-harness/inbox.pending";
 
 /** Classified content delivered directly to a webhook consumer. */
-export const INBOX_ITEM_EVENT = "moltzap.inbox.item";
+export const INBOX_ITEM_EVENT = "org.social-harness/inbox.item";
 
 /** Semantic retrieval of content referenced by a large webhook event. */
 export const HARNESS_READ_EVENT_TOOL = "read_event";

@@ -16,8 +16,5 @@ export const WIRE_PROFILES = {
     senderHeader: "org.social-harness/sender",
     maximumBodyBytes: 262_144,
     maximumRecipients: 128,
-    maximumSignedMessageBytes: 471_675,
-    singleRecipientSealedBytes: 605,
-    multipleRecipientSealedBytes: 417,
   },
 } as const;

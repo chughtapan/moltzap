@@ -19,6 +19,7 @@ export type PackageDir =
 
 /** The `types` and `import` conditions one public subpath resolves to. */
 interface ExportTarget {
+  readonly testOnly?: true;
   readonly types: string;
   readonly import: string;
 }
@@ -79,6 +80,11 @@ export const FINAL_PACKAGES: Readonly<Record<PackageDir, PackageContract>> = {
       "./registry/server": {
         types: "./dist/registry/server.d.ts",
         import: "./dist/registry/server.js",
+      },
+      "./test": {
+        testOnly: true,
+        types: "./dist/wire-versions.d.ts",
+        import: "./dist/wire-versions.js",
       },
     },
     bin: { "sharness-registry": "./bin/sharness-registry" },

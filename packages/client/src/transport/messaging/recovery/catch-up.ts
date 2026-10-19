@@ -833,7 +833,7 @@ function sendCatchUpIncomplete(
     yield* responder.queue(membership, {
       kind: "direct",
       packet: {
-        moltzapVersion: responder.runtime.wireVersion,
+        sharnessVersion: responder.runtime.wireVersion,
         kind: "catch_up_incomplete",
         request,
         attestation,
@@ -861,7 +861,7 @@ function sendCatchUpPage(
     yield* responder.queue(membership, {
       kind: "direct",
       packet: {
-        moltzapVersion: responder.runtime.wireVersion,
+        sharnessVersion: responder.runtime.wireVersion,
         kind: "catch_up_page",
         request,
         item: successor.item,
@@ -883,7 +883,7 @@ function signCatchUpAttestation(
 ) {
   return signEvidenceMessage({
     statement: {
-      moltzapVersion: runtime.wireVersion,
+      sharnessVersion: runtime.wireVersion,
       kind: "catch_up_attestation",
       signerAgentId: runtime.input.localAgentCard.agentId,
       request,
@@ -1066,7 +1066,7 @@ function makeCatchUpRequest(
   knownAnchorHash: AnchorHashValue | null,
 ): Effect.Effect<CatchUpRequestValue, RouterWorkerPersistenceError> {
   return Schema.decodeUnknown(CatchUpRequest)({
-    moltzapVersion: runtime.wireVersion,
+    sharnessVersion: runtime.wireVersion,
     kind: "catch_up_request",
     conversationId: membership.descriptor.conversationId,
     membershipHash: membership.hash,

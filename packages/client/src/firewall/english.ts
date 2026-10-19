@@ -296,7 +296,7 @@ function englishProvenance(
   provider: DecisionProvider,
 ) {
   return Object.freeze({
-    format: "moltzap.english-policy.v1",
+    format: "org.social-harness/english-policy.v1",
     data: JSON.stringify({
       questionEdition,
       rules,

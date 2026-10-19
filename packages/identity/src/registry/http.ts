@@ -21,7 +21,7 @@ import {
   UnsupportedMediaTypeError,
   VersionMismatchError,
 } from "../http-errors.js";
-import { WireVersions } from "../version.js";
+import { WireVersions } from "../wire-versions.js";
 import { verifyBootstrapRegistration } from "./admission.js";
 import {
   HEALTH_PATH,

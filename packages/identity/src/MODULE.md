@@ -11,7 +11,7 @@ package.
 
 ## Public surface
 
-### [`AgentCard (type)`](./agent-card.ts#L147)
+### [`AgentCard (type)`](./agent-card.ts#L148)
 
 _Interface_
 
@@ -27,22 +27,24 @@ export interface AgentCard {
 
 Immutable public identity fields carried by an AgentCard.
 
-### [`AgentCard (value)`](./agent-card.ts#L441)
+### [`AgentCard (value)`](./agent-card.ts#L448)
 
 _Variable_
 
 ```ts
 export const AgentCard = Object.assign(agentCardSchema, {
   verify: verifyAgentCard,
+  wireVersion,
 }) as Schema.Schema<AgentCard, unknown> &
   Readonly<{
     readonly verify: typeof verifyAgentCard;
+    readonly wireVersion: typeof wireVersion;
   }>
 ```
 
 Verifies immutable Registry attestation without exposing JOSE mechanics.
 
-### [`AgentCardDigest (type)`](./agent-card.ts#L64)
+### [`AgentCardDigest (type)`](./agent-card.ts#L65)
 
 _TypeAlias_
 
@@ -52,7 +54,7 @@ export type AgentCardDigest = typeof AgentCardDigest.Type;
 
 Validated nominal value decoded by AgentCardDigest.
 
-### [`AgentCardDigest (value)`](./agent-card.ts#L57)
+### [`AgentCardDigest (value)`](./agent-card.ts#L58)
 
 _Variable_
 
@@ -66,7 +68,7 @@ export const AgentCardDigest = canonicalIdentifier(
 
 Digest binding a message to one complete immutable AgentCard.
 
-### [`AgentCardVerificationError`](./agent-card.ts#L286)
+### [`AgentCardVerificationError`](./agent-card.ts#L289)
 
 _Class_
 
@@ -261,7 +263,7 @@ export const Ed25519PublicKey = Schema.transform(
 
 Exact immutable Ed25519 public JWK.
 
-### [`HISTORY_WIRE_VERSIONS`](./version.ts#L12)
+### [`HISTORY_WIRE_VERSIONS`](./version.ts#L14)
 
 _Variable_
 
@@ -312,7 +314,7 @@ Returns only retired key names so startup diagnostics cannot expose values.
 
 **Returns:** Sorted legacy keys, including keys with empty values.
 
-### [`LIVE_WIRE_VERSIONS`](./version.ts#L9)
+### [`LIVE_WIRE_VERSIONS`](./version.ts#L11)
 
 _Variable_
 
@@ -322,7 +324,7 @@ export const LIVE_WIRE_VERSIONS = [WIRE_VERSION] as const
 
 Versions accepted at outer-envelope and authenticated HTTP admission.
 
-### [`LiveSignedMessage`](./signed-message.ts#L329)
+### [`LiveSignedMessage`](./signed-message.ts#L356)
 
 _TypeAlias_
 
@@ -346,7 +348,7 @@ export class MalformedRequestError extends Schema.TaggedError<MalformedRequestEr
 
 The request representation is not valid for the selected operation.
 
-### [`MessageId (type)`](./signed-message.ts#L43)
+### [`MessageId (type)`](./signed-message.ts#L44)
 
 _TypeAlias_
 
@@ -356,7 +358,7 @@ export type MessageId = typeof MessageId.Type;
 
 Validated nominal value decoded by MessageId.
 
-### [`MessageId (value)`](./signed-message.ts#L40)
+### [`MessageId (value)`](./signed-message.ts#L41)
 
 _Variable_
 
@@ -442,7 +444,7 @@ export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()
 
 No exact HTTP route owns the request target.
 
-### [`SealedBody`](./sealed-body.ts#L540)
+### [`SealedBody`](./sealed-body.ts#L565)
 
 _Variable_
 
@@ -459,7 +461,7 @@ Seals a SignedMessage body to its recipients, opens a verified sealed body,
 and reports sealed sizes. `SignedMessage.sign` never seals; the caller
 chooses which bodies to seal and signs the sealed bytes.
 
-### [`SealedBodyOpeningError`](./sealed-body.ts#L175)
+### [`SealedBodyOpeningError`](./sealed-body.ts#L200)
 
 _Class_
 
@@ -471,7 +473,7 @@ export class SealedBodyOpeningError extends Data.TaggedError(
 
 A verified SignedMessage body does not open as a sealed body for this agent.
 
-### [`SealedBodySealingError`](./sealed-body.ts#L170)
+### [`SealedBodySealingError`](./sealed-body.ts#L195)
 
 _Class_
 
@@ -483,7 +485,7 @@ export class SealedBodySealingError extends Data.TaggedError(
 
 A body cannot be sealed from the supplied sender to the supplied recipients.
 
-### [`SignedMessage (type)`](./signed-message.ts#L173)
+### [`SignedMessage (type)`](./signed-message.ts#L200)
 
 _Interface_
 
@@ -499,7 +501,7 @@ export interface SignedMessage {
 
 Immutable attributed-message fields exposed to Router consumers.
 
-### [`SignedMessage (value)`](./signed-message.ts#L512)
+### [`SignedMessage (value)`](./signed-message.ts#L539)
 
 _Variable_
 
@@ -525,7 +527,7 @@ export const SignedMessage = Object.assign(signedMessageSchema, {
 
 Opaque attributed message operations and exact representation Schema.
 
-### [`SignedMessageSigningError`](./signed-message.ts#L319)
+### [`SignedMessageSigningError`](./signed-message.ts#L346)
 
 _Class_
 
@@ -537,7 +539,7 @@ export class SignedMessageSigningError extends Data.TaggedError(
 
 A message cannot be signed under the supplied immutable identity.
 
-### [`SignedMessageVerificationError`](./signed-message.ts#L324)
+### [`SignedMessageVerificationError`](./signed-message.ts#L351)
 
 _Class_
 
@@ -575,7 +577,7 @@ export class UnsupportedMediaTypeError extends Schema.TaggedError<UnsupportedMed
 
 The selected route cannot consume the request content framing.
 
-### [`VerifiedAgentCard`](./agent-card.ts#L271)
+### [`VerifiedAgentCard`](./agent-card.ts#L274)
 
 _TypeAlias_
 
@@ -600,7 +602,7 @@ export type VerifiedAgentRequest = Readonly<{
 
 Request body and caller identity established by AuthenticatedHttp.
 
-### [`VerifiedSignedMessage`](./signed-message.ts#L313)
+### [`VerifiedSignedMessage`](./signed-message.ts#L340)
 
 _TypeAlias_
 
@@ -628,17 +630,19 @@ export class VersionMismatchError extends Schema.TaggedError<VersionMismatchErro
 
 The request carries a different wire compatibility value.
 
-### [`WIRE_VERSION`](./version.ts#L6)
+### [`WIRE_VERSION`](./version.ts#L8)
 
 _Variable_
 
 ```ts
-export const WIRE_VERSION = "2026.1019.1"
+export const WIRE_VERSION = "2026.1019.2"
 ```
 
-Every newly signed artifact carries this version.
+Every newly signed artifact carries this reset wire value. The .2 value is
+distinct from the published pre-reset 2026.1019.1 package, whose wire is
+2026.1006.1; package publication never determines wire compatibility.
 
-### [`WireVersion`](./version.ts#L15)
+### [`WireVersion`](./version.ts#L17)
 
 _TypeAlias_
 
@@ -648,64 +652,27 @@ export type WireVersion = (typeof HISTORY_WIRE_VERSIONS)[number];
 
 A version represented by retained protocol artifacts.
 
-### [`WireVersions`](./version.ts#L21)
+### [`wireVersions`](./wire-versions.ts#L65)
 
-_Class_
+_Variable_
 
 ```ts
-export class WireVersions extends Context.Tag("@moltzap/identity/WireVersions")<
-  WireVersions,
-  {
-    readonly emitted?: string;
-    readonly live: readonly string[];
-    readonly history: readonly string[];
-  }
->() {
-  /** Signing uses one version throughout a process composition. */
-  static readonly emitted = Effect.serviceOption(WireVersions).pipe(
+export const wireVersions = Object.freeze({
+  emitted: WireVersions.emitted,
+  history: WireVersions.history,
+  live: WireVersions.live,
+  liveSet: Effect.serviceOption(WireVersions).pipe(
     Effect.map((configuration) =>
       Option.match(configuration, {
-        onNone: () => WIRE_VERSION,
-        onSome: (sets) => sets.emitted ?? WIRE_VERSION,
+        onNone: () => LIVE_WIRE_VERSIONS,
+        onSome: (sets) => sets.live,
       }),
     ),
-  );
-
-  /** Retained values share a window throughout nested artifact decoding. */
-  static readonly history = Schema.String.pipe(
-    Schema.filterEffect((version) =>
-      Effect.serviceOption(WireVersions).pipe(
-        Effect.map((configuration) =>
-          Option.match(configuration, {
-            onNone: () =>
-              HISTORY_WIRE_VERSIONS.some((item) => item === version),
-            onSome: (sets) =>
-              HISTORY_WIRE_VERSIONS.some((item) => item === version) ||
-              sets.history.includes(version),
-          }),
-        ),
-      ),
-    ),
-  );
-
-  /** Outer admission is independent from retained readability. */
-  static readonly live = (version: string) =>
-    Effect.serviceOption(WireVersions).pipe(
-      Effect.map((configuration) =>
-        Option.match(configuration, {
-          onNone: () => LIVE_WIRE_VERSIONS.some((item) => item === version),
-          onSome: (sets) =>
-            sets.live.includes(version) &&
-            (sets.emitted !== undefined ||
-              LIVE_WIRE_VERSIONS.some((item) => item === version)),
-        }),
-      ),
-    );
-}
+  ),
+})
 ```
 
-Injectable release policy lets process tests compose adjacent wire releases.
-Production compositions use the binary's emitted version and acceptance sets.
+Read-only compatibility operations expose no injectable context tag.
 
 ## Package subpaths
 
@@ -951,14 +918,18 @@ export class StartupError extends Data.TaggedError(
     const keys = this.keys === undefined ? "" : `: ${this.keys.join(", ")}`;
     const detail = this.detail === undefined ? keys : `: ${this.detail}`;
     const reason = this.reason === undefined ? "" : ` (${this.reason})`;
-    return `sharness-registry startup failed in phase ${this.phase}${reason}${detail}`;
+    const remedy =
+      this.reason === "pre-reset"
+        ? ". Start with a fresh Registry database and register agents again; see https://github.com/chughtapan/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release."
+        : "";
+    return `sharness-registry startup failed in phase ${this.phase}${reason}${detail}${remedy}`;
   }
 }
 ```
 
 Closed Registry startup failure.
 
-#### [`layer`](./registry/server.ts#L240)
+#### [`layer`](./registry/server.ts#L244)
 
 _Variable_
 
@@ -1024,3 +995,4 @@ Usage is generated from the same fields consumed by the process.
 - `signed-message.ts`
 - `version.ts`
 - `wire-profile.ts`
+- `wire-versions.ts`

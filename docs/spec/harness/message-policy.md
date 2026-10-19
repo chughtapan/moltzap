@@ -412,7 +412,7 @@ The owner-only [MCP policy tools](./daemon.md#mcp-catalog) validate an edit, bui
 both replacement chains, atomically persist the editable document and an
 activation record, and activate it before returning `activeRevision`. Each chain
 consists of its fixed code middleware,
-then one English middleware (`moltzap.english`) over fixed plus editable English
+then one English middleware (`org.social-harness/english`, policy id `org.social-harness/english-policy.v1`) over fixed plus editable English
 rules. That middleware id is reserved when English rules are present. With no
 English rules, it is omitted; an entirely empty chain still validates input and
 required evidence without invoking a provider.
@@ -569,7 +569,7 @@ that lifetime. An export failure fails shutdown. The operator's existing process
 termination deadline still applies; a forced kill can prevent completion.
 
 Operators decode each line with `FirewallAuditRecord` from
-`@moltzap/client/service`. The `moltzap.firewall-audit/v3` format has one `start`,
+`@moltzap/client/service`. The `org.social-harness/firewall-audit/v4` format has one `start`,
 zero or more `check` records, zero or more `activation` records, and one
 `complete` record. Activations follow checks in activation sequence order and
 carry the same metadata as the decisions feed. The start and completion must

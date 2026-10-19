@@ -115,7 +115,7 @@ const makeSignedMessage = (input: {
   Schema.decodeUnknownSync(SignedMessage)({
     payload: encodedCanonicalJson({
       kind: "signedMessage",
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       senderAgentId: input.senderAgentId,
       agentCardDigest: `acd_${Encoding.encodeBase64Url(new Uint8Array(32).fill(9))}`,
       recipientAgentIds: input.recipientAgentIds,
@@ -209,7 +209,7 @@ const makeRegisteredSenderFixture = () =>
     const payload = utf8Encoder.encode(
       canonicalText({
         kind: "agentCard",
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         agentId: sender,
         principalId: Schema.decodeUnknownSync(PrincipalId)(
           `prn_${identifierPayload(6)}`,
@@ -600,11 +600,6 @@ describe("configuration behavior", () => {
         (yield* loadConfiguration(new Map([["SHARNESS_ROUTER_HOST", "::"]])))
           .host,
       ).toBe("::");
-      expect(routerRepresentationLimits).toEqual({
-        sendRequestBodyBytes: 471_823,
-        pollRequestBodyBytes: 423,
-        oneMessageBatchBytes: 472_124,
-      });
       expect(
         yield* effectFails(
           calculateRouterRepresentationLimits(Number.MAX_SAFE_INTEGER),

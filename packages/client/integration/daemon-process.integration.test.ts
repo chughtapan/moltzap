@@ -1,16 +1,12 @@
 /** @file Two real daemons certify, deliver, and recover multicast operations. */
 
+import { WireVersions } from "@moltzap/identity/test";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { ProtocolErrorCode } from "@modelcontextprotocol/client";
-import {
-  WireVersions,
-  WIRE_VERSION,
-  AgentCard,
-  type AgentName,
-} from "@moltzap/identity";
+import { WIRE_VERSION, AgentCard, type AgentName } from "@moltzap/identity";
 import { Effect, Fiber, Option, Schema, Stream } from "effect";
 import { expect, it } from "vitest";
 import {
@@ -277,16 +273,16 @@ const routerRestartBehavior = Effect.gen(function* () {
         ...memberFixture,
         wireVersions: {
           emitted: WIRE_VERSION,
-          live: [WIRE_VERSION, "2026.1019.2"],
-          history: [WIRE_VERSION, "2026.1019.2"],
+          live: [WIRE_VERSION, "2026.1019.3"],
+          history: [WIRE_VERSION, "2026.1019.3"],
         },
       }),
       acquireDaemonProcess({
         ...conciergeFixture,
         wireVersions: {
-          emitted: "2026.1019.2",
-          live: [WIRE_VERSION, "2026.1019.2"],
-          history: [WIRE_VERSION, "2026.1019.2"],
+          emitted: "2026.1019.3",
+          live: [WIRE_VERSION, "2026.1019.3"],
+          history: [WIRE_VERSION, "2026.1019.3"],
         },
       }),
     ] as const,
@@ -295,19 +291,23 @@ const routerRestartBehavior = Effect.gen(function* () {
   yield* registerFixture(memberFixture);
   yield* registerFixture(conciergeFixture);
 
-  yield* deliverDirect({
-    from: memberFixture,
-    to: conciergeFixture,
-    text: beforeRouterRestartText,
-    send: certifiedSend,
-  });
-
-  yield* deliverDirect({
-    from: conciergeFixture,
-    to: memberFixture,
-    text: "successor-authored head before Router restart",
-    send: certifiedSend,
-  });
+  yield* Effect.all(
+    [
+      deliverDirect({
+        from: memberFixture,
+        to: conciergeFixture,
+        text: beforeRouterRestartText,
+        send: certifiedSend,
+      }),
+      deliverDirect({
+        from: conciergeFixture,
+        to: memberFixture,
+        text: "successor-authored head before Router restart",
+        send: certifiedSend,
+      }),
+    ],
+    { concurrency: 2 },
+  );
   yield* infrastructure.restartRouter;
 
   yield* deliverDirect({
@@ -327,23 +327,32 @@ const routerRestartBehavior = Effect.gen(function* () {
     memberFixture,
     directAddress(conciergeFixture.agentName),
   );
-  expect(
-    history.records.map(
-      ({ recordCore }) => recordCore.action.postIntent.content[0],
-    ),
-  ).toEqual([
-    { type: "text", text: beforeRouterRestartText },
-    { type: "text", text: "successor-authored head before Router restart" },
+  const texts = history.records.map(
+    ({ recordCore }) => recordCore.action.postIntent.content[0],
+  );
+  expect(texts.slice(0, 2)).toEqual(
+    expect.arrayContaining([
+      { type: "text", text: beforeRouterRestartText },
+      { type: "text", text: "successor-authored head before Router restart" },
+    ]),
+  );
+  expect(texts.slice(2)).toEqual([
     { type: "text", text: afterRouterRestartText },
     { type: "text", text: replyAfterRouterRestartText },
   ]);
-  expect(
-    history.records.map(({ recordCore }) => recordCore.moltzapVersion),
-  ).toEqual([WIRE_VERSION, "2026.1019.2", WIRE_VERSION, "2026.1019.2"]);
+  const peerHistory = yield* readDurableHistory(
+    conciergeFixture,
+    directAddress(memberFixture.agentName),
+  );
+  expect(peerHistory.records.map(({ recordCore }) => recordCore)).toEqual(
+    history.records.map(({ recordCore }) => recordCore),
+  );
   const restartedAnchor = history.records[2]?.routerAnchor;
   expect(restartedAnchor?.kind).toBe("completed_reanchor");
   if (restartedAnchor?.kind === "completed_reanchor") {
-    expect(restartedAnchor.reanchor.moltzapVersion).toBe("2026.1019.2");
+    expect(restartedAnchor.reanchor.sharnessVersion).toBe(
+      history.records[1]?.recordCore.sharnessVersion,
+    );
   }
 }).pipe(Effect.scoped);
 
@@ -657,8 +666,8 @@ it(
     routerRestartBehavior.pipe(
       Effect.provideService(WireVersions, {
         emitted: WIRE_VERSION,
-        live: [WIRE_VERSION, "2026.1019.2"],
-        history: [WIRE_VERSION, "2026.1019.2"],
+        live: [WIRE_VERSION, "2026.1019.3"],
+        history: [WIRE_VERSION, "2026.1019.3"],
       }),
     ),
   ),
@@ -695,11 +704,20 @@ const refusesStaleOutbox = Effect.scoped(
     });
     const failed = yield* awaitDaemonStartupFailure(local, {
       executable: process.execPath,
-      args: ["--input-type=module", "-e", retiredWindowDaemon],
+      args: [
+        "--conditions=sharness-test",
+        "--input-type=module",
+        "-e",
+        retiredWindowDaemon,
+      ],
       cwd: fileURLToPath(new URL("../", import.meta.url)),
     });
     expect(failed.exitCode).not.toBe(0);
     expect(failed.logs).toContain("outbox-too-old");
+    expect(failed.logs).toContain("Drain the outbox on the previous release");
+    expect(failed.logs).toContain(
+      "docs/guides/upgrades.mdx#apply-a-reset-release",
+    );
     const after = yield* Effect.try({
       try: () => storedSchema(local.stateDirectory),
       catch: (cause) =>
@@ -738,7 +756,7 @@ function storedSchema(directory: string) {
  */
 const retiredWindowDaemon = `
   import { NodeRuntime } from "@effect/platform-node";
-  import { WIRE_VERSION, WireVersions } from "@moltzap/identity";
+  import { WIRE_VERSION } from "@moltzap/identity"; import { WireVersions } from "@moltzap/identity/test";
   import { Daemon } from "@moltzap/client/service";
   import { ConfigProvider, Effect, Layer } from "effect";
   Layer.launch(Daemon.layer).pipe(
@@ -867,6 +885,12 @@ it(
           const failed = yield* awaitDaemonStartupFailure(local);
           expect(failed.exitCode).not.toBe(0);
           expect(failed.logs).toContain("pre-reset");
+          expect(failed.logs).toContain(
+            "Start with a fresh state directory and register again",
+          );
+          expect(failed.logs).toContain(
+            "docs/guides/upgrades.mdx#apply-a-reset-release",
+          );
           expect(readdirSync(local.stateDirectory)).toEqual(before);
         }
       }),

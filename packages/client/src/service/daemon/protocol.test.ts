@@ -76,7 +76,7 @@ const messageId = (byte: number) =>
   Schema.decodeUnknownSync(MessageId)(identifier("msg_", byte));
 
 const catchUpRequestFrom = (requester: VerifiedAgentCard): CatchUpRequest => ({
-  moltzapVersion: WIRE_VERSION,
+  sharnessVersion: WIRE_VERSION,
   kind: "catch_up_request",
   conversationId: Schema.decodeUnknownSync(ConversationId)(digest("cnv_", 22)),
   membershipHash: Schema.decodeUnknownSync(MembershipHash)(digest("mbr_", 23)),

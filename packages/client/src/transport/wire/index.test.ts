@@ -62,7 +62,7 @@ const canonicalInputBytes = (value: unknown): Uint8Array => {
 };
 
 const catchUpRequest = Schema.decodeUnknownSync(CatchUpRequest)({
-  moltzapVersion: WIRE_VERSION,
+  sharnessVersion: WIRE_VERSION,
   kind: "catch_up_request",
   conversationId,
   membershipHash,
@@ -99,6 +99,25 @@ const verifiesCanonicalClosure = () =>
         canonicalInputBytes({ ...catchUpRequest, unexpected: true }),
       ),
     );
+    const { sharnessVersion, ...unversioned } = catchUpRequest;
+    yield* expectRepresentationFailure(
+      decodeCanonical(
+        CatchUpRequest,
+        canonicalInputBytes({
+          ...unversioned,
+          moltzapVersion: sharnessVersion,
+        }),
+      ),
+    );
+    yield* expectRepresentationFailure(
+      decodeCanonical(
+        CatchUpRequest,
+        canonicalInputBytes({
+          ...catchUpRequest,
+          moltzapVersion: sharnessVersion,
+        }),
+      ),
+    );
   });
 
 const derivesPrivateIdentifiers = () =>
@@ -133,7 +152,7 @@ const enforcesContentBounds = () =>
 const derivesStableEvidenceIdentity = () =>
   Effect.gen(function* () {
     const statement = Schema.decodeUnknownSync(ActionSignatureStatement)({
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "action_signature",
       signerAgentId: firstAgentId,
       actionHash: Schema.decodeUnknownSync(ActionHash)(

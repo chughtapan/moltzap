@@ -182,12 +182,12 @@ export function assembleCompletedReanchor(
         return Effect.fail(persistenceFailure());
       }
       const completed: CompletedReanchorValue = {
-        moltzapVersion: body.moltzapVersion,
+        sharnessVersion: body.sharnessVersion,
         kind: "completed_reanchor",
         anchorHash,
         reanchor: body,
         certificate: {
-          moltzapVersion: body.moltzapVersion,
+          sharnessVersion: body.sharnessVersion,
           kind: "reanchor_certificate",
           anchorHash,
           votes: ordered,

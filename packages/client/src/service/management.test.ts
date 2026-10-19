@@ -138,7 +138,7 @@ const makeMembershipRow = (members: readonly VerifiedAgentCard[]) =>
       ...otherAgents.map((card) => card.agentId),
     ]);
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "membership_descriptor",
       conversationId,
       members: yield* Effect.forEach(

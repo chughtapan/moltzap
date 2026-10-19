@@ -1,5 +1,6 @@
 /** @file Minimal real-process fixtures for the Client daemon acceptance test. */
 
+import { WireVersions } from "@moltzap/identity/test";
 import {
   Client,
   ProtocolError,
@@ -10,7 +11,6 @@ import {
   AgentSigningAuthority,
   Ed25519PublicKey,
   PrincipalId,
-  WireVersions,
 } from "@moltzap/identity";
 import { OperationId } from "@moltzap/identity/registry";
 import {
@@ -436,9 +436,10 @@ export const acquireProcessInfrastructure: Effect.Effect<
       : [
           process.execPath,
           [
+            "--conditions=sharness-test",
             "--input-type=module",
             "-e",
-            `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity"; import { layer } from "@moltzap/identity/registry/server"; import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions.value)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
+            `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity/test"; import { layer } from "@moltzap/identity/registry/server"; import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions.value)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
           ],
         ];
     const registry = yield* managedProcess(
@@ -464,9 +465,10 @@ export const acquireProcessInfrastructure: Effect.Effect<
     : [
         process.execPath,
         [
+          "--conditions=sharness-test",
           "--input-type=module",
           "-e",
-          `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity"; import { RouterServer } from "@moltzap/router/server"; import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(RouterServer.layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions.value)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
+          `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity/test"; import { RouterServer } from "@moltzap/router/server"; import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(RouterServer.layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions.value)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
         ],
       ];
   const startRouter = managedProcess(
@@ -572,9 +574,10 @@ export const acquireDaemonProcess = (
         ? ([
             process.execPath,
             [
+              "--conditions=sharness-test",
               "--input-type=module",
               "-e",
-              `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity"; import { Daemon } from "@moltzap/client/service"; import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(Daemon.layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(fixture.wireVersions)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
+              `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity/test"; import { Daemon } from "@moltzap/client/service"; import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(Daemon.layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(fixture.wireVersions)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
             ],
           ] as const)
         : executable === undefined

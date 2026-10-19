@@ -1,6 +1,6 @@
 /** @file Closed Router wire values, requests, results, bounds, and client failures. */
 import {
-  type AgentId,
+  AgentId,
   type AgentSigningError,
   AuthenticationFailedError,
   InternalServerError,
@@ -41,11 +41,8 @@ const DIGEST_BYTE_LENGTH = 32;
 const wireProfiles = {
   [WIRE_VERSION]: {
     pollCursorType: "application/vnd.sharness.poll-cursor+jwe",
-    maximumPollCursorLength: 349,
   },
 } as const;
-const MAXIMUM_CURSOR_LENGTH =
-  wireProfiles[WIRE_VERSION].maximumPollCursorLength;
 
 /** Exact protected header carried by every PollCursor. */
 export const pollCursorProtectedHeader = Object.freeze({
@@ -449,6 +446,56 @@ const signedMessagePlaceholderByteLength = utf8Encoder.encode(
 const maximumAgentId = "agt_AAAAAAAAAAAAAAAAAAAAAA";
 const maximumRouterInstanceId = "rti_AAAAAAAAAAAAAAAAAAAAAA";
 
+/**
+ * Computes exact cursor length for a caller, instance, and order width.
+ *
+ * @param input Plaintext cursor members.
+ * @param input.agentId Caller bound into the encrypted continuation.
+ * @param input.routerInstanceId Process bound into the continuation.
+ * @param input.lastScannedOrder Private order bound into the continuation.
+ * @returns The complete prefixed Compact JWE length.
+ */
+export const pollCursorEncodedLength = (input: {
+  readonly agentId: AgentId;
+  readonly routerInstanceId: RouterInstanceId;
+  readonly lastScannedOrder: bigint;
+}): number => {
+  const plaintext = canonicalize({
+    agentId: input.agentId,
+    routerInstanceId: input.routerInstanceId,
+    lastScannedOrder: input.lastScannedOrder.toString(10),
+  });
+  if (plaintext === undefined) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const plaintextLength = utf8Encoder.encode(plaintext).byteLength;
+  return (
+    pollCursorPrefix.length +
+    encodedPollCursorProtectedHeaderLength +
+    1 +
+    1 +
+    16 +
+    1 +
+    base64UrlLength(plaintextLength) +
+    1 +
+    22
+  );
+};
+
+/** Maximum ASCII characters in a valid PollCursor. */
+export const maximumPollCursorLength = pollCursorEncodedLength({
+  agentId: Schema.decodeUnknownSync(AgentId)(maximumAgentId),
+  routerInstanceId: Schema.decodeUnknownSync(RouterInstanceId)(
+    maximumRouterInstanceId,
+  ),
+  lastScannedOrder: (1n << 128n) - 1n,
+});
+const MAXIMUM_CURSOR_LENGTH = maximumPollCursorLength;
+
+function base64UrlLength(byteLength: number): number {
+  return Math.ceil((byteLength * 8) / 6);
+}
+
 const canonicalByteLength = (
   value: unknown,
 ): Effect.Effect<number, RouterRepresentationLengthError> => {
@@ -535,48 +582,6 @@ export const calculateRouterRepresentationLimits = (
 export const routerRepresentationLimits = Effect.runSync(
   calculateRouterRepresentationLimits(SignedMessage.maximumEncodedByteLength),
 );
-
-const base64UrlLength = (byteLength: number): number =>
-  Math.ceil((byteLength * 8) / 6);
-
-/**
- * Computes exact cursor length for a caller, instance, and order width.
- *
- * @param input Plaintext cursor members.
- * @param input.agentId Caller bound into the encrypted continuation.
- * @param input.routerInstanceId Process bound into the continuation.
- * @param input.lastScannedOrder Private order bound into the continuation.
- * @returns The complete prefixed Compact JWE length.
- */
-export const pollCursorEncodedLength = (input: {
-  readonly agentId: AgentId;
-  readonly routerInstanceId: RouterInstanceId;
-  readonly lastScannedOrder: bigint;
-}): number => {
-  const plaintext = canonicalize({
-    agentId: input.agentId,
-    routerInstanceId: input.routerInstanceId,
-    lastScannedOrder: input.lastScannedOrder.toString(10),
-  });
-  if (plaintext === undefined) {
-    return Number.POSITIVE_INFINITY;
-  }
-  const plaintextLength = utf8Encoder.encode(plaintext).byteLength;
-  return (
-    pollCursorPrefix.length +
-    encodedPollCursorProtectedHeaderLength +
-    1 +
-    1 +
-    16 +
-    1 +
-    base64UrlLength(plaintextLength) +
-    1 +
-    22
-  );
-};
-
-/** Maximum ASCII characters in a valid PollCursor. */
-export const maximumPollCursorLength = MAXIMUM_CURSOR_LENGTH;
 
 /** Encoded byte width of a RouterInstanceId payload. */
 export const routerInstanceIdByteLength = INSTANCE_BYTE_LENGTH;

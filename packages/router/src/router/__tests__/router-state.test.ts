@@ -83,7 +83,7 @@ const makeSignedMessage = (input: {
   return Schema.decodeUnknownSync(SignedMessage.live)({
     payload: encodedCanonicalJson({
       kind: "signedMessage",
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       senderAgentId: input.senderAgentId,
       agentCardDigest,
       recipientAgentIds: input.recipientAgentIds,
@@ -107,7 +107,7 @@ const makeMaximumSignedMessage = (): LiveSignedMessage =>
   Schema.decodeUnknownSync(SignedMessage.live)({
     payload: encodedCanonicalJson({
       kind: "signedMessage",
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       senderAgentId: makeAgentId(250),
       agentCardDigest: `acd_${Encoding.encodeBase64Url(
         new Uint8Array(32).fill(9),

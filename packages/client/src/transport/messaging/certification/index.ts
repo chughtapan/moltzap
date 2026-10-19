@@ -341,7 +341,7 @@ function signLocalActionEvidence(
 ): Effect.Effect<SignedMessage, RouterWorkerPersistenceError> {
   return signEvidenceMessage({
     statement: {
-      moltzapVersion: runtime.wireVersion,
+      sharnessVersion: runtime.wireVersion,
       kind: "action_signature",
       signerAgentId: runtime.input.localAgentCard.agentId,
       actionHash: fold.actionHash,
@@ -402,7 +402,7 @@ const localDurabilityEvidence = (
       retained ??
       (yield* signEvidenceMessage({
         statement: {
-          moltzapVersion: runtime.wireVersion,
+          sharnessVersion: runtime.wireVersion,
           kind: "durability_vote",
           signerAgentId: localAgentId,
           conversationId: fold.conversation.conversationId,

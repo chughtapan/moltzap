@@ -610,6 +610,7 @@ const decodeInvocationInput = <A>(
   input: Effect.Effect<A, ParseResult.ParseError>,
   signal: AbortSignal,
   requestScope: Scope.CloseableScope,
+  context: Context.Context<never>,
 ) =>
   runEventOperation(
     input.pipe(
@@ -624,6 +625,7 @@ const decodeInvocationInput = <A>(
     ),
     signal,
     requestScope,
+    context,
   );
 
 /**
@@ -643,6 +645,7 @@ const handleSendToolCall = async (
     decodeHarnessSendCall(input.toolArguments, input.metadata),
     input.signal,
     input.requestScope,
+    input.context,
   );
   const send = operations
     .send(decoded)
@@ -674,6 +677,7 @@ const handleReadSendToolCall = async (
         decodeHarnessReadSendRequest(input.toolArguments),
         input.signal,
         input.requestScope,
+        input.context,
       ),
     ),
     label: "Send lookup",

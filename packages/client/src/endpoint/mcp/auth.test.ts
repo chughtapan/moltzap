@@ -319,7 +319,12 @@ describe.each(registrationStates)(
         (catalog) => {
           expect(catalog).toMatchObject({
             result: {
-              events: [{ name: "moltzap.inbox.item", delivery: ["webhook"] }],
+              events: [
+                {
+                  name: "org.social-harness/inbox.item",
+                  delivery: ["webhook"],
+                },
+              ],
             },
           });
         },
@@ -332,7 +337,7 @@ describe.each(registrationStates)(
           request(
             handler,
             "events/stream",
-            { name: "moltzap.inbox.pending", arguments: {} },
+            { name: "org.social-harness/inbox.pending", arguments: {} },
             credentials.runtime,
           ).pipe(Effect.flatMap(decodeJson)),
         (refused) => {

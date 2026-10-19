@@ -39,41 +39,12 @@ import {
   SignedMessageSigningError,
   type SignedMessage as SignedMessageValue,
 } from "../signed-message.js";
+import cofactoredGolden from "./wire-cofactored-golden.json" with { type: "json" };
 
 const MAXIMUM_BODY_BYTES = 262_144;
 const MAXIMUM_RECIPIENTS = 128;
-const EXPECTED_MAXIMUM_MESSAGE_BYTES = 471_675;
 
-/*
- * This mixed-order key and odd-challenge signature satisfy only the
- * cofactored equation. The complete artifact pins the runtime verifier's
- * strict equation through the same boundary used in production.
- */
 const MIXED_ORDER_PUBLIC_KEY_X = "lZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZk";
-const MIXED_ORDER_KEY_ID =
-  "urn:ietf:params:oauth:jwk-thumbprint:sha-256:7jTI1Cc6_T4lcL3Vui-LXIjwjxL7Yw9lwXS3UE9hnb4";
-const MIXED_ORDER_CARD_DIGEST =
-  "acd_axYK4-cQfPV_bg6xmN004RMmtCzaY0wV93mxA0KDOLA";
-const COFACTORED_ONLY_BODY_TEXT = "cofactored-canary-1";
-
-const strictRegistryPublicKey = {
-  crv: "Ed25519",
-  kty: "OKP",
-  x: "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
-};
-
-const mixedOrderAgentCard = {
-  payload:
-    "eyJhZ2VudElkIjoiYWd0Xy12cjYtdnI2LXZyNi12cjYtdnI2LWciLCJhZ2VudE5hbWUiOiJtaXhlZC1vcmRlci1zZW5kZXIiLCJpc3N1ZWRBdCI6IjIwMjYtMDctMzBUMTI6MDA6MDBaIiwia2luZCI6ImFnZW50Q2FyZCIsIm1vbHR6YXBWZXJzaW9uIjoiMjAyNi4xMDE5LjEiLCJwcmluY2lwYWxJZCI6InBybl8tZm41LWZuNS1mbjUtZm41LWZuNS1RIiwicHVibGljS2V5Ijp7ImNydiI6IkVkMjU1MTkiLCJrdHkiOiJPS1AiLCJ4IjoibFptWm1abVptWm1abVptWm1abVptWm1abVptWm1abVptWm1abVptWm1aayJ9fQ",
-  signatures: [
-    {
-      protected:
-        "eyJhbGciOiJFZDI1NTE5Iiwia2lkIjoidXJuOmlldGY6cGFyYW1zOm9hdXRoOmp3ay10aHVtYnByaW50OnNoYS0yNTY6a1ByS19xbXhWV2FZVkE5d3dCRjZJdW8zdlZ6ejdUeEhDVHdYQnlnclM0ayIsInR5cCI6ImFwcGxpY2F0aW9uL3ZuZC5zaGFybmVzcy5hZ2VudC1jYXJkK2p3cyJ9",
-      signature:
-        "PspTX4M5sLNTV1dVGwAv-N4y5zthpc-hdIR1ot5vnGOXh9QqgwsgZyCSTSjf0WyjJYduXVqAbOKEw-JGsrWbBQ",
-    },
-  ],
-};
 
 /**
  * A Registry-signed pre-reset card is outside retained-history admission.
@@ -91,19 +62,6 @@ const priorVersionAgentCard = {
   ],
 };
 
-const cofactoredOnlySignedMessage = {
-  payload:
-    "eyJhZ2VudENhcmREaWdlc3QiOiJhY2RfYXhZSzQtY1FmUFZfYmc2eG1OMDA0Uk1tdEN6YVkwd1Y5M214QTBLRE9MQSIsImJvZHkiOiJZMjltWVdOMGIzSmxaQzFqWVc1aGNua3RNUSIsImtpbmQiOiJzaWduZWRNZXNzYWdlIiwibWVzc2FnZUlkIjoibXNnX0FRRUJBUUVCQVFFQkFRRUJBUUVCQVEiLCJtb2x0emFwVmVyc2lvbiI6IjIwMjYuMTAxOS4xIiwicmVjaXBpZW50QWdlbnRJZHMiOlsiYWd0X0FBQUFBQUFBQUFBQUFBQUFBQUFBQUEiXSwic2VuZGVyQWdlbnRJZCI6ImFndF8tdnI2LXZyNi12cjYtdnI2LXZyNi1nIn0",
-  signatures: [
-    {
-      protected:
-        "eyJhbGciOiJFZDI1NTE5Iiwia2lkIjoidXJuOmlldGY6cGFyYW1zOm9hdXRoOmp3ay10aHVtYnByaW50OnNoYS0yNTY6N2pUSTFDYzZfVDRsY0wzVnVpLUxYSWp3anhMN1l3OWx3WFMzVUU5aG5iNCIsInR5cCI6ImFwcGxpY2F0aW9uL3ZuZC5zaGFybmVzcy5zaWduZWQtbWVzc2FnZStqd3MifQ",
-      signature:
-        "WGZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmaeZyVYeCQ3vpopIeRLhd-FNa-Sx9we5nE8TzI8jDQ6DA",
-    },
-  ],
-};
-
 const rawSignature = Schema.Struct({
   protected: Schema.String,
   signature: Schema.String,
@@ -114,7 +72,7 @@ const rawRepresentation = Schema.Struct({
 });
 const rawPayload = Schema.Struct({
   kind: Schema.String,
-  moltzapVersion: Schema.String,
+  sharnessVersion: Schema.String,
   senderAgentId: Schema.String,
   agentCardDigest: Schema.String,
   recipientAgentIds: Schema.Array(Schema.String),
@@ -426,7 +384,7 @@ const payloadMutations = (representation: RawRepresentation) =>
       "version",
       mutatePayload(representation, (value) => ({
         ...value,
-        moltzapVersion: `${value.moltzapVersion}-changed`,
+        sharnessVersion: `${value.sharnessVersion}-changed`,
       })),
     ),
     namedMutation(
@@ -703,26 +661,29 @@ it("rejects a signature accepted only by cofactored Ed25519 verification", () =>
     Effect.gen(function* () {
       const registrySignerPublicKey = yield* Schema.decodeUnknown(
         Ed25519PublicKey,
-      )(strictRegistryPublicKey);
-      const parsedCard =
-        yield* Schema.decodeUnknown(AgentCard)(mixedOrderAgentCard);
+      )(cofactoredGolden.registryKey);
+      const parsedCard = yield* Schema.decodeUnknown(AgentCard)(
+        cofactoredGolden.card,
+      );
       const agentCard = yield* AgentCard.verify({
         agentCard: parsedCard,
         registrySignerPublicKey,
       });
       expect(agentCard.publicKey.x).toBe(MIXED_ORDER_PUBLIC_KEY_X);
-      expect(yield* digestAgentCard(agentCard)).toBe(MIXED_ORDER_CARD_DIGEST);
+      expect(yield* digestAgentCard(agentCard)).toBe(
+        cofactoredGolden.cardDigest,
+      );
       expect(yield* ed25519PublicKeyThumbprintUri(agentCard.publicKey)).toBe(
-        MIXED_ORDER_KEY_ID,
+        cofactoredGolden.keyId,
       );
 
       const signedMessage = yield* Schema.decodeUnknown(SignedMessage)(
-        cofactoredOnlySignedMessage,
+        cofactoredGolden.message,
       );
       expect(signedMessage.senderAgentId).toBe(agentCard.agentId);
-      expect(signedMessage.agentCardDigest).toBe(MIXED_ORDER_CARD_DIGEST);
+      expect(signedMessage.agentCardDigest).toBe(cofactoredGolden.cardDigest);
       expect(new TextDecoder().decode(signedMessage.body)).toBe(
-        COFACTORED_ONLY_BODY_TEXT,
+        cofactoredGolden.bodyText,
       );
       const result = yield* SignedMessage.verify({
         signedMessage,
@@ -755,10 +716,15 @@ it("derives the exact maximum complete SignedMessage encoding", () =>
       );
       const actualLength = yield* actualEncodedByteLength(signedMessage);
 
-      expect(SignedMessage.maximumEncodedByteLength).toBe(
-        EXPECTED_MAXIMUM_MESSAGE_BYTES,
-      );
-      expect(actualLength).toBe(EXPECTED_MAXIMUM_MESSAGE_BYTES);
+      expect(actualLength).toBe(SignedMessage.maximumEncodedByteLength);
+      expect(
+        yield* signMessage(
+          fixture,
+          new Uint8Array(MAXIMUM_BODY_BYTES + 1),
+          recipientSet(MAXIMUM_RECIPIENTS),
+          249,
+        ).pipe(Effect.isFailure),
+      ).toBe(true);
       expect(SignedMessage.encodedByteLength(signedMessage)).toBe(actualLength);
     }),
   ));

@@ -421,7 +421,7 @@ function directMembership(
 ) {
   return Effect.gen(function* () {
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "membership_descriptor",
       conversationId: yield* deriveConversationId([
         cards[0].agentId,

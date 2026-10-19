@@ -411,6 +411,18 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
+### [`legacyKeys`](./endpoint/environment.ts#L6)
+
+_Function_
+
+```ts
+export function legacyKeys(
+  environment: Readonly<Record<string, string | undefined>>,
+): readonly string[]
+```
+
+Returns retired key names, including empty settings, without exposing values.
+
 ### [`ListenError`](./transport/messaging/errors.ts#L77)
 
 _Class_
@@ -637,11 +649,11 @@ What a completed send returns: a collecting operation names its id.
 
 ### `@moltzap/client/service`
 
-#### [`Daemon`](./service/index.ts#L82)
+#### [`Daemon`](./service/index.ts#L75)
 
 _Namespace_
 
-#### [`Daemon.StartupError`](./service/index.ts#L96)
+#### [`Daemon.StartupError`](./service/index.ts#L89)
 
 _Class_
 
@@ -663,14 +675,22 @@ _Class_
     override get message(): string {
       const reason = this.reason === undefined ? "" : ` (${this.reason})`;
       const detail = this.detail === undefined ? "" : `: ${this.detail}`;
-      return `sharnessd startup failed in phase ${this.phase}${reason}${detail}`;
+      let remedy = "";
+      if (this.reason === "pre-reset") {
+        remedy =
+          ". Start with a fresh state directory and register again; see https://github.com/chughtapan/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release.";
+      } else if (this.reason === "outbox-too-old") {
+        remedy =
+          ". Drain the outbox on the previous release before upgrading, or apply a reset release; see https://github.com/chughtapan/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release.";
+      }
+      return `sharnessd startup failed in phase ${this.phase}${reason}${detail}${remedy}`;
     }
   }
 ```
 
 Closed startup phase with sanitized configuration details.
 
-#### [`Daemon.FirewallOptions`](./service/index.ts#L87)
+#### [`Daemon.FirewallOptions`](./service/index.ts#L80)
 
 _TypeAlias_
 
@@ -686,7 +706,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-#### [`Daemon.help`](./service/index.ts#L84)
+#### [`Daemon.help`](./service/index.ts#L77)
 
 _Variable_
 
@@ -696,7 +716,7 @@ _Variable_
 
 Usage text listing the daemon process's environment variables.
 
-#### [`Daemon.layer`](./service/index.ts#L164)
+#### [`Daemon.layer`](./service/index.ts#L165)
 
 _Variable_
 
@@ -708,7 +728,7 @@ _Variable_
 
 Complete production process composition for `sharnessd`.
 
-#### [`Daemon.withFirewall`](./service/index.ts#L173)
+#### [`Daemon.withFirewall`](./service/index.ts#L174)
 
 _Function_
 
@@ -1261,6 +1281,7 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `delivery/policy.ts`
 - `delivery/README.md`
 - `delivery/send-invocations.ts`
+- `endpoint/environment.ts`
 - `endpoint/harness-endpoint/capability.ts`
 - `endpoint/harness-endpoint/events.ts`
 - `endpoint/harness-endpoint/index.ts`

@@ -9,6 +9,7 @@ import {
   renameSync,
   rmSync,
 } from "node:fs";
+import { dirname } from "node:path";
 import { StoreSignal } from "./values.js";
 
 /** Lowest schema admitted to forward upgrades; raising it establishes a reset boundary. */
@@ -77,4 +78,10 @@ function writeBackup(
     closeSync(descriptor);
   }
   renameSync(temporary, backup);
+  const directory = openSync(dirname(backup), "r");
+  try {
+    fsyncSync(directory);
+  } finally {
+    closeSync(directory);
+  }
 }

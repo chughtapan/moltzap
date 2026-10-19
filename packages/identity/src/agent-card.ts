@@ -31,8 +31,9 @@ import {
   PrincipalId,
   type PrincipalId as PrincipalIdValue,
 } from "./identifiers.js";
-import { WIRE_VERSION, WireVersions } from "./version.js";
+import { WIRE_VERSION } from "./version.js";
 import { WIRE_PROFILES } from "./wire-profile.js";
+import { WireVersions } from "./wire-versions.js";
 
 const DIGEST_BYTE_LENGTH = 32;
 const WHOLE_SECOND_UTC =
@@ -135,7 +136,7 @@ const protectedHeader = exactStruct({
 
 const payload = exactStruct({
   kind: Schema.Literal("agentCard"),
-  moltzapVersion: WireVersions.history,
+  sharnessVersion: WireVersions.history,
   agentId: AgentId,
   principalId: PrincipalId,
   agentName: AgentName,
@@ -153,6 +154,7 @@ export interface AgentCard {
 }
 
 interface AgentCardState {
+  readonly wireVersion: string;
   readonly representation: AgentCardRepresentation;
   readonly protectedHeader: typeof protectedHeader.Type;
 }
@@ -234,6 +236,7 @@ const decodeRepresentation = (
       Effect.mapError(() => parseIssue(ast, representation)),
     );
     cardState.set(card, {
+      wireVersion: decodedPayload.sharnessVersion,
       representation: retained,
       protectedHeader: Object.freeze({ ...decodedHeader }),
     });
@@ -366,7 +369,7 @@ export const issueAgentCard = (
   Effect.gen(function* () {
     const payloadBytes = yield* encodeCanonicalJson({
       kind: "agentCard",
-      moltzapVersion: yield* WireVersions.emitted,
+      sharnessVersion: yield* WireVersions.emitted,
       agentId: input.agentId,
       principalId: input.principalId,
       agentName: input.agentName,
@@ -437,12 +440,18 @@ export const digestAgentCard = (
 /* eslint-disable @typescript-eslint/no-redeclare, @typescript-eslint/naming-convention, agent-code-guard/require-assertion-rationale --
  * The accepted same-name Schema/type API retains the exact private General JWS AST while erasing only its encoded TypeScript type.
  */
+/** The retained signed version lets members derive the same conversation foundation. */
+const wireVersion = (card: AgentCard): string =>
+  cardState.get(card)?.wireVersion ?? "";
+
 /** Verifies immutable Registry attestation without exposing JOSE mechanics. */
 export const AgentCard = Object.assign(agentCardSchema, {
   verify: verifyAgentCard,
+  wireVersion,
 }) as Schema.Schema<AgentCard, unknown> &
   Readonly<{
     readonly verify: typeof verifyAgentCard;
+    readonly wireVersion: typeof wireVersion;
   }>;
 /* eslint-enable @typescript-eslint/no-redeclare, @typescript-eslint/naming-convention, agent-code-guard/require-assertion-rationale --
  * The accepted same-name Schema/type API retains the exact private General JWS AST while erasing only its encoded TypeScript type.

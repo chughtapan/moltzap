@@ -6,7 +6,7 @@
 import {
   AgentCard,
   AgentSigningAuthority,
-  WireVersions,
+  wireVersions,
 } from "@moltzap/identity";
 import { Data, Deferred, Duration, Effect, Schema, type Scope } from "effect";
 import type { FirewallSendError } from "../../firewall/runtime.js";
@@ -479,7 +479,7 @@ const makeRuntime = (
   Effect.gen(function* () {
     return {
       input,
-      wireVersion: yield* WireVersions.emitted,
+      wireVersion: yield* wireVersions.emitted,
       conversations: recovered.conversations,
       intents: new Map(),
       completedPosts: recovered.completedPosts,

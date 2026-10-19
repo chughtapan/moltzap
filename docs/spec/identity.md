@@ -77,17 +77,23 @@ The Registry subpath exports these type-only capability results:
 - `RegistryListResult`.
 
 The remaining root exports are `WIRE_VERSION`, `LIVE_WIRE_VERSIONS`,
-`HISTORY_WIRE_VERSIONS`, `WireVersions`, `AgentSigningAuthority`, `SealedBody`,
+`HISTORY_WIRE_VERSIONS`, `wireVersions`, `AgentSigningAuthority`, `SealedBody`,
 `AuthenticatedHttp`, `legacyKeys`, and the shared exact error classes in
 [Error contract](#error-contract).
 The Registry subpath also exports `Registry` and its exact client error
 classes.
 
-`WireVersions` is an injectable release policy. Without an `emitted` override,
-its `live` set intersects with the binary's live set. Tests may supply an
-`emitted` value with its live window to simulate adjacent releases.
-Its `history` set adds to `HISTORY_WIRE_VERSIONS` and cannot remove retained
-versions. Without the service, both decoders use the binary's sets.
+`wireVersions` exposes frozen compatibility operations for the binary's emitted,
+live and retained-history sets. It exposes no configurable service or context
+tag. `@moltzap/identity/test` resolves the internal `WireVersions` tag only when
+the explicit `sharness-test` module-resolution condition is enabled. Normal
+production resolution refuses that subpath. Client tests and their child
+processes opt into the condition to compose adjacent releases; production
+sources cannot import the test-only entry.
+
+`AgentCard.wireVersion` reads the card's retained signed version. Endpoints use
+the first canonical member's card to select a shared conversation foundation
+independently of the binaries' emitted versions.
 
 `SignedMessage.encodedByteLength` and
 `SignedMessage.maximumEncodedByteLength` are nested deep-module
@@ -282,7 +288,7 @@ Registry state.
 
 ## Wire versions
 
-Every new artifact emits `WIRE_VERSION`, currently `2026.1019.1`. `LIVE_WIRE_VERSIONS` admits outer
+Every new artifact emits `WIRE_VERSION`, currently `2026.1019.2`. `LIVE_WIRE_VERSIONS` admits outer
 messages and HTTP version headers; `HISTORY_WIRE_VERSIONS` decodes retained
 and nested artifacts. Both sets currently contain only the emitted version.
 AgentCards use the history set even during live authentication: immutable

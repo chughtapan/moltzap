@@ -11,8 +11,15 @@
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
     "paths": {
-      "@moltzap/openclaw-channel": ["../packages/openclaw-channel/src/index.ts"]
-    }
+      "@moltzap/openclaw-channel": [
+        "../packages/openclaw-channel/src/index.ts"
+      ]
+    },
+    "customConditions": [
+      "sharness-test"
+    ]
   },
-  "include": ["**/*.ts"]
+  "include": [
+    "**/*.ts"
+  ]
 }

@@ -96,7 +96,7 @@ export function issueTestCard(
       agentName: Schema.decodeUnknownSync(AgentName)(input.name),
       issuedAt: "2026-08-27T12:00:00Z",
       kind: "agentCard",
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       principalId: Schema.decodeUnknownSync(PrincipalId)(
         identifier("prn_", input.byte),
       ),

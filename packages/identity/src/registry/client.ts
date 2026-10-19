@@ -28,7 +28,7 @@ import {
   VersionMismatchError,
 } from "../http-errors.js";
 import { AgentSigningError, signHttpRequest } from "../http-signature.js";
-import { WireVersions } from "../version.js";
+import { WireVersions } from "../wire-versions.js";
 import {
   LIST_PATH,
   listResponseSchema,

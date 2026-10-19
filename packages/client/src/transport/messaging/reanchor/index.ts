@@ -729,8 +729,8 @@ function makeReanchorBody(
     return Effect.fail(persistenceFailure());
   }
   return Schema.decodeUnknown(ReanchorBody)({
-    moltzapVersion:
-      conversation.head.record.actionCertifiedRecord.recordCore.moltzapVersion,
+    sharnessVersion:
+      conversation.head.record.actionCertifiedRecord.recordCore.sharnessVersion,
     kind: "reanchor_body",
     conversationId: membership.descriptor.conversationId,
     membershipHash: membership.hash,
@@ -954,7 +954,7 @@ function localReanchorVoteStatement(
   anchorHash: AnchorHashValue,
 ): PendingReanchorVote["statement"] {
   return {
-    moltzapVersion: body.moltzapVersion,
+    sharnessVersion: body.sharnessVersion,
     kind: "reanchor_vote",
     signerAgentId: runtime.input.localAgentCard.agentId,
     anchorHash,

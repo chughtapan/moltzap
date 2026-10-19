@@ -12,8 +12,9 @@ export {
   LIVE_WIRE_VERSIONS,
   WIRE_VERSION,
   type WireVersion,
-  WireVersions,
 } from "./version.js";
+/** Compatibility operations have no injectable context tag in the published API. */
+export { wireVersions } from "./wire-versions.js";
 
 /** Canonical refined values shared by identity and its consumers. */
 export { AgentId, AgentName, PrincipalId } from "./identifiers.js";

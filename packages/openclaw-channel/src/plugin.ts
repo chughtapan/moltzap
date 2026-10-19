@@ -17,6 +17,7 @@ import {
   type InboundDelivery,
   type InboundItem,
   type InboundMessage,
+  legacyKeys,
   type LocalGuidance,
   MessageAddressInput,
   type MessageAddressInput as MessageAddressInputValue,
@@ -305,6 +306,13 @@ export function makeChannelConfigJsonSchema() {
 export function createChannelPlugin(
   deps: ChannelPluginDeps = {},
 ): ChannelPlugin<Account> {
+  // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- Host startup enumerates unknown retired keys, which Effect.Config cannot name in advance.
+  const retiredKeys = legacyKeys(process.env);
+  if (retiredKeys.length > 0) {
+    throw new OpenClawConfigurationError({
+      detail: `Retired environment keys: ${retiredKeys.join(", ")}; use SHARNESS_* keys and restart.`,
+    });
+  }
   const connectedAccount: ConnectedAccountState = {};
   return {
     ...createChannelPluginBase<Account>({

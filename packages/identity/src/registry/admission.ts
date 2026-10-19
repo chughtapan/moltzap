@@ -19,7 +19,7 @@ import {
   verifyHttpRequestSignature,
 } from "../http-signature.js";
 import { hasCanonicalBase64UrlLength } from "../identifiers.js";
-import { WireVersions } from "../version.js";
+import { WireVersions } from "../wire-versions.js";
 import {
   registrationBody,
   type RegistryRegisterRequest as RegistryRegisterRequestValue,

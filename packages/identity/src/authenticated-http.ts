@@ -32,7 +32,7 @@ import {
 } from "./http-signature.js";
 import { AgentId, type AgentId as AgentIdValue } from "./identifiers.js";
 import { Registry } from "./registry.js";
-import { WireVersions } from "./version.js";
+import { WireVersions } from "./wire-versions.js";
 
 /** Request body and caller identity established by AuthenticatedHttp. */
 export type VerifiedAgentRequest = Readonly<{

@@ -85,11 +85,11 @@ const policyConsumerCheck = `
 const { Effect, Layer, Schema } = await import("effect");
 const decodeAuditLine = Schema.decodeUnknownSync(Schema.parseJson(service.FirewallAuditRecord));
 const auditStart = decodeAuditLine(JSON.stringify({
-  kind: "start", format: "moltzap.firewall-audit/v3", snapshotId: "a".repeat(64),
+  kind: "start", format: "org.social-harness/firewall-audit/v4", snapshotId: "a".repeat(64),
   startedAt: "2026-10-17T00:00:00.000Z",
 }));
 const auditComplete = decodeAuditLine(JSON.stringify({
-  kind: "complete", format: "moltzap.firewall-audit/v3", snapshotId: auditStart.snapshotId,
+  kind: "complete", format: "org.social-harness/firewall-audit/v4", snapshotId: auditStart.snapshotId,
   checkCount: 0, activationCount: 0, sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 }));
 if (auditComplete.kind !== "complete" || auditComplete.snapshotId !== auditStart.snapshotId) {

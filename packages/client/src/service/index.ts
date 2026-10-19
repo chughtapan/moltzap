@@ -1,10 +1,10 @@
 /** @file Production composition for one explicitly configured endpoint daemon. */
 
 import { NodeHttpClient } from "@effect/platform-node";
-import { LIVE_WIRE_VERSIONS, WireVersions } from "@moltzap/identity";
+import { wireVersions } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
-import { Data, Duration, Effect, Layer, Option } from "effect";
+import { Data, Duration, Effect, Layer } from "effect";
 import {
   type FirewallOptions as InstalledFirewallOptions,
   installEditableFirewall,
@@ -39,14 +39,7 @@ const REGISTRY_REQUEST_TIMEOUT = Duration.seconds(30);
 const ROUTER_SEND_TIMEOUT = Duration.seconds(30);
 const ROUTER_POLL_TIMEOUT = Duration.seconds(35);
 
-const liveWireVersions = Effect.serviceOption(WireVersions).pipe(
-  Effect.map((configuration) =>
-    Option.match(configuration, {
-      onNone: () => LIVE_WIRE_VERSIONS,
-      onSome: (sets) => sets.live,
-    }),
-  ),
-);
+const liveWireVersions = wireVersions.liveSet;
 
 /** Trusted operators decode retained checks without reading private storage schemas. */
 export { FirewallAuditRecord } from "../delivery/index.js";
@@ -110,7 +103,15 @@ export namespace Daemon {
     override get message(): string {
       const reason = this.reason === undefined ? "" : ` (${this.reason})`;
       const detail = this.detail === undefined ? "" : `: ${this.detail}`;
-      return `sharnessd startup failed in phase ${this.phase}${reason}${detail}`;
+      let remedy = "";
+      if (this.reason === "pre-reset") {
+        remedy =
+          ". Start with a fresh state directory and register again; see https://github.com/chughtapan/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release.";
+      } else if (this.reason === "outbox-too-old") {
+        remedy =
+          ". Drain the outbox on the previous release before upgrading, or apply a reset release; see https://github.com/chughtapan/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release.";
+      }
+      return `sharnessd startup failed in phase ${this.phase}${reason}${detail}${remedy}`;
     }
   }
 

@@ -140,7 +140,7 @@ function replacementEmptyFoundation(
       expected.canonicalAnchor,
     ).pipe(Effect.mapError(persistenceFailure));
     const anchor: GenesisAnchorBodyValue = {
-      moltzapVersion: preceding.moltzapVersion,
+      sharnessVersion: preceding.sharnessVersion,
       kind: "genesis_anchor_body",
       conversationId: membership.descriptor.conversationId,
       membershipHash: membership.hash,

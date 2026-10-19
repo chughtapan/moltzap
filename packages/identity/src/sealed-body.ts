@@ -45,24 +45,6 @@ const X25519_PUBLIC_KEY_BYTES = 32;
  */
 const SALT_BYTES = 32;
 
-/**
- * Every sealed-body member except the ciphertext has a fixed length: the
- * commitment, MessageId, sender AgentId, ephemeral keys, wrapped keys, IV, and
- * tag. The JCS encoding is therefore the base64url of the salted plaintext
- * plus these fixed byte counts. A single recipient carries its `epk` in the
- * protected header, and two or more each carry one in their own entry.
- *
- * The outer members with IV and tag take 103 bytes. A single recipient adds a
- * 428-byte protected header and a 74-byte entry: 605. Two or more add a
- * 315-byte protected header and 171 bytes per entry including its separating
- * comma, less one byte because the last entry has none: 417 + 171R.
- */
-const SINGLE_RECIPIENT_FIXED_BYTES =
-  WIRE_PROFILES[WIRE_VERSION].singleRecipientSealedBytes;
-const MULTIPLE_RECIPIENT_FIXED_BYTES =
-  WIRE_PROFILES[WIRE_VERSION].multipleRecipientSealedBytes;
-const RECIPIENT_ENTRY_BYTES = 171;
-
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
 const decodeCanonicalBase64Url = (value: string): Uint8Array | undefined =>
@@ -146,6 +128,49 @@ const protectedHeaderMembers = (
   [MESSAGE_ID_HEADER]: messageId,
   [SENDER_HEADER]: senderAgentId,
 });
+
+/** Fixed-width members use the same protected-header builder as actual sealing. */
+const sealedRepresentationSizes = (() => {
+  const encoded = (length: number) =>
+    Encoding.encodeBase64Url(new Uint8Array(length));
+  const epk = {
+    kty: "OKP",
+    crv: "X25519",
+    x: encoded(X25519_PUBLIC_KEY_BYTES),
+  };
+  const header = protectedHeaderMembers(
+    encoded(COMMITMENT_BYTES),
+    Schema.decodeUnknownSync(MessageId)(`msg_${encoded(16)}`),
+    Schema.decodeUnknownSync(AgentId)(`agt_${encoded(16)}`),
+  );
+  const bytes = (value: object) =>
+    new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  const entry = { encrypted_key: encoded(WRAPPED_KEY_BYTES), header: { epk } };
+  const representation = (
+    protectedMembers: object,
+    recipients: readonly object[],
+  ) => ({
+    ciphertext: "",
+    iv: encoded(IV_BYTES),
+    protected: Encoding.encodeBase64Url(
+      new TextEncoder().encode(JSON.stringify(protectedMembers)),
+    ),
+    recipients,
+    tag: encoded(TAG_BYTES),
+  });
+  return {
+    single: bytes(
+      representation({ ...header, epk }, [
+        { encrypted_key: encoded(WRAPPED_KEY_BYTES) },
+      ]),
+    ),
+    multiple: bytes(representation(header, [])) - 1,
+    recipient: bytes(entry) + 1,
+  };
+})();
+const SINGLE_RECIPIENT_FIXED_BYTES = sealedRepresentationSizes.single;
+const MULTIPLE_RECIPIENT_FIXED_BYTES = sealedRepresentationSizes.multiple;
+const RECIPIENT_ENTRY_BYTES = sealedRepresentationSizes.recipient;
 
 /**
  * Commits to the salted plaintext. A256GCM does not bind the content key to

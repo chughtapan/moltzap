@@ -8,11 +8,11 @@ Production composition for one explicitly configured endpoint daemon.
 
 ## Public surface
 
-### [`Daemon`](./index.ts#L82)
+### [`Daemon`](./index.ts#L75)
 
 _Namespace_
 
-### [`FirewallOptions`](./index.ts#L87)
+### [`FirewallOptions`](./index.ts#L80)
 
 _TypeAlias_
 
@@ -28,7 +28,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-### [`help`](./index.ts#L84)
+### [`help`](./index.ts#L77)
 
 _Variable_
 
@@ -38,7 +38,7 @@ _Variable_
 
 Usage text listing the daemon process's environment variables.
 
-### [`layer`](./index.ts#L164)
+### [`layer`](./index.ts#L165)
 
 _Variable_
 
@@ -50,7 +50,7 @@ _Variable_
 
 Complete production process composition for `sharnessd`.
 
-### [`StartupError`](./index.ts#L96)
+### [`StartupError`](./index.ts#L89)
 
 _Class_
 
@@ -72,14 +72,22 @@ _Class_
     override get message(): string {
       const reason = this.reason === undefined ? "" : ` (${this.reason})`;
       const detail = this.detail === undefined ? "" : `: ${this.detail}`;
-      return `sharnessd startup failed in phase ${this.phase}${reason}${detail}`;
+      let remedy = "";
+      if (this.reason === "pre-reset") {
+        remedy =
+          ". Start with a fresh state directory and register again; see https://github.com/chughtapan/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release.";
+      } else if (this.reason === "outbox-too-old") {
+        remedy =
+          ". Drain the outbox on the previous release before upgrading, or apply a reset release; see https://github.com/chughtapan/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release.";
+      }
+      return `sharnessd startup failed in phase ${this.phase}${reason}${detail}${remedy}`;
     }
   }
 ```
 
 Closed startup phase with sanitized configuration details.
 
-### [`withFirewall`](./index.ts#L173)
+### [`withFirewall`](./index.ts#L174)
 
 _Function_
 

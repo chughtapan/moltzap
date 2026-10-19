@@ -32,8 +32,9 @@ import {
   type AgentId as AgentIdValue,
   canonicalIdentifier,
 } from "./identifiers.js";
-import { WIRE_VERSION, WireVersions } from "./version.js";
+import { WIRE_VERSION } from "./version.js";
 import { WIRE_PROFILES } from "./wire-profile.js";
+import { WireVersions } from "./wire-versions.js";
 
 /** Sender-scoped identity of one attributed message. */
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Effect Schemas share the public domain name they decode.
@@ -47,15 +48,41 @@ const SIGNED_MESSAGE_TYPE = WIRE_PROFILES[WIRE_VERSION].signedMessageType;
 export const MAXIMUM_BODY_BYTES = WIRE_PROFILES[WIRE_VERSION].maximumBodyBytes;
 /** Largest recipient set that one SignedMessage names. */
 export const MAXIMUM_RECIPIENTS = WIRE_PROFILES[WIRE_VERSION].maximumRecipients;
-/**
- * The complete General JWS encoding of the largest SignedMessage: the
- * maximum body to the maximum recipients. It is derived from the closed
- * representation, so it changes with the length of `WIRE_VERSION`, which
- * every payload carries; a test recomputes it from an actual encoding.
- */
-const MAXIMUM_ENCODED_BYTES =
-  WIRE_PROFILES[WIRE_VERSION].maximumSignedMessageBytes;
 const ED25519_SIGNATURE_BYTES = 64;
+
+/** Complete General JWS bound, encoded from a maximal payload and fixed-width signature. */
+const MAXIMUM_ENCODED_BYTES = Effect.runSync(
+  Effect.gen(function* () {
+    const encoded = (length: number) =>
+      Encoding.encodeBase64Url(new Uint8Array(length));
+    const payloadBytes = yield* encodeCanonicalJson({
+      kind: "signedMessage",
+      sharnessVersion: WIRE_VERSION,
+      senderAgentId: `agt_${encoded(16)}`,
+      agentCardDigest: `acd_${encoded(32)}`,
+      recipientAgentIds: Array.from(
+        { length: MAXIMUM_RECIPIENTS },
+        () => `agt_${encoded(16)}`,
+      ),
+      messageId: `msg_${encoded(16)}`,
+      body: encoded(MAXIMUM_BODY_BYTES),
+    });
+    const headerBytes = yield* encodeCanonicalJson({
+      alg: "Ed25519",
+      kid: `urn:ietf:params:oauth:jwk-thumbprint:sha-256:${encoded(32)}`,
+      typ: SIGNED_MESSAGE_TYPE,
+    });
+    return (yield* encodeCanonicalJson({
+      payload: Encoding.encodeBase64Url(payloadBytes),
+      signatures: [
+        {
+          protected: Encoding.encodeBase64Url(headerBytes),
+          signature: encoded(ED25519_SIGNATURE_BYTES),
+        },
+      ],
+    })).byteLength;
+  }),
+);
 
 const decodeCanonicalBase64Url = (value: string): Uint8Array | undefined =>
   Either.match(Encoding.decodeBase64Url(value), {
@@ -161,7 +188,7 @@ const opaqueBody = Schema.String.pipe(
 
 const payload = exactStruct({
   kind: Schema.Literal("signedMessage"),
-  moltzapVersion: WireVersions.history,
+  sharnessVersion: WireVersions.history,
   senderAgentId: AgentId,
   agentCardDigest: AgentCardDigest,
   recipientAgentIds,
@@ -273,7 +300,7 @@ const decodeRepresentation = (
     }
     const view = makeView(decodedPayload, body);
     messageState.set(view, {
-      wireVersion: decodedPayload.moltzapVersion,
+      wireVersion: decodedPayload.sharnessVersion,
       representation: retained,
       protectedHeader: Object.freeze({ ...decodedHeader }),
       body: Uint8Array.from(body),
@@ -402,7 +429,7 @@ const prepareSigningMaterial = (input: SignInput) =>
     ).pipe(Effect.mapError(signingFailure));
     const payloadBytes = yield* encodeCanonicalJson({
       kind: "signedMessage",
-      moltzapVersion: yield* WireVersions.emitted,
+      sharnessVersion: yield* WireVersions.emitted,
       senderAgentId: input.agentCard.agentId,
       agentCardDigest,
       recipientAgentIds: recipients,

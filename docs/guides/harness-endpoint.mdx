@@ -28,6 +28,12 @@ JSON-RPC errors.
 - A registered peer named `bob` whose daemon is running.
 - The daemon's MCP URL, `http://127.0.0.1:<SHARNESS_MCP_PORT>/mcp`.
 
+The reset release requires fresh endpoint state and Registry registration.
+Signed cards, messages, and certified records use `sharnessVersion`; recreate
+pre-reset state rather than importing it. Follow the
+[wire compatibility contract](/spec/layer-interfaces#wire-compatibility-window)
+when upgrading peers together.
+
 ## Choose HarnessEndpoint or the MCP endpoint
 
 | You are building | Use |
@@ -131,7 +137,7 @@ daemons.
   connection stays open until the scope closes, so run the program inside
   `Effect.scoped` or a longer-lived scope such as a `Layer`.
 - **Connect.** Acquisition connects, then checks that the daemon offers the
-  `moltzap.inbox.pending` push event. It fails with a `ConnectError` whose
+  `org.social-harness/inbox.pending` push event. It fails with a `ConnectError` whose
   `reason` is `transport-failed` or `incompatible-daemon`.
 - **Send.** `send` takes a `SendInput`: text to an `agent:` or `group:`
   address, optionally a `gather` or `all_gather` collective, or an answer to

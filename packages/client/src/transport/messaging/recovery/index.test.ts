@@ -463,7 +463,7 @@ const makeFixtureWithRouter = (
       remote.card.agentId,
     ]);
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "membership_descriptor",
       conversationId,
       members: [localCard, remoteCard],
@@ -651,7 +651,7 @@ const addGroupFoundation = (
       ...further.map((member) => member.card.agentId),
     ]);
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "membership_descriptor",
       conversationId,
       members: yield* Effect.forEach(
@@ -665,7 +665,7 @@ const addGroupFoundation = (
       fixture.registrySignerPublicKey,
     );
     const anchor: GenesisAnchorBody = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "genesis_anchor_body",
       conversationId,
       membershipHash: membership.hash,
@@ -771,7 +771,7 @@ const buildGroupHistory = (
       compareAgentIds(left.card.agentId, right.card.agentId),
     );
     const anchor: GenesisAnchorBody = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "genesis_anchor_body",
       conversationId,
       membershipHash: group.membership.hash,
@@ -785,7 +785,7 @@ const buildGroupHistory = (
         members,
         (member) =>
           signEvidence(member, {
-            moltzapVersion: WIRE_VERSION,
+            sharnessVersion: WIRE_VERSION,
             kind: "action_signature",
             signerAgentId: member.card.agentId,
             actionHash,
@@ -796,7 +796,7 @@ const buildGroupHistory = (
       Effect.map(
         mintPostId(),
         (postId): PostIntent => ({
-          moltzapVersion: WIRE_VERSION,
+          sharnessVersion: WIRE_VERSION,
           kind: "post_intent",
           conversationId,
           membershipHash: group.membership.hash,
@@ -807,7 +807,7 @@ const buildGroupHistory = (
       );
     const headIntent = yield* intent("certified group head");
     const headAction: GenesisActionCore = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "GENESIS",
       conversationId,
       membership: group.membership.descriptor,
@@ -818,7 +818,7 @@ const buildGroupHistory = (
     };
     const headActionHash = yield* hashAction(headAction);
     const headCore: RecordCore = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "record_core",
       membership: group.membership.descriptor,
       anchorHash,
@@ -827,30 +827,30 @@ const buildGroupHistory = (
     };
     const headRecordHash = yield* hashRecord(headCore);
     const certifiedHead: CertifiedRecord = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "certified_record",
       actionCertifiedRecord: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "action_certified_record",
         recordHash: headRecordHash,
         recordCore: headCore,
         routerAnchor: anchor,
         actionCertificate: {
-          moltzapVersion: WIRE_VERSION,
+          sharnessVersion: WIRE_VERSION,
           kind: "action_certificate",
           actionHash: headActionHash,
           signatures: yield* signedByAll(headActionHash),
         },
       },
       durabilityCertificate: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "durability_certificate",
         recordHash: headRecordHash,
         votes: yield* Effect.forEach(
           members.slice(0, quorumThreshold(members.length)),
           (member) =>
             signEvidence(member, {
-              moltzapVersion: WIRE_VERSION,
+              sharnessVersion: WIRE_VERSION,
               kind: "durability_vote",
               signerAgentId: member.card.agentId,
               conversationId,
@@ -863,7 +863,7 @@ const buildGroupHistory = (
     };
     const successorIntent = yield* intent("staged group successor");
     const successorAction: PostActionCore = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "POST",
       conversationId,
       membershipHash: group.membership.hash,
@@ -874,7 +874,7 @@ const buildGroupHistory = (
     };
     const successorActionHash = yield* hashAction(successorAction);
     const successorCore: RecordCore = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "record_core",
       membershipHash: group.membership.hash,
       anchorHash,
@@ -882,13 +882,13 @@ const buildGroupHistory = (
       actionHash: successorActionHash,
     };
     const successor: ActionCertifiedRecordValue = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "action_certified_record",
       recordHash: yield* hashRecord(successorCore),
       recordCore: successorCore,
       routerAnchor: anchor,
       actionCertificate: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "action_certificate",
         actionHash: successorActionHash,
         signatures: yield* signedByAll(successorActionHash),
@@ -903,7 +903,7 @@ const buildN4PartialHistory = (
 ): Effect.Effect<N4PartialHistory> =>
   Effect.gen(function* () {
     const headIntent: PostIntent = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "post_intent",
       conversationId: n4.membership.descriptor.conversationId,
       membershipHash: n4.membership.hash,
@@ -912,14 +912,14 @@ const buildN4PartialHistory = (
       content: [{ type: "text", text: "certified N4 head" }],
     };
     const headAnchor: GenesisAnchorBody = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "genesis_anchor_body",
       conversationId: n4.membership.descriptor.conversationId,
       membershipHash: n4.membership.hash,
       routerInstanceId: oldRouterInstanceId,
     };
     const headAction: GenesisActionCore = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "GENESIS",
       conversationId: n4.membership.descriptor.conversationId,
       membership: n4.membership.descriptor,
@@ -930,32 +930,32 @@ const buildN4PartialHistory = (
     };
     const headActionHash = yield* hashAction(headAction);
     const headLocalAction = yield* signEvidence(fixture.local, {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "action_signature",
       signerAgentId: fixture.local.card.agentId,
       actionHash: headActionHash,
     });
     const headRemoteAction = yield* signEvidence(fixture.remote, {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "action_signature",
       signerAgentId: fixture.remote.card.agentId,
       actionHash: headActionHash,
     });
     const headThirdAction = yield* signEvidence(n4.third, {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "action_signature",
       signerAgentId: n4.third.card.agentId,
       actionHash: headActionHash,
     });
     const headFourthAction = yield* signEvidence(n4.fourth, {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "action_signature",
       signerAgentId: n4.fourth.card.agentId,
       actionHash: headActionHash,
     });
     const headAnchorHash = yield* hashAnchor(headAnchor);
     const headCore: RecordCore = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "record_core",
       membership: n4.membership.descriptor,
       anchorHash: headAnchorHash,
@@ -964,7 +964,7 @@ const buildN4PartialHistory = (
     };
     const headRecordHash = yield* hashRecord(headCore);
     const headLocalDurability = yield* signEvidence(fixture.local, {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "durability_vote",
       signerAgentId: fixture.local.card.agentId,
       conversationId: n4.membership.descriptor.conversationId,
@@ -972,7 +972,7 @@ const buildN4PartialHistory = (
       recordHash: headRecordHash,
     });
     const headRemoteDurability = yield* signEvidence(fixture.remote, {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "durability_vote",
       signerAgentId: fixture.remote.card.agentId,
       conversationId: n4.membership.descriptor.conversationId,
@@ -980,7 +980,7 @@ const buildN4PartialHistory = (
       recordHash: headRecordHash,
     });
     const headFourthDurability = yield* signEvidence(n4.fourth, {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "durability_vote",
       signerAgentId: n4.fourth.card.agentId,
       conversationId: n4.membership.descriptor.conversationId,
@@ -988,16 +988,16 @@ const buildN4PartialHistory = (
       recordHash: headRecordHash,
     });
     const certifiedHead: CertifiedRecord = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "certified_record",
       actionCertifiedRecord: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "action_certified_record",
         recordHash: headRecordHash,
         recordCore: headCore,
         routerAnchor: headAnchor,
         actionCertificate: {
-          moltzapVersion: WIRE_VERSION,
+          sharnessVersion: WIRE_VERSION,
           kind: "action_certificate",
           actionHash: headActionHash,
           signatures: [
@@ -1009,7 +1009,7 @@ const buildN4PartialHistory = (
         },
       },
       durabilityCertificate: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "durability_certificate",
         recordHash: headRecordHash,
         votes: [
@@ -1021,7 +1021,7 @@ const buildN4PartialHistory = (
     };
 
     const successorIntent: PostIntent = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "post_intent",
       conversationId: n4.membership.descriptor.conversationId,
       membershipHash: n4.membership.hash,
@@ -1030,7 +1030,7 @@ const buildN4PartialHistory = (
       content: [{ type: "text", text: "partially disseminated successor" }],
     };
     const successorAction: PostActionCore = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "POST",
       conversationId: n4.membership.descriptor.conversationId,
       membershipHash: n4.membership.hash,
@@ -1041,25 +1041,25 @@ const buildN4PartialHistory = (
     };
     const successorActionHash = yield* hashAction(successorAction);
     const successorRemoteAction = yield* signEvidence(fixture.remote, {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "action_signature",
       signerAgentId: fixture.remote.card.agentId,
       actionHash: successorActionHash,
     });
     const successorThirdAction = yield* signEvidence(n4.third, {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "action_signature",
       signerAgentId: n4.third.card.agentId,
       actionHash: successorActionHash,
     });
     const successorFourthAction = yield* signEvidence(n4.fourth, {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "action_signature",
       signerAgentId: n4.fourth.card.agentId,
       actionHash: successorActionHash,
     });
     const successorCore: RecordCore = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "record_core",
       membershipHash: n4.membership.hash,
       anchorHash: headAnchorHash,
@@ -1068,13 +1068,13 @@ const buildN4PartialHistory = (
     };
     const successorRecordHash = yield* hashRecord(successorCore);
     const stagedSuccessor: ActionCertifiedRecordValue = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "action_certified_record",
       recordHash: successorRecordHash,
       recordCore: successorCore,
       routerAnchor: headAnchor,
       actionCertificate: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "action_certificate",
         actionHash: successorActionHash,
         signatures: [
@@ -1085,7 +1085,7 @@ const buildN4PartialHistory = (
       },
     };
     const successorThirdDurability = yield* signEvidence(n4.third, {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "durability_vote",
       signerAgentId: n4.third.card.agentId,
       conversationId: n4.membership.descriptor.conversationId,
@@ -1093,7 +1093,7 @@ const buildN4PartialHistory = (
       recordHash: successorRecordHash,
     });
     const successorRemoteDurability = yield* signEvidence(fixture.remote, {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "durability_vote",
       signerAgentId: fixture.remote.card.agentId,
       conversationId: n4.membership.descriptor.conversationId,
@@ -1101,7 +1101,7 @@ const buildN4PartialHistory = (
       recordHash: successorRecordHash,
     });
     const successorFourthDurability = yield* signEvidence(n4.fourth, {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "durability_vote",
       signerAgentId: n4.fourth.card.agentId,
       conversationId: n4.membership.descriptor.conversationId,
@@ -1109,11 +1109,11 @@ const buildN4PartialHistory = (
       recordHash: successorRecordHash,
     });
     const certifiedSuccessor: CertifiedRecord = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "certified_record",
       actionCertifiedRecord: stagedSuccessor,
       durabilityCertificate: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "durability_certificate",
         recordHash: successorRecordHash,
         votes: [
@@ -1150,7 +1150,7 @@ const certifiedN4PostAt = (
       compareAgentIds(left.card.agentId, right.card.agentId),
     );
     const intent: PostIntent = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "post_intent",
       conversationId: n4.membership.descriptor.conversationId,
       membershipHash: n4.membership.hash,
@@ -1159,7 +1159,7 @@ const certifiedN4PostAt = (
       content: [{ type: "text", text: "post under the new anchor" }],
     };
     const action: PostActionCore = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "POST",
       conversationId: n4.membership.descriptor.conversationId,
       membershipHash: n4.membership.hash,
@@ -1170,7 +1170,7 @@ const certifiedN4PostAt = (
     };
     const actionHash = yield* hashAction(action);
     const recordCore: RecordCore = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "record_core",
       membershipHash: n4.membership.hash,
       anchorHash: position.routerAnchor.anchorHash,
@@ -1182,7 +1182,7 @@ const certifiedN4PostAt = (
       signers,
       (signer) =>
         signEvidence(signer, {
-          moltzapVersion: WIRE_VERSION,
+          sharnessVersion: WIRE_VERSION,
           kind: "action_signature",
           signerAgentId: signer.card.agentId,
           actionHash,
@@ -1193,7 +1193,7 @@ const certifiedN4PostAt = (
       signers,
       (signer) =>
         signEvidence(signer, {
-          moltzapVersion: WIRE_VERSION,
+          sharnessVersion: WIRE_VERSION,
           kind: "durability_vote",
           signerAgentId: signer.card.agentId,
           conversationId: n4.membership.descriptor.conversationId,
@@ -1206,23 +1206,23 @@ const certifiedN4PostAt = (
       return yield* Effect.dieMessage("a certificate needs signers");
     }
     const record: CertifiedRecord = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "certified_record",
       actionCertifiedRecord: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "action_certified_record",
         recordHash,
         recordCore,
         routerAnchor: position.routerAnchor,
         actionCertificate: {
-          moltzapVersion: WIRE_VERSION,
+          sharnessVersion: WIRE_VERSION,
           kind: "action_certificate",
           actionHash,
           signatures: [firstSignature, ...signatures],
         },
       },
       durabilityCertificate: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "durability_certificate",
         recordHash,
         votes: [firstVote, ...votes],
@@ -1363,7 +1363,7 @@ function takeActionProposalAfterEvidence(
 const stageCatchUpOutbound = (fixture: RecoveryFixture) =>
   Effect.gen(function* () {
     const request: CatchUpRequest = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "catch_up_request",
       conversationId: fixture.membership.descriptor.conversationId,
       membershipHash: fixture.membership.hash,
@@ -1625,7 +1625,7 @@ const catchUpPageIngress = (
     const recordHash = fixture.certifiedRecord.actionCertifiedRecord.recordHash;
     const attestation = yield* signEvidenceMessage({
       statement: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "catch_up_attestation",
         signerAgentId: fixture.remote.card.agentId,
         request,
@@ -1637,7 +1637,7 @@ const catchUpPageIngress = (
       signingAuthority: fixture.remote.authority,
     });
     const packet: CatchUpPage = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "catch_up_page",
       request,
       item: fixture.certifiedRecord,
@@ -1669,7 +1669,7 @@ const catchUpPageIngressFrom = (input: {
   Effect.gen(function* () {
     const attestation = yield* signEvidenceMessage({
       statement: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "catch_up_attestation",
         signerAgentId: input.responder.card.agentId,
         request: input.request,
@@ -1684,7 +1684,7 @@ const catchUpPageIngressFrom = (input: {
       signingAuthority: input.responder.authority,
     });
     const packet: CatchUpPage = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "catch_up_page",
       request: input.request,
       item: input.item,
@@ -1708,7 +1708,7 @@ const catchUpIncompleteIngressFrom = (input: {
   Effect.gen(function* () {
     const attestation = yield* signEvidenceMessage({
       statement: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "catch_up_attestation",
         signerAgentId: input.responder.card.agentId,
         request: input.request,
@@ -1720,7 +1720,7 @@ const catchUpIncompleteIngressFrom = (input: {
       signingAuthority: input.responder.authority,
     });
     const packet: CatchUpIncomplete = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "catch_up_incomplete",
       request: input.request,
       attestation: yield* Schema.encode(SignedMessage)(attestation),
@@ -1866,7 +1866,7 @@ const peerVoteFor = (fixture: RecoveryFixture, reanchor: ReanchorBody) =>
     Effect.orDie,
     Effect.flatMap((anchorHash) =>
       peerReanchorVoteIngress(fixture, {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "reanchor_vote",
         signerAgentId: fixture.remote.card.agentId,
         anchorHash,
@@ -1895,7 +1895,7 @@ const completedReanchorBy = (
       ordered,
       (voter) =>
         signEvidence(voter, {
-          moltzapVersion: WIRE_VERSION,
+          sharnessVersion: WIRE_VERSION,
           kind: "reanchor_vote",
           signerAgentId: voter.card.agentId,
           anchorHash,
@@ -1907,12 +1907,12 @@ const completedReanchorBy = (
       return yield* Effect.dieMessage("a re-anchor certificate needs a vote");
     }
     const completed: CompletedReanchor = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "completed_reanchor",
       anchorHash,
       reanchor,
       certificate: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "reanchor_certificate",
         anchorHash,
         votes: [first, ...rest],
@@ -1930,7 +1930,7 @@ const peerReanchorVote = (fixture: RecoveryFixture) => {
   const { recordCore, recordHash } =
     fixture.certifiedRecord.actionCertifiedRecord;
   return peerVoteFor(fixture, {
-    moltzapVersion: WIRE_VERSION,
+    sharnessVersion: WIRE_VERSION,
     kind: "reanchor_body",
     conversationId: recordCore.action.conversationId,
     membershipHash: fixture.membership.hash,
@@ -2279,7 +2279,7 @@ const recoverMixedRouterInstances = () =>
 
     const certified = fixture.certifiedRecord.actionCertifiedRecord;
     const sameInstanceBody: ReanchorVote["reanchor"] = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "reanchor_body",
       conversationId: unchanged,
       membershipHash: fixture.membership.hash,
@@ -2291,7 +2291,7 @@ const recoverMixedRouterInstances = () =>
       membership: fixture.membership,
       responder: fixture.remote,
       proposal: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "reanchor_vote",
         signerAgentId: fixture.remote.card.agentId,
         anchorHash: yield* hashAnchor(sameInstanceBody),
@@ -2392,7 +2392,7 @@ const peerCatchUpRequest = (
 ): CatchUpRequest => {
   const asked = membership ?? fixture.membership;
   return {
-    moltzapVersion: WIRE_VERSION,
+    sharnessVersion: WIRE_VERSION,
     kind: "catch_up_request",
     conversationId: asked.descriptor.conversationId,
     membershipHash: asked.hash,
@@ -2930,12 +2930,12 @@ const adoptsRelayedCompletionForReanchoringConversation = () =>
       signerAgentId: fixture.remote.card.agentId,
     });
     const completed: DirectPacket = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "completed_reanchor",
       anchorHash: proposal.anchorHash,
       reanchor: proposal.reanchor,
       certificate: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "reanchor_certificate",
         anchorHash: proposal.anchorHash,
         votes: [localVote, peerVote],
@@ -3544,7 +3544,7 @@ const reanchorByCatchUp: ReanchorRoute = (fixture, run) =>
       fixture.certifiedRecord.actionCertifiedRecord;
     const completed = yield* completedReanchorBy(
       {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "reanchor_body",
         conversationId: recordCore.action.conversationId,
         membershipHash: fixture.membership.hash,
@@ -3636,7 +3636,7 @@ const certifiesAtALockedHeadAfterReanchoring = (
           membership: fixture.membership,
           responder: fixture.remote,
           statement: {
-            moltzapVersion: WIRE_VERSION,
+            sharnessVersion: WIRE_VERSION,
             kind: "action_signature",
             signerAgentId: fixture.remote.card.agentId,
             actionHash: staleActionHash,
@@ -3682,7 +3682,7 @@ const certifiesAtALockedHeadAfterReanchoring = (
     const actionHash = yield* hashAction(reproposal.action);
     yield* fixture.engine.acceptRouterIngress(
       yield* peerEvidenceIngress(fixture, {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "action_signature",
         signerAgentId: fixture.remote.card.agentId,
         actionHash,
@@ -3701,7 +3701,7 @@ const certifiesAtALockedHeadAfterReanchoring = (
     );
     yield* fixture.engine.acceptRouterIngress(
       yield* peerEvidenceIngress(fixture, {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "durability_vote",
         signerAgentId: fixture.remote.card.agentId,
         conversationId: fixture.membership.descriptor.conversationId,
@@ -3793,7 +3793,7 @@ const retiresAStagedSuccessorWhenAReanchorSelectsItsHead = (
       history.certifiedHead.actionCertifiedRecord;
     const completed = yield* completedReanchorBy(
       {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "reanchor_body",
         conversationId: n4.membership.descriptor.conversationId,
         membershipHash: n4.membership.hash,
@@ -3887,7 +3887,7 @@ const retiresAStagedSuccessorWhenAReanchorSelectsItsHead = (
       membership: n4.membership,
       responder: n4.third,
       statement: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "durability_vote",
         signerAgentId: n4.third.card.agentId,
         conversationId: n4.membership.descriptor.conversationId,
@@ -4198,7 +4198,7 @@ const answerN4Incomplete = (
  */
 const restartedDirectAnchorHash = (fixture: RecoveryFixture) => {
   const anchor: GenesisAnchorBody = {
-    moltzapVersion: WIRE_VERSION,
+    sharnessVersion: WIRE_VERSION,
     kind: "genesis_anchor_body",
     conversationId: fixture.membership.descriptor.conversationId,
     membershipHash: fixture.membership.hash,
@@ -4401,7 +4401,7 @@ const reanchorsPastHeldVoteForUnsuppliedHead = () =>
     const held = yield* deliverRecovery(
       fixture.engine,
       peerVoteFor(fixture, {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "reanchor_body",
         conversationId: recordCore.action.conversationId,
         membershipHash: fixture.membership.hash,
@@ -4481,7 +4481,7 @@ const ignoresRelayedCompletionForRestartedEmptyConversation = () =>
     const { recordCore, recordHash } =
       fixture.certifiedRecord.actionCertifiedRecord;
     const reanchor: ReanchorBody = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "reanchor_body",
       conversationId: recordCore.action.conversationId,
       membershipHash: fixture.membership.hash,
@@ -4824,7 +4824,7 @@ const unstoredConversationWith = (fixture: RecoveryFixture) =>
       member.card.agentId,
     ]);
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "membership_descriptor",
       conversationId,
       members: yield* Effect.forEach(
@@ -4952,7 +4952,7 @@ const conversationWithForeignCard = (fixture: RecoveryFixture) =>
       member.card.agentId,
     ]);
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "membership_descriptor",
       conversationId,
       members: yield* Effect.forEach(
@@ -4999,7 +4999,7 @@ const certifiedPostAfterGenesis = (
       compareAgentIds(left.card.agentId, right.card.agentId),
     );
     const intent: PostIntent = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "post_intent",
       conversationId: membership.descriptor.conversationId,
       membershipHash: membership.hash,
@@ -5009,7 +5009,7 @@ const certifiedPostAfterGenesis = (
     };
     const anchorHash = genesis.actionCertifiedRecord.recordCore.anchorHash;
     const action: PostActionCore = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "POST",
       conversationId: membership.descriptor.conversationId,
       membershipHash: membership.hash,
@@ -5020,7 +5020,7 @@ const certifiedPostAfterGenesis = (
     };
     const actionHash = yield* hashAction(action);
     const recordCore: RecordCore = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "record_core",
       membershipHash: membership.hash,
       anchorHash,
@@ -5032,7 +5032,7 @@ const certifiedPostAfterGenesis = (
       signers,
       (signer) =>
         signEvidence(signer, {
-          moltzapVersion: WIRE_VERSION,
+          sharnessVersion: WIRE_VERSION,
           kind: "action_signature",
           signerAgentId: signer.card.agentId,
           actionHash,
@@ -5043,7 +5043,7 @@ const certifiedPostAfterGenesis = (
       signers,
       (signer) =>
         signEvidence(signer, {
-          moltzapVersion: WIRE_VERSION,
+          sharnessVersion: WIRE_VERSION,
           kind: "durability_vote",
           signerAgentId: signer.card.agentId,
           conversationId: membership.descriptor.conversationId,
@@ -5056,23 +5056,23 @@ const certifiedPostAfterGenesis = (
       return yield* Effect.dieMessage("a certificate needs signers");
     }
     const record: CertifiedRecord = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "certified_record",
       actionCertifiedRecord: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "action_certified_record",
         recordHash,
         recordCore,
         routerAnchor: genesis.actionCertifiedRecord.routerAnchor,
         actionCertificate: {
-          moltzapVersion: WIRE_VERSION,
+          sharnessVersion: WIRE_VERSION,
           kind: "action_certificate",
           actionHash,
           signatures: [firstSignature, ...signatures],
         },
       },
       durabilityCertificate: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "durability_certificate",
         recordHash,
         votes: [firstVote, ...votes],
@@ -5493,7 +5493,7 @@ const requestsCatchUpForAVoteAtAnUnknownHead = () =>
     yield* answerN4Incomplete(fixture, n4, requests.group);
     const waiting = yield* Queue.poll(outbound);
     const atSuccessor: ReanchorBody = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "reanchor_body",
       conversationId: n4.membership.descriptor.conversationId,
       membershipHash: n4.membership.hash,
@@ -5509,7 +5509,7 @@ const requestsCatchUpForAVoteAtAnUnknownHead = () =>
         membership: n4.membership,
         responder: n4.fourth,
         proposal: {
-          moltzapVersion: WIRE_VERSION,
+          sharnessVersion: WIRE_VERSION,
           kind: "reanchor_vote",
           signerAgentId: n4.fourth.card.agentId,
           anchorHash: yield* hashAnchor(atSuccessor),
@@ -5545,7 +5545,7 @@ const adoptsReanchorCompletedWhileItWasDown = () =>
     const { recordCore, recordHash } =
       fixture.certifiedRecord.actionCertifiedRecord;
     const reanchor: ReanchorBody = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "reanchor_body",
       conversationId: recordCore.action.conversationId,
       membershipHash: fixture.membership.hash,
@@ -6069,7 +6069,7 @@ const failsWhenTheStoreFailsWhileApplyingACaughtUpReanchor = () =>
       fixture.certifiedRecord.actionCertifiedRecord;
     const completed = yield* completedReanchorBy(
       {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "reanchor_body",
         conversationId: recordCore.action.conversationId,
         membershipHash: fixture.membership.hash,
@@ -6284,7 +6284,7 @@ const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
       membership: n4.membership,
       responder: n4.third,
       statement: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "action_signature",
         signerAgentId: n4.third.card.agentId,
         actionHash: yield* hashAction(proposal.proposal.action),
@@ -6851,7 +6851,7 @@ const resendsAProposalAMemberDroppedWhileRecovering = () =>
       { concurrency: 1 },
     ).pipe(Effect.orDie);
     yield* peerEvidenceIngress(fixture, {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "action_signature",
       signerAgentId: fixture.remote.card.agentId,
       actionHash,
@@ -6868,7 +6868,7 @@ const resendsAProposalAMemberDroppedWhileRecovering = () =>
       staged.recordHash,
     );
     yield* peerEvidenceIngress(fixture, {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "durability_vote",
       signerAgentId: fixture.remote.card.agentId,
       conversationId: fixture.membership.descriptor.conversationId,
@@ -7232,7 +7232,7 @@ const stagePostAtTheAuthor = (
       membership: fixture.membership,
       responder: fixture.remote,
       statement: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "action_signature",
         signerAgentId: fixture.remote.card.agentId,
         actionHash,
@@ -7343,7 +7343,7 @@ const certifiesAStagedSuccessorOnAVoteAMemberSendsAgain = () =>
     const certified = yield* deliverRecovery(
       fixture.engine,
       peerEvidenceIngress(fixture, {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "durability_vote",
         signerAgentId: fixture.remote.card.agentId,
         conversationId: fixture.membership.descriptor.conversationId,
@@ -7545,7 +7545,7 @@ const groupSuccessorTraffic = (
             membership: group.membership,
             responder: voter,
             statement: {
-              moltzapVersion: WIRE_VERSION,
+              sharnessVersion: WIRE_VERSION,
               kind: "durability_vote",
               signerAgentId: voter.card.agentId,
               conversationId: group.membership.descriptor.conversationId,
@@ -8101,7 +8101,7 @@ const waitsBehindAnEarlierInstanceReanchor = (earlierVote: "own" | "member") =>
     const { recordCore, recordHash } =
       history.certifiedHead.actionCertifiedRecord;
     const earlierBody: ReanchorBody = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "reanchor_body",
       conversationId: n4.membership.descriptor.conversationId,
       membershipHash: n4.membership.hash,
@@ -8138,7 +8138,7 @@ const waitsBehindAnEarlierInstanceReanchor = (earlierVote: "own" | "member") =>
           membership: n4.membership,
           responder: n4.third,
           statement: {
-            moltzapVersion: WIRE_VERSION,
+            sharnessVersion: WIRE_VERSION,
             kind: "reanchor_vote",
             signerAgentId: n4.third.card.agentId,
             anchorHash: yield* hashAnchor(earlierBody),
@@ -8264,7 +8264,7 @@ const settlesBehindAnEarlierInstanceVoteOnceTheRetriesRunOut = () =>
     const { recordCore, recordHash } =
       history.certifiedHead.actionCertifiedRecord;
     const earlierBody: ReanchorBody = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "reanchor_body",
       conversationId: n4.membership.descriptor.conversationId,
       membershipHash: n4.membership.hash,
@@ -8284,7 +8284,7 @@ const settlesBehindAnEarlierInstanceVoteOnceTheRetriesRunOut = () =>
         membership: n4.membership,
         responder: n4.third,
         statement: {
-          moltzapVersion: WIRE_VERSION,
+          sharnessVersion: WIRE_VERSION,
           kind: "reanchor_vote",
           signerAgentId: n4.third.card.agentId,
           anchorHash: yield* hashAnchor(earlierBody),
@@ -8331,7 +8331,7 @@ const adoptAReanchorAtTheN4Head = (
     );
     const completed = yield* completedReanchorBy(
       {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "reanchor_body",
         conversationId: n4.membership.descriptor.conversationId,
         membershipHash: n4.membership.hash,
@@ -8482,7 +8482,7 @@ const convertsUnderAnAdoptedAnchorAfterARefusedConversion = () =>
     const traffic = groupSuccessorTraffic(n4);
     const completed = yield* completedReanchorBy(
       {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "reanchor_body",
         conversationId: n4.membership.descriptor.conversationId,
         membershipHash: n4.membership.hash,
@@ -8553,7 +8553,7 @@ const settlesPastAnEarlierInstanceVoteForAnotherAnchor = () =>
       history.certifiedHead.actionCertifiedRecord;
     const { request } = yield* recoverGroup(fixture, n4, history.certifiedHead);
     const earlierBody: ReanchorBody = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "reanchor_body",
       conversationId: n4.membership.descriptor.conversationId,
       membershipHash: n4.membership.hash,
@@ -8568,7 +8568,7 @@ const settlesPastAnEarlierInstanceVoteForAnotherAnchor = () =>
         membership: n4.membership,
         responder: n4.third,
         statement: {
-          moltzapVersion: WIRE_VERSION,
+          sharnessVersion: WIRE_VERSION,
           kind: "reanchor_vote",
           signerAgentId: n4.third.card.agentId,
           anchorHash: yield* hashAnchor({
@@ -8905,7 +8905,7 @@ const remoteProposalAtTheHead = (
     const { recordCore, recordHash } =
       fixture.certifiedRecord.actionCertifiedRecord;
     const postIntent: PostIntent = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "post_intent",
       conversationId: fixture.membership.descriptor.conversationId,
       membershipHash: fixture.membership.hash,
@@ -8914,7 +8914,7 @@ const remoteProposalAtTheHead = (
       content: [{ type: "text", text: "proposed before the discontinuity" }],
     };
     const action: PostActionCore = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "POST",
       conversationId: postIntent.conversationId,
       membershipHash: fixture.membership.hash,
@@ -8924,7 +8924,7 @@ const remoteProposalAtTheHead = (
       postIntentHash: yield* hashPostIntent(postIntent),
     };
     return {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "action_proposal",
       action,
     } satisfies ActionProposal;
@@ -9242,7 +9242,7 @@ const remoteGenesisAtTheRestartedFoundation = (
   Effect.gen(function* () {
     const conversationId = fixture.membership.descriptor.conversationId;
     const postIntent: PostIntent = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "post_intent",
       conversationId,
       membershipHash: fixture.membership.hash,
@@ -9251,12 +9251,12 @@ const remoteGenesisAtTheRestartedFoundation = (
       content: [{ type: "text", text: "proposed after the restart" }],
     };
     const action: GenesisActionCore = {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "GENESIS",
       conversationId,
       membership: fixture.membership.descriptor,
       anchor: {
-        moltzapVersion: WIRE_VERSION,
+        sharnessVersion: WIRE_VERSION,
         kind: "genesis_anchor_body",
         conversationId,
         membershipHash: fixture.membership.hash,
@@ -9267,7 +9267,7 @@ const remoteGenesisAtTheRestartedFoundation = (
       postIntentHash: yield* hashPostIntent(postIntent),
     };
     return {
-      moltzapVersion: WIRE_VERSION,
+      sharnessVersion: WIRE_VERSION,
       kind: "action_proposal",
       action,
     } satisfies ActionProposal;

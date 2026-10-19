@@ -36,7 +36,7 @@ export const beginFirewallAudit = (path: string, store: AuditStore) =>
     const destination = yield* privateAuditPath(path);
     const start: FirewallAuditRecord = {
       kind: "start",
-      format: "moltzap.firewall-audit/v3",
+      format: "org.social-harness/firewall-audit/v4",
       snapshotId: randomBytes(32).toString("hex"),
       startedAt: yield* DateTime.now,
     };

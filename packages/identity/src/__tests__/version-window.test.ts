@@ -3,16 +3,64 @@
 import { Effect, Schema } from "effect";
 import { expect, it } from "vitest";
 
+import { decodeCanonicalJson, encodeCanonicalJson } from "../canonical-json.js";
 import {
   AgentCard,
   Ed25519PublicKey,
   SignedMessage,
   WIRE_VERSION,
-  WireVersions,
 } from "../index.js";
+import { WireVersions } from "../wire-versions.js";
 import golden from "./wire-golden.json" with { type: "json" };
 
+/** Reproduce the fixed signed bytes with node scripts/generate-wire-golden.ts after pnpm build. */
 const retainedVersion = "2099.101.0";
+
+it.each([
+  { name: "card", representation: golden.card },
+  { name: "message", representation: golden.message },
+])(
+  "refuses the retired version field in a $name even alongside the current field",
+  ({ representation }) =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const fields = yield* decodeCanonicalJson(
+          Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+          Buffer.from(representation.payload, "base64url"),
+        );
+        const { sharnessVersion, ...rest } = fields;
+        const legacyOnly = yield* encodeCanonicalJson({
+          ...rest,
+          moltzapVersion: sharnessVersion,
+        });
+        const both = yield* encodeCanonicalJson({
+          ...fields,
+          moltzapVersion: sharnessVersion,
+        });
+        const decode = Schema.decodeUnknown(
+          Schema.Union(AgentCard, SignedMessage),
+        );
+        expect(yield* decode(representation).pipe(Effect.isSuccess)).toBe(true);
+        expect(
+          yield* decode({
+            ...representation,
+            payload: Buffer.from(legacyOnly).toString("base64url"),
+          }).pipe(Effect.isFailure),
+        ).toBe(true);
+        expect(
+          yield* decode({
+            ...representation,
+            payload: Buffer.from(both).toString("base64url"),
+          }).pipe(Effect.isFailure),
+        ).toBe(true);
+      }).pipe(
+        Effect.provideService(WireVersions, {
+          live: [],
+          history: [retainedVersion],
+        }),
+      ),
+    ),
+);
 
 // @agent-code-guard/regression-only: Fixed signed golden artifacts pin retained-artifact and admission regressions.
 it("verifies golden card and signed bytes without changing their representation", () =>

@@ -382,7 +382,7 @@ const emptyEnglish = Effect.gen(function* () {
 const failedBuild = Effect.gen(function* () {
   const { alice } = yield* pair;
   const code: MessageMiddleware = {
-    id: "moltzap.english",
+    id: "org.social-harness/english",
     revision: "fixture",
     rules: [{ id: "code", kind: "safety" }],
     check: () =>

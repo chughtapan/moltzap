@@ -57,3 +57,5 @@ pnpm nx run @moltzap/nanoclaw-channel:arch:check
 
 The NanoClaw agent image, and the integration test that runs it against a
 real network, are built outside this repository.
+
+Adapters refuse startup when any retired `MOLTZAP_*` or `MOLTZAPD_*` environment key is present, including an empty value. Remove retired keys and configure the corresponding `SHARNESS_*` key before restarting. Diagnostics list key names without values.

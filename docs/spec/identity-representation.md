@@ -142,7 +142,7 @@ The payload is exactly:
 ```json
 {
   "kind": "agentCard",
-  "moltzapVersion": "2026.1019.1",
+  "sharnessVersion": "2026.1019.2",
   "agentId": "agt_<22-character-base64url>",
   "principalId": "prn_<22-character-base64url>",
   "agentName": "example-agent",
@@ -207,7 +207,7 @@ side. Its TypeScript side exposes exactly the readonly domain fields
 `agentId`, `principalId`, `agentName`, `publicKey`, and `issuedAt`.
 The exact JWS remains private in the value for lossless Schema encoding,
 digesting, and verification. `publicKey` is an immutable snapshot.
-Fixed `kind` and `moltzapVersion` remain representation invariants, not
+Fixed `kind` and `sharnessVersion` remain representation invariants, not
 duplicate domain fields.
 
 `VerifiedAgentCard` is a nominal subtype with the same readable fields.
@@ -223,7 +223,7 @@ The payload is exactly:
 ```json
 {
   "kind": "signedMessage",
-  "moltzapVersion": "2026.1019.1",
+  "sharnessVersion": "2026.1019.2",
   "senderAgentId": "agt_<22-character-base64url>",
   "agentCardDigest": "acd_<43-character-base64url>",
   "recipientAgentIds": [
@@ -273,7 +273,7 @@ fields `senderAgentId`, `agentCardDigest`, `recipientAgentIds`,
 lossless Schema encoding, verification, hashing, and forwarding.
 `recipientAgentIds` is an immutable snapshot, and reading `body`
 returns a defensive `Uint8Array` copy. Fixed `kind` and
-`moltzapVersion` remain representation invariants.
+`sharnessVersion` remain representation invariants.
 
 `VerifiedSignedMessage` is a nominal subtype with the same readable
 fields. Only successful `SignedMessage.sign` or
