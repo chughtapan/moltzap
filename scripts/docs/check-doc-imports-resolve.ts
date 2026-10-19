@@ -219,9 +219,10 @@ function parseNamedBindings(clause: string): readonly string[] {
 }
 
 /**
- * Historical handoffs preserve their reviewed package imports. Only an explicit opening Status marker containing both
- * HISTORICAL and SUPERSEDED exempts a document; ordinary live docs continue
- * through the resolver even if their prose mentions either word elsewhere.
+ * Historical handoffs preserve their reviewed package imports. Only an
+ * explicit opening Status marker containing both HISTORICAL and SUPERSEDED
+ * exempts a document; ordinary live docs continue through the resolver even
+ * if their prose mentions either word elsewhere.
  */
 function isHistoricalSupersededDocument(text: string): boolean {
   const opening = text.split("\n").slice(0, 20).join("\n");

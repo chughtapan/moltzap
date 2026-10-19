@@ -168,6 +168,12 @@ export interface OpenClawInboundContext {
   readonly To: string;
 }
 
+interface OpenClawRecordInput {
+  readonly ctx: OpenClawInboundContext;
+  readonly sessionKey: string;
+  readonly storePath: string;
+}
+
 interface OpenClawDeliveryResult {
   readonly visibleReplySent: boolean;
 }
@@ -846,9 +852,13 @@ function runObservedTurn(
       to: fixture.callerAddress,
       accountId: OPENCLAW_ACCOUNT_ID,
     });
-    fixture.sessions.acceptMessage(
-      turn.route.sessionKey,
-      turn.ctxPayload.MessageSid,
+    yield* recordInboundSession(
+      {
+        ctx: turn.ctxPayload,
+        sessionKey: turn.route.sessionKey,
+        storePath: turn.cfg.session.store,
+      },
+      fixture.sessions,
     );
     return yield* effectFromPromise("OpenClaw reply dispatch", () =>
       dispatchOpenClawReply(
@@ -862,6 +872,16 @@ function runObservedTurn(
         fixture,
       ),
     );
+  });
+}
+
+function recordInboundSession(
+  input: OpenClawRecordInput,
+  sessions: RecordedSessionStore,
+) {
+  return Effect.sync(() => {
+    expect(input.sessionKey).toBe(OPENCLAW_MAIN_SESSION_KEY);
+    sessions.acceptMessage(input.sessionKey, input.ctx.MessageSid);
   });
 }
 
