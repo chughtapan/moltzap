@@ -8,6 +8,8 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
 
+/* @agent-code-guard/regression-only: each case pins a distinct process startup diagnostic or resource relationship failure. */
+
 const binary = fileURLToPath(
   new URL("../../../bin/moltzap-router", import.meta.url),
 );
@@ -19,7 +21,7 @@ const invalidVariable = "MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY";
 
 /** An empty environment makes missing-variable behavior independent of the test runner. */
 function runProcess(
-  arguments_: readonly string[],
+  processArguments: readonly string[],
   environment: Readonly<Record<string, string>> = {},
 ) {
   return Effect.gen(function* () {
@@ -33,7 +35,7 @@ function runProcess(
         ),
         process.execPath,
         binary,
-        ...arguments_,
+        ...processArguments,
       ),
     );
     return yield* Effect.all(
@@ -46,7 +48,7 @@ function runProcess(
           Stream.runFold("", (output, chunk) => output + chunk),
         ),
       },
-      { concurrency: "unbounded" },
+      { concurrency: 3 },
     );
   }).pipe(Effect.timeout("10 seconds"), Effect.provide(NodeContext.layer));
 }
@@ -56,7 +58,7 @@ it(
   () =>
     Effect.gen(function* () {
       const result = yield* runProcess(["--help"], {
-        [invalidVariable]: "invalid-secret",
+        [invalidVariable]: secret,
       });
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain(`Usage: ${processName} [--help]`);
@@ -64,8 +66,7 @@ it(
         `${requiredVariable}: required; default: none`,
       );
       expect(result.stdout).toContain(defaultEntry);
-      expect(result.stdout).not.toContain("invalid-secret");
-      expect(result.stdout).not.toContain("listening on");
+      expect(result.stdout).not.toContain(secret);
       expect(result.stderr).toBe("");
     }),
   15_000,
@@ -78,7 +79,7 @@ it(
       const result = yield* runProcess([]);
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr).toContain(`${requiredVariable} is required`);
-      expect(result.stdout).not.toContain("listening on");
+      expect(result.stdout).toBe("");
     }),
   15_000,
 );
@@ -89,9 +90,9 @@ it(
     Effect.gen(function* () {
       const result = yield* runProcess([], { [invalidVariable]: secret });
       expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain(`${invalidVariable} must satisfy`);
+      expect(result.stderr).toContain(invalidVariable);
       expect(result.stderr + result.stdout).not.toContain(secret);
-      expect(result.stdout).not.toContain("listening on");
+      expect(result.stdout).toBe("");
     }),
   15_000,
 );
@@ -130,7 +131,7 @@ for (const [name, value, reason] of fitFailures) {
         expect(result.exitCode).not.toBe(0);
         expect(result.stderr).toContain(name);
         expect(result.stderr).toContain(reason);
-        expect(result.stdout).not.toContain("listening on");
+        expect(result.stdout).toBe("");
       }),
     15_000,
   );

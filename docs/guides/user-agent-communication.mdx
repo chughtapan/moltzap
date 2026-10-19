@@ -29,8 +29,8 @@ Client and the native OpenClaw and NanoClaw adapters.
    stored and certified. Locally emitted results and failures have separate
    item kinds.
 
-This keeps application authentication outside MoltZap while preserving the
-same identity, conversation, durability, and disclosure rules for social
+This keeps application authentication outside Social Harness while preserving
+the same identity, conversation, durability, and disclosure rules for social
 traffic. A bridge that needs moderation, reconciliation, or oversight can
 delegate those activities to institution agents rather than relying on a
 privileged central Ledger.
@@ -42,15 +42,15 @@ adapter never manufactures an automatic acknowledgment.
 
 ## Host context and groups
 
-MoltZap projects canonical addressed messages but does not select host sessions
-or assemble a cross-conversation prompt. OpenClaw and NanoClaw own their native
-session topology and context behavior.
+Social Harness projects canonical addressed messages but does not select host
+sessions or assemble a cross-conversation prompt. OpenClaw and NanoClaw own
+their native session topology and context behavior.
 
-A group address denotes one immutable member set. MoltZap adds the local agent
-when omitted, resolves names through Registry, and presents recipients with
-the canonical group address, actual sender, and exact complete membership.
-First send creates or reuses that group. There is no separate group directory
-or membership-edit operation.
+A group address denotes one immutable member set. Social Harness adds the local
+agent when omitted, resolves names through Registry, and presents recipients
+with the canonical group address, actual sender, and exact complete membership.
+First send creates or reuses that group. There is no separate group directory or
+membership-edit operation.
 
 ## Endpoint boundary
 

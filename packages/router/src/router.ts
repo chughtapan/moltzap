@@ -19,11 +19,12 @@ import {
 import canonicalize from "canonicalize";
 import {
   Config,
-  ConfigError,
+  type ConfigError,
   Context,
   Duration,
   Effect,
   Layer,
+  Match,
   Option,
   Schema,
 } from "effect";
@@ -61,6 +62,24 @@ interface RouterClientSettings {
   readonly origin: URL;
   readonly sendTimeout: Duration.Duration;
   readonly pollTimeout: Duration.Duration;
+}
+
+/** ConfigError trees retain every missing field without printing rejected inputs. */
+export function configurationMessage(error: ConfigError.ConfigError): string {
+  return Match.value(error).pipe(
+    Match.discriminatorsExhaustive("_op")({
+      And: (cause) =>
+        `${configurationMessage(cause.left)}; ${configurationMessage(cause.right)}`,
+      Or: (cause) =>
+        `${configurationMessage(cause.left)} or ${configurationMessage(cause.right)}`,
+      MissingData: (cause) => `${Array.from(cause.path).join("_")} is required`,
+      InvalidData: invalidConfigurationMessage,
+      SourceUnavailable: (cause) =>
+        `${Array.from(cause.path).join("_")} configuration source unavailable`,
+      Unsupported: (cause) =>
+        `${Array.from(cause.path).join("_")} configuration source unavailable`,
+    }),
+  );
 }
 
 /** Opaque message acceptance and endpoint-wide bounded polling. */
@@ -384,24 +403,7 @@ const configurationFields = {
   ),
 };
 
-const configuredValues = Config.all({
-  host: configurationFields.host.config,
-  port: configurationFields.port.config,
-  registryOrigin: configurationFields.registryOrigin.config,
-  registrySignerPublicKey: configurationFields.registrySignerPublicKey.config,
-  retainedMessageCapacity: configurationFields.retainedMessageCapacity.config,
-  retainedMessageByteCapacity:
-    configurationFields.retainedMessageByteCapacity.config,
-  pollMessageLimit: configurationFields.pollMessageLimit.config,
-  pollResponseByteLimit: configurationFields.pollResponseByteLimit.config,
-  requestConcurrencyLimit: configurationFields.requestConcurrencyLimit.config,
-  heldPollCapacity: configurationFields.heldPollCapacity.config,
-  liveNonceCapacity: configurationFields.liveNonceCapacity.config,
-  agentCardCacheCapacity: configurationFields.agentCardCacheCapacity.config,
-  registryLookupConcurrencyLimit:
-    configurationFields.registryLookupConcurrencyLimit.config,
-  registryLookupTimeoutMs: configurationFields.registryLookupTimeoutMs.config,
-});
+const configuredValues = Config.all(configurationFields);
 
 /** Usage is generated from the same fields consumed by the process. */
 export const processHelp = [
@@ -442,18 +444,24 @@ const pollBatchFits = (candidate: RouterConfiguration): boolean =>
 const heldPollsFit = (candidate: RouterConfiguration): boolean =>
   candidate.heldPollCapacity < candidate.requestConcurrencyLimit;
 
+const resourceLimitMessages = {
+  retention: `MOLTZAP_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY must be at least ${SignedMessage.maximumEncodedByteLength} to retain one maximum-size message`,
+  pollBatch: `MOLTZAP_ROUTER_POLL_RESPONSE_BYTE_LIMIT must be at least ${routerRepresentationLimits.oneMessageBatchBytes} to return one maximum-size message`,
+  heldPolls:
+    "MOLTZAP_ROUTER_HELD_POLL_CAPACITY must be less than MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT",
+};
+
 const validatedConfiguration = configuredValues.pipe(
   Config.validate({
-    message: `MOLTZAP_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY must be at least ${SignedMessage.maximumEncodedByteLength} to retain one maximum-size message`,
+    message: resourceLimitMessages.retention,
     validation: retentionFits,
   }),
   Config.validate({
-    message: `MOLTZAP_ROUTER_POLL_RESPONSE_BYTE_LIMIT must be at least ${routerRepresentationLimits.oneMessageBatchBytes} to return one maximum-size message`,
+    message: resourceLimitMessages.pollBatch,
     validation: pollBatchFits,
   }),
   Config.validate({
-    message:
-      "MOLTZAP_ROUTER_HELD_POLL_CAPACITY must be less than MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT",
+    message: resourceLimitMessages.heldPolls,
     validation: heldPollsFit,
   }),
 );
@@ -471,34 +479,42 @@ function setting<A, D = never>(
   ...defaults: [] | [D]
 ) {
   const config = Schema.Config(name, schema);
-  return {
-    name,
-    reason: `must satisfy ${String(schema)}`,
-    config:
-      defaults.length === 0
-        ? config
-        : config.pipe(Config.withDefault(defaults[0])),
-    usage: `${name}: ${defaults.length === 0 ? "required; default: none" : `optional; default: ${defaults[0] === undefined ? "unset" : JSON.stringify(defaults[0])}`}`,
-  };
+  return Object.assign(
+    defaults.length === 0
+      ? config
+      : config.pipe(Config.withDefault(defaults[0])),
+    {
+      name,
+      reason: `must satisfy ${schema.ast.toString()}`,
+      usage: `${name}: ${settingUsage(defaults)}`,
+    },
+  );
 }
 
-/** ConfigError trees retain every missing field without printing rejected inputs. */
-export function configurationMessage(error: ConfigError.ConfigError): string {
-  switch (error._op) {
-    case "And":
-    case "Or":
-      return `${configurationMessage(error.left)}; ${configurationMessage(error.right)}`;
-    case "MissingData":
-      return `${Array.from(error.path).join("_")} is required`;
-    case "InvalidData": {
-      const name = Array.from(error.path).join("_");
-      const field = Object.values(configurationFields).find(
-        (candidate) => candidate.name === name,
-      );
-      return field === undefined ? error.message : `${name} ${field.reason}`;
-    }
-    case "SourceUnavailable":
-    case "Unsupported":
-      return `${Array.from(error.path).join("_")} configuration source unavailable`;
+/** Distinguishes absent defaults from explicitly unset or empty defaults in operator help. */
+function settingUsage(defaults: readonly unknown[]): string {
+  if (defaults.length === 0) {
+    return "required; default: none";
   }
+  if (defaults[0] === undefined) {
+    return "optional; default: unset";
+  }
+  if (defaults[0] === "") {
+    return "optional; default: none";
+  }
+  return `optional; default: ${JSON.stringify(defaults[0])}`;
+}
+
+/** Only declared setting constraints may appear in invalid-value diagnostics. */
+function invalidConfigurationMessage(error: ConfigError.InvalidData): string {
+  if (Object.values(resourceLimitMessages).includes(error.message)) {
+    return error.message;
+  }
+  const name = Array.from(error.path).join("_");
+  const field = Object.values(configurationFields).find(
+    (candidate) => candidate.name === name,
+  );
+  return field === undefined
+    ? "environment configuration is invalid"
+    : `${name} ${field.reason}`;
 }

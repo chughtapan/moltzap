@@ -2,9 +2,9 @@
 
 import type { Implementation } from "@modelcontextprotocol/server";
 import type { Registry } from "@moltzap/identity/registry";
-import { MOLTZAP_VERSION } from "@moltzap/identity";
 import type { Router } from "@moltzap/router";
 import { NodeFileSystem } from "@effect/platform-node";
+import { MOLTZAP_VERSION } from "@moltzap/identity";
 import { Console, Effect, type Scope } from "effect";
 import {
   type HistoryExportPort,
@@ -16,6 +16,7 @@ import { packageVersion } from "../endpoint/implementation.js";
 import {
   acquireHarnessMcpHttpServer,
   type HarnessMcpEventHandler,
+  LOOPBACK_HOST,
   makeHarnessMcpHttpHandler,
 } from "../endpoint/mcp/index.js";
 import { makeEndpointEngine } from "../transport/messaging/index.js";
@@ -129,7 +130,7 @@ function runDaemonResources(
         })
         .pipe(Effect.mapError(() => runtimeFailure("listener")));
       yield* Console.log(
-        `moltzapd listening on http://127.0.0.1:${input.bootstrap.configuration.mcpPort}/mcp (package ${packageVersion}; MOLTZAP_VERSION ${MOLTZAP_VERSION})`,
+        `moltzapd listening on http://${LOOPBACK_HOST}:${input.bootstrap.configuration.mcpPort}/mcp (package ${packageVersion}; MOLTZAP_VERSION ${MOLTZAP_VERSION})`,
       );
       return yield* daemon.awaitFailure;
     }).pipe(Effect.raceFirst(daemon.awaitFailure));

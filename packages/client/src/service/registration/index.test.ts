@@ -315,7 +315,10 @@ const missingAdmission = (reads: Ref.Ref<number>) =>
   Ref.update(reads, (count) => count + 1).pipe(
     Effect.zipRight(
       Effect.fail(
-        new DaemonConfigurationError({ reason: "admission-credential-file" }),
+        new DaemonConfigurationError({
+          reason: "admission-credential-file",
+          message: "admission credential file is required",
+        }),
       ),
     ),
   );
@@ -334,7 +337,10 @@ const unregisteredStartupFailsClosed = () =>
       ),
     );
     expect(error).toEqual(
-      new DaemonConfigurationError({ reason: "admission-credential-file" }),
+      new DaemonConfigurationError({
+        reason: "admission-credential-file",
+        message: "admission credential file is required",
+      }),
     );
     expect(yield* Ref.get(reads)).toBe(1);
   });
@@ -433,7 +439,10 @@ const refusesRegistrationWithoutCredential = () =>
       ),
     );
     expect(error).toEqual(
-      new DaemonConfigurationError({ reason: "admission-credential-file" }),
+      new DaemonConfigurationError({
+        reason: "admission-credential-file",
+        message: "admission credential file is required",
+      }),
     );
     expect(yield* Ref.get(calls)).toEqual([]);
     expect(yield* Ref.get(memory.binding)).toBeUndefined();

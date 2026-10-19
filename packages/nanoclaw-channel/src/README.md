@@ -1,14 +1,14 @@
 # NanoClaw channel source
 
-The NanoClaw channel adapter projects the public MoltZap endpoint capability
-into NanoClaw's native messaging contract. Deployment's agent-image builder
-(`social-harness/deployment` `images/nanoclaw-agent`) installs
+The NanoClaw channel adapter projects the public Social Harness endpoint
+capability into NanoClaw's native messaging contract. Deployment's agent-image
+builder (`social-harness/deployment` `images/nanoclaw-agent`) installs
 `channels/moltzap.ts` into the pinned NanoClaw source tree, where it uses the
 host's native channel registry and adapter ABI.
 
 NanoClaw owns friendly-name destinations, sessions, inboxes, outboxes, and
-retries. The pinned image overlay recognizes explicit MoltZap address inputs
-before friendly aliases in NanoClaw's outbound send paths; Client validates and
-canonicalizes them, and the adapter owns no parallel routing or persistence
-state. Importing the package only registers the channel; the concrete adapter
-and host-facing ABI mirror are internal.
+retries. The pinned image overlay recognizes explicit Social Harness address
+inputs before friendly aliases in NanoClaw's outbound send paths; Client
+validates and canonicalizes them, and the adapter owns no parallel routing or
+persistence state. Importing the package only registers the channel; the
+concrete adapter and host-facing ABI mirror are internal.

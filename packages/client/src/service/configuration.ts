@@ -1,7 +1,14 @@
 /** @file Loads the daemon process configuration and its redacted bootstrap material from the environment. */
 
 import { AgentSigningAuthority, Ed25519PublicKey } from "@moltzap/identity";
-import { Config, ConfigError, Effect, Redacted, Schema } from "effect";
+import {
+  Config,
+  type ConfigError,
+  Effect,
+  Match,
+  Redacted,
+  Schema,
+} from "effect";
 import {
   credentialMatches,
   type HarnessMcpCredentials,
@@ -88,37 +95,7 @@ const configurationFields = {
   ),
 };
 
-const configuredValues = Config.all({
-  stateDirectory: configurationFields.stateDirectory.config,
-  mcpPort: configurationFields.mcpPort.config,
-  registryOrigin: configurationFields.registryOrigin.config,
-  registrySignerPublicKey: configurationFields.registrySignerPublicKey.config,
-  routerOrigin: configurationFields.routerOrigin.config,
-  agentPrivateKeyFile: Config.redacted(
-    configurationFields.agentPrivateKeyFile.config,
-  ),
-  admissionCredentialFile:
-    configurationFields.admissionCredentialFile.config.pipe(
-      Config.map((path) => (path === "" ? undefined : Redacted.make(path))),
-    ),
-  historyExport: configurationFields.historyExport.config,
-  mcpRuntimeCredentialFile: Config.redacted(
-    configurationFields.mcpRuntimeCredentialFile.config,
-  ).pipe(
-    Config.map((secret) => {
-      const value = Redacted.value(secret);
-      return value === undefined ? undefined : Redacted.make(value);
-    }),
-  ),
-  mcpOwnerCredentialFile: Config.redacted(
-    configurationFields.mcpOwnerCredentialFile.config,
-  ).pipe(
-    Config.map((secret) => {
-      const value = Redacted.value(secret);
-      return value === undefined ? undefined : Redacted.make(value);
-    }),
-  ),
-});
+const configuredValues = Config.all(configurationFields);
 
 /** Usage is generated from the same fields consumed by the process. */
 export const processHelp = [
@@ -128,16 +105,6 @@ export const processHelp = [
   "  Admission credential: required only before registration; MCP credential files: supply both or neither.",
   ...Object.values(configurationFields).map((field) => `  ${field.usage}`),
 ].join("\n");
-
-const configurationError = (
-  reason: DaemonConfigurationFailure,
-  cause?: unknown,
-): DaemonConfigurationError =>
-  new DaemonConfigurationError({
-    reason,
-    cause,
-    message: configurationFailureMessages[reason],
-  });
 
 const configurationFailureMessages: Readonly<
   Record<DaemonConfigurationFailure, string>
@@ -159,19 +126,72 @@ const configurationFailureMessages: Readonly<
     "MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE and MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE must both be supplied and contain distinct valid tokens of at least 32 characters",
 };
 
+const configurationError = (
+  reason: DaemonConfigurationFailure,
+): DaemonConfigurationError =>
+  new DaemonConfigurationError({
+    reason,
+    message: configurationFailureMessages[reason],
+  });
+
 /** Loads explicit daemon inputs with optional export and MCP authority separation. */
 export const loadDaemonProcessConfiguration: Effect.Effect<
   DaemonProcessConfiguration,
   DaemonConfigurationError
 > = configuredValues.pipe(
-  Effect.map((configuration): DaemonProcessConfiguration => configuration),
-  Effect.mapError(
-    (cause) =>
-      new DaemonConfigurationError({
-        reason: "environment",
-        cause,
-        message: configurationMessage(cause),
+  Effect.map(
+    (configuration): DaemonProcessConfiguration => ({
+      ...configuration,
+      agentPrivateKeyFile: Redacted.make(configuration.agentPrivateKeyFile),
+      admissionCredentialFile:
+        configuration.admissionCredentialFile === ""
+          ? undefined
+          : Redacted.make(configuration.admissionCredentialFile),
+      mcpRuntimeCredentialFile:
+        configuration.mcpRuntimeCredentialFile === undefined
+          ? undefined
+          : Redacted.make(configuration.mcpRuntimeCredentialFile),
+      mcpOwnerCredentialFile:
+        configuration.mcpOwnerCredentialFile === undefined
+          ? undefined
+          : Redacted.make(configuration.mcpOwnerCredentialFile),
+    }),
+  ),
+  Effect.mapError((cause) =>
+    Match.value(cause).pipe(
+      Match.discriminatorsExhaustive("_op")({
+        And: (error) =>
+          new DaemonConfigurationError({
+            reason: "environment",
+            message: configurationMessage(error),
+          }),
+        Or: (error) =>
+          new DaemonConfigurationError({
+            reason: "environment",
+            message: configurationMessage(error),
+          }),
+        InvalidData: (error) =>
+          new DaemonConfigurationError({
+            reason: "environment",
+            message: configurationMessage(error),
+          }),
+        MissingData: (error) =>
+          new DaemonConfigurationError({
+            reason: "environment",
+            message: configurationMessage(error),
+          }),
+        SourceUnavailable: (error) =>
+          new DaemonConfigurationError({
+            reason: "environment",
+            message: configurationMessage(error),
+          }),
+        Unsupported: (error) =>
+          new DaemonConfigurationError({
+            reason: "environment",
+            message: configurationMessage(error),
+          }),
       }),
+    ),
   ),
   Effect.withSpan("loadDaemonProcessConfiguration"),
 );
@@ -182,10 +202,7 @@ const credentialFailure =
     valueReason: DaemonConfigurationFailure,
   ) =>
   (error: CredentialError): DaemonConfigurationError =>
-    configurationError(
-      error.stage === "file" ? fileReason : valueReason,
-      error,
-    );
+    configurationError(error.stage === "file" ? fileReason : valueReason);
 
 const mcpCredential = credentialText.pipe(Schema.minLength(32));
 
@@ -268,34 +285,57 @@ function setting<A, D = never>(
   ...defaults: [] | [D]
 ) {
   const config = Schema.Config(name, schema);
-  return {
-    name,
-    reason: `must satisfy ${String(schema)}`,
-    config:
-      defaults.length === 0
-        ? config
-        : config.pipe(Config.withDefault(defaults[0])),
-    usage: `${name}: ${defaults.length === 0 ? "required; default: none" : `optional; default: ${defaults[0] === undefined ? "unset" : JSON.stringify(defaults[0])}`}`,
-  };
+  return Object.assign(
+    defaults.length === 0
+      ? config
+      : config.pipe(Config.withDefault(defaults[0])),
+    {
+      name,
+      reason: `must satisfy ${schema.ast.toString()}`,
+      usage: `${name}: ${settingUsage(defaults)}`,
+    },
+  );
+}
+
+/** Distinguishes absent defaults from explicitly unset or empty defaults in operator help. */
+function settingUsage(defaults: readonly unknown[]): string {
+  if (defaults.length === 0) {
+    return "required; default: none";
+  }
+  if (defaults[0] === undefined) {
+    return "optional; default: unset";
+  }
+  if (defaults[0] === "") {
+    return "optional; default: none";
+  }
+  return `optional; default: ${JSON.stringify(defaults[0])}`;
 }
 
 /** ConfigError trees retain every missing field without printing rejected inputs. */
 function configurationMessage(error: ConfigError.ConfigError): string {
-  switch (error._op) {
-    case "And":
-    case "Or":
-      return `${configurationMessage(error.left)}; ${configurationMessage(error.right)}`;
-    case "MissingData":
-      return `${Array.from(error.path).join("_")} is required`;
-    case "InvalidData": {
-      const name = Array.from(error.path).join("_");
-      const field = Object.values(configurationFields).find(
-        (candidate) => candidate.name === name,
-      );
-      return field === undefined ? error.message : `${name} ${field.reason}`;
-    }
-    case "SourceUnavailable":
-    case "Unsupported":
-      return `${Array.from(error.path).join("_")} configuration source unavailable`;
-  }
+  return Match.value(error).pipe(
+    Match.discriminatorsExhaustive("_op")({
+      And: (cause) =>
+        `${configurationMessage(cause.left)}; ${configurationMessage(cause.right)}`,
+      Or: (cause) =>
+        `${configurationMessage(cause.left)} or ${configurationMessage(cause.right)}`,
+      MissingData: (cause) => `${Array.from(cause.path).join("_")} is required`,
+      InvalidData: invalidConfigurationMessage,
+      SourceUnavailable: (cause) =>
+        `${Array.from(cause.path).join("_")} configuration source unavailable`,
+      Unsupported: (cause) =>
+        `${Array.from(cause.path).join("_")} configuration source unavailable`,
+    }),
+  );
+}
+
+/** Only declared setting constraints may appear in invalid-value diagnostics. */
+function invalidConfigurationMessage(error: ConfigError.InvalidData): string {
+  const name = Array.from(error.path).join("_");
+  const field = Object.values(configurationFields).find(
+    (candidate) => candidate.name === name,
+  );
+  return field === undefined
+    ? "environment configuration is invalid"
+    : `${name} ${field.reason}`;
 }

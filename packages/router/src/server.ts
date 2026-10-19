@@ -35,13 +35,11 @@ export namespace RouterServer {
     "RouterServerStartupError",
   )<{
     readonly phase: "configuration" | "listener";
-    readonly cause?: unknown;
+    readonly detail?: string;
   }> {
     /** Rejected environment values never enter the operator message. */
     override get message(): string {
-      const detail = ConfigError.isConfigError(this.cause)
-        ? `: ${configurationMessage(this.cause)}`
-        : "";
+      const detail = this.detail === undefined ? "" : `: ${this.detail}`;
       return `moltzap-router startup failed in phase ${this.phase}${detail}`;
     }
   }
@@ -142,11 +140,16 @@ export namespace RouterServer {
   }
 
   function configurationFailure(cause: unknown) {
-    return new StartupError({ phase: "configuration", cause });
+    return new StartupError({
+      phase: "configuration",
+      detail: ConfigError.isConfigError(cause)
+        ? configurationMessage(cause)
+        : undefined,
+    });
   }
 
-  function listenerFailure(cause: unknown) {
-    return new StartupError({ phase: "listener", cause });
+  function listenerFailure() {
+    return new StartupError({ phase: "listener" });
   }
 }
 

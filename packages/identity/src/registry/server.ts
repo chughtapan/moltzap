@@ -13,6 +13,7 @@ import {
   Duration,
   Effect,
   Layer,
+  Match,
   Redacted,
   Schema,
 } from "effect";
@@ -20,8 +21,8 @@ import {
 import { createServer } from "node:http";
 import { isAbsolute } from "node:path";
 import packageJson from "../../package.json" with { type: "json" };
-import { MOLTZAP_VERSION } from "../version.js";
 import { AgentSigningAuthority } from "../agent-key.js";
+import { MOLTZAP_VERSION } from "../version.js";
 import { makeRegistryHttpApp } from "./http.js";
 import {
   makeRegistryRpcClient,
@@ -109,22 +110,7 @@ const configurationFields = {
   ),
 };
 
-const configuredValues = Config.all({
-  host: configurationFields.host.config,
-  port: configurationFields.port.config,
-  postgresqlUrl: Config.redacted(configurationFields.postgresqlUrl.config),
-  admissionCredential: Config.redacted(
-    configurationFields.admissionCredential.config,
-  ),
-  signingPrivateKeyPath: Config.redacted(
-    configurationFields.signingPrivateKeyPath.config,
-  ),
-  listPageSize: configurationFields.listPageSize.config,
-  requestConcurrencyLimit: configurationFields.requestConcurrencyLimit.config,
-  liveNonceCapacity: configurationFields.liveNonceCapacity.config,
-  sqlPoolSize: configurationFields.sqlPoolSize.config,
-  sqlOperationTimeoutMs: configurationFields.sqlOperationTimeoutMs.config,
-});
+const configuredValues = Config.all(configurationFields);
 
 /** Usage is generated from the same fields consumed by the process. */
 export const processHelp = [
@@ -161,7 +147,14 @@ export const loadRegistryConfiguration: Effect.Effect<
   RegistryConfiguration,
   ConfigError.ConfigError
 > = configuredValues.pipe(
-  Effect.map((configuration): RegistryConfiguration => configuration),
+  Effect.map(
+    (configuration): RegistryConfiguration => ({
+      ...configuration,
+      postgresqlUrl: Redacted.make(configuration.postgresqlUrl),
+      admissionCredential: Redacted.make(configuration.admissionCredential),
+      signingPrivateKeyPath: Redacted.make(configuration.signingPrivateKeyPath),
+    }),
+  ),
   Effect.withSpan("loadRegistryConfiguration"),
 );
 
@@ -170,15 +163,11 @@ export class StartupError extends Data.TaggedError(
   "RegistryServerStartupError",
 )<{
   readonly phase: "configuration" | "storage" | "listener";
-  readonly cause?: unknown;
+  readonly detail?: string;
 }> {
   /** Operator diagnostics exclude rejected inputs and platform paths. */
   override get message(): string {
-    const detail = ConfigError.isConfigError(this.cause)
-      ? `: ${configurationMessage(this.cause)}`
-      : this.phase === "configuration"
-        ? ": MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH must name a readable Ed25519 PKCS#8 key file"
-        : "";
+    const detail = this.detail === undefined ? "" : `: ${this.detail}`;
     return `moltzap-registry startup failed in phase ${this.phase}${detail}`;
   }
 }
@@ -226,10 +215,10 @@ function loadSigningAuthority(configuration: RegistryConfiguration) {
     const fileSystem = yield* FileSystem.FileSystem;
     const privateKeyText = yield* fileSystem
       .readFileString(Redacted.value(configuration.signingPrivateKeyPath))
-      .pipe(Effect.mapError(configurationFailure));
+      .pipe(Effect.mapError(signingKeyFailure));
     return yield* AgentSigningAuthority.fromPkcs8(
       Redacted.make(privateKeyText),
-    ).pipe(Effect.mapError(configurationFailure));
+    ).pipe(Effect.mapError(signingKeyFailure));
   });
 }
 
@@ -320,15 +309,28 @@ function serveRegistry(
 }
 
 function configurationFailure(cause: unknown) {
-  return new StartupError({ phase: "configuration", cause });
+  return new StartupError({
+    phase: "configuration",
+    detail: ConfigError.isConfigError(cause)
+      ? configurationMessage(cause)
+      : undefined,
+  });
 }
 
-function storageFailure(cause?: unknown) {
-  return new StartupError({ phase: "storage", cause });
+function signingKeyFailure() {
+  return new StartupError({
+    phase: "configuration",
+    detail:
+      "MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH must name a readable Ed25519 PKCS#8 key file",
+  });
 }
 
-function listenerFailure(cause: unknown) {
-  return new StartupError({ phase: "listener", cause });
+function storageFailure() {
+  return new StartupError({ phase: "storage" });
+}
+
+function listenerFailure() {
+  return new StartupError({ phase: "listener" });
 }
 
 /** Config and operator text share the name, schema and default at declaration. */
@@ -338,36 +340,59 @@ function setting<A, D = never>(
   ...defaults: [] | [D]
 ) {
   const config = Schema.Config(name, schema);
-  return {
-    name,
-    reason: `must satisfy ${String(schema)}`,
-    config:
-      defaults.length === 0
-        ? config
-        : config.pipe(Config.withDefault(defaults[0])),
-    usage: `${name}: ${defaults.length === 0 ? "required; default: none" : `optional; default: ${defaults[0] === undefined ? "unset" : JSON.stringify(defaults[0])}`}`,
-  };
+  return Object.assign(
+    defaults.length === 0
+      ? config
+      : config.pipe(Config.withDefault(defaults[0])),
+    {
+      name,
+      reason: `must satisfy ${schema.ast.toString()}`,
+      usage: `${name}: ${settingUsage(defaults)}`,
+    },
+  );
+}
+
+/** Distinguishes absent defaults from explicitly unset or empty defaults in operator help. */
+function settingUsage(defaults: readonly unknown[]): string {
+  if (defaults.length === 0) {
+    return "required; default: none";
+  }
+  if (defaults[0] === undefined) {
+    return "optional; default: unset";
+  }
+  if (defaults[0] === "") {
+    return "optional; default: none";
+  }
+  return `optional; default: ${JSON.stringify(defaults[0])}`;
 }
 
 /** ConfigError trees retain every missing field without printing rejected inputs. */
 function configurationMessage(error: ConfigError.ConfigError): string {
-  switch (error._op) {
-    case "And":
-    case "Or":
-      return `${configurationMessage(error.left)}; ${configurationMessage(error.right)}`;
-    case "MissingData":
-      return `${Array.from(error.path).join("_")} is required`;
-    case "InvalidData": {
-      const name = Array.from(error.path).join("_");
-      const field = Object.values(configurationFields).find(
-        (candidate) => candidate.name === name,
-      );
-      return field === undefined ? error.message : `${name} ${field.reason}`;
-    }
-    case "SourceUnavailable":
-    case "Unsupported":
-      return `${Array.from(error.path).join("_")} configuration source unavailable`;
-  }
+  return Match.value(error).pipe(
+    Match.discriminatorsExhaustive("_op")({
+      And: (cause) =>
+        `${configurationMessage(cause.left)}; ${configurationMessage(cause.right)}`,
+      Or: (cause) =>
+        `${configurationMessage(cause.left)} or ${configurationMessage(cause.right)}`,
+      MissingData: (cause) => `${Array.from(cause.path).join("_")} is required`,
+      InvalidData: invalidConfigurationMessage,
+      SourceUnavailable: (cause) =>
+        `${Array.from(cause.path).join("_")} configuration source unavailable`,
+      Unsupported: (cause) =>
+        `${Array.from(cause.path).join("_")} configuration source unavailable`,
+    }),
+  );
+}
+
+/** Only declared setting constraints may appear in invalid-value diagnostics. */
+function invalidConfigurationMessage(error: ConfigError.InvalidData): string {
+  const name = Array.from(error.path).join("_");
+  const field = Object.values(configurationFields).find(
+    (candidate) => candidate.name === name,
+  );
+  return field === undefined
+    ? "environment configuration is invalid"
+    : `${name} ${field.reason}`;
 }
 
 /** IPv6 listener addresses need brackets in a URL authority. */
