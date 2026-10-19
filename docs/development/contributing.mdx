@@ -83,6 +83,23 @@ pnpm check
 also runs `pnpm docs:check:drift`, which regenerates module pages and
 constants before comparing them.
 
+## Architecture checks
+
+`pnpm lint` runs the package graph and boundary checks.
+`pnpm arch:check` runs each package's architecture analysis on its own.
+Each `packages/*/safer-architecture.config.json` records that package's
+budgets. Source-specific exceptions stay inline as `safer-arch-ignore`
+directives next to the declaration they cover.
+
+| Command | What it does |
+|---------|--------------|
+| `pnpm arch:check` | Run every package's architecture analysis |
+| `pnpm arch:config:generate` | Regenerate the package architecture configs |
+| `pnpm arch:config:check` | Fail when a generated config differs from its committed copy |
+
+Raising a budget or adding a waiver is an architecture review point: say so
+in the PR description instead of regenerating the config silently.
+
 ## Documentation
 
 The docs site at `docs/` is built with
