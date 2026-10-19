@@ -262,6 +262,8 @@ export function replaceInboxItem(
 
 /**
  * Reserve an invocation before any protocol side effect can occur.
+ * Only a fresh insert carries transaction-outcome evidence: a failed read
+ * cannot exclude execution by an earlier invocation under the same key.
  * @param database Exclusively owned endpoint database.
  * @param key Caller-selected invocation identity.
  * @param canonicalInput Exact validated input and failure-routing policy.
@@ -279,12 +281,14 @@ export function beginSendAttempt(
     requireSameBytes(retained.canonicalInput, canonicalInput);
     return "existing";
   }
-  database
-    .prepare(
-      "INSERT INTO runtime_sends (invocation_key, canonical_input) VALUES (?, ?)",
-    )
-    .run(key, canonicalInput);
-  return "inserted";
+  return transaction(database, () => {
+    database
+      .prepare(
+        "INSERT INTO runtime_sends (invocation_key, canonical_input) VALUES (?, ?)",
+      )
+      .run(key, canonicalInput);
+    return "inserted";
+  });
 }
 
 /**

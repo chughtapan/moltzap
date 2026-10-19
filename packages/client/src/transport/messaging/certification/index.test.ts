@@ -307,7 +307,7 @@ function restartMember(
     registry: harness.registry,
     store,
     actionPolicy: signEveryAction,
-    reportStorageFault: Effect.void,
+    reportStorageFault: () => Effect.void,
     routerWorker: scriptedRouterWorker(store, harness.outbound),
   });
 }
@@ -443,13 +443,13 @@ function makeProtocolHarness(
     };
     const authorPorts = {
       actionPolicy: options.actionPolicy ?? signEveryAction,
-      reportStorageFault: options.reportStorageFault ?? Effect.void,
+      reportStorageFault: () => options.reportStorageFault ?? Effect.void,
       attachment: options.attachment,
       authorSend: options.authorSend,
     };
     const memberPorts = {
       actionPolicy: signEveryAction,
-      reportStorageFault: Effect.void,
+      reportStorageFault: () => Effect.void,
       attachment: undefined,
       authorSend: undefined,
     };
@@ -2673,7 +2673,7 @@ function coldStartWithPendingOutboundLeavesOutboundLoopAlive(): Effect.Effect<
       registry: harness.registry,
       store,
       actionPolicy: signEveryAction,
-      reportStorageFault: Effect.void,
+      reportStorageFault: () => Effect.void,
       routerWorker: scriptedRouterWorker(
         store,
         harness.outbound,
@@ -3188,19 +3188,22 @@ function failsASendWhoseBoundProposalTheStoreRefuses(): Effect.Effect<
  * @param reason The store failure the bind meets.
  * @param expected The send's failure for it.
  * @param expectedFaults Storage faults the author's engine reports for it.
+ * @param commitOutcome Evidence that the failed bind did not commit.
  * @returns The scenario, before its scope closes.
  */
 function failsASendWhoseBindTheStoreFails(
   reason: EndpointStoreError["reason"],
   expected: SendError["reason"],
   expectedFaults: number,
+  commitOutcome?: EndpointStoreError["commitOutcome"],
 ): Effect.Effect<void, never, Scope.Scope> {
   return Effect.gen(function* () {
     const faults = yield* Ref.make(0);
     const harness = yield* makeProtocolHarness({
       wrapStore: (store) => ({
         ...store,
-        bindPostIntent: () => Effect.fail(new EndpointStoreError({ reason })),
+        bindPostIntent: () =>
+          Effect.fail(new EndpointStoreError({ reason, commitOutcome })),
       }),
       reportStorageFault: Ref.update(faults, (count) => count + 1),
     });
@@ -3283,6 +3286,27 @@ function failedRecoveryFailsASendAsDeliveryPending(): Effect.Effect<
   });
 }
 
+const bindFailureCases = [
+  {
+    reason: "persistence",
+    commitOutcome: undefined,
+    expected: "outcome-unknown",
+    faults: 1,
+  },
+  {
+    reason: "persistence",
+    commitOutcome: "not-committed",
+    expected: "persistence-failed",
+    faults: 0,
+  },
+  {
+    reason: "conflict",
+    commitOutcome: undefined,
+    expected: "persistence-failed",
+    faults: 0,
+  },
+] as const;
+
 describe("engine faults while staging and sending", () => {
   it(
     "keeps a staged record's copy and fold together when its acceptance is interrupted",
@@ -3294,13 +3318,10 @@ describe("engine faults while staging and sending", () => {
     failsASendWhoseBoundProposalTheStoreRefuses,
     TEST_TIMEOUT_MS,
   );
-  it.each([
-    { reason: "persistence", expected: "outcome-unknown", faults: 1 },
-    { reason: "conflict", expected: "persistence-failed", faults: 0 },
-  ] as const)(
-    "fails a send whose intent bind meets a $reason store failure as $expected",
-    ({ reason, expected, faults }) =>
-      failsASendWhoseBindTheStoreFails(reason, expected, faults),
+  it.each(bindFailureCases)(
+    "fails a send whose intent bind meets a $reason ($commitOutcome) store failure as $expected",
+    ({ reason, expected, faults, commitOutcome }) =>
+      failsASendWhoseBindTheStoreFails(reason, expected, faults, commitOutcome),
     TEST_TIMEOUT_MS,
   );
   itOnTestClock(
