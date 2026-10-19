@@ -3,7 +3,7 @@
  * AgentId and outer MessageId and committed to one plaintext.
  */
 
-import { Data, Effect, Either, Encoding, Match, Option, Schema } from "effect";
+import { Data, Effect, Either, Encoding, Option, Schema } from "effect";
 import { generalDecrypt, GeneralEncrypt } from "jose";
 import type { VerifiedAgentCard } from "./agent-card.js";
 import {
@@ -339,68 +339,31 @@ const decodeProtectedHeader = (
 
 type RecipientEntry = SealedBodyRepresentation["recipients"][number];
 
-interface RecipientWithEphemeralKey extends RecipientEntry {
-  readonly header: NonNullable<RecipientEntry["header"]>;
-}
-
-type EphemeralKeyPlacement =
-  | {
-      readonly kind: "single";
-      readonly header: ProtectedHeader & {
-        readonly epk: typeof ephemeralPublicKey.Type;
-      };
-      readonly encryptedKey: string;
-    }
-  | {
-      readonly kind: "multiple";
-      readonly header: ProtectedHeader & { readonly epk: undefined };
-      readonly recipient: RecipientWithEphemeralKey;
-    };
-
 /**
- * Decodes the one ephemeral-key placement the sealer produces: the protected
- * header carries it for a single recipient, and each recipient header carries
- * its own otherwise. Selects only the entry at the local agent's canonical
- * SignedMessage position after checking that both recipient counts agree.
+ * Selects the one entry sealed to `agentId` after requiring the one
+ * ephemeral-key placement the sealer produces: the protected header carries it
+ * for a single recipient, and each recipient header carries its own otherwise.
+ * Entries follow the canonical SignedMessage recipient order, so the agent's
+ * position in that list is its entry and no other entry is tried.
  */
-const hasExactEphemeralKeyPlacement = (
+const localRecipientEntry = (
   representation: SealedBodyRepresentation,
   header: ProtectedHeader,
   recipientAgentIds: readonly AgentIdValue[],
   agentId: AgentIdValue,
-): Effect.Effect<EphemeralKeyPlacement, SealedBodyOpeningError> => {
+): Effect.Effect<RecipientEntry, SealedBodyOpeningError> => {
   const { recipients } = representation;
-  if (recipients.length !== recipientAgentIds.length) {
-    return Effect.fail(new SealedBodyOpeningError());
-  }
-  const recipientIndex = recipientAgentIds.indexOf(agentId);
-  const recipient = recipients[recipientIndex];
-  if (recipient === undefined) {
-    return Effect.fail(new SealedBodyOpeningError());
-  }
-  const singleRecipient = recipients.length === 1;
-  if (
-    !recipients.every(
-      (entry) => (entry.header === undefined) === singleRecipient,
-    )
-  ) {
-    return Effect.fail(new SealedBodyOpeningError());
-  }
-  if (singleRecipient) {
-    return header.epk !== undefined
-      ? Effect.succeed({
-          kind: "single",
-          header: { ...header, epk: header.epk },
-          encryptedKey: recipient.encrypted_key,
-        })
-      : Effect.fail(new SealedBodyOpeningError());
-  }
-  return header.epk === undefined && recipient.header !== undefined
-    ? Effect.succeed({
-        kind: "multiple",
-        header: { ...header, epk: undefined },
-        recipient: { ...recipient, header: recipient.header },
-      })
+  const single = recipients.length === 1;
+  const entry = recipients[recipientAgentIds.indexOf(agentId)];
+  const validPlacement =
+    (header.epk !== undefined) === single &&
+    recipients.every(
+      (recipient) => (recipient.header === undefined) === single,
+    );
+  return recipients.length === recipientAgentIds.length &&
+    entry !== undefined &&
+    validPlacement
+    ? Effect.succeed(entry)
     : Effect.fail(new SealedBodyOpeningError());
 };
 
@@ -463,26 +426,19 @@ const open = (
       sealedBodyRepresentation,
       input.signedMessage.body,
     ).pipe(Effect.mapError(openingFailure));
-    const placement = yield* hasExactEphemeralKeyPlacement(
+    const header = yield* decodeProtectedHeader(representation.protected);
+    const entry = yield* localRecipientEntry(
       representation,
-      yield* decodeProtectedHeader(representation.protected),
+      header,
       input.signedMessage.recipientAgentIds,
       card.agentId,
     );
-    const { header } = placement;
     if (
       header[SENDER_HEADER] !== input.signedMessage.senderAgentId ||
       header[MESSAGE_ID_HEADER] !== input.signedMessage.messageId
     ) {
       return yield* new SealedBodyOpeningError();
     }
-    const entry = Match.value(placement).pipe(
-      Match.when({ kind: "single" }, ({ encryptedKey }) => ({
-        encrypted_key: encryptedKey,
-      })),
-      Match.when({ kind: "multiple" }, ({ recipient }) => recipient),
-      Match.exhaustive,
-    );
     const decrypted = yield* Effect.tryPromise({
       try: () =>
         generalDecrypt(
