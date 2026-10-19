@@ -1,7 +1,7 @@
 /** @file Runtime state and interrupted admission checks survive store restart. */
 
 import { live as it } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { Array, Effect, Schema } from "effect";
 import { describe, expect } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
 import {
@@ -11,6 +11,7 @@ import {
   withStore,
 } from "../__tests__/store-schema-fixtures.js";
 import {
+  type CertifiedRecord,
   DeliveryToken,
   type EndpointStore,
   inspectEndpointStore,
@@ -184,6 +185,83 @@ function invalidatesInterruptedChecks() {
   });
 }
 
+function historyRecord(ordinal: number): CertifiedRecord {
+  const { record } = storedConversation("history-window");
+  const recordHash = `rch_history:${ordinal}`;
+  const actionHash = `ach_history:${ordinal}`;
+  return {
+    ...record,
+    recordHash,
+    actionHash,
+    postId: `pst_history:${ordinal}`,
+    canonicalRecordCore: bytes(`history:${ordinal}`),
+    ...(ordinal === 0
+      ? {}
+      : { previousRecordHash: `rch_history:${ordinal - 1}` }),
+    actionEvidence: record.actionEvidence.map((evidence) => ({
+      ...evidence,
+      subjectId: actionHash,
+    })),
+    durabilityEvidence: record.durabilityEvidence.map((evidence) => ({
+      ...evidence,
+      subjectId: recordHash,
+    })),
+  };
+}
+
+function selectsRecentHistoryFromALongConversation() {
+  const path = stateDirectory();
+  const { foundation } = storedConversation("history-window");
+  const other = storedConversation("other-history");
+  const delivery = {
+    recipientAgentId: identity.agentId,
+    canonicalMessage: bytes("delivery"),
+  };
+  return withStore(path, (store) =>
+    Effect.gen(function* () {
+      yield* store.bindIdentity(identity);
+      yield* store.putConversationFoundation(other.foundation);
+      yield* store.applyCertifiedRecord(other.record, delivery);
+      yield* store.putConversationFoundation(foundation);
+      yield* Effect.forEach(
+        Array.range(0, 1_003),
+        (ordinal) =>
+          store.applyCertifiedRecord(historyRecord(ordinal), delivery),
+        { concurrency: 1, discard: true },
+      );
+      const candidate = (yield* store.readPendingDeliveries()).find(
+        (item) => item.recordHash === "rch_history:1002",
+      );
+      if (candidate === undefined) {
+        return yield* Effect.dieMessage("missing candidate delivery");
+      }
+
+      const incoming = yield* store.readFirewallEvidence({
+        beforeDelivery: candidate.deliveryToken,
+        maximumRecords: 2,
+      });
+      const outgoing = yield* store.readFirewallEvidence({
+        conversationId: foundation.conversationId,
+        maximumRecords: 2,
+      });
+
+      expect(
+        incoming.history.map((entry) => entry.canonicalRecordCore),
+      ).toEqual([bytes("history:1000"), bytes("history:1001")]);
+      expect(incoming.candidate?.canonicalRecordCore).toEqual(
+        bytes("history:1002"),
+      );
+      expect(
+        outgoing.history.map((entry) => entry.canonicalRecordCore),
+      ).toEqual([bytes("history:1002"), bytes("history:1003")]);
+      expect(incoming.earlierHistoryOmitted).toBe(true);
+      expect(outgoing.earlierHistoryOmitted).toBe(true);
+      expect(incoming.overflow).toBe(false);
+      expect(outgoing.overflow).toBe(false);
+    }),
+  );
+}
+
 describe("endpoint runtime state", () => {
   it(
     "preserves identity, protocol and admitted runtime state across restart",
@@ -200,6 +278,11 @@ describe("endpoint runtime state", () => {
   it(
     "reports creation and reopening without changing stored identity",
     reportsHowCurrentStoreOpens,
+  );
+  it(
+    "selects recent incoming and outgoing windows from a long conversation",
+    selectsRecentHistoryFromALongConversation,
+    { timeout: 30_000 },
   );
 });
 

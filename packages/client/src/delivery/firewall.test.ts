@@ -1,286 +1,40 @@
 /** @file Message admission through real Client storage and send preparation. */
 
-import { FileSystem } from "@effect/platform";
-import { NodeFileSystem } from "@effect/platform-node";
 import { scopedLive as it } from "@effect/vitest";
-import { AgentCard, Ed25519PublicKey, WIRE_VERSION } from "@moltzap/identity";
-import { RouterInstanceId } from "@moltzap/router";
-import { Deferred, Effect, Fiber, Queue, Schema, Scope } from "effect";
-import { generateKeyPairSync } from "node:crypto";
-import { join } from "node:path";
+import { Deferred, Effect, Fiber, Queue, Schema } from "effect";
 import { expect } from "vitest";
+import type { FirewallOptions } from "./firewall.js";
+import { digest } from "../__tests__/agent-card-fixtures.js";
+import { appendCertifiedPost } from "../__tests__/certified-history-fixtures.js";
 import {
-  digest,
-  identifier,
-  issueTestCard,
-  makeTestAuthority,
-} from "../__tests__/agent-card-fixtures.js";
-import {
-  buildCertifiedGenesis,
-  storeCertifiedGenesis,
-} from "../__tests__/certified-history-fixtures.js";
-import { decodeAudit } from "../__tests__/firewall-audit-fixtures.js";
-import { pollCursor } from "../__tests__/router-worker-fixtures.js";
-import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
+  addConversation,
+  auditChecks,
+  block,
+  destination,
+  fixture,
+  type Fixture,
+  incomingFixture,
+  installation,
+  outgoingFixture,
+  pass,
+  policy,
+  renderedWaitAction,
+  revise,
+  rule,
+  seedIncoming,
+  waitAction,
+} from "../__tests__/firewall-runtime-fixtures.js";
 import { FirewallSendError } from "../firewall/runtime.js";
 import {
   type MessageMiddleware,
   MiddlewareError,
   type MiddlewareInput,
-  type MiddlewareResult,
 } from "../firewall/values.js";
-import {
-  decodeRuntimeValue,
-  DeliveryToken,
-  encodeRuntimeValue,
-  type EndpointStore,
-  openEndpointStore,
-} from "../store/index.js";
+import { DeliveryToken, encodeRuntimeValue } from "../store/index.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
-import { makeCollectiveOperations } from "../transport/collectives/index.js";
-import { makeEndpointEngine } from "../transport/messaging/index.js";
-import { InboundMessage } from "../transport/messaging/message.js";
-import {
-  AgentAddress,
-  deriveConversationId,
-  encodeCanonical,
-  MembershipDescriptor,
-  RecordHash,
-  verifyMembershipDescriptor,
-} from "../transport/wire/index.js";
-import { beginFirewallAudit } from "./firewall-audit.js";
-import {
-  type FirewallOptions,
-  installFirewall,
-  sendWithFirewall,
-} from "./firewall.js";
-import { noHistoryExport } from "./history-export.js";
-import { makeHostDelivery } from "./host-delivery.js";
-import { eventIdOf, type HarnessMessageReadyEvent } from "./operations.js";
+import { eventIdOf } from "./operations.js";
 
 // @agent-code-guard/regression-only: Exercises durable admission, replay, interruption and races through SQLite and the protocol engine.
-
-const rule = {
-  id: "communication",
-  kind: "norm",
-  guidance: "Answer the open scheduling question.",
-  feedback: {
-    nextAction: "revise",
-    text: "Include all required participants.",
-  },
-} as const;
-const pass: MiddlewareResult = {
-  findings: [{ ruleId: rule.id, outcome: "pass" }],
-  expectations: [],
-};
-const block: MiddlewareResult = {
-  findings: [{ ruleId: rule.id, outcome: "block" }],
-  expectations: [],
-};
-const revise: MiddlewareResult = {
-  findings: [{ ruleId: rule.id, outcome: "revise" }],
-  expectations: [],
-};
-const waitAction = "wait";
-const renderedWaitAction = `Next action: ${waitAction}.`;
-const settings = {
-  timeoutMilliseconds: 10_000,
-  middlewareTimeoutMilliseconds: 8_000,
-  maximumInputBytes: 1_000_000,
-  maximumResultBytes: 100_000,
-};
-const destination = Schema.decodeUnknownSync(AgentAddress)("agent:bob");
-const anchor = {
-  routerInstanceId: Schema.decodeUnknownSync(RouterInstanceId)(
-    identifier("rti_", 10),
-  ),
-  pollCursor: pollCursor(11),
-};
-
-const identities = Effect.gen(function* () {
-  const registryKeys = generateKeyPairSync("ed25519");
-  const localAuthority = yield* makeTestAuthority();
-  const remoteAuthority = yield* makeTestAuthority();
-  const local = {
-    authority: localAuthority,
-    card: yield* issueTestCard({
-      byte: 1,
-      name: "alice",
-      authority: localAuthority,
-      registryKeys,
-    }),
-  };
-  const remote = {
-    authority: remoteAuthority,
-    card: yield* issueTestCard({
-      byte: 2,
-      name: "bob",
-      authority: remoteAuthority,
-      registryKeys,
-    }),
-  };
-  const signer = yield* Schema.decodeUnknown(Ed25519PublicKey)(
-    registryKeys.publicKey.export({ format: "jwk" }),
-  );
-  const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-    moltzapVersion: WIRE_VERSION,
-    kind: "membership_descriptor",
-    conversationId: yield* deriveConversationId([
-      local.card.agentId,
-      remote.card.agentId,
-    ]),
-    members: [
-      yield* Schema.encode(AgentCard)(local.card),
-      yield* Schema.encode(AgentCard)(remote.card),
-    ],
-  });
-  const membership = yield* verifyMembershipDescriptor(descriptor, signer);
-  const directory = stateDirectory();
-  const store = yield* openEndpointStore(directory);
-  yield* store.bindIdentity({
-    agentId: local.card.agentId,
-    canonicalAgentCard: yield* encodeCanonical(AgentCard, local.card),
-  });
-  return { local, remote, membership, directory, store, registryKeys, signer };
-});
-
-const fixture = Effect.gen(function* () {
-  const { local, remote, membership, directory, store, registryKeys, signer } =
-    yield* identities;
-  const outbound = yield* Deferred.make<undefined>();
-  const engine = yield* makeEndpointEngine({
-    localAgentCard: local.card,
-    signingAuthority: local.authority,
-    registrySignerPublicKey: signer,
-    registry: {
-      lookup: () => Effect.succeed({ kind: "found", agentCard: remote.card }),
-    },
-    store,
-    actionPolicy: () => Effect.succeed("sign"),
-    reportStorageFault: Effect.dieMessage("unexpected store fault"),
-    routerWorker: {
-      currentAnchor: Effect.succeed(anchor),
-      awaitAnchor: Effect.succeed(anchor),
-      send: () =>
-        Deferred.succeed(outbound, undefined).pipe(
-          Effect.zipRight(Effect.never),
-        ),
-    },
-  });
-  return {
-    local,
-    remote,
-    membership,
-    directory,
-    store,
-    engine,
-    outbound,
-    registryKeys,
-    signer,
-  };
-});
-type Fixture = Effect.Effect.Success<typeof fixture>;
-
-const auditChecks = (subject: Fixture) =>
-  Effect.gen(function* () {
-    const path = join(subject.directory, "audit.ndjson");
-    yield* (yield* beginFirewallAudit(path, subject.store)).finish;
-    const fileSystem = yield* FileSystem.FileSystem;
-    return decodeAudit(yield* fileSystem.readFileString(path)).records.filter(
-      (record) => record.kind === "check",
-    );
-  }).pipe(Effect.provide(NodeFileSystem.layer));
-
-const installation = (
-  middleware: MessageMiddleware,
-  overrides: Partial<FirewallOptions> = {},
-) =>
-  installFirewall({
-    incoming: [middleware],
-    outgoing: [middleware],
-    settings,
-    facts: [],
-    codeDigest: "a".repeat(64),
-    mode: "enforcement",
-    ...overrides,
-  });
-
-const incomingDelivery = (
-  subject: Fixture,
-  installed: Effect.Effect.Success<ReturnType<typeof installation>>,
-) =>
-  Effect.gen(function* () {
-    const { local, store } = subject;
-    const environment = { installed, store, localAgentCard: local.card };
-    const scope = yield* Scope.Scope;
-    const collectives = makeCollectiveOperations({
-      self: Schema.decodeUnknownSync(AgentAddress)("agent:alice"),
-      scope,
-      lookupMember: () => Effect.void,
-      sendPost: () => Effect.dieMessage("no protocol send is expected"),
-      emit: () => Effect.void,
-    });
-    const delivery = yield* makeHostDelivery({
-      store,
-      historyExport: noHistoryExport,
-      collectives: () => collectives,
-      scope,
-      firewall: installed,
-      firewallEnvironment: () => environment,
-    });
-    return { environment, delivery, collectives };
-  });
-
-const incomingFixture = (
-  subject: Fixture,
-  middleware: MessageMiddleware,
-  overrides: Partial<FirewallOptions> = {},
-) =>
-  Effect.gen(function* () {
-    const { store } = subject;
-    yield* seedIncoming(subject);
-    const installed = yield* installation(middleware, overrides);
-    const { environment, delivery, collectives } = yield* incomingDelivery(
-      subject,
-      installed,
-    );
-    const published: HarnessMessageReadyEvent[] = [];
-    const readPending = pendingMessages(store);
-    const runPass = delivery.runPass(() => ({
-      readPending,
-      classify: collectives.classify,
-      engine: { acknowledgeMessage: subject.engine.acknowledgeMessage },
-      handler: {
-        publish: (event) => {
-          published.push(event);
-          return true;
-        },
-      },
-    }));
-    const completed = yield* Queue.unbounded<undefined>();
-    yield* delivery
-      .runAdmission(
-        runPass.pipe(
-          Effect.orDie,
-          Effect.zipRight(Queue.offer(completed, undefined)),
-          Effect.asVoid,
-        ),
-      )
-      .pipe(Effect.forkScoped);
-    const pending = yield* readPending;
-    const candidate = pending[0];
-    if (candidate === undefined) {
-      return yield* Effect.dieMessage("missing certified fixture");
-    }
-    return {
-      ...environment,
-      delivery,
-      published,
-      runPass,
-      completed,
-      candidate,
-    };
-  });
 
 it(
   "withholds a certified incoming message from every runtime read and notification",
@@ -405,41 +159,6 @@ function shadowIncoming() {
       { kind: "multicast", message: runtime.candidate.message },
     ]);
     expect(runtime.published[0]?.guidance).toBeUndefined();
-  });
-}
-
-function outgoingFixture(
-  subject: Fixture,
-  middleware: MessageMiddleware,
-  overrides: Partial<FirewallOptions> = {},
-) {
-  return Effect.gen(function* () {
-    const installed = yield* installation(middleware, overrides);
-    const scope = yield* Scope.Scope;
-    const collectives = makeCollectiveOperations({
-      self: Schema.decodeUnknownSync(AgentAddress)("agent:alice"),
-      scope,
-      lookupMember: subject.engine.resolveAddress,
-      sendPost: subject.engine.send,
-      emit: () => Effect.void,
-    });
-    const environment = {
-      installed,
-      store: subject.store,
-      localAgentCard: subject.local.card,
-    };
-    return yield* makeHostDelivery({
-      store: subject.store,
-      historyExport: noHistoryExport,
-      scope,
-      collectives: () => ({
-        send: (input, failureDelivery) =>
-          sendWithFirewall(environment, subject.engine, collectives, {
-            input,
-            failureDelivery,
-          }),
-      }),
-    });
   });
 }
 
@@ -790,49 +509,6 @@ it(
   independentConversations,
 );
 
-function addConversation(subject: Fixture, authoredLocally = false) {
-  return Effect.gen(function* () {
-    const authority = yield* makeTestAuthority();
-    const card = yield* issueTestCard({
-      byte: 3,
-      name: "carol",
-      authority,
-      registryKeys: subject.registryKeys,
-    });
-    const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
-      moltzapVersion: WIRE_VERSION,
-      kind: "membership_descriptor",
-      conversationId: yield* deriveConversationId([
-        subject.local.card.agentId,
-        card.agentId,
-      ]),
-      members: [
-        yield* Schema.encode(AgentCard)(subject.local.card),
-        yield* Schema.encode(AgentCard)(card),
-      ],
-    });
-    const membership = yield* verifyMembershipDescriptor(
-      descriptor,
-      subject.signer,
-    );
-    const authors = authoredLocally
-      ? { local: { card, authority }, remote: subject.local }
-      : { local: subject.local, remote: { card, authority } };
-    const record = yield* buildCertifiedGenesis(
-      authors.local,
-      authors.remote,
-      membership,
-      anchor.routerInstanceId,
-    );
-    yield* storeCertifiedGenesis(
-      subject.store,
-      subject.local.card,
-      membership,
-      record,
-    );
-  });
-}
-
 function independentConversations() {
   return Effect.gen(function* () {
     const subject = yield* fixture;
@@ -872,34 +548,6 @@ function independentConversations() {
       ),
     ).toEqual(["agent:bob"]);
   });
-}
-
-function policy(check: MessageMiddleware["check"]): MessageMiddleware {
-  return { id: "communication", revision: "test-v1", rules: [rule], check };
-}
-
-function pendingMessages(store: EndpointStore) {
-  return store.readPendingDeliveries().pipe(
-    Effect.flatMap((entries) =>
-      Effect.forEach(
-        entries,
-        (entry) =>
-          Effect.gen(function* () {
-            return {
-              deliveryToken: entry.deliveryToken,
-              recordHash: yield* Schema.decodeUnknown(RecordHash)(
-                entry.recordHash,
-              ),
-              message: yield* decodeRuntimeValue(
-                InboundMessage,
-                entry.canonicalMessage,
-              ),
-            };
-          }),
-        { concurrency: 1 },
-      ),
-    ),
-  );
 }
 
 it("holds oversized incoming advice without publishing a partial projection", () =>
@@ -945,7 +593,8 @@ function oversizedAdvice(mode: FirewallOptions["mode"]) {
 function ownerHistoryStaysPrivate() {
   return Effect.gen(function* () {
     const subject = yield* fixture;
-    yield* addConversation(subject, true);
+    const previous = yield* seedIncoming(subject, true);
+    yield* appendCertifiedPost(subject, previous, "Can we meet?");
     const seen: MiddlewareInput[] = [];
     const middleware = policy((input) =>
       Effect.sync(() => {
@@ -962,7 +611,7 @@ function ownerHistoryStaysPrivate() {
         };
       }),
     );
-    const runtime = yield* incomingFixture(subject, middleware);
+    const runtime = yield* incomingFixture(subject, middleware, {}, false);
     yield* runtime.runPass;
     yield* Queue.take(runtime.completed);
     expect(seen).toMatchObject([
@@ -982,18 +631,5 @@ function ownerHistoryStaysPrivate() {
       ?.guidance;
     expect(guidance?.subjects).toHaveLength(1);
     expect(guidance?.subjects[0]?.sender).toBe(subject.remote.card.agentId);
-  });
-}
-
-function seedIncoming(subject: Fixture) {
-  return Effect.gen(function* () {
-    const { local, remote, membership, store } = subject;
-    const record = yield* buildCertifiedGenesis(
-      local,
-      remote,
-      membership,
-      anchor.routerInstanceId,
-    );
-    yield* storeCertifiedGenesis(store, local.card, membership, record);
   });
 }

@@ -230,6 +230,34 @@ it("preserves the receiver of an injected provider method", () =>
     expect(result.checks[0]?.trace?.data).toContain(stateful.model);
   }));
 
+it("reports earlier history omissions to the provider without holding or colliding with owner facts", () =>
+  Effect.gen(function* () {
+    const requests: DecisionRequest[] = [];
+    const result = yield* check(provider({}, requests), {
+      context: {
+        ...context,
+        earlierHistoryOmitted: true,
+        facts: [
+          ...context.facts,
+          {
+            id: "client:earlier-history-omitted",
+            source: "owner",
+            text: "Owner evidence retains its own reference.",
+            visibility: "assessor",
+          },
+        ],
+      },
+    });
+
+    expect(result.reason).toBe("eligible");
+    expect(requests.length).toBeGreaterThan(0);
+    expect(
+      requests.every((request) =>
+        request.state.includes('"earlierHistoryOmitted":true'),
+      ),
+    ).toBe(true);
+  }));
+
 it.prop(
   "outgoing expectations exclude every unsent draft",
   [fc.string()],
