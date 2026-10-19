@@ -5,9 +5,9 @@
  */
 import {
   Command,
+  type CommandExecutor,
   FileSystem,
   Path,
-  type CommandExecutor,
 } from "@effect/platform";
 import { Data, Effect, Either, Stream, String as StringOps } from "effect";
 import { dirname, resolve } from "node:path";
@@ -36,11 +36,6 @@ export class MermaidGateError extends Data.TaggedError("MermaidGateError")<{
   readonly cause: unknown;
 }> {}
 
-const gateError =
-  (reason: string, path: string) =>
-  (cause: unknown): MermaidGateError =>
-    new MermaidGateError({ reason, path, cause });
-
 /** Describes mermaid block. */
 export interface MermaidBlock {
   readonly file: string;
@@ -63,19 +58,44 @@ interface WalkCtx {
   readonly out: string[];
 }
 
+interface ExtractorState {
+  inFence: boolean;
+  fenceLang: string | null;
+  blockStart: number;
+  bodyLines: string[];
+  out: MermaidBlock[];
+}
+
+const MMDC_BIN = "mmdc";
+
+/**
+ * Chrome launch flags for the renderer. `mmdc` merges this file into its
+ * `puppeteer.launch()` options.
+ */
+const PUPPETEER_CONFIG = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "mermaid-puppeteer.json",
+);
+
+/** Lines of mmdc stderr kept in a failure message; the rest is stack noise. */
+const STDERR_LINES_KEPT = 6;
+
+interface MmdcRun {
+  readonly exitCode: number;
+  readonly stderr: string;
+}
+
 /**
  * Reject any configured root that is not a usable directory. A root that
  * is missing, unreadable, or a plain file contributes no files, so without
  * this the run would report a clean pass over a tree it never opened.
- * @param fs Value supplied to the operation.
- * @param roots Value supplied to the operation.
- * @returns The require roots result.
+ * Roots are checked sequentially so the first failure follows the declared input order.
  */
-export const requireRoots = (
+export function requireRoots(
   fs: FileSystem.FileSystem,
   roots: readonly string[],
-): Effect.Effect<void, MermaidGateError> =>
-  Effect.forEach(
+): Effect.Effect<void, MermaidGateError> {
+  return Effect.forEach(
     roots,
     (root) =>
       fs.stat(root).pipe(
@@ -92,83 +112,38 @@ export const requireRoots = (
               ),
         ),
       ),
-    // Sequential so the first unusable root is the one reported, in the
-    // order the list declares them.
+
     { discard: true, concurrency: 1 },
   );
+}
 
 /**
  * Every `.md` and `.mdx` file below `roots`, sorted for stable output.
- * @param fs Value supplied to the operation.
- * @param path Path to process.
- * @param roots Value supplied to the operation.
- * @returns The collect markdown files result.
  */
-export const collectMarkdownFiles = (
+export function collectMarkdownFiles(
   fs: FileSystem.FileSystem,
   path: Path.Path,
   roots: readonly string[],
-): Effect.Effect<readonly string[], MermaidGateError> =>
-  Effect.gen(function* () {
+): Effect.Effect<readonly string[], MermaidGateError> {
+  return Effect.gen(function* () {
     const ctx: WalkCtx = { fs, path, out: [] };
     for (const root of roots) {
       yield* walkInto(ctx, root);
     }
     return ctx.out.sort((left, right) => StringOps.localeCompare(right)(left));
-  });
-
-function walkInto(
-  ctx: WalkCtx,
-  dir: string,
-): Effect.Effect<void, MermaidGateError> {
-  return Effect.gen(function* () {
-    const entries = yield* ctx.fs
-      .readDirectory(dir)
-      .pipe(Effect.mapError(gateError("cannot read directory", dir)));
-    for (const name of entries) {
-      yield* visitEntry(ctx, dir, name);
-    }
-  });
-}
-
-function visitEntry(
-  ctx: WalkCtx,
-  dir: string,
-  name: string,
-): Effect.Effect<void, MermaidGateError> {
-  return Effect.gen(function* () {
-    if (SKIP_DIRS.has(name)) {
-      return;
-    }
-    const full = ctx.path.resolve(dir, name);
-    const info = yield* ctx.fs
-      .stat(full)
-      .pipe(Effect.mapError(gateError("cannot stat", full)));
-    if (info.type === "Directory") {
-      yield* walkInto(ctx, full);
-      return;
-    }
-    if (StringOps.endsWith(".md")(name) || StringOps.endsWith(".mdx")(name)) {
-      ctx.out.push(full);
-    }
-  });
+  }).pipe(Effect.withSpan("collectMarkdownFiles"));
 }
 
 /**
  * Extract every fenced block from `files`, labelled relative to the root.
- * @param fs Value supplied to the operation.
- * @param path Path to process.
- * @param workspaceRoot Value supplied to the operation.
- * @param files Value supplied to the operation.
- * @returns The extract mermaid blocks result.
  */
-export const collectBlocks = (
+export function collectBlocks(
   fs: FileSystem.FileSystem,
   path: Path.Path,
   workspaceRoot: string,
   files: readonly string[],
-): Effect.Effect<readonly MermaidBlock[], MermaidGateError> =>
-  Effect.gen(function* () {
+): Effect.Effect<readonly MermaidBlock[], MermaidGateError> {
+  return Effect.gen(function* () {
     const out: MermaidBlock[] = [];
     for (const file of files) {
       const source = yield* fs
@@ -179,14 +154,7 @@ export const collectBlocks = (
       );
     }
     return out;
-  });
-
-interface ExtractorState {
-  inFence: boolean;
-  fenceLang: string | null;
-  blockStart: number;
-  bodyLines: string[];
-  out: MermaidBlock[];
+  }).pipe(Effect.withSpan("collectBlocks"));
 }
 
 /**
@@ -194,9 +162,6 @@ interface ExtractorState {
  * block's 1-based start line (the opening fence) and raw body text.
  * Skips blocks whose fence is preceded by 4+ spaces (markdown
  * indented-code) and blocks fenced in a different language.
- * @param file Source file path.
- * @param source Source text to process.
- * @returns The extract mermaid blocks result.
  */
 export function extractMermaidBlocks(
   file: string,
@@ -214,6 +179,32 @@ export function extractMermaidBlocks(
     processLine(file, lines[i] ?? "", i, state);
   }
   return state.out;
+}
+
+/**
+ * Validate `block.body` by writing it to a temp file and shelling out
+ * to `mmdc`. Returns null on success or a `MermaidFailure` carrying
+ * mmdc's exit context on failure.
+ */
+export function lintBlock(
+  block: MermaidBlock,
+  tempDir: string,
+): Effect.Effect<
+  MermaidFailure | null,
+  MermaidGateError,
+  FileSystem.FileSystem | Path.Path | CommandExecutor.CommandExecutor
+> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const slug = `${block.file.replace(/[^a-zA-Z0-9]/g, "_")}-${block.startLine}`;
+    const inputPath = path.resolve(tempDir, `${slug}.mmd`);
+    const outputPath = path.resolve(tempDir, `${slug}.svg`);
+    yield* prepareInput(fs, tempDir, inputPath, block.body);
+    const result = yield* runMmdc(inputPath, outputPath);
+    yield* cleanup(fs, inputPath, outputPath);
+    return interpretResult(block, result);
+  }).pipe(Effect.withSpan("lintBlock"));
 }
 
 function processLine(
@@ -261,63 +252,11 @@ function handleFence(
   state.fenceLang = null;
 }
 
-const MMDC_BIN = "mmdc";
-
-/**
- * Chrome launch flags for the renderer. `mmdc` merges this file into its
- * `puppeteer.launch()` options.
- */
-const PUPPETEER_CONFIG = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "mermaid-puppeteer.json",
-);
-
-/** Lines of mmdc stderr kept in a failure message; the rest is stack noise. */
-const STDERR_LINES_KEPT = 6;
-
-interface MmdcRun {
-  readonly exitCode: number;
-  readonly stderr: string;
-}
-
-/**
- * Validate `block.body` by writing it to a temp file and shelling out
- * to `mmdc`. Returns null on success or a `MermaidFailure` carrying
- * mmdc's exit context on failure.
- * @param block Mermaid source block to validate.
- * @param tempDir Temporary directory for generated artifacts.
- * @returns The lint block result.
- */
-export const lintBlock = (
-  block: MermaidBlock,
-  tempDir: string,
-): Effect.Effect<
-  MermaidFailure | null,
-  MermaidGateError,
-  FileSystem.FileSystem | Path.Path | CommandExecutor.CommandExecutor
-> =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const slug = `${block.file.replace(/[^a-zA-Z0-9]/g, "_")}-${block.startLine}`;
-    const inputPath = path.resolve(tempDir, `${slug}.mmd`);
-    const outputPath = path.resolve(tempDir, `${slug}.svg`);
-    yield* prepareInput(fs, tempDir, inputPath, block.body);
-    const result = yield* runMmdc(inputPath, outputPath);
-    yield* cleanup(fs, inputPath, outputPath);
-    return interpretResult(block, result);
-  });
-
 /**
  * Stage one block for `mmdc`. The temp path is derived from the block's
  * file and line, so a discarded write error would leave whatever the last
  * run put there and `mmdc` would happily validate that instead — passing
  * the block that was never written.
- * @param fs Value supplied to the operation.
- * @param tempDir Temporary directory for generated artifacts.
- * @param inputPath Value supplied to the operation.
- * @param body Serialized response body to decode.
- * @returns The prepare input result.
  */
 function prepareInput(
   fs: FileSystem.FileSystem,
@@ -341,9 +280,7 @@ function prepareInput(
  * Run one block through `mmdc`, keeping its stderr. Mmdc reports both
  * diagram syntax errors and browser launch failures there, and the exit
  * code alone cannot tell those apart.
- * @param inputPath Value supplied to the operation.
- * @param outputPath Value supplied to the operation.
- * @returns The run mmdc result.
+ * Stdout remains inherited while stderr is drained; an undrained stdout pipe can block the renderer.
  */
 function runMmdc(
   inputPath: string,
@@ -364,13 +301,7 @@ function runMmdc(
         "--puppeteerConfigFile",
         PUPPETEER_CONFIG,
         "--quiet",
-      ).pipe(
-        // stdout stays inherited so only stderr needs draining; a piped
-        // stdout nobody reads can wedge the child once its buffer fills.
-        Command.stdout("inherit"),
-        Command.stderr("pipe"),
-        Command.start,
-      );
+      ).pipe(Command.stdout("inherit"), Command.stderr("pipe"), Command.start);
       const stderr = yield* proc.stderr.pipe(
         Stream.decodeText(),
         Stream.mkString,
@@ -386,10 +317,6 @@ function runMmdc(
  * no SVG behind, so removing it is expected to fail and says nothing about
  * whether the block was checked. Leftovers cannot mask a bad block either,
  * since every run fails outright if it cannot overwrite its input.
- * @param fs Value supplied to the operation.
- * @param inputPath Value supplied to the operation.
- * @param outputPath Value supplied to the operation.
- * @returns The interpret result result.
  */
 function cleanup(
   fs: FileSystem.FileSystem,
@@ -422,8 +349,6 @@ function interpretResult(
  * Indent the leading lines of mmdc stderr under the failure's header.
  * Stack frames are dropped: a browser launch failure buries its one useful
  * line under a deep trace, and that trace repeats for every block.
- * @param stderr Value supplied to the operation.
- * @returns The format stderr result.
  */
 function formatStderr(stderr: string): string {
   const lines = StringOps.split(stderr, "\n")
@@ -433,5 +358,48 @@ function formatStderr(stderr: string): string {
   if (lines.length === 0) {
     return "";
   }
-  return `\n${lines.map((l) => `    ${l}`).join("\n")}`;
+  const indented = lines.map((line) => `    ${line}`).join("\n");
+  return `\n${indented}`;
+}
+
+function gateError(reason: string, path: string) {
+  return (cause: unknown): MermaidGateError =>
+    new MermaidGateError({ reason, path, cause });
+}
+
+function walkInto(
+  ctx: WalkCtx,
+  dir: string,
+): Effect.Effect<void, MermaidGateError> {
+  return Effect.gen(function* () {
+    const entries = yield* ctx.fs
+      .readDirectory(dir)
+      .pipe(Effect.mapError(gateError("cannot read directory", dir)));
+    for (const name of entries) {
+      yield* visitEntry(ctx, dir, name);
+    }
+  });
+}
+
+function visitEntry(
+  ctx: WalkCtx,
+  dir: string,
+  name: string,
+): Effect.Effect<void, MermaidGateError> {
+  return Effect.gen(function* () {
+    if (SKIP_DIRS.has(name)) {
+      return;
+    }
+    const full = ctx.path.resolve(dir, name);
+    const info = yield* ctx.fs
+      .stat(full)
+      .pipe(Effect.mapError(gateError("cannot stat", full)));
+    if (info.type === "Directory") {
+      yield* walkInto(ctx, full);
+      return;
+    }
+    if (StringOps.endsWith(".md")(name) || StringOps.endsWith(".mdx")(name)) {
+      ctx.out.push(full);
+    }
+  });
 }

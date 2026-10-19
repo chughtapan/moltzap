@@ -1,9 +1,10 @@
 /** @file Unit tests for module-documentation JSDoc parsing. */
 
 import { describe, expect, it } from "vitest";
-import { parseFailureTag, readLeadingJsDoc } from "../modules.js";
+import { parseFailureTag, readLeadingJsDoc } from "../modules.ts";
 
 describe("parseFailureTag", () => {
+  // @agent-code-guard/regression-only: fixed syntax and gate failure fixtures exercise distinct regressions.
   it("splits on the first ' when '", () => {
     expect(parseFailureTag("NotFoundError when the row is absent")).toEqual({
       errorName: "NotFoundError",
@@ -43,6 +44,7 @@ describe("parseFailureTag", () => {
 });
 
 describe("readLeadingJsDoc", () => {
+  // @agent-code-guard/regression-only: fixed syntax and gate failure fixtures exercise distinct regressions.
   it("returns null when source has no leading JSDoc", () => {
     expect(readLeadingJsDoc("export const x = 1;\n")).toBeNull();
     expect(readLeadingJsDoc("\n\nexport const x = 1;\n")).toBeNull();
@@ -61,6 +63,7 @@ describe("readLeadingJsDoc", () => {
 export {};
 `;
     expect(readLeadingJsDoc(source)).toBe(
+      // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
       "This is the purpose.\n\nBody prose continues.",
     );
   });
@@ -73,6 +76,7 @@ export {};
 export {};
 `;
     expect(readLeadingJsDoc(source)).toBe(
+      // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
       "Plain purpose statement.\nSecond line.",
     );
   });
@@ -83,6 +87,7 @@ export {};
  *   Line two indented.
  */
 `;
+    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
     expect(readLeadingJsDoc(source)).toBe("Line one.\n  Line two indented.");
   });
 });

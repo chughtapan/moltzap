@@ -13,9 +13,6 @@
   },
   "include": ["**/*.ts"],
   "exclude": [
-    "__tests__",
-    "docs",
-    "repo",
     "test/adapter-daemon-process.integration.test.ts",
     "test/adapter-daemon-vitest.config.ts"
   ]

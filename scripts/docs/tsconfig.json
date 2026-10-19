@@ -1,21 +1,5 @@
 {
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "composite": false,
-    "declaration": false,
-    "declarationMap": false,
-    "noEmit": true
-  },
-  "include": [
-    "__tests__/**/*.ts",
-    "check-mermaid.ts",
-    "flow-coverage.ts",
-    "generate-modules.ts",
-    "mermaid-lint.ts",
-    "mintlify-nav.ts",
-    "modules.ts",
-    "moltzap-version.ts",
-    "typedoc-load.ts",
-    "vitest.config.ts"
-  ]
+  "extends": "../tsconfig.json",
+  "include": ["**/*.ts"],
+  "exclude": []
 }
