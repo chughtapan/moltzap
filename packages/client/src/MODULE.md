@@ -637,18 +637,18 @@ What a completed send returns: a collecting operation names its id.
 
 ### `@moltzap/client/service`
 
-#### [`Daemon`](./service/index.ts#L61)
+#### [`Daemon`](./service/index.ts#L72)
 
 _Namespace_
 
-#### [`Daemon.StartupError`](./service/index.ts#L72)
+#### [`Daemon.StartupError`](./service/index.ts#L83)
 
 _Class_
 
 ```ts
   export class StartupError extends Data.TaggedError("DaemonStartupError")<{
     readonly phase: "configuration" | "storage" | "listener";
-    readonly reason?: "outbox-too-old";
+    readonly reason?: "outbox-too-old" | "newer-schema" | "pre-reset";
   }> {
     /**
      * Names the failed phase and any actionable compatibility refusal.
@@ -663,7 +663,7 @@ _Class_
 
 Closed daemon startup phase without configuration or platform detail.
 
-#### [`Daemon.FirewallOptions`](./service/index.ts#L63)
+#### [`Daemon.FirewallOptions`](./service/index.ts#L74)
 
 _TypeAlias_
 
@@ -679,7 +679,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-#### [`Daemon.layer`](./service/index.ts#L133)
+#### [`Daemon.layer`](./service/index.ts#L144)
 
 _Variable_
 
@@ -691,7 +691,7 @@ _Variable_
 
 Complete production process composition for `moltzapd`.
 
-#### [`Daemon.withFirewall`](./service/index.ts#L142)
+#### [`Daemon.withFirewall`](./service/index.ts#L153)
 
 _Function_
 
@@ -1288,6 +1288,7 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `service/registration/README.md`
 - `store/anchors.ts`
 - `store/database/index.ts`
+- `store/database/migrations.ts`
 - `store/database/schema.ts`
 - `store/database/values.ts`
 - `store/firewall.ts`

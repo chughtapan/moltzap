@@ -1,6 +1,7 @@
 /** @file Store assembly behind the store's index.ts entrypoint. */
 
 import { Effect, type Scope } from "effect";
+import type { OutboxTooOldError } from "./database/values.js";
 import type { EndpointStore } from "./types.js";
 import {
   applyCatchUpReanchor,
@@ -103,17 +104,26 @@ export const inspectEndpointStore = (
  * Opens the one SQLite store owned by a daemon state directory.
  *
  * @param stateDirectory Exclusive persistent state directory.
+ * @param options Live wire versions admitted before migration; omission refuses pending envelopes.
+ * @param options.liveWireVersions Versions accepted for pending outbound envelopes.
  * @returns A scoped private endpoint-store capability.
  * @failure EndpointStoreError when the directory or database cannot be owned.
  */
 export const openEndpointStore = (
   stateDirectory: string,
-): Effect.Effect<EndpointStore, EndpointStoreError, Scope.Scope> =>
+  options: { readonly liveWireVersions: readonly string[] } = {
+    liveWireVersions: [],
+  },
+): Effect.Effect<
+  EndpointStore,
+  EndpointStoreError | OutboxTooOldError,
+  Scope.Scope
+> =>
   // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- The returned Scope requirement binds SQLite ownership to daemon acquisition.
-  Effect.acquireRelease(openStoreState(stateDirectory), closeStoreState).pipe(
-    Effect.map(makeEndpointStore),
-    Effect.withSpan("openEndpointStore"),
-  );
+  Effect.acquireRelease(
+    openStoreState(stateDirectory, options),
+    closeStoreState,
+  ).pipe(Effect.map(makeEndpointStore), Effect.withSpan("openEndpointStore"));
 
 function makeEndpointStore(state: StoreState): EndpointStore {
   const run = makeStoreRunner(state);

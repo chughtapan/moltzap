@@ -87,12 +87,34 @@ verified maps without rewriting record identity.
 
 An absent or empty database initializes at schema 8. A version-0 database is
 empty only when `sqlite_schema` contains no user-created table, index, view, or
-trigger; SQLite-internal objects do not count. Only an existing schema-8 store
-reopens.
-Every other schema version and any unrecognized nonempty database fails before
-WAL, schema or permission changes. There are no schema migrations or automatic
-resets. Until the planned reset release (migration plan PR 4), a change to
-the wire compatibility value also requires a reset under the
+trigger; SQLite-internal objects do not count. The current schema reopens.
+A newer schema fails with `newer-schema`; a schema below the migration baseline
+fails with `pre-reset`. An unrecognized nonempty database fails with
+`incompatible`. These refusals precede WAL, schema and permission changes.
+
+The store supports numbered forward migrations from its baseline. Before any
+backup or migration step, it checks pending outbound envelopes against the live
+wire versions supplied by the daemon. A retired envelope fails with
+`outbox-too-old`; drain it on an earlier release before upgrading.
+
+Before migrating from schema N, startup removes any leftover
+`moltzapd.sqlite3.schema-N.backup.tmp`, writes a consistent SQLite copy there
+with `VACUUM INTO`, sets mode 0600, fsyncs it and renames it over
+`moltzapd.sqlite3.schema-N.backup`. A retry replaces the backup with a fresh
+copy. Backup failure stops startup in `storage` before any migration step.
+Each numbered step runs in its own `EXCLUSIVE` transaction that also advances
+`user_version`. A failed step rolls back to its preceding schema and stops
+startup in `storage`; a retry resumes at the last committed schema. Startup
+runs `quick_check` and the existing stored-history verification before signing.
+A backup restored immediately after that migration fails is safe because the
+daemon has not signed. Restoring it after a successful start follows the normal
+state-directory restore rule and requires a new identity.
+
+There are no production migration steps yet; the baseline remains schema 8 and
+older stores require an explicit reset. The runner is exercised with synthetic
+next-version steps in tests. There are no automatic resets. Until the planned
+reset release (migration plan PR 4), a change to the wire compatibility value
+also requires a reset under the
 [v1 reset policy](../layer-interfaces.md#publication-and-versions). The daemon
 does not detect a state directory kept across a reset: an operator must replace
 it, because its AgentId is unknown to the fresh Registry.

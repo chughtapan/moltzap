@@ -1,4 +1,4 @@
-/** @file SQLite ownership, exact-version preflight, and closed persistence primitives. */
+/** @file SQLite ownership, version preflight, and closed persistence primitives. */
 
 import { Effect } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Ownership requires synchronous permission changes before the database escapes acquisition.
@@ -6,9 +6,12 @@ import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { CertifiedRecord } from "../types.js";
+import { migrateStore, migrations, RESET_SCHEMA } from "./migrations.js";
 import {
   type EndpointStoreError,
   mapStoreFailure,
+  OutboxTooOldError,
+  readBytes,
   readInteger,
   readText,
   requireText,
@@ -29,23 +32,29 @@ export interface StoreState {
 }
 
 const DATABASE_NAME = "moltzapd.sqlite3";
-/** Only this layout can reopen; incompatible endpoint state requires an explicit reset. */
-const SCHEMA_VERSION = 8;
 
 /** An absent or empty database is created; the current schema reopens. */
-export type StoreOpening = "create" | "reopen";
+export type StoreOpening = "create" | "reopen" | "migrate";
 
 /**
- * Acquires and exclusively locks one exact-version endpoint database.
+ * Acquires one endpoint database and finishes admitted upgrades before use.
  * @param stateDirectory Exclusive persistent state directory.
+ * @param options Live wire versions admitted before an upgrade; omission refuses pending envelopes.
+ * @param options.liveWireVersions Versions accepted for pending outbound envelopes.
  * @returns Acquired database state after integrity and compatibility checks.
  */
 export const openStoreState = (
   stateDirectory: string,
-): Effect.Effect<StoreState, EndpointStoreError> =>
+  options: { readonly liveWireVersions: readonly string[] } = {
+    liveWireVersions: [],
+  },
+): Effect.Effect<StoreState, EndpointStoreError | OutboxTooOldError> =>
   Effect.try({
-    try: () => initializeStoreState(stateDirectory),
-    catch: (failure) => mapStoreFailure(failure, "persistence"),
+    try: () => initializeStoreState(stateDirectory, options.liveWireVersions),
+    catch: (failure) =>
+      failure instanceof OutboxTooOldError
+        ? failure
+        : mapStoreFailure(failure, "persistence"),
   });
 
 /**
@@ -133,7 +142,10 @@ export function transaction<Value>(
   }
 }
 
-function initializeStoreState(stateDirectory: string): StoreState {
+function initializeStoreState(
+  stateDirectory: string,
+  liveWireVersions: readonly string[],
+): StoreState {
   requireText(stateDirectory);
   mkdirSync(stateDirectory, { recursive: true, mode: 0o700 });
   const databasePath = resolve(stateDirectory, DATABASE_NAME);
@@ -143,9 +155,11 @@ function initializeStoreState(stateDirectory: string): StoreState {
   let database: DatabaseSync | undefined;
   try {
     database = openWritableDatabase(databasePath);
+    database.exec("PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE; COMMIT");
     const disposition = preflightDatabase(database);
-    if (expected !== undefined && disposition !== expected) {
-      throw new StoreSignal("incompatible");
+    requireExpectedOpening(disposition, expected);
+    if (disposition === "migrate") {
+      upgradeDatabase(database, liveWireVersions, databasePath);
     }
     chmodSync(stateDirectory, 0o700);
     chmodSync(databasePath, 0o600);
@@ -164,6 +178,25 @@ function initializeStoreState(stateDirectory: string): StoreState {
     } catch {}
     throw failure;
   }
+}
+
+function requireExpectedOpening(
+  disposition: StoreOpening,
+  expected?: StoreOpening,
+): void {
+  if (expected !== undefined && expected !== disposition) {
+    throw new StoreSignal("incompatible");
+  }
+}
+
+function upgradeDatabase(
+  database: DatabaseSync,
+  liveWireVersions: readonly string[],
+  databasePath: string,
+): void {
+  requireLiveOutbox(database, liveWireVersions);
+  migrateStore(database, readSchemaVersion(database), databasePath);
+  requireHealthyDatabase(database);
 }
 
 function inspectExistingDatabase(databasePath: string): StoreOpening {
@@ -191,19 +224,80 @@ function openWritableDatabase(databasePath: string): DatabaseSync {
 }
 
 function preflightDatabase(database: DatabaseSync): StoreOpening {
-  const versionRow = database.prepare("PRAGMA user_version").get();
-  if (versionRow === undefined) {
-    throw new StoreSignal("corrupt");
+  const version = readSchemaVersion(database);
+  if (version > schemaVersion()) {
+    throw new StoreSignal("newer-schema");
   }
-  const version = readInteger(versionRow, "user_version");
-  if (
-    version !== SCHEMA_VERSION &&
-    (version !== 0 || hasUserSchemaObjects(database))
-  ) {
-    throw new StoreSignal("incompatible");
+  if (version === 0) {
+    if (hasUserSchemaObjects(database)) {
+      throw new StoreSignal("incompatible");
+    }
+    requireHealthyDatabase(database);
+    return "create";
+  }
+  if (version < RESET_SCHEMA) {
+    throw new StoreSignal("pre-reset");
   }
   requireHealthyDatabase(database);
-  return version === 0 ? "create" : "reopen";
+  return version === schemaVersion() ? "reopen" : "migrate";
+}
+
+function readSchemaVersion(database: DatabaseSync): number {
+  const row = database.prepare("PRAGMA user_version").get();
+  if (row === undefined) {
+    throw new StoreSignal("corrupt");
+  }
+  return readInteger(row, "user_version");
+}
+
+/** The highest registered destination is the schema created by this binary. */
+function schemaVersion(): number {
+  return Math.max(RESET_SCHEMA, ...Object.keys(migrations).map(Number));
+}
+
+/** Pending envelopes keep their signed version until the reset introduces a dedicated column. */
+function requireLiveOutbox(
+  database: DatabaseSync,
+  liveWireVersions: readonly string[],
+): void {
+  const rows = database
+    .prepare(`SELECT canonical_current_signed_message
+    FROM outbound_messages WHERE disposition = 'pending'`)
+    .all();
+  for (const row of rows) {
+    const payload: unknown = JSON.parse(
+      Buffer.from(
+        signedPayload(readBytes(row, "canonical_current_signed_message")),
+        "base64url",
+      ).toString("utf8"),
+    );
+    if (
+      typeof payload !== "object" ||
+      payload === null ||
+      !("moltzapVersion" in payload) ||
+      typeof payload.moltzapVersion !== "string"
+    ) {
+      throw new StoreSignal("corrupt");
+    }
+    if (!liveWireVersions.includes(payload.moltzapVersion)) {
+      throw new OutboxTooOldError();
+    }
+  }
+}
+
+function signedPayload(bytes: Uint8Array): string {
+  const representation: unknown = JSON.parse(
+    Buffer.from(bytes).toString("utf8"),
+  );
+  if (
+    typeof representation !== "object" ||
+    representation === null ||
+    !("payload" in representation) ||
+    typeof representation.payload !== "string"
+  ) {
+    throw new StoreSignal("corrupt");
+  }
+  return representation.payload;
 }
 
 function hasUserSchemaObjects(database: DatabaseSync): boolean {
@@ -520,7 +614,7 @@ function createStore(database: DatabaseSync): void {
       database.exec(runtimeSchemaSql);
       database.exec(firewallSchemaSql);
       database.exec(editablePolicySql);
-      database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+      database.exec(`PRAGMA user_version = ${schemaVersion()}`);
     },
     "EXCLUSIVE",
   );
