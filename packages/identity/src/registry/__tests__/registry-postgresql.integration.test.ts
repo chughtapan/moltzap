@@ -85,8 +85,8 @@ const managedPostgreSql = Effect.acquireRelease(
 );
 
 /**
- * Docker can claim a released Registry port, so PostgreSQL must publish its
- * host port before the Registry selects a free listener port.
+ * PostgreSQL publishes its host port before the Registry selects a free
+ * listener port, keeping container startup out of that allocation window.
  */
 const makePostgreSqlRegistrySetup = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
@@ -277,6 +277,11 @@ const assertDurableReplayBoundary = (input: {
     ).toBe(true);
   });
 
+/**
+ * Persistence binds the database and signer, independent of the listener origin.
+ * Select a port immediately before restart because parallel tests or Docker can
+ * claim the first process's port after it stops.
+ */
 const realPostgreSqlBehavior = Effect.gen(function* () {
   const setup = yield* makePostgreSqlRegistrySetup;
   const firstProcess = yield* startReadyRegistry(
@@ -289,21 +294,26 @@ const realPostgreSqlBehavior = Effect.gen(function* () {
   );
   yield* stopProcess(firstProcess);
 
-  const restarted = yield* startReadyRegistry(setup.environment, setup.origin);
+  const restartPort = yield* reservePort;
+  const restartOrigin = new URL(`http://${LOOPBACK_HOST}:${restartPort}`);
+  const restarted = yield* startReadyRegistry(
+    { ...setup.environment, MOLTZAP_REGISTRY_PORT: String(restartPort) },
+    restartOrigin,
+  );
   const lookup = yield* makeRegistryRunner(
-    setup.origin,
+    restartOrigin,
     setup.registrySignerPublicKey,
   )(Registry.lookup({ agentId: registered.agentCard.agentId }));
   expect(lookup.kind).toBe(FOUND_KIND);
   if (lookup.kind === FOUND_KIND) {
     yield* expectExactCard(lookup.agentCard, registered.agentCard);
   }
-  yield* assertDurableReplayBoundary(setup);
+  yield* assertDurableReplayBoundary({ ...setup, origin: restartOrigin });
 
   yield* stopPostgreSql(setup.container);
   const unhealthy = yield* waitForHealthStatus({
     runningProcess: restarted,
-    origin: setup.origin,
+    origin: restartOrigin,
     expectedStatus: SERVICE_UNAVAILABLE_STATUS,
   });
   expect(unhealthy).toStrictEqual({
