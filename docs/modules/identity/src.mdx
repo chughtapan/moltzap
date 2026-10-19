@@ -803,7 +803,7 @@ Closed Registry bootstrap registration request.
 
 ### `@moltzap/identity/registry/server`
 
-#### [`StartupError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/server.ts#L142)
+#### [`StartupError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/server.ts#L143)
 
 _Class_
 
@@ -812,12 +812,19 @@ export class StartupError extends Data.TaggedError(
   "RegistryServerStartupError",
 )<{
   readonly phase: "configuration" | "storage" | "listener";
-}> {}
+  readonly reason?: RegistryStorageInitializationError["reason"];
+}> {
+  override get message(): string {
+    return this.reason === undefined
+      ? `Registry startup failed: ${this.phase}`
+      : `Registry startup failed: ${this.phase} (${this.reason})`;
+  }
+}
 ```
 
 Closed Registry startup failure.
 
-#### [`layer`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/server.ts#L182)
+#### [`layer`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/server.ts#L190)
 
 _Variable_
 

@@ -29,6 +29,7 @@ import {
   initializeRegistryStorage,
   makeRegistryStorage,
   type RegistryStorage,
+  RegistryStorageInitializationError,
 } from "./storage.js";
 
 const MAXIMUM_PROCESS_INTEGER = 2_147_483_647;
@@ -143,7 +144,14 @@ export class StartupError extends Data.TaggedError(
   "RegistryServerStartupError",
 )<{
   readonly phase: "configuration" | "storage" | "listener";
-}> {}
+  readonly reason?: RegistryStorageInitializationError["reason"];
+}> {
+  override get message(): string {
+    return this.reason === undefined
+      ? `Registry startup failed: ${this.phase}`
+      : `Registry startup failed: ${this.phase} (${this.reason})`;
+  }
+}
 
 const runRegistryServer = Effect.gen(function* () {
   const configuration = yield* loadRegistryConfiguration.pipe(
@@ -213,7 +221,7 @@ function connectStorage(
       Effect.mapError(storageFailure),
       Effect.timeoutFail({
         duration: Duration.millis(configuration.sqlOperationTimeoutMs),
-        onTimeout: storageFailure,
+        onTimeout: () => storageFailure(),
       }),
     );
     return makeRegistryStorage({
@@ -273,7 +281,6 @@ function serveRegistry(
       port: configuration.port,
     }).pipe(Effect.mapError(listenerFailure));
     yield* HttpServer.serveEffect(app).pipe(
-      // The server capability owns listener acquisition and release.
       Effect.provideService(HttpServer.HttpServer, httpServer),
     );
   });
@@ -283,8 +290,14 @@ function configurationFailure() {
   return new StartupError({ phase: "configuration" });
 }
 
-function storageFailure() {
-  return new StartupError({ phase: "storage" });
+function storageFailure(error?: unknown) {
+  return new StartupError({
+    phase: "storage",
+    reason:
+      error instanceof RegistryStorageInitializationError
+        ? error.reason
+        : "unavailable",
+  });
 }
 
 function listenerFailure() {
