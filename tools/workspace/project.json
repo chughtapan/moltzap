@@ -126,7 +126,6 @@
         "parallel": false,
         "commands": [
           "tsc --noEmit -p tsconfig.eslint.json",
-          "tsc --noEmit -p scripts/docs/tsconfig.json",
           "tsc --noEmit -p scripts/tsconfig.json"
         ]
       }
@@ -261,7 +260,6 @@
       "inputs": [
         "{workspaceRoot}/scripts/docs/**/*.ts",
         "{workspaceRoot}/scripts/docs/mermaid-puppeteer.json",
-        "{workspaceRoot}/scripts/docs/tsconfig.json",
         "{workspaceRoot}/tsconfig.base.json"
       ],
       "executor": "nx:run-commands",

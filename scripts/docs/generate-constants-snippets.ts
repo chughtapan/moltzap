@@ -37,8 +37,8 @@ import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  WIRE_VERSION_SOURCE,
   readCompatibilityVersion,
+  WIRE_VERSION_SOURCE,
 } from "./moltzap-version.ts";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -315,6 +315,14 @@ function bakeConstant(
   };
 }
 
+/**
+ * Replaces `previous` literal occurrences with `next` in the file body
+ * (everywhere except the marker line and the constants snippet itself).
+ * Numeric replacements use a digit-boundary guard so `3000` doesn't
+ * smash `30000`; string replacements are taken verbatim — the literal
+ * is the unique key. Returns the modified body + a per-occurrence
+ * count.
+ */
 function replaceLiteral(
   body: string,
   previous: string | number,

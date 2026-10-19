@@ -87,16 +87,6 @@ interface FoldedLine {
   readonly startLine: number;
 }
 
-/**
- * Pre-fold multi-line `import { ... } from "..."` statements onto one
- * logical line so the single-line `IMPORT_RE` can match them. Detection:
- * a line starts with `import` AND opens a `{` that isn't closed on the
- * same line AND has no `from "..."` clause yet. Accumulates following
- * lines (joined with spaces) until the matching `}` appears with a
- * `from "..."` clause on the same line, capping at 50 lines to bound
- * pathological input. Non-import lines pass through unchanged. Returns
- * the start line of each folded statement for accurate error citations.
- */
 const MULTI_LINE_FOLD_CAP = 50;
 
 interface Violation {
@@ -228,12 +218,27 @@ function parseNamedBindings(clause: string): readonly string[] {
     .filter((s) => s.length > 0);
 }
 
+/**
+ * Historical handoffs preserve their reviewed package imports. Only an explicit opening Status marker containing both
+ * HISTORICAL and SUPERSEDED exempts a document; ordinary live docs continue
+ * through the resolver even if their prose mentions either word elsewhere.
+ */
 function isHistoricalSupersededDocument(text: string): boolean {
   const opening = text.split("\n").slice(0, 20).join("\n");
   // eslint-disable-next-line sonarjs/slow-regex -- The input is bounded, repository-owned documentation or a fixed test fixture.
   return /^Status:\s+.*\bHISTORICAL\b.*\bSUPERSEDED\b.*$/m.test(opening);
 }
 
+/**
+ * Pre-folds multi-line `import { ... } from "..."` statements onto one
+ * logical line so the single-line `IMPORT_RE` can match them. Detection:
+ * a line starts with `import` AND opens a `{` that isn't closed on the
+ * same line AND has no `from "..."` clause yet. Accumulates following
+ * lines (joined with spaces) until the matching `}` appears with a
+ * `from "..."` clause on the same line, capping at 50 lines to bound
+ * pathological input. Non-import lines pass through unchanged. Returns
+ * the start line of each folded statement for accurate error citations.
+ */
 function joinMultiLineImports(
   rawLines: readonly string[],
 ): readonly FoldedLine[] {
@@ -495,6 +500,12 @@ function isTypeDeclaration(node: ts.Node): boolean {
   );
 }
 
+/**
+ * Reduces an exports-map entry to a single string path. Accepts either
+ * a bare string (`"./dist/index.js"`) or a conditional object (`{
+ * "import": "./dist/index.js", "types": "..." }`); prefers `import`,
+ * then `default`, then `types`. Returns null when the entry is malformed.
+ */
 function resolveExportTarget(target: unknown): string | null {
   if (typeof target === "string") {
     return target;
@@ -514,6 +525,12 @@ function resolveExportTarget(target: unknown): string | null {
   return null;
 }
 
+/**
+ * Maps a `dist/...` build path to its likely `src/...` source so the
+ * named-binding check works on pre-build trees. `dist/foo/index.js` →
+ * `src/foo/index.ts`; everything else returns null and the gate falls
+ * back to the dist file (which may not exist).
+ */
 function guessSourcePath(pkgDir: string, distRel: string): string | null {
   if (!distRel.startsWith("./dist/")) {
     return null;

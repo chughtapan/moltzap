@@ -104,6 +104,11 @@ function collectReachabilityFailures(
   collectMissingAllowlistEntries(scripts, staleAllowlist);
 }
 
+/**
+ * True when any tracked file other than `path` mentions it by its repo-relative
+ * path, or a sibling in its directory imports it as `./&lt;name>`. A sibling
+ * import makes a module reachable through whatever reaches that sibling.
+ */
 function isReferenced(path: string): boolean {
   return [
     ...gitGrepFiles(path),
@@ -111,6 +116,15 @@ function isReferenced(path: string): boolean {
   ].some((f) => f.length > 0 && f !== path);
 }
 
+/**
+ * `git grep` exits 1 to mean "no match", which `execFileSync` raises as an
+ * error. Only that exit code is benign; anything else is a real failure and
+ * must not be swallowed into a false "unreferenced" verdict.
+ *
+ * This file is excluded from its own search: it names every allowlisted path,
+ * so counting it as a reference would make each allowlist entry
+ * self-justifying.
+ */
 function gitGrepFiles(needle: string, scope = "."): readonly string[] {
   try {
     return git([

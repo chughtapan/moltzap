@@ -112,7 +112,6 @@ export function requireRoots(
               ),
         ),
       ),
-
     { discard: true, concurrency: 1 },
   );
 }

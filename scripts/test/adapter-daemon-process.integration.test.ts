@@ -1,789 +1,82 @@
 /** @file Real-daemon acceptance for the runtime adapter boundaries. */
 
-import {
-  acquireHarnessEndpoint,
-  AgentAddress,
-  type Content,
-  GroupAddress,
-  type InboundDelivery,
-  type InboundItem,
-} from "@moltzap/client";
-import openClawPlugin from "@moltzap/openclaw-channel";
-import {
-  Deferred,
-  Duration,
-  Effect,
-  Fiber,
-  Option,
-  Queue,
-  Schema,
-  type Scope,
-  Stream,
-} from "effect";
+import { acquireHarnessEndpoint, type InboundDelivery } from "@moltzap/client";
+import { Deferred, Effect, Fiber, Queue } from "effect";
 import { expect, it } from "vitest";
+
 import {
-  acquireDaemonManagementClient,
-  acquireDaemonProcess,
-  acquireProcessInfrastructure,
-  type DaemonProcessFixture,
-  makeDaemonProcessFixture,
-  makeRegistrationRequest,
-  processTrace,
   ProcessTestError,
+  processTrace,
 } from "../../packages/client/integration/daemon-process-harness.js";
+import {
+  acquireGroupScenario,
+  acquireScenario,
+  assertDurableExchange,
+  awaitSignal,
+  DELIVERY_TIMEOUT,
+  directAddress,
+  effectFromPromise,
+  groupAddress,
+  makeObservedOpenClawAccountRuntime,
+  makeTurnQueueRuntime,
+  multicastContent,
+  nextDelivery,
+  nextItem,
+  nextTurn,
+  OPENCLAW_ACCOUNT_ID,
+  OPENCLAW_INITIAL_TEXT,
+  OPENCLAW_MAIN_SESSION_KEY,
+  OPENCLAW_REPLY,
+  openClawConfig,
+  type OpenClawInboundContext,
+  type OpenClawMessageActionContext,
+  RecordedSessionStore,
+  registerOpenClawChannel,
+  requireRequest,
+  startOpenClawGateway,
+} from "./adapter-daemon-fixture.ts";
 
-const DELIVERY_TIMEOUT = Duration.seconds(60);
-const OPENCLAW_ACCOUNT_ID = "adapter-target";
-const OPENCLAW_MAIN_SESSION_KEY = "agent:primary:main";
-const OPENCLAW_REPLY = "reply from the real OpenClaw adapter";
+const SLOT_SCHEMA = {
+  type: "object",
+  properties: { slot: { type: "string", enum: ["mon", "tue"] } },
+  required: ["slot"],
+} as const;
 
-interface Scenario {
-  readonly caller: DaemonProcessFixture;
-  readonly target: DaemonProcessFixture;
-}
+const GATHER_QUESTION = "Which day works?";
 
-interface GroupScenario extends Scenario {
-  readonly peer: DaemonProcessFixture;
-}
-
-interface RecordedSessionSnapshot {
-  readonly messageIds: readonly string[];
-}
-
-class RecordedSessionStore {
-  private readonly messagesBySession = new Map<string, string[]>();
-
-  acceptMessage(sessionKey: string, messageId: string): void {
-    const messageIds = this.messagesBySession.get(sessionKey) ?? [];
-    if (!messageIds.includes(messageId)) {
-      messageIds.push(messageId);
-    }
-    this.messagesBySession.set(sessionKey, messageIds);
-  }
-
-  keys(): readonly string[] {
-    return [...this.messagesBySession.keys()];
-  }
-
-  snapshot(sessionKey: string): RecordedSessionSnapshot {
-    return {
-      messageIds: [...(this.messagesBySession.get(sessionKey) ?? [])],
-    };
-  }
-}
-
-interface OpenClawConfig {
-  readonly channels: {
-    readonly moltzap: {
-      readonly accounts: readonly [
-        {
-          readonly id: string;
-        },
-      ];
-    };
-  };
-  readonly session: { readonly store: string };
-}
-
-interface OpenClawBuildContextInput {
-  readonly channel: string;
-  readonly accountId: string;
-  readonly provider: string;
-  readonly surface: string;
-  readonly messageId: string;
-  readonly from: string;
-  readonly sender: { readonly id: string; readonly name: string };
-  readonly conversation: {
-    readonly kind: "direct" | "group";
-    readonly id: string;
-    readonly label: string;
-  };
-  readonly route: {
-    readonly routeSessionKey: string;
-    readonly mainSessionKey: string;
-  };
-  readonly reply: { readonly to: string; readonly originatingTo: string };
-  readonly message: {
-    readonly body: string;
-    readonly rawBody: string;
-    readonly bodyForAgent: string;
-    readonly commandBody: string;
-  };
-  readonly extra?: { readonly GroupMembers?: string };
-}
-
-interface OpenClawInboundContext {
-  readonly AccountId: string;
-  readonly Body: string;
-  readonly BodyForAgent: string;
-  readonly BodyForCommands: string;
-  readonly ChatId: string;
-  readonly ChatType: "direct" | "group";
-  readonly CommandAuthorized: boolean;
-  readonly CommandBody: string;
-  readonly From: string;
-  readonly GroupMembers?: string;
-  readonly GroupSubject?: string;
-  readonly InboundEventKind: "message";
-  readonly MessageSid: string;
-  readonly OriginatingTo: string;
-  readonly Provider: string;
-  readonly RawBody: string;
-  readonly SenderId: string;
-  readonly SenderName: string;
-  readonly SessionKey: string;
-  readonly Surface: string;
-  readonly To: string;
-}
-
-interface OpenClawRecordInput {
-  readonly ctx: OpenClawInboundContext;
-  readonly sessionKey: string;
-  readonly storePath: string;
-}
-
-interface OpenClawDeliveryResult {
-  readonly visibleReplySent: boolean;
-}
-
-interface OpenClawReplyDispatcherInput {
-  readonly ctx: OpenClawInboundContext;
-  readonly dispatcherOptions: {
-    readonly deliver: (
-      payload: { readonly text: string },
-      context: { readonly kind: "final" },
-    ) => Promise<OpenClawDeliveryResult>;
-  };
-  readonly replyOptions?: object;
-}
-
-interface OpenClawReplyResult {
-  readonly queuedFinal: false;
-  readonly counts: {
-    readonly tool: number;
-    readonly block: number;
-    readonly final: number;
-  };
-  readonly sourceReplyDeliveryMode: "message_tool_only";
-}
-
-interface OpenClawInboundTurnInput {
-  readonly cfg: OpenClawConfig;
-  readonly channel: string;
-  readonly accountId: string;
-  readonly route: {
-    readonly agentId: string;
-    readonly sessionKey: string;
-  };
-  readonly ctxPayload: OpenClawInboundContext;
-  readonly delivery: OpenClawReplyDispatcherInput["dispatcherOptions"];
-  readonly record?: {
-    readonly updateLastRoute?: {
-      readonly sessionKey: string;
-      readonly channel: string;
-      readonly to: string;
-      readonly accountId: string;
-    };
-  };
-  readonly replyOptions?: OpenClawReplyDispatcherInput["replyOptions"];
-}
-
-/** The plugin's host turn, as far as this test reads it. */
-interface OpenClawHostTurn {
-  readonly id: string;
-}
-
-interface OpenClawInboundRunnerInput {
-  readonly channel: string;
-  readonly accountId: string;
-  readonly raw: { readonly turn: OpenClawHostTurn };
-  readonly adapter: {
-    readonly ingest: () => {
-      readonly id: string;
-      readonly rawText: string;
-      readonly textForAgent: string;
-      readonly textForCommands: string;
-      readonly raw: OpenClawHostTurn;
-    };
-    readonly resolveTurn: () => OpenClawInboundTurnInput;
-  };
-}
-
-interface OpenClawRouteInput {
-  readonly accountId?: string | null;
-  readonly peer?: { readonly kind: string; readonly id: string };
-}
-
-interface ObservedOpenClawAccountRuntime {
-  readonly channel: {
-    readonly runtimeContexts: object;
-    readonly inbound: {
-      readonly buildContext: (
-        input: OpenClawBuildContextInput,
-      ) => OpenClawInboundContext;
-      readonly run: (input: OpenClawInboundRunnerInput) => Promise<object>;
-    };
-    readonly routing: {
-      readonly resolveAgentRoute: (input: OpenClawRouteInput) => {
-        readonly agentId: string;
-        readonly channel: string;
-        readonly accountId: string;
-        readonly sessionKey: string;
-        readonly mainSessionKey: string;
-        readonly lastRoutePolicy: "session";
-        readonly matchedBy: "default";
-      };
-    };
-  };
-}
-
-interface OpenClawGatewayStatus {
-  readonly accountId: string;
-  readonly connected?: boolean;
-  readonly running?: boolean;
-  readonly lastConnectedAt?: number;
-}
-
-interface OpenClawGatewayContext {
-  readonly cfg: OpenClawConfig;
-  readonly accountId: string;
-  readonly account: { readonly id: string };
-  readonly abortSignal: AbortSignal;
-  readonly runtime: {
-    readonly log: (message: string) => void;
-    readonly error: (message: string) => void;
-    readonly exit: (code: number) => void;
-  };
-  readonly channelRuntime: ObservedOpenClawAccountRuntime["channel"];
-  readonly getStatus: () => OpenClawGatewayStatus;
-  readonly setStatus: (status: OpenClawGatewayStatus) => void;
-}
-
-interface OpenClawMessageActionContext {
-  readonly channel: string;
-  readonly action: "send" | "reply";
-  readonly cfg: OpenClawConfig;
-  readonly accountId: string;
-  readonly params: {
-    readonly to: string;
-    readonly message: string;
-  };
-}
-
-interface OpenClawMessageActionResult {
-  readonly details: unknown;
-}
-
-interface StableOpenClawChannelPlugin {
-  readonly gateway: {
-    readonly startAccount: (context: OpenClawGatewayContext) => Promise<void>;
-  };
-  readonly actions: {
-    readonly handleAction: (
-      context: OpenClawMessageActionContext,
-    ) => Promise<OpenClawMessageActionResult>;
-  };
-}
-
-interface StableOpenClawPluginApi {
-  readonly runtime: object;
-  registerChannel(registration: object): void;
-}
-
-interface StableOpenClawEntry {
-  register(api: StableOpenClawPluginApi): void;
-}
-
-function isStableOpenClawEntry(value: unknown): value is StableOpenClawEntry {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "register" in value &&
-    typeof value.register === "function"
-  );
-}
-
-interface OpenClawReplyFixture {
-  readonly callerAddress: string;
-  readonly callerId: string;
-  readonly responseSent: Deferred.Deferred<void>;
-  readonly sessions: RecordedSessionStore;
-  /** The plugin's `message` tool path, the only way a reply becomes a post. */
-  readonly sendReply: () => Promise<OpenClawMessageActionResult>;
-}
-
-type OpenClawRuntimeFixture = OpenClawReplyFixture;
-
-/** The certified content of one multicast: its text, then its operation part. */
-function multicastContent(text: string): Content {
-  return [
-    { type: "text", text },
-    {
-      type: "data",
-      value: {
-        "xyz.moltzap/collective": { kind: "operation", op: "multicast" },
-      },
-    },
-  ];
-}
-
-function directAddress(agentName: string) {
-  return Schema.decodeUnknownSync(AgentAddress)(`agent:${agentName}`);
-}
-
-function groupAddress(agentNames: readonly string[]) {
-  return Schema.decodeUnknownSync(GroupAddress)(
-    `group:${[...agentNames].sort().join(",")}`,
-  );
-}
-
-function effectFromPromise<A>(
-  operation: string,
-  evaluate: () => PromiseLike<A>,
-): Effect.Effect<A, ProcessTestError> {
-  return Effect.tryPromise({
-    try: evaluate,
-    catch: (cause) =>
-      new ProcessTestError({
-        message: `${operation} failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-        cause,
-      }),
+/** The text a model sends to ask its question, or to answer one. */
+const gatherText = (operation: "gather" | "all_gather") =>
+  JSON.stringify({
+    [operation]: GATHER_QUESTION,
+    deadline: 60,
+    requestedSchema: SLOT_SCHEMA,
   });
-}
 
-function awaitSignal(signal: Deferred.Deferred<void>, description: string) {
-  return Deferred.await(signal).pipe(
-    Effect.timeoutFail({
-      duration: DELIVERY_TIMEOUT,
-      onTimeout: () =>
-        new ProcessTestError({ message: `timed out awaiting ${description}` }),
-    }),
-  );
-}
+const acceptText = (slot: string) =>
+  JSON.stringify({ action: "accept", content: { slot } });
 
-function nextDelivery<E>(stream: Stream.Stream<InboundDelivery, E>) {
-  return Stream.runHead(stream).pipe(
-    Effect.timeoutFail({
-      duration: DELIVERY_TIMEOUT,
-      onTimeout: () =>
-        new ProcessTestError({
-          message: "timed out awaiting addressed delivery",
-        }),
-    }),
-    Effect.flatMap(
-      Option.match({
-        onNone: () =>
-          Effect.fail(
-            new ProcessTestError({ message: "delivery stream ended" }),
-          ),
-        onSome: Effect.succeed,
-      }),
-    ),
-  );
-}
+/** The answer form line every rendered request carries. */
+const ANSWER_LINE =
+  'Answer with: {"action":"accept","content":{...}} where content matches the form, or {"action":"decline"}';
 
-function registerFixture(fixture: DaemonProcessFixture) {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const management = yield* acquireDaemonManagementClient(fixture.endpoint);
-      expect(yield* management.status()).toEqual({ kind: "unregistered" });
-      expect(
-        (yield* management.register(makeRegistrationRequest(fixture))).kind,
-      ).toBe("registered");
-    }),
-  );
-}
-
-function acquireScenario(
-  prefix: string,
-): Effect.Effect<Scenario, ProcessTestError, Scope.Scope> {
-  return Effect.gen(function* () {
-    const infrastructure = yield* acquireProcessInfrastructure;
-    const [caller, target] = yield* Effect.all(
-      [
-        makeDaemonProcessFixture(infrastructure, `${prefix}-caller`),
-        makeDaemonProcessFixture(infrastructure, `${prefix}-target`),
-      ] as const,
-      { concurrency: 2 },
-    );
-    yield* Effect.all(
-      [acquireDaemonProcess(caller), acquireDaemonProcess(target)] as const,
-      { concurrency: 2 },
-    );
-    yield* Effect.all(
-      [registerFixture(caller), registerFixture(target)] as const,
-      { concurrency: 2, discard: true },
-    );
-    return { caller, target };
-  });
-}
-
-function acquireGroupScenario(
-  prefix: string,
-): Effect.Effect<GroupScenario, ProcessTestError, Scope.Scope> {
-  return Effect.gen(function* () {
-    const infrastructure = yield* acquireProcessInfrastructure;
-    const [caller, target, peer] = yield* Effect.all(
-      [
-        makeDaemonProcessFixture(infrastructure, `${prefix}-caller`),
-        makeDaemonProcessFixture(infrastructure, `${prefix}-target`),
-        makeDaemonProcessFixture(infrastructure, `${prefix}-peer`),
-      ] as const,
-      { concurrency: 3 },
-    );
-    yield* Effect.all(
-      [
-        acquireDaemonProcess(caller),
-        acquireDaemonProcess(target),
-        acquireDaemonProcess(peer),
-      ] as const,
-      { concurrency: 3 },
-    );
-    yield* Effect.all(
-      [registerFixture(caller), registerFixture(target), registerFixture(peer)],
-      { concurrency: 3, discard: true },
-    );
-    return { caller, target, peer };
-  });
-}
-
-function assertFixtureHistory(
-  fixture: DaemonProcessFixture,
-  peerAddress: ReturnType<typeof directAddress>,
-  initial: Content,
-  replies: readonly Content[],
-) {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const management = yield* acquireDaemonManagementClient(fixture.endpoint);
-      expect(yield* management.searchConversations()).toEqual({
-        kind: "page",
-        addresses: [peerAddress],
-        hasMore: false,
-      });
-      const history = yield* management.readConversation(peerAddress);
-      expect(history.continuation).toBeNull();
-      expect(history.records).toHaveLength(1 + replies.length);
-      expect(
-        history.records.map(({ recordCore }) => recordCore.action.kind),
-      ).toEqual(["GENESIS", ...replies.map(() => "POST" as const)]);
-      expect(
-        history.records.map(
-          ({ recordCore }) => recordCore.action.postIntent.content,
-        ),
-      ).toEqual([initial, ...replies]);
-      expect(
-        new Set(
-          history.records.map(
-            ({ recordCore }) => recordCore.action.postIntent.postId,
-          ),
-        ).size,
-      ).toBe(history.records.length);
-    }),
-  );
-}
-
-function assertDurableExchange(
-  scenario: Scenario,
-  initial: Content,
-  replies: readonly Content[],
-) {
-  return Effect.all(
-    [
-      assertFixtureHistory(
-        scenario.caller,
-        directAddress(scenario.target.agentName),
-        initial,
-        replies,
-      ),
-      assertFixtureHistory(
-        scenario.target,
-        directAddress(scenario.caller.agentName),
-        initial,
-        replies,
-      ),
-    ] as const,
-    { concurrency: 2, discard: true },
-  );
-}
-
-function buildOpenClawContext(
-  input: OpenClawBuildContextInput,
-): OpenClawInboundContext {
-  return {
-    AccountId: input.accountId,
-    Body: input.message.body,
-    BodyForAgent: input.message.bodyForAgent,
-    BodyForCommands: input.message.commandBody,
-    ChatId: input.conversation.id,
-    ChatType: input.conversation.kind,
-    CommandAuthorized: false,
-    CommandBody: input.message.commandBody,
-    From: input.from,
-    InboundEventKind: "message",
-    MessageSid: input.messageId,
-    OriginatingTo: input.reply.originatingTo,
-    Provider: input.provider,
-    RawBody: input.message.rawBody,
-    SenderId: input.sender.id,
-    SenderName: input.sender.name,
-    SessionKey: input.route.routeSessionKey,
-    Surface: input.surface,
-    To: input.reply.to,
-    ...(input.extra?.GroupMembers === undefined
-      ? {}
-      : {
-          GroupMembers: input.extra.GroupMembers,
-          GroupSubject: input.conversation.label,
-        }),
+interface AllGatherContext {
+  readonly caller: Effect.Effect.Success<
+    ReturnType<typeof acquireHarnessEndpoint>
+  >;
+  readonly peer: Effect.Effect.Success<
+    ReturnType<typeof acquireHarnessEndpoint>
+  >;
+  readonly callerAddress: ReturnType<typeof directAddress>;
+  readonly peerAddress: ReturnType<typeof directAddress>;
+  readonly targetAddress: ReturnType<typeof directAddress>;
+  readonly group: ReturnType<typeof groupAddress>;
+  readonly turns: Queue.Queue<OpenClawInboundContext>;
+  readonly messageTool: ReturnType<typeof makeMessageTool>;
+  readonly allGather: {
+    readonly op: "all_gather";
+    readonly deadline: number;
+    readonly requestedSchema: typeof SLOT_SCHEMA;
   };
-}
-
-/**
- * Creates the smallest account runtime needed by the process-boundary test.
- * The channel package test covers OpenClaw's real inbound runner; this fixture
- * records only the values that must survive the daemon process boundary.
- */
-function makeObservedOpenClawAccountRuntime(
-  fixture: OpenClawRuntimeFixture,
-): ObservedOpenClawAccountRuntime {
-  const recordInboundSession = (input: OpenClawRecordInput) => {
-    expect(input.sessionKey).toBe(OPENCLAW_MAIN_SESSION_KEY);
-    fixture.sessions.acceptMessage(input.sessionKey, input.ctx.MessageSid);
-    return Promise.resolve();
-  };
-  const dispatchReplyWithBufferedBlockDispatcher = (
-    input: OpenClawReplyDispatcherInput,
-  ) => dispatchOpenClawReply(input, fixture);
-  return {
-    channel: {
-      runtimeContexts: {},
-      inbound: {
-        buildContext: buildOpenClawContext,
-        run: (input) => {
-          const ingested = input.adapter.ingest();
-          expect(ingested.id).toBe(input.raw.turn.id);
-          expect(ingested.raw).toEqual(input.raw.turn);
-          const turn = input.adapter.resolveTurn();
-          expect(turn.route).toEqual({
-            agentId: "primary",
-            sessionKey: OPENCLAW_MAIN_SESSION_KEY,
-          });
-          expect(turn.record?.updateLastRoute).toEqual({
-            sessionKey: OPENCLAW_MAIN_SESSION_KEY,
-            channel: "moltzap",
-            to: fixture.callerAddress,
-            accountId: OPENCLAW_ACCOUNT_ID,
-          });
-          expect("routeSessionKey" in turn).toBe(false);
-          expect("storePath" in turn).toBe(false);
-          expect("recordInboundSession" in turn).toBe(false);
-          expect("dispatchReplyWithBufferedBlockDispatcher" in turn).toBe(
-            false,
-          );
-          return Promise.resolve(
-            recordInboundSession({
-              ctx: turn.ctxPayload,
-              sessionKey: turn.route.sessionKey,
-              storePath: turn.cfg.session.store,
-            }),
-          ).then(() =>
-            dispatchReplyWithBufferedBlockDispatcher({
-              ctx: turn.ctxPayload,
-              dispatcherOptions: turn.delivery,
-              ...(turn.replyOptions === undefined
-                ? {}
-                : { replyOptions: turn.replyOptions }),
-            }),
-          );
-        },
-      },
-      routing: {
-        resolveAgentRoute: (input) => {
-          expect(input.peer).toEqual({
-            kind: "direct",
-            id: fixture.callerId,
-          });
-          return {
-            agentId: "primary",
-            channel: "moltzap",
-            accountId: input.accountId ?? OPENCLAW_ACCOUNT_ID,
-            sessionKey: OPENCLAW_MAIN_SESSION_KEY,
-            mainSessionKey: OPENCLAW_MAIN_SESSION_KEY,
-            lastRoutePolicy: "session",
-            matchedBy: "default",
-          };
-        },
-      },
-    },
-  };
-}
-
-function dispatchOpenClawReply(
-  input: OpenClawReplyDispatcherInput,
-  fixture: OpenClawReplyFixture,
-): Promise<OpenClawReplyResult> {
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      expect(input.ctx.Body).toBe("hello through the real OpenClaw adapter");
-      expect(input.ctx.SessionKey).toBe(OPENCLAW_MAIN_SESSION_KEY);
-      const sent = yield* effectFromPromise("OpenClaw message tool send", () =>
-        fixture.sendReply(),
-      );
-      expect(sent.details).toEqual({ ok: true, to: fixture.callerAddress });
-      const delivery = yield* effectFromPromise("OpenClaw reply delivery", () =>
-        input.dispatcherOptions.deliver(
-          { text: "private final text" },
-          { kind: "final" },
-        ),
-      );
-      expect(delivery).toEqual({ visibleReplySent: false });
-      yield* Deferred.succeed(fixture.responseSent, undefined);
-      return {
-        queuedFinal: false,
-        counts: { tool: 1, block: 0, final: 1 },
-        sourceReplyDeliveryMode: "message_tool_only",
-      };
-    }),
-  );
-}
-
-function isStableOpenClawChannelPlugin(
-  value: object,
-): value is StableOpenClawChannelPlugin {
-  if (
-    !("gateway" in value) ||
-    typeof value.gateway !== "object" ||
-    value.gateway === null ||
-    !("startAccount" in value.gateway) ||
-    typeof value.gateway.startAccount !== "function"
-  ) {
-    return false;
-  }
-  return (
-    "actions" in value &&
-    typeof value.actions === "object" &&
-    value.actions !== null &&
-    "handleAction" in value.actions &&
-    typeof value.actions.handleAction === "function"
-  );
-}
-
-function registerOpenClawChannel(): Effect.Effect<
-  StableOpenClawChannelPlugin,
-  ProcessTestError
-> {
-  return Effect.try({
-    try: () => {
-      let registered: StableOpenClawChannelPlugin | null = null;
-      const api: StableOpenClawPluginApi = {
-        runtime: {},
-        registerChannel(registration) {
-          if (
-            !("plugin" in registration) ||
-            typeof registration.plugin !== "object" ||
-            registration.plugin === null ||
-            !isStableOpenClawChannelPlugin(registration.plugin)
-          ) {
-            throw new ProcessTestError({
-              message: "OpenClaw registered an invalid channel plugin",
-            });
-          }
-          registered = registration.plugin;
-        },
-      };
-      if (!isStableOpenClawEntry(openClawPlugin)) {
-        throw new ProcessTestError({
-          message: "OpenClaw loader entry has no registration hook",
-        });
-      }
-      openClawPlugin.register(api);
-      if (registered === null) {
-        throw new ProcessTestError({
-          message: "OpenClaw did not register the MoltZap channel",
-        });
-      }
-      return registered;
-    },
-    catch: (cause) =>
-      new ProcessTestError({
-        message: "OpenClaw channel registration failed",
-        cause,
-      }),
-  });
-}
-
-function openClawConfig(stateDirectory: string): OpenClawConfig {
-  return {
-    channels: {
-      moltzap: {
-        accounts: [{ id: OPENCLAW_ACCOUNT_ID }],
-      },
-    },
-    session: { store: stateDirectory },
-  };
-}
-
-/**
- * Start the registered plugin's account against one daemon, with OpenClaw's
- * gateway context, and wait until it reports connected.
- */
-function startOpenClawGateway(
-  target: DaemonProcessFixture,
-  channelPlugin: StableOpenClawChannelPlugin,
-  runtime: ObservedOpenClawAccountRuntime,
-) {
-  return Effect.gen(function* () {
-    const cfg = openClawConfig(target.stateDirectory);
-    const connected = yield* Deferred.make<void>();
-    const previousEndpoint = process.env.MOLTZAP_MCP_URL;
-    process.env.MOLTZAP_MCP_URL = target.endpoint.href;
-
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        if (previousEndpoint === undefined) {
-          Reflect.deleteProperty(process.env, "MOLTZAP_MCP_URL");
-        } else {
-          process.env.MOLTZAP_MCP_URL = previousEndpoint;
-        }
-      }),
-    );
-
-    const abortController = new AbortController();
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        abortController.abort();
-      }),
-    );
-    let status: OpenClawGatewayStatus = {
-      accountId: OPENCLAW_ACCOUNT_ID,
-    };
-    const gatewayContext: OpenClawGatewayContext = {
-      cfg,
-      accountId: OPENCLAW_ACCOUNT_ID,
-      account: { id: OPENCLAW_ACCOUNT_ID },
-      abortSignal: abortController.signal,
-      runtime: {
-        log: () => {},
-        error: () => {},
-        exit: () => {},
-      },
-      channelRuntime: runtime.channel,
-      getStatus: () => status,
-      setStatus: (next) => {
-        status = next;
-        if (next.connected === true) {
-          Effect.runSync(Deferred.succeed(connected, undefined));
-        }
-      },
-    };
-    const runningGateway = yield* effectFromPromise(
-      "OpenClaw gateway start",
-      () => channelPlugin.gateway.startAccount(gatewayContext),
-    ).pipe(Effect.forkScoped);
-    yield* awaitSignal(connected, "OpenClaw gateway connection");
-    return { abortController, runningGateway };
-  });
 }
 
 function runOpenClawScenario() {
@@ -793,33 +86,15 @@ function runOpenClawScenario() {
       const caller = yield* acquireHarnessEndpoint(scenario.caller.endpoint);
       const callerAddress = directAddress(scenario.caller.agentName);
       const targetAddress = directAddress(scenario.target.agentName);
-      const initialText = "hello through the real OpenClaw adapter";
-      const initial = multicastContent(initialText);
-      const reply = multicastContent(OPENCLAW_REPLY);
-      const responseSent = yield* Deferred.make<void>();
-      const sessions = new RecordedSessionStore();
-      const cfg = openClawConfig(scenario.target.stateDirectory);
-      const channelPlugin = yield* registerOpenClawChannel();
-      const runtime = makeObservedOpenClawAccountRuntime({
-        callerAddress,
-        callerId: scenario.caller.agentName,
+      const {
+        initialText,
+        initial,
+        reply,
         responseSent,
         sessions,
-        sendReply: () =>
-          channelPlugin.actions.handleAction({
-            channel: "moltzap",
-            action: "send",
-            cfg,
-            accountId: OPENCLAW_ACCOUNT_ID,
-            params: { to: callerAddress, message: OPENCLAW_REPLY },
-          }),
-      });
-
-      const { abortController, runningGateway } = yield* startOpenClawGateway(
-        scenario.target,
-        channelPlugin,
-        runtime,
-      );
+        abortController,
+        runningGateway,
+      } = yield* startReplyScenario(scenario, callerAddress);
 
       const callerDelivery = yield* Effect.forkScoped(
         nextDelivery(caller.messages),
@@ -838,27 +113,10 @@ function runOpenClawScenario() {
         ),
       );
       const returned = yield* Fiber.join(callerDelivery);
-      expect(returned.item).toMatchObject({
-        kind: "multicast",
-        message: {
-          kind: "direct",
-          address: targetAddress,
-          sender: targetAddress,
-          content: [{ type: "text", text: OPENCLAW_REPLY }],
-        },
-      });
+      assertReply(returned, targetAddress);
       yield* returned.acknowledge;
 
-      abortController.abort();
-      yield* Fiber.join(runningGateway).pipe(
-        Effect.timeoutFail({
-          duration: DELIVERY_TIMEOUT,
-          onTimeout: () =>
-            new ProcessTestError({
-              message: "timed out stopping OpenClaw gateway",
-            }),
-        }),
-      );
+      yield* stopGateway(abortController, runningGateway);
 
       const session = sessions.snapshot(OPENCLAW_MAIN_SESSION_KEY);
       expect(sessions.keys()).toEqual([OPENCLAW_MAIN_SESSION_KEY]);
@@ -867,91 +125,6 @@ function runOpenClawScenario() {
     }),
   );
 }
-
-const SLOT_SCHEMA = {
-  type: "object",
-  properties: { slot: { type: "string", enum: ["mon", "tue"] } },
-  required: ["slot"],
-} as const;
-const GATHER_QUESTION = "Which day works?";
-
-/**
- * An account runtime that hands every rendered turn to the test, standing in
- * for the model that reads it, and completes the turn at once.
- */
-function makeTurnQueueRuntime(
-  turns: Queue.Queue<OpenClawInboundContext>,
-): ObservedOpenClawAccountRuntime {
-  return {
-    channel: {
-      runtimeContexts: {},
-      inbound: {
-        buildContext: buildOpenClawContext,
-        run: (input) =>
-          Effect.runPromise(
-            Queue.offer(turns, input.adapter.resolveTurn().ctxPayload).pipe(
-              Effect.as({}),
-            ),
-          ),
-      },
-      routing: {
-        resolveAgentRoute: (input) => ({
-          agentId: "primary",
-          channel: "moltzap",
-          accountId: input.accountId ?? OPENCLAW_ACCOUNT_ID,
-          sessionKey: OPENCLAW_MAIN_SESSION_KEY,
-          mainSessionKey: OPENCLAW_MAIN_SESSION_KEY,
-          lastRoutePolicy: "session",
-          matchedBy: "default",
-        }),
-      },
-    },
-  };
-}
-
-function nextTurn(turns: Queue.Queue<OpenClawInboundContext>) {
-  return Queue.take(turns).pipe(
-    Effect.timeoutFail({
-      duration: DELIVERY_TIMEOUT,
-      onTimeout: () =>
-        new ProcessTestError({
-          message: "timed out awaiting an OpenClaw turn",
-        }),
-    }),
-  );
-}
-
-function nextItem<E>(stream: Stream.Stream<InboundDelivery, E>) {
-  return nextDelivery(stream).pipe(
-    Effect.tap((delivery) => delivery.acknowledge),
-    Effect.map((delivery): InboundItem => delivery.item),
-  );
-}
-
-function requireRequest(item: InboundItem) {
-  return item.kind === "collectiveRequest"
-    ? Effect.succeed(item)
-    : Effect.fail(
-        new ProcessTestError({
-          message: `expected a collective request, received ${item.kind}`,
-        }),
-      );
-}
-
-/** The text a model sends to ask its question, or to answer one. */
-const gatherText = (operation: "gather" | "all_gather") =>
-  JSON.stringify({
-    [operation]: GATHER_QUESTION,
-    deadline: 60,
-    requestedSchema: SLOT_SCHEMA,
-  });
-
-const acceptText = (slot: string) =>
-  JSON.stringify({ action: "accept", content: { slot } });
-
-/** The answer form line every rendered request carries. */
-const ANSWER_LINE =
-  'Answer with: {"action":"accept","content":{...}} where content matches the form, or {"action":"decline"}';
 
 function runOpenClawGatherScenario() {
   return Effect.scoped(
@@ -962,51 +135,16 @@ function runOpenClawGatherScenario() {
       const targetAddress = directAddress(scenario.target.agentName);
       const cfg = openClawConfig(scenario.target.stateDirectory);
       const channelPlugin = yield* registerOpenClawChannel();
-      const turns = yield* Queue.unbounded<OpenClawInboundContext>();
-      const { abortController, runningGateway } = yield* startOpenClawGateway(
-        scenario.target,
-        channelPlugin,
-        makeTurnQueueRuntime(turns),
-      );
-      const messageTool = (
-        action: OpenClawMessageActionContext["action"],
-        params: OpenClawMessageActionContext["params"],
-      ) =>
-        effectFromPromise(`OpenClaw message tool ${action}`, () =>
-          channelPlugin.actions.handleAction({
-            channel: "moltzap",
-            action,
-            cfg,
-            accountId: OPENCLAW_ACCOUNT_ID,
-            params,
-          }),
-        );
+      const { turns, abortController, runningGateway } =
+        yield* startQueuedGateway(scenario, channelPlugin);
+      const messageTool = makeMessageTool(channelPlugin, cfg);
 
-      const started = yield* messageTool("send", {
-        to: callerAddress,
-        message: gatherText("gather"),
-      });
-      const request = yield* nextItem(caller.messages).pipe(
-        Effect.flatMap(requireRequest),
-      );
-      expect(started.details).toEqual({
-        ok: true,
-        to: callerAddress,
-      });
-      expect(request).toMatchObject({
-        kind: "collectiveRequest",
-        from: targetAddress,
-        question: GATHER_QUESTION,
-        requestedSchema: SLOT_SCHEMA,
-      });
-      yield* caller.send({
-        to: targetAddress,
-        collectiveResponse: { action: "accept", content: { slot: "mon" } },
-      });
-      const resultTurn = yield* nextTurn(turns);
-      expect(resultTurn).toMatchObject({
-        Body: `gather result for the question sent to ${callerAddress}: "${GATHER_QUESTION}"\n- ${callerAddress}: answered {"slot":"mon"}`,
-        SenderName: "MoltZap",
+      yield* sendGather({
+        caller,
+        callerAddress,
+        targetAddress,
+        turns,
+        messageTool,
       });
 
       yield* caller.send({
@@ -1036,16 +174,7 @@ function runOpenClawGatherScenario() {
         ],
       });
 
-      abortController.abort();
-      yield* Fiber.join(runningGateway).pipe(
-        Effect.timeoutFail({
-          duration: DELIVERY_TIMEOUT,
-          onTimeout: () =>
-            new ProcessTestError({
-              message: "timed out stopping OpenClaw gateway",
-            }),
-        }),
-      );
+      yield* stopGateway(abortController, runningGateway);
     }),
   );
 }
@@ -1066,124 +195,297 @@ function runOpenClawAllGatherScenario() {
       ]);
       const cfg = openClawConfig(scenario.target.stateDirectory);
       const channelPlugin = yield* registerOpenClawChannel();
-      const turns = yield* Queue.unbounded<OpenClawInboundContext>();
-      const { abortController, runningGateway } = yield* startOpenClawGateway(
-        scenario.target,
-        channelPlugin,
-        makeTurnQueueRuntime(turns),
-      );
-      const messageTool = (
-        action: OpenClawMessageActionContext["action"],
-        params: OpenClawMessageActionContext["params"],
-      ) =>
-        effectFromPromise(`OpenClaw message tool ${action}`, () =>
-          channelPlugin.actions.handleAction({
-            channel: "moltzap",
-            action,
-            cfg,
-            accountId: OPENCLAW_ACCOUNT_ID,
-            params,
-          }),
-        );
+      const { turns, abortController, runningGateway } =
+        yield* startQueuedGateway(scenario, channelPlugin);
+      const messageTool = makeMessageTool(channelPlugin, cfg);
       const allGather = {
         op: "all_gather",
         deadline: 60,
         requestedSchema: SLOT_SCHEMA,
       } as const;
 
-      yield* caller.send({
-        to: group,
-        text: GATHER_QUESTION,
-        collective: allGather,
-      });
-      const requestTurn = yield* nextTurn(turns);
-      expect(requestTurn).toMatchObject({
-        ChatType: "group",
-        From: callerAddress,
-      });
-      const peerRequest = yield* nextItem(peer.messages).pipe(
-        Effect.flatMap(requireRequest),
-      );
-      expect(requestTurn.Body).toContain(ANSWER_LINE);
-      yield* peer.send({
-        to: group,
-        collectiveResponse: { action: "decline" },
-      });
-      const answered = yield* messageTool("reply", {
-        to: group,
-        message: acceptText("tue"),
-      });
-      expect(answered.details).toMatchObject({ ok: true });
-      const callerResult = yield* nextItem(caller.messages);
-      expect(callerResult).toMatchObject({
-        kind: "collectiveResult",
-        id: peerRequest.id,
-        to: group,
-        outcomes: [
-          { member: peerAddress, outcome: { kind: "declined" } },
-          {
-            member: targetAddress,
-            outcome: { kind: "answered", content: { slot: "tue" } },
-          },
-        ],
-      });
-      expect(yield* nextItem(peer.messages)).toEqual(callerResult);
-      expect(yield* nextTurn(turns)).toMatchObject({
-        Body: `all_gather result for the question sent to ${group}: "${GATHER_QUESTION}"\n- ${peerAddress}: declined\n- ${targetAddress}: answered {"slot":"tue"}`,
-        ChatType: "group",
-        SenderName: "MoltZap",
-      });
+      const context = {
+        caller,
+        peer,
+        callerAddress,
+        peerAddress,
+        targetAddress,
+        group,
+        turns,
+        messageTool,
+        allGather,
+      };
+      yield* receiveAllGather(context);
+      yield* sendAllGather(context);
 
-      const started = yield* messageTool("send", {
-        to: group,
-        message: gatherText("all_gather"),
-      });
-      expect(started.details).toEqual({
-        ok: true,
-        to: group,
-      });
-      const callerRequest = yield* nextItem(caller.messages).pipe(
-        Effect.flatMap(requireRequest),
-      );
-      yield* nextItem(peer.messages);
-      yield* caller.send({
-        to: group,
-        collectiveResponse: { action: "accept", content: { slot: "mon" } },
-      });
-      yield* peer.send({
-        to: group,
-        collectiveResponse: { action: "decline" },
-      });
-      expect(yield* nextTurn(turns)).toMatchObject({
-        Body: `all_gather result for the question sent to ${group}: "${GATHER_QUESTION}"\n- ${callerAddress}: answered {"slot":"mon"}\n- ${peerAddress}: declined`,
-        SenderName: "MoltZap",
-      });
-      const memberResult = yield* nextItem(caller.messages);
-      expect(memberResult).toMatchObject({
-        kind: "collectiveResult",
-        id: callerRequest.id,
-        to: group,
-        outcomes: [
-          {
-            member: callerAddress,
-            outcome: { kind: "answered", content: { slot: "mon" } },
-          },
-          { member: peerAddress, outcome: { kind: "declined" } },
-        ],
-      });
-      expect(yield* nextItem(peer.messages)).toEqual(memberResult);
-
-      abortController.abort();
-      yield* Fiber.join(runningGateway).pipe(
-        Effect.timeoutFail({
-          duration: DELIVERY_TIMEOUT,
-          onTimeout: () =>
-            new ProcessTestError({
-              message: "timed out stopping OpenClaw gateway",
-            }),
-        }),
-      );
+      yield* stopGateway(abortController, runningGateway);
     }),
+  );
+}
+
+function stopGateway(
+  abortController: AbortController,
+  runningGateway: Fiber.RuntimeFiber<void, ProcessTestError>,
+) {
+  abortController.abort();
+  return Fiber.join(runningGateway).pipe(
+    Effect.timeoutFail({
+      duration: DELIVERY_TIMEOUT,
+      onTimeout: () =>
+        new ProcessTestError({
+          message: "timed out stopping OpenClaw gateway",
+        }),
+    }),
+  );
+}
+
+function makeMessageTool(
+  channelPlugin: Effect.Effect.Success<
+    ReturnType<typeof registerOpenClawChannel>
+  >,
+  cfg: ReturnType<typeof openClawConfig>,
+) {
+  return (
+    action: OpenClawMessageActionContext["action"],
+    params: OpenClawMessageActionContext["params"],
+  ) =>
+    effectFromPromise(`OpenClaw message tool ${action}`, () =>
+      channelPlugin.actions.handleAction({
+        channel: "moltzap",
+        action,
+        cfg,
+        accountId: OPENCLAW_ACCOUNT_ID,
+        params,
+      }),
+    );
+}
+
+function startReplyScenario(
+  scenario: Effect.Effect.Success<ReturnType<typeof acquireScenario>>,
+  callerAddress: string,
+) {
+  return Effect.gen(function* () {
+    const initialText = OPENCLAW_INITIAL_TEXT;
+    const initial = multicastContent(initialText);
+    const reply = multicastContent(OPENCLAW_REPLY);
+    const responseSent = yield* Deferred.make<undefined>();
+    const sessions = new RecordedSessionStore();
+    const cfg = openClawConfig(scenario.target.stateDirectory);
+    const channelPlugin = yield* registerOpenClawChannel();
+    const runtime = makeObservedOpenClawAccountRuntime({
+      callerAddress,
+      callerId: scenario.caller.agentName,
+      responseSent,
+      sessions,
+      sendReply: () =>
+        channelPlugin.actions.handleAction({
+          channel: "moltzap",
+          action: "send",
+          cfg,
+          accountId: OPENCLAW_ACCOUNT_ID,
+          params: { to: callerAddress, message: OPENCLAW_REPLY },
+        }),
+    });
+
+    const { abortController, runningGateway } = yield* startOpenClawGateway(
+      scenario.target,
+      channelPlugin,
+      runtime,
+    );
+
+    return {
+      initialText,
+      initial,
+      reply,
+      responseSent,
+      sessions,
+      abortController,
+      runningGateway,
+    };
+  });
+}
+
+function receiveAllGather(context: AllGatherContext) {
+  const { caller, peer, callerAddress, group, turns, messageTool, allGather } =
+    context;
+  return Effect.gen(function* () {
+    yield* caller.send({
+      to: group,
+      text: GATHER_QUESTION,
+      collective: allGather,
+    });
+    const requestTurn = yield* nextTurn(turns);
+    expect(requestTurn).toMatchObject({
+      ChatType: "group",
+      From: callerAddress,
+    });
+    const peerRequest = yield* nextItem(peer.messages).pipe(
+      Effect.flatMap(requireRequest),
+    );
+    expect(requestTurn.Body).toContain(ANSWER_LINE);
+    yield* peer.send({
+      to: group,
+      collectiveResponse: { action: "decline" },
+    });
+    const answered = yield* messageTool("reply", {
+      to: group,
+      message: acceptText("tue"),
+    });
+    expect(answered.details).toMatchObject({ ok: true });
+    yield* assertReceivedAllGather(context, peerRequest.id);
+  });
+}
+
+function sendAllGather(context: AllGatherContext) {
+  const {
+    caller,
+    peer,
+    peerAddress,
+    callerAddress,
+    group,
+    turns,
+    messageTool,
+  } = context;
+  return Effect.gen(function* () {
+    yield* sendQuestion(messageTool, group, "all_gather");
+    const callerRequest = yield* nextItem(caller.messages).pipe(
+      Effect.flatMap(requireRequest),
+    );
+    yield* nextItem(peer.messages);
+    yield* caller.send({
+      to: group,
+      collectiveResponse: { action: "accept", content: { slot: "mon" } },
+    });
+    yield* peer.send({
+      to: group,
+      collectiveResponse: { action: "decline" },
+    });
+    expect(yield* nextTurn(turns)).toMatchObject({
+      Body: `all_gather result for the question sent to ${group}: "${GATHER_QUESTION}"\n- ${callerAddress}: answered {"slot":"mon"}\n- ${peerAddress}: declined`,
+      SenderName: "MoltZap",
+    });
+    const memberResult = yield* nextItem(caller.messages);
+    expect(memberResult).toMatchObject({
+      kind: "collectiveResult",
+      id: callerRequest.id,
+      to: group,
+      outcomes: [
+        {
+          member: callerAddress,
+          outcome: { kind: "answered", content: { slot: "mon" } },
+        },
+        { member: peerAddress, outcome: { kind: "declined" } },
+      ],
+    });
+    expect(yield* nextItem(peer.messages)).toEqual(memberResult);
+  });
+}
+
+function sendGather(
+  context: Pick<
+    AllGatherContext,
+    "caller" | "callerAddress" | "targetAddress" | "turns" | "messageTool"
+  >,
+) {
+  const { caller, callerAddress, targetAddress, turns, messageTool } = context;
+  return Effect.gen(function* () {
+    const started = yield* messageTool("send", {
+      to: callerAddress,
+      message: gatherText("gather"),
+    });
+    const request = yield* nextItem(caller.messages).pipe(
+      Effect.flatMap(requireRequest),
+    );
+    expect(started.details).toEqual({
+      ok: true,
+      to: callerAddress,
+    });
+    expect(request).toMatchObject({
+      kind: "collectiveRequest",
+      from: targetAddress,
+      question: GATHER_QUESTION,
+      requestedSchema: SLOT_SCHEMA,
+    });
+    yield* caller.send({
+      to: targetAddress,
+      collectiveResponse: { action: "accept", content: { slot: "mon" } },
+    });
+    const resultTurn = yield* nextTurn(turns);
+    expect(resultTurn).toMatchObject({
+      Body: `gather result for the question sent to ${callerAddress}: "${GATHER_QUESTION}"\n- ${callerAddress}: answered {"slot":"mon"}`,
+      SenderName: "MoltZap",
+    });
+  });
+}
+
+function assertReply(
+  returned: InboundDelivery,
+  targetAddress: ReturnType<typeof directAddress>,
+): void {
+  expect(returned.item).toMatchObject({
+    kind: "multicast",
+    message: {
+      kind: "direct",
+      address: targetAddress,
+      sender: targetAddress,
+      content: [{ type: "text", text: OPENCLAW_REPLY }],
+    },
+  });
+}
+
+function startQueuedGateway(
+  scenario: Effect.Effect.Success<ReturnType<typeof acquireScenario>>,
+  channelPlugin: Effect.Effect.Success<
+    ReturnType<typeof registerOpenClawChannel>
+  >,
+) {
+  return Effect.gen(function* () {
+    const turns = yield* Queue.unbounded<OpenClawInboundContext>();
+    const gateway = yield* startOpenClawGateway(
+      scenario.target,
+      channelPlugin,
+      makeTurnQueueRuntime(turns),
+    );
+    return { turns, ...gateway };
+  });
+}
+
+function assertReceivedAllGather(context: AllGatherContext, requestId: string) {
+  const { caller, peer, peerAddress, targetAddress, group, turns } = context;
+  return Effect.gen(function* () {
+    const callerResult = yield* nextItem(caller.messages);
+    expect(callerResult).toMatchObject({
+      kind: "collectiveResult",
+      id: requestId,
+      to: group,
+      outcomes: [
+        { member: peerAddress, outcome: { kind: "declined" } },
+        {
+          member: targetAddress,
+          outcome: { kind: "answered", content: { slot: "tue" } },
+        },
+      ],
+    });
+    expect(yield* nextItem(peer.messages)).toEqual(callerResult);
+    expect(yield* nextTurn(turns)).toMatchObject({
+      Body: `all_gather result for the question sent to ${group}: "${GATHER_QUESTION}"\n- ${peerAddress}: declined\n- ${targetAddress}: answered {"slot":"tue"}`,
+      ChatType: "group",
+      SenderName: "MoltZap",
+    });
+  });
+}
+
+function sendQuestion(
+  messageTool: ReturnType<typeof makeMessageTool>,
+  to: string,
+  operation: "gather" | "all_gather",
+) {
+  return messageTool("send", { to, message: gatherText(operation) }).pipe(
+    Effect.tap((started) =>
+      Effect.sync(() => {
+        expect(started.details).toEqual({ ok: true, to });
+      }),
+    ),
   );
 }
 

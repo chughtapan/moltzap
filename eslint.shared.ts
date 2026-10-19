@@ -197,12 +197,7 @@ export function rootEslintConfig(tsconfigRootDir: string) {
   ]);
   return [
     {
-      ignores: [
-        ".claude/**",
-        ".repos/**",
-        "packages/**",
-        "scripts/test/adapter-daemon-*",
-      ],
+      ignores: [".claude/**", ".repos/**", "packages/**"],
     },
     packageIgnores,
     makeStrictBlock(

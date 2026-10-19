@@ -17,9 +17,6 @@ import {
   type TypeDocExport,
 } from "./typedoc-load.ts";
 
-/** TypeDoc source locations can point at leading JSDoc rather than code. */
-export { extractSignatureText } from "./signature-extract.ts";
-
 /** Describes the result of module render. */
 export interface ModuleRenderResult {
   readonly folder: string;

@@ -24,9 +24,9 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  readCompatibilityVersion as readCompatibilityVersionSource,
   WIRE_VERSION_LITERAL,
   WIRE_VERSION_SOURCE,
-  readCompatibilityVersion as readCompatibilityVersionSource,
 } from "../docs/moltzap-version.ts";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));

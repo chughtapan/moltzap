@@ -3,7 +3,8 @@
 import { ReflectionKind } from "typedoc";
 import { describe, expect, it } from "vitest";
 import type { TypeDocExport } from "../typedoc-load.ts";
-import { extractSignatureText, resolveExportDeclaration } from "../modules.ts";
+import { resolveExportDeclaration } from "../modules.ts";
+import { extractSignatureText } from "../signature-extract.ts";
 
 const mergedExport = (
   name: string,
