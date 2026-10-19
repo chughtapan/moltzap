@@ -32,13 +32,49 @@
           {
             "group": "Guides",
             "pages": [
-              "guides/user-agent-communication"
+              "guides/user-agent-communication",
+              "guides/harness-endpoint"
             ]
           },
           {
             "group": "Development",
             "pages": [
               "development/contributing"
+            ]
+          },
+          {
+            "group": "Specification",
+            "pages": [
+              "spec/layer-interfaces",
+              "spec/identity",
+              "spec/identity-representation",
+              "spec/router",
+              "spec/router-representation",
+              "spec/conversation-history",
+              "spec/control-plane",
+              "spec/management",
+              {
+                "group": "Harness",
+                "pages": [
+                  "spec/harness/daemon",
+                  "spec/harness/client",
+                  "spec/harness/output",
+                  "spec/harness/ingress",
+                  "spec/harness/channels",
+                  "spec/harness/contacts",
+                  "spec/harness/tasks",
+                  "spec/harness/screening",
+                  "spec/harness/message-policy"
+                ]
+              },
+              "spec/enforcement"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/layers",
+              "architecture/components"
             ]
           },
           {
