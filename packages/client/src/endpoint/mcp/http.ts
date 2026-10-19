@@ -22,7 +22,8 @@ import {
 
 const HARNESS_MCP_PATH = "/mcp";
 const POST_METHOD = "POST";
-const LOOPBACK_HOST = "127.0.0.1";
+/** The daemon listener and advertised MCP URL share one loopback address. */
+export const LOOPBACK_HOST = "127.0.0.1";
 const RESPONSE_DRAIN_GRACE_PERIOD = Duration.seconds(1);
 
 interface HarnessMcpHttpServerOptions {
