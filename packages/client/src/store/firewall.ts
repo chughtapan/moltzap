@@ -30,7 +30,7 @@ import {
 // safer-arch-ignore file-implicit-boundary-module: Store composition and intent admission share these private transaction primitives so the audit, inbox, and intent writes commit atomically; only store/index.ts exposes the store capability.
 
 const historySelect = `
-  SELECT c.rowid AS position, c.conversation_id, s.canonical_record_core, m.canonical_membership,
+  SELECT c.ordinal AS position, c.conversation_id, s.canonical_record_core, m.canonical_membership,
     CASE WHEN i.delivery_token IS NOT NULL
       THEN 1 ELSE 0 END AS visible
   FROM certified_records c
@@ -337,7 +337,10 @@ function completeFirewallCheck(
   }
 }
 
-/** Whole records are kept or omitted; a byte bound becomes an explicit evidence gap. */
+/**
+ * The conversation ordinal index bounds record selection before blob reads.
+ * Whole records are kept or omitted; a byte bound becomes an explicit evidence gap.
+ */
 function boundedHistory(
   database: DatabaseSync,
   maximumRecords: number,
@@ -346,7 +349,10 @@ function boundedHistory(
 ) {
   const rows = database
     .prepare(`${historySelect}
-      WHERE c.conversation_id = ? AND c.rowid < ? ORDER BY c.rowid DESC LIMIT ?`)
+      WHERE c.rowid IN (
+        SELECT rowid FROM certified_records
+        WHERE conversation_id = ? AND ordinal < ? ORDER BY ordinal DESC LIMIT ?
+      ) ORDER BY c.ordinal DESC`)
     .iterate(conversationId ?? null, before, maximumRecords + 1);
   const history: FirewallHistoryEntry[] = [];
   let bytes = 0;
