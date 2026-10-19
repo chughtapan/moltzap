@@ -102,11 +102,12 @@ const catchUpRetryBase = Duration.seconds(1);
 export const catchUpRetryAttempts = 8;
 
 /**
- * A conversation's catch-up retries: doubling jittered delays, at most
+ * A conversation's catch-up retries, and an author's resends of a proposal
+ * whose action certificate is incomplete: doubling jittered delays, at most
  * {@link catchUpRetryAttempts} of them. Recovering the conversation removes
- * its retries from the run, which ends them early.
+ * its catch-up retries from the run, which ends them early.
  */
-const catchUpRetrySchedule = Schedule.exponential(catchUpRetryBase).pipe(
+export const catchUpRetrySchedule = Schedule.exponential(catchUpRetryBase).pipe(
   Schedule.jittered,
   Schedule.intersect(Schedule.recurs(catchUpRetryAttempts)),
 );

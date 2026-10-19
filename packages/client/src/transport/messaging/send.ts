@@ -1,7 +1,7 @@
 /** @file Address resolution, immutable intent binding, and proposal creation. */
 
 import { AgentCard, MOLTZAP_VERSION } from "@moltzap/identity";
-import { Deferred, Duration, Effect, Schema } from "effect";
+import { Deferred, Duration, Effect, Schedule, Schema } from "effect";
 import type { FirewallSendError } from "../../firewall/runtime.js";
 import type {
   ConversationFoundation,
@@ -14,6 +14,7 @@ import type { RouterWorkerUnavailableError } from "../router/index.js";
 import type { MessageAddressInput } from "../wire/values.js";
 import type {
   EngineConversation,
+  EngineOutboxError,
   EnginePostIntent,
   EngineRuntime,
 } from "./runtime/index.js";
@@ -39,7 +40,10 @@ import {
 import { resolveMessageAddress } from "./address.js";
 import { SendError } from "./errors.js";
 import { anchorHashAtHead } from "./history/index.js";
-import { pendingRecoveryFence } from "./recovery/index.js";
+import {
+  catchUpRetrySchedule,
+  pendingRecoveryFence,
+} from "./recovery/index.js";
 
 /**
  * One post the engine certifies: its address and its complete content. The
@@ -266,17 +270,24 @@ interface AuthorizedProposal {
 }
 
 /**
- * Queue a proposal behind the certified record it extends. A faulty member
- * can seal its durability vote so that only some members open it, so a member
- * may not have certified the head the proposer certified when the proposal
- * arrives, and it would drop the proposal as not gap-free. The proposer's own
- * copy of that record, which every member can open, reaches each member first.
- * A store failure while queueing is reported as a storage fault: the intent
- * stays bound but not proposed until recovery after a restart proposes it.
+ * A proposal's resends: the catch-up retry delays, until a resend finds none
+ * due.
+ */
+const proposalResendSchedule = catchUpRetrySchedule.pipe(
+  Schedule.whileInput((due: boolean) => due),
+);
+
+/**
+ * Queue a proposal behind the certified record it extends, then resend both
+ * while members' action signatures are missing. A store failure while
+ * queueing is reported as a storage fault: the intent stays bound but not
+ * proposed until recovery after a restart proposes it. Activation proposes
+ * inside an uninterruptible region and a forked fiber inherits it, so the
+ * resends run interruptibly and end with the engine.
  * @param runtime Engine that sends the proposal.
  * @param proposal Authorized proposal and the intent it proposes.
- * @returns Completion once both envelopes are queued and the intent records
- *     the proposed action.
+ * @returns Completion once both envelopes are queued, the intent records the
+ *     proposed action, and its resends are scheduled.
  */
 function queueAuthorizedProposal(
   runtime: EngineRuntime,
@@ -284,20 +295,8 @@ function queueAuthorizedProposal(
 ): Effect.Effect<void, SendError> {
   return Effect.gen(function* () {
     yield* authorizeAction(runtime, proposal);
-    const head = proposal.conversation.head;
-    const queueHead =
-      head === undefined
-        ? Effect.void
-        : runtime.outbox.queuePacket(proposal.conversation, head.record);
     yield* Effect.uninterruptible(
-      queueHead.pipe(
-        Effect.zipRight(
-          runtime.outbox.queuePacket(proposal.conversation, {
-            moltzapVersion: MOLTZAP_VERSION,
-            kind: "action_proposal",
-            action: proposal.action,
-          }),
-        ),
+      queueProposal(runtime, proposal).pipe(
         Effect.catchTags({
           EndpointStoreError: (error) =>
             runtime.input.reportStorageFault.pipe(
@@ -312,7 +311,109 @@ function queueAuthorizedProposal(
         ),
       ),
     );
+    yield* Effect.scheduleFrom(
+      resendProposal(runtime, proposal),
+      true,
+      proposalResendSchedule,
+    ).pipe(Effect.interruptible, Effect.forkIn(runtime.scope));
   });
+}
+
+/**
+ * Queue a proposal and, for a POST, the certified record of the head it
+ * extends ahead of it. A faulty member can seal its durability vote so that
+ * only some members open it, so a member may not have certified the head the
+ * proposer certified when the proposal arrives, and it would drop the
+ * proposal as not gap-free. The proposer's own copy of that record, which
+ * every member can open, reaches each member first.
+ * @param runtime Engine that sends the proposal.
+ * @param proposal The proposal and the conversation it extends.
+ * @returns Completion once both envelopes are queued.
+ */
+function queueProposal(
+  runtime: EngineRuntime,
+  proposal: AuthorizedProposal,
+): Effect.Effect<void, EngineOutboxError> {
+  const head = proposal.conversation.head;
+  const queueHead =
+    head === undefined
+      ? Effect.void
+      : runtime.outbox.queuePacket(proposal.conversation, head.record);
+  return queueHead.pipe(
+    Effect.zipRight(
+      runtime.outbox.queuePacket(proposal.conversation, {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "action_proposal",
+        action: proposal.action,
+      }),
+    ),
+  );
+}
+
+/**
+ * Send a proposal again, with its head, while it is still the intent's
+ * proposal at the conversation's head and its action certificate is
+ * incomplete. Members that dropped it, such as one still catching up while
+ * fenced, sign the new copy; members that signed already deduplicate it by
+ * `ActionHash`. A fenced conversation sends nothing, and its resends wait for
+ * it to recover. A store failure ends the resends.
+ * @param runtime Engine that sends the proposal.
+ * @param proposal The proposal, the conversation it extends, and its intent.
+ * @returns Whether a later resend is still due.
+ */
+function resendProposal(
+  runtime: EngineRuntime,
+  proposal: AuthorizedProposal,
+): Effect.Effect<boolean> {
+  const { action } = proposal;
+  return runtime.gate.withPermits(1)(
+    Effect.suspend(() => {
+      const conversation = runtime.conversations.get(action.conversationId);
+      if (
+        conversation === undefined ||
+        !proposalIsOpen(runtime, proposal, conversation)
+      ) {
+        return Effect.succeed(false);
+      }
+      if (runtime.phases.isRecovering(runtime, action.conversationId)) {
+        return Effect.succeed(true);
+      }
+      return Effect.uninterruptible(
+        queueProposal(runtime, { ...proposal, conversation }),
+      ).pipe(
+        Effect.as(true),
+        Effect.catchAll(() =>
+          Effect.logWarning(
+            "Proposal resends stopped: its envelopes could not be queued",
+          ).pipe(Effect.as(false)),
+        ),
+      );
+    }),
+  );
+}
+
+/**
+ * Whether a proposal still awaits its action certificate: it is still its
+ * intent's proposal, its post has not completed, no record certifies it, and
+ * the conversation's head is still the one it extends.
+ * @param runtime Engine that sent the proposal.
+ * @param proposal The proposal and the intent it proposes.
+ * @param conversation The conversation's current state.
+ * @returns Whether a resend of the proposal is still useful.
+ */
+function proposalIsOpen(
+  runtime: EngineRuntime,
+  proposal: AuthorizedProposal,
+  conversation: EngineConversation,
+): boolean {
+  const { action, actionHash, localIntent } = proposal;
+  const head = conversation.head?.recordHash ?? null;
+  return (
+    localIntent.proposedActionHash === actionHash &&
+    !runtime.completedPosts.has(action.postIntent.postId) &&
+    runtime.actionFolds.get(actionHash)?.recordHash === undefined &&
+    head === action.previousRecordHash
+  );
 }
 
 function authorizeAction(

@@ -959,8 +959,12 @@ function adoptsAnActionCertificateOverItsOwnLock() {
     ]);
     const recovered = yield* laggingStore.recover().pipe(Effect.orDie);
     expect(recovered.certifiedRecords).toHaveLength(3);
-    const releasedSignature = signatures.filter(
-      (message) => message.senderAgentId === laggingIdentity.card.agentId,
+    const releasedSignature = yield* messagesOfKind(
+      harness,
+      signatures.filter(
+        (message) => message.senderAgentId === laggingIdentity.card.agentId,
+      ),
+      "action_signature",
     );
     expect(yield* harness.deliver(releasedSignature, [1])).toEqual(["ignored"]);
 
@@ -2232,12 +2236,12 @@ describe("fixed-post endpoint protocol", () => {
     sealsEveryOuterBodyOfAPost,
     TEST_TIMEOUT_MS,
   );
-  it(
+  itOnTestClock(
     "sends 2 + 3n outer messages for one N4 post: its head's certified record and no copy of its own",
     sendsTwoPlusThreeNMessagesPerPost,
     TEST_TIMEOUT_MS,
   );
-  it(
+  itOnTestClock(
     "certifies from the action-certified copies a post whose signatures a member missed, sending its own copy first",
     certifiesFromActionCertifiedCopiesAfterMissingTheSignatures,
     TEST_TIMEOUT_MS,
@@ -2371,7 +2375,7 @@ describe("fixed-post endpoint protocol", () => {
       }),
     TEST_TIMEOUT_MS,
   );
-  it(
+  itOnTestClock(
     "creates no action vote before ordering concurrent sends by one author",
     () =>
       ordersCompetingProposalsBeforeActionVotes({
@@ -2725,7 +2729,8 @@ const DRAIN_BOUND = Duration.seconds(10);
  * pending one second short of `DRAIN_BOUND` and fails as `delivery-pending`
  * one second past it. The background drain then delivers the envelope the
  * interrupted transmit left begun, exactly once however often the queue
- * drains afterwards.
+ * drains afterwards. No member signs the proposal, so the author also resends
+ * it meanwhile, each time in a new envelope.
  */
 function blackHoledTransmitBoundsTheSend(): Effect.Effect<
   void,
@@ -2746,6 +2751,12 @@ function blackHoledTransmitBoundsTheSend(): Effect.Effect<
       author.send(yield* sendInput(harness, "black-holed transmit")),
     );
     yield* untilLive(Ref.get(transmits).pipe(Effect.map((count) => count > 0)));
+    const [held] = (yield* store.recover().pipe(Effect.orDie)).outboundMessages;
+    if (held === undefined) {
+      return yield* Effect.dieMessage(
+        "the black-holed envelope was not stored",
+      );
+    }
     yield* advanceClock(Duration.subtract(DRAIN_BOUND, Duration.seconds(1)));
     expect(yield* Fiber.poll(sending)).toEqual(Option.none());
     yield* advanceClock(Duration.seconds(2));
@@ -2755,8 +2766,10 @@ function blackHoledTransmitBoundsTheSend(): Effect.Effect<
     yield* superviseOutbound(author, fatal);
     yield* advanceClock(Duration.seconds(1));
     yield* author.drainOutbound.pipe(Effect.orDie);
-    expect(yield* Ref.get(transmits)).toBe(2);
-    expect(yield* Queue.size(harness.outbound)).toBe(1);
+    const delivered = yield* Queue.takeAll(harness.outbound);
+    expect(
+      [...delivered].filter((message) => message.messageId === held.messageId),
+    ).toHaveLength(1);
     expect(
       (yield* store.recover().pipe(Effect.orDie)).outboundMessages,
     ).toEqual([]);
