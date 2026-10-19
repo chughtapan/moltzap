@@ -261,12 +261,14 @@ const daemon = Daemon.withFirewall({
   settings,
   facts: ownerFacts,
   codeDigest: experimentCodeSha256,
-  maximumHistoryRecords: 256,
+  maximumHistoryRecords: 256, // Recent certified records per candidate conversation.
   maximumConcurrentChecks: 4,
 });
 ```
 
 The supplied middleware, settings and facts are captured for that process.
+`maximumHistoryRecords` sets the recent certified-record window per candidate
+conversation in both directions (default 256, range 1–1024).
 `codeDigest` is the operator's SHA-256 identifier for the experiment code; it is
 recorded, not independently attested. No model-facing policy mutation tool or new
 environment variable is introduced. Approval evidence remains absent.
@@ -283,10 +285,14 @@ guarantee scheduling progress, not admission under continuous churn. Range-speci
 revision checks are deferred. Further churn holds enforcement without another provider
 call; guidance records that hold and admits the original without stale advice.
 
-Earlier endpoint-certified history is captured in certification order, strictly
-before an incoming candidate. History is bounded by the configured record count
-and 2 MiB of whole retained record/membership bytes. Exceeding either bound is an
-explicit gap, never silent truncation. Unresolved outgoing intents are also gaps:
+History contains the most recent endpoint-certified records of the candidate's
+own conversation, strictly before the candidate, in certification order. An
+outgoing check uses its outgoing candidate's conversation. The configured record
+window omits older records; when it does, the assessor receives
+`earlierHistoryOmitted: true` in its context. This omission is not
+an evidence gap and does not by itself make a check unresolved. The window also
+has a 2 MiB bound on whole retained record/membership bytes. Exceeding that byte
+bound is an explicit evidence gap. Unresolved outgoing intents are also gaps:
 a concurrent send may have committed without certified history yet. Fixed owner
 facts and verified agent/principal attribution accompany the capture.
 

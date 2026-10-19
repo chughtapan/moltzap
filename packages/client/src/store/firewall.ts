@@ -30,7 +30,7 @@ import {
 // safer-arch-ignore file-implicit-boundary-module: Store composition and intent admission share these private transaction primitives so the audit, inbox, and intent writes commit atomically; only store/index.ts exposes the store capability.
 
 const historySelect = `
-  SELECT c.rowid AS position, s.canonical_record_core, m.canonical_membership,
+  SELECT c.rowid AS position, c.conversation_id, s.canonical_record_core, m.canonical_membership,
     CASE WHEN i.delivery_token IS NOT NULL
       THEN 1 ELSE 0 END AS visible
   FROM certified_records c
@@ -158,6 +158,7 @@ export function readFirewallEvidence(
   database: DatabaseSync,
   input: {
     readonly beforeDelivery?: DeliveryToken;
+    readonly conversationId?: string;
     readonly maximumRecords: number;
   },
 ): FirewallEvidence {
@@ -180,6 +181,9 @@ export function readFirewallEvidence(
     candidate === undefined
       ? Number.MAX_SAFE_INTEGER
       : readInteger(candidate, "position"),
+    candidate === undefined
+      ? input.conversationId
+      : readText(candidate, "conversation_id"),
   );
   return {
     revision: firewallRevision(database),
@@ -338,26 +342,37 @@ function boundedHistory(
   database: DatabaseSync,
   maximumRecords: number,
   before: number,
+  conversationId?: string,
 ) {
   const rows = database
-    .prepare(`${historySelect} WHERE c.rowid < ? ORDER BY c.rowid LIMIT ?`)
-    .iterate(before, maximumRecords + 1);
+    .prepare(`${historySelect}
+      WHERE c.conversation_id = ? AND c.rowid < ? ORDER BY c.rowid DESC LIMIT ?`)
+    .iterate(conversationId ?? null, before, maximumRecords + 1);
   const history: FirewallHistoryEntry[] = [];
   let bytes = 0;
   for (const row of rows) {
+    if (history.length === maximumRecords) {
+      return historyWindow(history, false, true);
+    }
     const entry = historyEntry(row);
     bytes +=
       entry.canonicalRecordCore.byteLength +
       entry.canonicalMembership.byteLength;
-    if (
-      history.length === maximumRecords ||
-      bytes > MAXIMUM_RUNTIME_ITEM_BYTES
-    ) {
-      return { history, overflow: true };
+    if (bytes > MAXIMUM_RUNTIME_ITEM_BYTES) {
+      return historyWindow(history, true, false);
     }
     history.push(entry);
   }
-  return { history, overflow: false };
+  return historyWindow(history, false, false);
+}
+
+function historyWindow(
+  history: FirewallHistoryEntry[],
+  overflow: boolean,
+  earlierHistoryOmitted: boolean,
+) {
+  history.reverse();
+  return { history, overflow, earlierHistoryOmitted };
 }
 
 function historyEntry(
