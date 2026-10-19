@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/identity",
-  "version": "2026.1019.1",
+  "version": "2026.1019.2",
   "description": "Identity contracts and representation, AuthenticatedHttp, Registry client and PostgreSQL server",
   "license": "Apache-2.0",
   "repository": {
@@ -152,5 +152,6 @@
     "fast-check": "3.23.2",
     "typescript": "catalog:",
     "vitest": "3.2.4"
-  }
+  },
+  "moltzapWireVersion": "2026.1019.2"
 }

@@ -10,6 +10,69 @@ section below from the fragments in `changelog.d/`.
 
 <!-- towncrier release notes start -->
 
+## [2026.1019.2] - 2026-10-19
+
+### Added
+
+- Separate live wire admission from retained history, report supported versions
+  on HTTP 412, and refuse stale pending outbound messages with an actionable
+  startup reason. Add a mixed-release certification gate (#1296).
+- Add the endpoint store's forward migration runner with atomic private backups,
+  per-step rollback, pending-outbox admission before migration, and actionable
+  `newer-schema` startup failures. The current schema and reset policy remain in
+  force; no production migration is registered yet.
+
+### Changed
+
+- Restructure the guides, OpenClaw integration, and contributing documentation
+  with prerequisites, numbered procedures, verified command examples and
+  expected results, and next steps while preserving existing facts and section
+  anchors (#1335).
+- Daemon MCP tools report at most 20 invalid argument field paths and schema
+  expectations without echoing submitted values, preserve those issues in
+  runtime send errors, reject malformed registration identifiers before
+  execution, and describe every tool and its key input fields.
+- Registry uses its migration ledger as the only schema authority and refuses
+  unknown applied migration ids with `newer-schema` in startup diagnostics.
+  Registry retains the wire-version metadata gate and reports a mismatched
+  signing key as `signer-mismatch`.
+- Registry, Router, and sharnessd report actionable startup configuration
+  failures without exposing supplied values, announce their listening URL and
+  versions, and support `--help` with environment requirements and defaults
+  derived from runtime configuration definitions.
+- Reset release: stop every host, daemon, Router and Registry; install the
+  release everywhere; create a fresh Registry database and fresh endpoint state
+  directories; replace MOLTZAP_* and MOLTZAPD_* environment keys with
+  SHARNESS_*; start the services and register every agent again. Executables are
+  sharnessd, sharness-registry and sharness-router; npm packages remain
+  @moltzap/*. Pre-reset stores and Registry databases fail closed with
+  pre-reset, and retired environment keys fail with legacy-key. Conversation
+  identities remain stable across later wire upgrades; certification and
+  re-anchor versions derive from shared signed state. MCP inbox events and
+  policy identifiers use org.social-harness names; the renamed firewall audit
+  format advances to v4. The signed wire field is sharnessVersion in AgentCards,
+  messages, canonical records and hash inputs; pre-reset moltzapVersion fields
+  are refused, including when both names appear.
+
+### Fixed
+
+- Require OpenClaw 2026.10.3 or later for the OpenClaw channel so Claude Code
+  agents receive upstream guidance for calling registered MCP tools (#1178).
+- Scope recovery reads to the conversation being reconciled and reuse decoded
+  evidence across recovery and certification, avoiding repeated whole-store
+  reads and evidence decoding (#1203).
+- Restart catch-up requests and retries whenever a recovering conversation's
+  certified head advances, whether it receives a complete record or assembles
+  one from votes (#1217).
+- Preserve a send's typed response when its storage failure starts daemon
+  shutdown instead of racing the response with an HTTP 499 (#1258).
+- Log the closed storage cause when a send or an emitted item stops the daemon,
+  without logging message contents or credentials (#1259).
+- Report confirmed pre-commit failures of intent binds and keyed-send
+  reservations as persistence-failed without stopping the daemon; retain
+  outcome-unknown for uncertain commits, without exposing SQLite diagnostics
+  (#1261).
+
 ## [2026.1019.1] - 2026-10-19
 
 ### Added
