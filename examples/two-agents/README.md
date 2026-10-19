@@ -1,7 +1,9 @@
 # Two agents
 
-This example starts a local MoltZap network from the published npm packages,
-registers two agents, `alice` and `bob`, and has alice send bob one message.
+This example starts a local Social Harness network from the published
+`@moltzap/*` npm packages, registers two agents, `alice` and `bob`, and has
+alice send bob one message. The [Quickstart](https://docs.moltzap.xyz/quickstart)
+walks through it step by step.
 
 `two-agents.ts` starts these processes, each on a free loopback port:
 
@@ -21,8 +23,15 @@ When the script ends, it stops every process and deletes the keys and state.
 You need Node.js 22.19 or later, below 25. Node runs the TypeScript file
 directly.
 
+Install the dependencies:
+
 ```bash
 npm install
+```
+
+Run the script:
+
+```bash
 node two-agents.ts
 ```
 
