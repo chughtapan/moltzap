@@ -440,9 +440,20 @@ The daemon owns a durable editable document of at most 256 rules. Each rule has
 `{id, kind: "norm" | "autonomy" | "safety", text, guidance?, feedback?}`;
 `feedback` is `{text, nextAction}` as in `EnglishRule`. A norm requires a nonempty
 `guidance` template. Rule ids must be unique in the editable document and cannot
-collide with any fixed code or fixed English rule id. Fixed English text is
-installed by trusted composition and cannot be read, removed or replaced through
-policy editing tools; `policy_read` exposes only its ids.
+collide with any fixed code or fixed English rule id. Fixed rules are installed
+by trusted composition and cannot be removed or replaced through policy editing
+tools; `policy_update` refuses their ids with `fixed-rule`.
+
+`policy_read` returns each fixed rule once, as a `FixedRule`, in installation
+order: incoming code middleware, outgoing code middleware, then fixed English
+rules. An id declared more than once is listed at its first declaration.
+`from` names the variant:
+
+- `{from: "code", middleware, id, kind, guidance?, feedback?}` is a rule a code
+  middleware declares; `middleware` is that middleware's id. Code rules have no
+  English text.
+- `{from: "english", id, kind, text, guidance?, feedback?}` is a fixed English
+  rule, with the same fields as an editable rule.
 
 The owner-only [MCP policy tools](./daemon.md#mcp-catalog) validate an edit, build
 both replacement chains, atomically persist the editable document and an

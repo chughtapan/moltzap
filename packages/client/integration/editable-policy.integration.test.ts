@@ -165,7 +165,7 @@ function call(
 
 const readSchema = Schema.Struct({
   rules: Schema.Array(Schema.Struct({ id: Schema.String })),
-  fixedRuleIds: Schema.Array(Schema.String),
+  fixedRules: Schema.Array(Schema.Unknown),
   activeRevision: Schema.String,
 });
 const updateSchema = Schema.Struct({
@@ -326,7 +326,7 @@ const persistAndValidate = Effect.gen(function* () {
   ).toBe(true);
   expect(yield* read(client)).toMatchObject({
     activeRevision: changed.activeRevision,
-    fixedRuleIds: [fixedRule.id],
+    fixedRules: [{ from: "english", ...fixedRule }],
     rules: [{ id: blockedRule.id }],
   });
   expect(yield* send(client).pipe(Effect.isFailure)).toBe(true);
@@ -341,6 +341,63 @@ const persistAndValidate = Effect.gen(function* () {
   yield* update(fresh, { remove: [blockedRule.id] });
   yield* send(fresh);
   yield* Fiber.interrupt(restarted);
+});
+
+const readFixed = Effect.gen(function* () {
+  const { alice } = yield* pair;
+  const codeRule = {
+    id: "no-links",
+    kind: "safety",
+    guidance: "Send the page title instead of the link.",
+  } as const;
+  const middleware: MessageMiddleware = {
+    id: "links",
+    revision: "1",
+    rules: [codeRule],
+    check: () =>
+      Effect.succeed({
+        findings: [{ ruleId: codeRule.id, outcome: "pass" }],
+        expectations: [],
+      }),
+  };
+  yield* start(alice, {
+    ...options,
+    incoming: [middleware],
+    outgoing: [middleware],
+    english: {
+      provider,
+      settings: {
+        minimumProbability: 0.5,
+        maximumRequestBytes: 1000000,
+        timeoutMilliseconds: 5000,
+      },
+      fixedRules: [fixedRule],
+    },
+  });
+  const client = yield* connect(alice.endpoint);
+  yield* register(client, alice);
+
+  const policy = yield* call(client, "policy_read");
+  const removeCode = yield* call(client, "policy_update", {
+    remove: [codeRule.id],
+  }).pipe(Effect.flip);
+  const replaceEnglish = yield* call(client, "policy_update", {
+    add: [{ ...blockedRule, id: fixedRule.id }],
+  }).pipe(Effect.flip);
+
+  expect(policy).toEqual({
+    rules: [],
+    fixedRules: [
+      { from: "code", middleware: middleware.id, ...codeRule },
+      { from: "english", ...fixedRule },
+    ],
+    activeRevision: expect.any(String),
+  });
+  expect(removeCode.cause).toMatchObject({ data: { reason: "fixed-rule" } });
+  expect(replaceEnglish.cause).toMatchObject({
+    data: { reason: "fixed-rule" },
+  });
+  expect(yield* call(client, "policy_read")).toEqual(policy);
 });
 
 const emptyEnglish = Effect.gen(function* () {
@@ -529,6 +586,13 @@ describe("editable firewall through the daemon public API", () => {
     "rejects invalid and fixed edits and restores active policy after restart",
     processTrace(
       Effect.scoped(persistAndValidate).pipe(Effect.provide(NodeContext.layer)),
+    ),
+    60000,
+  );
+  it(
+    "returns fixed English text and code rule descriptions and refuses to edit them",
+    processTrace(
+      Effect.scoped(readFixed).pipe(Effect.provide(NodeContext.layer)),
     ),
     60000,
   );
