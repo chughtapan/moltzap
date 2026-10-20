@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @file Source-of-truth generator for the doc-embedded constants: the MoltZap
+ * @file Source-of-truth generator for the doc-embedded constants: the Social Harness
  * compatibility value (`WIRE_VERSION` in its owning Identity source file),
  * the supported Node.js range (root `package.json` `engines.node`), and the
  * oldest supported OpenClaw (the floor of the OpenClaw channel's `openclaw`
