@@ -9,5 +9,5 @@ reading `ruleIds` read `checkedRuleIds` instead. Installing English rules now
 records the fixed rule ids in the English middleware's provenance, so a row
 keeps its rules' origin after later edits, and the active revision of an
 installation with English rules changes once. Rows for checks retained before
-this release carry the new fields too, reading fixed ids from the current
-configuration.
+this release carry the new fields too, with every English rule reported as
+`editable`.

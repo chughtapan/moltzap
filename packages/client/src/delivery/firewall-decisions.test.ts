@@ -9,12 +9,14 @@ import {
   destination,
   fixture,
   type Fixture,
+  incomingFixture,
   incomingThrough,
   outgoingThrough,
   revise,
   rule,
   settings,
 } from "../__tests__/firewall-runtime-fixtures.js";
+import { makeEnglishPolicy } from "../firewall/index.js";
 import {
   type DecisionProvider,
   DecisionProviderError,
@@ -28,6 +30,12 @@ import {
 import { installEditableFirewall } from "./policy.js";
 
 // @agent-code-guard/regression-only: Reads decisions retained by real admission through SQLite and the protocol engine.
+
+const englishSettings = {
+  minimumProbability: 0.5,
+  maximumRequestBytes: 60_000,
+  timeoutMilliseconds: 5_000,
+};
 
 const privacy = {
   id: "privacy",
@@ -196,11 +204,7 @@ function english(
     provider,
     fixedRules: rules.fixed ?? [],
     initialRules: rules.initial ?? [],
-    settings: {
-      minimumProbability: 0.5,
-      maximumRequestBytes: 60_000,
-      timeoutMilliseconds: 5_000,
-    },
+    settings: englishSettings,
   };
 }
 
@@ -500,6 +504,33 @@ it("keeps the rules active at check time after the owner removes the deciding ru
             advice: privacy.feedback.text,
           },
         ],
+      },
+    ]);
+  }));
+
+it("reports an English rule as editable when its check recorded no fixed ids, though it is fixed now", () =>
+  Effect.gen(function* () {
+    const subject = yield* fixture;
+    const provider = decisionProvider("prohibited");
+    const unrecorded = yield* makeEnglishPolicy({
+      id: "org.social-harness/english",
+      rules: [privacy],
+      provider,
+      settings: englishSettings,
+    });
+    const runtime = yield* incomingFixture(subject, unrecorded);
+    yield* runtime.runPass;
+    yield* Queue.take(runtime.completed);
+
+    const current = yield* installEditableFirewall(
+      options([], english(provider, { fixed: [privacy] })),
+      subject.store,
+    );
+
+    expect((yield* current.policy.decisions({})).decisions).toMatchObject([
+      {
+        outcome: "block",
+        decidedBy: [{ ruleId: privacy.id, from: "editable" }],
       },
     ]);
   }));

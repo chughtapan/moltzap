@@ -227,12 +227,7 @@ export const installEditableFirewall = Effect.fn("installEditableFirewall")(
         })),
       update: (request) =>
         gate.withPermits(1)(updatePolicy(captured, store, state, request)),
-      decisions: (request) =>
-        readDecisions(
-          store,
-          request,
-          (captured.english?.fixedRules ?? []).map((rule) => rule.id),
-        ),
+      decisions: (request) => readDecisions(store, request),
     };
     return Object.freeze({
       ...active,
@@ -314,15 +309,12 @@ function updatePolicy(
 function readDecisions(
   store: EndpointStore,
   request: { readonly since?: number },
-  fixedRuleIds: readonly string[],
 ) {
   return Effect.gen(function* () {
     const entries = yield* store.readFirewallDecisions(request.since);
-    const rows = yield* Effect.forEach(
-      entries,
-      (entry) => decisionRows(entry, fixedRuleIds),
-      { concurrency: 1 },
-    );
+    const rows = yield* Effect.forEach(entries, decisionRows, {
+      concurrency: 1,
+    });
     return yield* Schema.decodeUnknown(firewallDecisionsSchema)({
       decisions: rows.flat(),
       activations: (yield* store.readFirewallActivations(request)).map(
@@ -332,12 +324,9 @@ function readDecisions(
   }).pipe(Effect.mapError(persistenceFailure));
 }
 
-function decisionRows(
-  entry: FirewallAuditEntry & { readonly time: number },
-  fixedRuleIds: readonly string[],
-) {
+function decisionRows(entry: FirewallAuditEntry & { readonly time: number }) {
   return decodeFirewallAuditEntry(entry).pipe(
-    Effect.map((check) => projectDecision(check, entry.time, fixedRuleIds)),
+    Effect.map((check) => projectDecision(check, entry.time)),
   );
 }
 
@@ -353,11 +342,7 @@ const englishProvenance = Schema.parseJson(
   Schema.Struct({ fixedRuleIds: Schema.optional(Schema.Array(Schema.String)) }),
 );
 
-function projectDecision(
-  check: DecodedCheck,
-  time: number,
-  fixedRuleIds: readonly string[],
-) {
+function projectDecision(check: DecodedCheck, time: number) {
   const result = check.result;
   if (
     result === null ||
@@ -384,7 +369,7 @@ function projectDecision(
       .map((entry) => entry.id),
   );
   const cause = decisionCause(result, deciding, english);
-  const origin = ruleOrigin(registrations, fixedRuleIds);
+  const origin = ruleOrigin(registrations);
   const decidedBy = deciding.map((rule) => ({
     ruleId: rule.ruleId,
     from: origin(rule),
@@ -407,13 +392,12 @@ function projectDecision(
 /**
  * Where a deciding rule is defined, as `policy_read` lists it: a rule of the
  * editable English middleware is `fixed` or `editable`, and any other is
- * `code`. The fixed ids come from the installation the check retained; a
- * check retained before installations recorded them uses the fixed ids
- * configured now.
+ * `code`. The fixed ids come from the installation the check retained. A
+ * check retained before installations recorded them reports every English
+ * rule as `editable`, so owner text is never presented as built-in text.
  */
 function ruleOrigin(
   registrations: readonly Registration[],
-  fixedRuleIds: readonly string[],
 ): (rule: DecidingRule) => DecisionRow["decidedBy"][number]["from"] {
   const english = registrations.find((entry) => entry.id === englishId);
   const recorded =
@@ -424,7 +408,7 @@ function ruleOrigin(
             english.provenance.data,
           ),
         )?.fixedRuleIds;
-  const fixed = new Set(recorded ?? fixedRuleIds);
+  const fixed = new Set(recorded ?? []);
   return (rule) => {
     if (rule.middlewareId !== englishId) {
       return "code";

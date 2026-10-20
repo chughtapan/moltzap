@@ -585,7 +585,9 @@ installs fixed and editable English rules as one middleware and records the
 fixed rule ids in that middleware's provenance, which is part of the immutable
 installation. A row therefore keeps the origin its rules had when it was checked,
 after later edits and restarts. A check retained before installations recorded
-the fixed ids reads them from the fixed rules configured now.
+the fixed ids reports every rule of that middleware as `editable`, so owner
+text is never presented as built-in text; the current configuration is not
+consulted, since a rule id editable then may be fixed now.
 
 `cause` reads the first English deciding rule, or the first deciding rule when
 no English rule decided. An English rule is one an English policy registers,
