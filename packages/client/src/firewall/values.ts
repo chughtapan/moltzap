@@ -518,10 +518,34 @@ export const policyUpdateSchema = exact({
   ),
 });
 
+const describedFields = {
+  id: RuleDescription.fields.id,
+  kind: RuleDescription.fields.kind,
+  guidance: RuleDescription.fields.guidance,
+  feedback: RuleDescription.fields.feedback,
+};
+
+/**
+ * A fixed rule as trusted composition installed it: English text, or the
+ * description a code middleware declares for a rule it checks in code.
+ */
+const fixedRuleSchema = Schema.Union(
+  exact({
+    from: Schema.Literal("code"),
+    middleware: Schema.NonEmptyString,
+    ...describedFields,
+  }),
+  exact({
+    from: Schema.Literal("english"),
+    ...describedFields,
+    text: EnglishRule.fields.text,
+  }),
+);
+
 /** The digest identifies the entire active installation, including fixed policy. */
 export const policyReadSchema = exact({
   rules: Schema.Array(editableRuleSchema),
-  fixedRuleIds: Schema.Array(EnglishRule.fields.id),
+  fixedRules: Schema.Array(fixedRuleSchema),
   activeRevision: Schema.NonEmptyString,
 });
 

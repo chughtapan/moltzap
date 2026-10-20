@@ -783,7 +783,7 @@ export class DecisionProviderError extends Data.TaggedError(
 
 The adapter scrubs credentials before retaining optional private diagnostics.
 
-#### [`FirewallPolicyError`](./firewall/values.ts#L565)
+#### [`FirewallPolicyError`](./firewall/values.ts#L589)
 
 _Class_
 

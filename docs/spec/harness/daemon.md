@@ -171,11 +171,11 @@ discover or call them; the baseline daemon does not list them.
 
 | Tool | Input | Result |
 | --- | --- | --- |
-| `policy_read` | `{}` | `{rules, fixedRuleIds, activeRevision}`; editable English documents and fixed code/English ids |
+| `policy_read` | `{}` | `{rules, fixedRules, activeRevision}`; editable English documents and every fixed rule as `FixedRule` |
 | `policy_update` | `{add?: Rule[], remove?: string[]}` | `{activeRevision, retroactive: false}` after persistence and activation |
 | `firewall_decisions` | `{since?: number}` | `{decisions: [{checkId, time, direction, peerAgentId, outcome, disposition, ruleIds, activeRevision}], activations: [{time, activeRevision, addedRuleIds, removedRuleIds}]}` |
 
-`Rule` and the atomic edit/failure contract are defined by
+`Rule`, `FixedRule` and the atomic edit/failure contract are defined by
 [editable English policy](./message-policy.md#editable-english-policy).
 Invalid MCP shapes are invalid-argument errors; semantic update errors carry
 one closed policy failure reason. Fixed ids are refused in both `add` and

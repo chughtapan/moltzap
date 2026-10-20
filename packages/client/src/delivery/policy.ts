@@ -13,6 +13,7 @@ import {
   policyReadSchema,
   policyUpdateSchema,
   PrivateCheckTrace,
+  type RuleDescription,
 } from "../firewall/index.js";
 import {
   decodeRuntimeValue,
@@ -29,6 +30,7 @@ import {
 } from "./firewall.js";
 
 const editableRules = policyReadSchema.fields.rules.pipe(Schema.maxItems(256));
+type FixedRules = typeof policyReadSchema.fields.fixedRules.Type;
 const englishId = "org.social-harness/english";
 
 const persistenceFailure = () =>
@@ -125,18 +127,44 @@ function buildPolicy(options: CapturedOptions, rules: readonly EnglishRule[]) {
   );
 }
 
-function fixedIds(options: CapturedOptions): readonly string[] {
-  return [
-    ...new Set([
-      ...options.fixed.incoming.flatMap((middleware) =>
-        middleware.rules.map((rule) => rule.id),
-      ),
-      ...options.fixed.outgoing.flatMap((middleware) =>
-        middleware.rules.map((rule) => rule.id),
-      ),
-      ...(options.english?.fixedRules.map((rule) => rule.id) ?? []),
-    ]),
+function described(rule: RuleDescription) {
+  return {
+    id: rule.id,
+    kind: rule.kind,
+    ...(rule.guidance === undefined ? {} : { guidance: rule.guidance }),
+    ...(rule.feedback === undefined ? {} : { feedback: rule.feedback }),
+  };
+}
+
+/**
+ * Fixed rules in installation order, code incoming then code outgoing then
+ * fixed English; an id declared more than once is listed at its first
+ * declaration, as one middleware registered in both directions declares its
+ * rules twice.
+ */
+function fixedRules(options: CapturedOptions): FixedRules {
+  const declared: FixedRules = [
+    ...[...options.fixed.incoming, ...options.fixed.outgoing].flatMap(
+      (middleware) =>
+        middleware.rules.map((rule) => ({
+          from: "code" as const,
+          middleware: middleware.id,
+          ...described(rule),
+        })),
+    ),
+    ...(options.english?.fixedRules ?? []).map((rule) => ({
+      from: "english" as const,
+      ...described(rule),
+      text: rule.text,
+    })),
   ];
+  const first = new Map<string, FixedRules[number]>();
+  for (const rule of declared) {
+    if (!first.has(rule.id)) {
+      first.set(rule.id, rule);
+    }
+  }
+  return [...first.values()];
 }
 
 function validateIds(
@@ -168,7 +196,8 @@ export const installEditableFirewall = Effect.fn("installEditableFirewall")(
           Effect.fail(new FirewallPolicyError({ reason: "build-failed" })),
       }),
     );
-    const fixedRuleIds = fixedIds(captured);
+    const fixed = fixedRules(captured);
+    const fixedRuleIds = fixed.map((rule) => rule.id);
     const stored = yield* store
       .readFirewallPolicy()
       .pipe(Effect.mapError(persistenceFailure));
@@ -189,7 +218,7 @@ export const installEditableFirewall = Effect.fn("installEditableFirewall")(
       read: () =>
         Effect.sync(() => ({
           rules: state.rules,
-          fixedRuleIds,
+          fixedRules: fixed,
           activeRevision: state.active.configurationDigest,
         })),
       update: (request) =>

@@ -443,7 +443,7 @@ interface ToolListing {
 const toolListings = {
   policy_read: {
     description:
-      "Read the active editable English rules and fixed rule identifiers.",
+      "Read the active editable English rules and the fixed rules, which cannot be edited.",
     inputSchema: emptyInput,
     outputSchema: policyReadOutput,
   },
