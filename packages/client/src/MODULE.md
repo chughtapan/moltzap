@@ -783,7 +783,7 @@ export class DecisionProviderError extends Data.TaggedError(
 
 The adapter scrubs credentials before retaining optional private diagnostics.
 
-#### [`FirewallPolicyError`](./firewall/values.ts#L589)
+#### [`FirewallPolicyError`](./firewall/values.ts#L621)
 
 _Class_
 
@@ -1145,7 +1145,7 @@ Candidate bytes are opaque canonical Client data, encoded as base64. A null
 result or checking/interrupted disposition never represents permission.
 The nullable post reference identifies supported messages without decoding candidate bytes.
 
-#### [`makeEnglishPolicy`](./firewall/english.ts#L270)
+#### [`makeEnglishPolicy`](./firewall/english.ts#L273)
 
 _Variable_
 
@@ -1156,6 +1156,7 @@ export const makeEnglishPolicy = Effect.fn("makeEnglishPolicy")(
     readonly rules: readonly EnglishRule[];
     readonly provider: DecisionProvider;
     readonly settings: unknown;
+    readonly fixedRuleIds?: readonly string[];
   }): Effect.fn.Return<MessageMiddleware, CheckInputError> {
     const settings = yield* decodeFrozen(
       EnglishPolicySettings,
@@ -1188,7 +1189,12 @@ export const makeEnglishPolicy = Effect.fn("makeEnglishPolicy")(
       id,
       revision,
       rules: descriptions,
-      provenance: englishProvenance(rules, settings, options.provider),
+      provenance: englishProvenance(
+        rules,
+        settings,
+        options.provider,
+        options.fixedRuleIds,
+      ),
       check: (input: MiddlewareInput) =>
         checkEnglish(input, { rules, revision }, provider, settings),
     });
@@ -1198,6 +1204,9 @@ export const makeEnglishPolicy = Effect.fn("makeEnglishPolicy")(
 
 Freezes English documents and provider settings for repeated checks in either
 direction. Question semantics and documents determine the recorded revision.
+`fixedRuleIds` names the rules composition fixed against owner edits; it is
+recorded in the provenance only, so a retained check keeps which of its
+rules were fixed, and never changes checking.
 
 ```mermaid
 flowchart TD
@@ -1209,7 +1218,7 @@ flowchart TD
   C --> R[Return all findings and private stage trace]
 ```
 
-#### [`makeFirewall`](./firewall/index.ts#L65)
+#### [`makeFirewall`](./firewall/index.ts#L69)
 
 _Variable_
 

@@ -12,6 +12,7 @@ import { RouterInstanceId } from "@moltzap/router";
 import { Deferred, Effect, Queue, Schema, Scope } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { join } from "node:path";
+import type { InstalledFirewall } from "../delivery/firewall-checks.js";
 import type { HarnessMessageReadyEvent } from "../delivery/operations.js";
 import type {
   MessageMiddleware,
@@ -212,10 +213,7 @@ export const installation = (
  * built over it, as the daemon composes them. Requests the layer classifies
  * wait for admission; items it emits are queued privately and recorded.
  */
-const firewallRuntime = (
-  subject: Fixture,
-  installed: Effect.Effect.Success<ReturnType<typeof installation>>,
-) =>
+const firewallRuntime = (subject: Fixture, installed: InstalledFirewall) =>
   Effect.gen(function* () {
     const { local, store, engine } = subject;
     const environment = { installed, store, localAgentCard: local.card };
@@ -251,20 +249,19 @@ const firewallRuntime = (
     return { environment, delivery, collectives, emitted };
   }).pipe(Effect.withSpan("firewallRuntime"));
 
-/** A seeded incoming candidate runs through the admission worker and inbox. */
-export const incomingFixture = (
+/**
+ * The incoming fixture over an installed firewall, such as an editable one
+ * whose checks read its active installation.
+ */
+export const incomingThrough = (
   subject: Fixture,
-  middleware: MessageMiddleware,
-  overrides: Partial<FirewallOptions> = {},
+  installed: InstalledFirewall,
   seed = true,
 ) =>
   Effect.gen(function* () {
     yield* Effect.when(seedIncoming(subject), () => seed);
     const { environment, delivery, collectives, emitted } =
-      yield* firewallRuntime(
-        subject,
-        yield* installation(middleware, overrides),
-      );
+      yield* firewallRuntime(subject, installed);
     const published: HarnessMessageReadyEvent[] = [];
     const readPending = pendingMessages(subject.store);
     const runPass = delivery.runPass(() => ({
@@ -294,7 +291,18 @@ export const incomingFixture = (
       completed,
       candidate,
     };
-  }).pipe(Effect.withSpan("incomingFixture"));
+  }).pipe(Effect.withSpan("incomingThrough"));
+
+/** A seeded incoming candidate runs through the admission worker and inbox. */
+export const incomingFixture = (
+  subject: Fixture,
+  middleware: MessageMiddleware,
+  overrides: Partial<FirewallOptions> = {},
+  seed = true,
+) =>
+  installation(middleware, overrides).pipe(
+    Effect.flatMap((installed) => incomingThrough(subject, installed, seed)),
+  );
 
 /** Runtime send operations use the real checked-send path before the Router barrier. */
 export function outgoingFixture(
@@ -302,13 +310,21 @@ export function outgoingFixture(
   middleware: MessageMiddleware,
   overrides: Partial<FirewallOptions> = {},
 ) {
-  return Effect.gen(function* () {
-    const runtime = yield* firewallRuntime(
-      subject,
-      yield* installation(middleware, overrides),
-    );
-    return runtime.delivery;
-  }).pipe(Effect.withSpan("outgoingFixture"));
+  return installation(middleware, overrides).pipe(
+    Effect.flatMap((installed) => outgoingThrough(subject, installed)),
+    Effect.withSpan("outgoingFixture"),
+  );
+}
+
+/** Runtime send operations over an installed firewall, such as an editable one. */
+export function outgoingThrough(
+  subject: Fixture,
+  installed: InstalledFirewall,
+) {
+  return firewallRuntime(subject, installed).pipe(
+    Effect.map((runtime) => runtime.delivery),
+    Effect.withSpan("outgoingThrough"),
+  );
 }
 
 /** Carol supplies an independent conversation using the same endpoint store. */

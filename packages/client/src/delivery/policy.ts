@@ -1,9 +1,12 @@
 /** @file Serialized owner edits replace immutable chains without replacing daemon resources. */
 
-import { Clock, Effect, Schema } from "effect";
+import { Clock, Effect, Option, Schema } from "effect";
 import type { InstalledFirewall } from "./firewall-checks.js";
 import {
+  type DecidingRule,
+  decidingRules,
   decodeFrozen,
+  englishPolicyFormat,
   EnglishPolicySettings,
   EnglishRule,
   firewallDecisionsSchema,
@@ -111,6 +114,7 @@ function buildPolicy(options: CapturedOptions, rules: readonly EnglishRule[]) {
       rules: documents,
       provider: options.english.provider,
       settings: options.english.settings,
+      fixedRuleIds: options.english.fixedRules.map((rule) => rule.id),
     });
     return yield* installFirewall({
       ...options.fixed,
@@ -301,7 +305,7 @@ function updatePolicy(
   }).pipe(Effect.withSpan("updateFirewallPolicy"));
 }
 
-/** Explicit projection prevents private input, diagnostics and registered text escaping through this feed. */
+/** Explicit projection prevents message content, private input, diagnostics and rule text escaping through this feed; only deciding rules' registered advice is projected. */
 function readDecisions(
   store: EndpointStore,
   request: { readonly since?: number },
@@ -329,6 +333,14 @@ function decisionRows(entry: FirewallAuditEntry & { readonly time: number }) {
 type DecodedCheck = Effect.Effect.Success<
   ReturnType<typeof decodeFirewallAuditEntry>
 >;
+type DecodedResult = NonNullable<DecodedCheck["result"]>;
+
+type DecisionRow = (typeof firewallDecisionsSchema.Type.decisions)[number];
+type Registration = DecodedCheck["input"]["installation"]["incoming"][number];
+
+const englishProvenance = Schema.parseJson(
+  Schema.Struct({ fixedRuleIds: Schema.optional(Schema.Array(Schema.String)) }),
+);
 
 function projectDecision(check: DecodedCheck, time: number) {
   const result = check.result;
@@ -342,13 +354,27 @@ function projectDecision(check: DecodedCheck, time: number) {
   const message = check.input.message;
   const peers =
     message === null ? [null] : decisionPeers(message, check.direction);
-  const ruleIds = [
+  const checkedRuleIds = [
     ...new Set(
       result.checks.flatMap((middleware) =>
         middleware.findings.map((finding) => finding.ruleId),
       ),
     ),
   ];
+  const registrations = check.input.installation[check.direction];
+  const deciding = decidingRules(result.reason, registrations, result.checks);
+  const english = new Set(
+    registrations
+      .filter((entry) => entry.provenance.format === englishPolicyFormat)
+      .map((entry) => entry.id),
+  );
+  const cause = decisionCause(result, deciding, english);
+  const origin = ruleOrigin(registrations);
+  const decidedBy = deciding.map((rule) => ({
+    ruleId: rule.ruleId,
+    from: origin(rule),
+    ...(rule.advice === undefined ? {} : { advice: rule.advice }),
+  }));
   return peers.map((peerAgentId) => ({
     checkId: check.checkId,
     time,
@@ -356,9 +382,76 @@ function projectDecision(check: DecodedCheck, time: number) {
     peerAgentId,
     outcome: result.judgment,
     disposition: check.disposition,
-    ruleIds,
+    cause,
+    decidedBy,
+    checkedRuleIds,
     activeRevision: check.input.configurationDigest,
   }));
+}
+
+/**
+ * Where a deciding rule is defined, as `policy_read` lists it: a rule of the
+ * editable English middleware is `fixed` or `editable`, and any other is
+ * `code`. The fixed ids come from the installation the check retained. A
+ * check retained before installations recorded them reports every English
+ * rule as `editable`, so owner text is never presented as built-in text.
+ */
+function ruleOrigin(
+  registrations: readonly Registration[],
+): (rule: DecidingRule) => DecisionRow["decidedBy"][number]["from"] {
+  const english = registrations.find((entry) => entry.id === englishId);
+  const recorded =
+    english === undefined
+      ? undefined
+      : Option.getOrUndefined(
+          Schema.decodeUnknownOption(englishProvenance)(
+            english.provenance.data,
+          ),
+        )?.fixedRuleIds;
+  const fixed = new Set(recorded ?? []);
+  return (rule) => {
+    if (rule.middlewareId !== englishId) {
+      return "code";
+    }
+    return fixed.has(rule.ruleId) ? "fixed" : "editable";
+  };
+}
+
+/**
+ * The cause of a decision, read from its first English deciding rule, or
+ * from its first deciding rule when no English rule decided it. A check
+ * that could not run is `unavailable` from either kind of middleware,
+ * including one that registers no rule; any other code finding is `code`.
+ * Otherwise, with no deciding rule, an admission is the `default` and any
+ * other outcome is the endpoint's own hold.
+ */
+function decisionCause(
+  result: DecodedResult,
+  deciding: readonly DecidingRule[],
+  english: ReadonlySet<string>,
+): DecisionRow["cause"] {
+  const first =
+    deciding.find((rule) => english.has(rule.middlewareId)) ?? deciding[0];
+  if (first === undefined) {
+    return emptyCause(result);
+  }
+  if (first.finding === "unavailable") {
+    return "unavailable";
+  }
+  if (!english.has(first.middlewareId)) {
+    return "code";
+  }
+  return first.finding === "uncertain" ? "uncertain" : "judgment";
+}
+
+function emptyCause(result: DecodedResult): DecisionRow["cause"] {
+  if (
+    result.reason === "check-unavailable" &&
+    result.checks.some((check) => check.status === "unavailable")
+  ) {
+    return "unavailable";
+  }
+  return result.judgment === "allow" ? "default" : "endpoint";
 }
 
 /**

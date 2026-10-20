@@ -173,7 +173,7 @@ export interface Firewall {
 
 Checking returns data; Client separately owns fresh, atomic send/delivery admission.
 
-### [`FirewallPolicyError`](./values.ts#L589)
+### [`FirewallPolicyError`](./values.ts#L621)
 
 _Class_
 
@@ -240,7 +240,7 @@ export type LocalGuidance = typeof localGuidanceSchema.Type;
 
 Local advice accompanies the envelope and never changes a certified item.
 
-### [`makeEnglishPolicy`](./english.ts#L270)
+### [`makeEnglishPolicy`](./english.ts#L273)
 
 _Variable_
 
@@ -251,6 +251,7 @@ export const makeEnglishPolicy = Effect.fn("makeEnglishPolicy")(
     readonly rules: readonly EnglishRule[];
     readonly provider: DecisionProvider;
     readonly settings: unknown;
+    readonly fixedRuleIds?: readonly string[];
   }): Effect.fn.Return<MessageMiddleware, CheckInputError> {
     const settings = yield* decodeFrozen(
       EnglishPolicySettings,
@@ -283,7 +284,12 @@ export const makeEnglishPolicy = Effect.fn("makeEnglishPolicy")(
       id,
       revision,
       rules: descriptions,
-      provenance: englishProvenance(rules, settings, options.provider),
+      provenance: englishProvenance(
+        rules,
+        settings,
+        options.provider,
+        options.fixedRuleIds,
+      ),
       check: (input: MiddlewareInput) =>
         checkEnglish(input, { rules, revision }, provider, settings),
     });
@@ -293,6 +299,9 @@ export const makeEnglishPolicy = Effect.fn("makeEnglishPolicy")(
 
 Freezes English documents and provider settings for repeated checks in either
 direction. Question semantics and documents determine the recorded revision.
+`fixedRuleIds` names the rules composition fixed against owner edits; it is
+recorded in the provenance only, so a retained check keeps which of its
+rules were fixed, and never changes checking.
 
 ```mermaid
 flowchart TD
@@ -304,7 +313,7 @@ flowchart TD
   C --> R[Return all findings and private stage trace]
 ```
 
-### [`makeFirewall`](./index.ts#L65)
+### [`makeFirewall`](./index.ts#L69)
 
 _Variable_
 

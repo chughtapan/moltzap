@@ -455,7 +455,7 @@ const toolListings = {
   },
   firewall_decisions: {
     description:
-      "Read metadata for the latest 100 completed checks since inclusive Unix milliseconds; no message text. Groups have one row per peer.",
+      "Read metadata for the latest 100 completed checks since inclusive Unix milliseconds: each outcome's cause and deciding rules with their registered advice; no message text. Groups have one row per peer.",
     inputSchema: decisionsInput,
     outputSchema: decisionsOutput,
   },
