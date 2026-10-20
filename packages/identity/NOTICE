@@ -1,11 +1,10 @@
-MoltZap
+Social Harness
 Copyright 2026 Tapan Chugh
 
 This product is licensed under the Apache License, Version 2.0; see LICENSE.
 
-Releases published before the four-layer cutover keep the license their
-published manifests declared; the repository LICENSE was the MIT License at
-the time. The source in this repository is original to the project; no
-third-party MIT-licensed source is relicensed by this change.
+Releases whose published manifests declare the MIT License remain under it.
+The source in this repository is original to the project; no third-party
+MIT-licensed source is relicensed.
 
 Third-party software is consumed as npm packages under their own licenses.

@@ -556,15 +556,15 @@ firewall host.
 
 The assessor sees one conversation: the recent window of the candidate's own
 conversation. It does not see the endpoint's other conversations or anything
-outside MoltZap. This scope is a current choice, kept simple while history
-selection is evaluated; it is not a protocol invariant.
+outside Social Harness. This scope is a current choice, kept simple while
+history selection is evaluated; it is not a protocol invariant.
 
 The host can see more than the assessor. In OpenClaw's normal shared mode
-([channels](./channels.md#openclaw-session-and-output-contract)), every MoltZap
-DM and group uses one native session. So the model knows other conversations
-that the assessor cannot see. Private mode isolates sessions per conversation,
-which matches the assessor's scope. In shared mode the per-conversation scope
-leaves these cases to the host and its norms:
+([channels](./channels.md#openclaw-session-and-output-contract)), every
+Social Harness DM and group uses one native session. So the model knows other
+conversations that the assessor cannot see. Private mode isolates sessions per
+conversation, which matches the assessor's scope. In shared mode the
+per-conversation scope leaves these cases to the host and its norms:
 
 - **Context from another conversation.** A claim made in one conversation and
   acted on in another, such as hearsay authority planted earlier, is not in
@@ -577,9 +577,9 @@ leaves these cases to the host and its norms:
   recipients against the target conversation only. It cannot tell that the
   text came from another conversation.
 - **Owner channels.** Owner instructions on another channel, such as Telegram,
-  are not MoltZap history. A rule that depends on what the owner said there
-  needs the owner's confirmation through the host, such as an approval prompt,
-  not firewall history.
+  are not Social Harness history. A rule that depends on what the owner said
+  there needs the owner's confirmation through the host, such as an approval
+  prompt, not firewall history.
 - **Long conversations.** Records older than the window reach the assessor
   only as `earlierHistoryOmitted`, not as content.
 

@@ -4,6 +4,8 @@ description: Identify reset releases and start fresh Registry and endpoint state
 ---
 
 Identify whether your target release requires fresh state before upgrading.
+Social Harness is in development, and its releases carry no compatibility
+promise.
 
 ## Prerequisites
 
@@ -13,11 +15,9 @@ Identify whether your target release requires fresh state before upgrading.
 - A fresh PostgreSQL database, fresh endpoint state directories, and Registry
   admission credentials if a reset is required.
 
-The reset release establishes fresh wire, endpoint-store, and Registry baselines.
-After the reset, compatible upgrades follow the
-[wire-version window](/spec/layer-interfaces#wire-compatibility-window) and
-numbered forward database migrations. Pre-reset state cannot be migrated.
-The package calendar version alone does not identify a reset.
+A reset release starts fresh wire, endpoint-store, and Registry baselines, and
+state from before it cannot be migrated. The package calendar version alone
+does not identify a reset.
 
 ## Identify a reset release
 

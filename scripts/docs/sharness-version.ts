@@ -1,5 +1,5 @@
 /**
- * @file The documentation reader of the MoltZap wire compatibility literal.
+ * @file The docs reader of the Social Harness wire compatibility literal.
  *
  * `packages/identity/src/version.ts` owns the value. Documentation baking
  * reads it without executing the module, so the export must be a literal, and
