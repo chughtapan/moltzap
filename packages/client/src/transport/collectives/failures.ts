@@ -32,8 +32,8 @@ export interface RefusedSend<E> {
 /**
  * Deliver a refused collective send's error where the host wants it. With
  * `inbound` the send completes, naming the operation and carrying the advice
- * of the check that admitted it, and the error arrives as an
- * `operationFailed` item carrying the same text. When that item cannot
+ * of a check that admitted it before the refusal, if any, and the error
+ * arrives as an `operationFailed` item carrying the same text. When that item cannot
  * be kept, the send fails with the refusal itself, the outcome it had. A
  * firewall refusal is always the send's own failure: the agent revises from
  * the tool error, and no inbound item stands in for it.

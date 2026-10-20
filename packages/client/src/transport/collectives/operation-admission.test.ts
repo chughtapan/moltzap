@@ -73,8 +73,9 @@ interface CheckGate {
 /**
  * How a firewall double decides: which posts it refuses, whether it refuses
  * gathers, a gate on its post checks and one on its gather checks, whether
- * a gather's request posts never certify, and the advice an admitting check
- * gives.
+ * a gather's request posts never certify, the advice an admitting check
+ * gives, and whether an admitted post fails before it binds (`bindFails`)
+ * or after (`postFails`).
  */
 interface DoubleOptions {
   readonly refusePost?: (input: EngineSendInput) => boolean;
@@ -84,6 +85,7 @@ interface DoubleOptions {
   readonly requestsHang?: boolean;
   readonly guidance?: CheckedGuidance;
   readonly postFails?: SendError;
+  readonly bindFails?: SendError;
 }
 
 /** What a firewall double saw. */
@@ -133,6 +135,9 @@ function checkPost<E>(
     }
     if (options.refusePost?.(post.input) === true) {
       return yield* refusal;
+    }
+    if (options.bindFails !== undefined) {
+      return yield* options.bindFails;
     }
     yield* post.hold;
     return {
@@ -343,6 +348,78 @@ function keepsAnAdmittedAnswersAdviceWhenItsFailureArrivesInbound() {
     expect(observed.emitted).toMatchObject([
       { kind: "operationFailed", id: requestId },
     ]);
+  });
+}
+
+function keepsAnAdmittedAllGathersAdviceWhenItsAbandonArrivesInbound() {
+  return Effect.gen(function* () {
+    const advice = localGuidance(7);
+    const observed = newObserved();
+    const layer = yield* makeLayer(observed, {
+      admission: firewallDouble(observed, {
+        guidance: advice,
+        postFails: new SendError({ reason: "network-unavailable" }),
+      }).admission,
+    });
+
+    const completed = yield* send(layer, allGatherInput, "inbound");
+    yield* TestClock.adjust(Duration.minutes(2));
+
+    expect(completed).toMatchObject({ postIds: [], guidance: advice });
+    expect(observed.emitted).toMatchObject([{ kind: "operationFailed" }]);
+    expect(observed.emitted).toHaveLength(1);
+  });
+}
+
+function keepsAnAdmittedGathersAdviceWhenItsDeadlinePassesDuringTheCheck() {
+  return Effect.gen(function* () {
+    const advice = localGuidance(8);
+    const observed = newObserved();
+    const gatherGate = {
+      entered: yield* Deferred.make<undefined>(),
+      open: yield* Deferred.make<undefined>(),
+    };
+    const layer = yield* makeLayer(observed, {
+      admission: firewallDouble(observed, { gatherGate, guidance: advice })
+        .admission,
+    });
+
+    const sending = yield* send(layer, gatherInput(), "inbound").pipe(
+      Effect.fork,
+    );
+    yield* Deferred.await(gatherGate.entered);
+    yield* TestClock.adjust(Duration.seconds(61));
+    yield* Deferred.succeed(gatherGate.open, undefined);
+
+    expect(yield* Fiber.join(sending)).toMatchObject({
+      postIds: [],
+      guidance: advice,
+    });
+    expect(observed.sent).toEqual([]);
+    expect(observed.emitted).toMatchObject([{ kind: "operationFailed" }]);
+  });
+}
+
+function refusesAnAllGatherWhoseBindFailsNamingEveryMember() {
+  return Effect.gen(function* () {
+    const observed = newObserved();
+    const layer = yield* makeLayer(observed, {
+      admission: firewallDouble(observed, {
+        bindFails: new SendError({ reason: "network-unavailable" }),
+      }).admission,
+    });
+
+    const failure = yield* collectiveFailureOf(send(layer, allGatherInput));
+    yield* TestClock.adjust(Duration.minutes(2));
+
+    expect(failure).toEqual({
+      kind: "members-unreachable",
+      members: [
+        { member: "agent:bob", reason: "network-unavailable" },
+        { member: "agent:carol", reason: "network-unavailable" },
+      ],
+    });
+    expect(observed.emitted).toEqual([]);
   });
 }
 
@@ -710,6 +787,18 @@ describe("collective sends under a firewall", () => {
   it(
     "keeps an admitted answer's advice when its failure is delivered inbound",
     keepsAnAdmittedAnswersAdviceWhenItsFailureArrivesInbound,
+  );
+  it(
+    "keeps an admitted all_gather's advice when its abandon is delivered inbound",
+    keepsAnAdmittedAllGathersAdviceWhenItsAbandonArrivesInbound,
+  );
+  it(
+    "keeps an admitted gather's advice when its deadline passes during the check",
+    keepsAnAdmittedGathersAdviceWhenItsDeadlinePassesDuringTheCheck,
+  );
+  it(
+    "refuses an all_gather whose bind fails, naming every member",
+    refusesAnAllGatherWhoseBindFailsNamingEveryMember,
   );
 });
 

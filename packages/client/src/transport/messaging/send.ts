@@ -688,11 +688,12 @@ export type PreparedSendCheck<A> = (
 /**
  * A precondition a caller holds across one bind attempt. Running it
  * re-establishes the precondition just before the intent binds and yields
- * the effect that gives it up. The engine gives it up unless the intent
- * becomes ready: when the attempt binds nothing, and also when a bound
- * intent fails before it is ready, as `delivery-pending` does though its post
- * may still certify later. A failure refuses the send before anything binds.
- * Only a check that admits takes it, so a refused send never establishes it.
+ * the effect that gives it up. The engine gives it up when the attempt binds
+ * nothing. A bound intent keeps it, including one whose activation fails:
+ * that intent reports `delivery-pending` through its completion latch, since
+ * its post may still certify later. A failure refuses the send before
+ * anything binds. Only a check that admits takes it, so a refused send never
+ * establishes it.
  */
 export type BindHold<E> = Effect.Effect<Effect.Effect<void>, E>;
 
@@ -982,7 +983,8 @@ function activateIntentOnce(
  * `runtime.intents` before any proposal, so a failure here does not mean the
  * post was not sent: `rebasePendingIntents` proposes it again when the
  * conversation's head moves, and recovery proposes it after a restart. So
- * every failure here fails the send as `delivery-pending`.
+ * the activation stays ready after any failure here, and its completion
+ * latch fails the send as `delivery-pending`.
  * @param runtime Engine whose conversation and outbox take the proposal.
  * @param prepared The stored intent with its canonical bytes.
  * @returns The ready activation and its completion latch.
@@ -1025,8 +1027,20 @@ function activateBoundIntent(
       yield* proposeIntent(runtime, localIntent);
     }
     return { kind: "ready", completion } satisfies IntentActivation;
-  }).pipe(
-    // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- A bound intent is proposed again later, so every failure here is delivery-pending, as this function's JSDoc explains.
-    Effect.mapError(() => new SendError({ reason: "delivery-pending" })),
+  }).pipe(Effect.catchAll(() => pendingActivation()));
+}
+
+/**
+ * A bound intent's activation after its proposal failed: still ready, with a
+ * latch that fails as `delivery-pending`.
+ */
+function pendingActivation(): Effect.Effect<IntentActivation> {
+  return Deferred.make<RecordHash, SendError>().pipe(
+    Effect.tap((completion) =>
+      Deferred.fail(completion, new SendError({ reason: "delivery-pending" })),
+    ),
+    Effect.map(
+      (completion): IntentActivation => ({ kind: "ready", completion }),
+    ),
   );
 }

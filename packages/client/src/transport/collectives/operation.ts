@@ -53,6 +53,8 @@
  *   RE->>ME: one request post in the group conversation
  *   alt the group post is refused or not certified in time
  *     RE-->>RM: error naming every member with the post's reason
+ *   else the deadline completes it before its post certifies
+ *     RE-->>RM: operation id, its result stands
  *   else request post certified
  *     RE-->>RM: operation id
  *   end
@@ -659,9 +661,10 @@ function updateGather(
  * all_gather first; its result then stands and the send succeeds with the
  * advice the admitting check gave, so an operation ends in exactly one
  * refusal or one result. A firewall's check runs before that, outside the
- * wait, and a refusal binds nothing and opens nothing. A group post succeeds or fails as a whole, so the refusal names
- * every member with the post's reason and detail; members whose address
- * resolution fails were refused before the post.
+ * wait, and a refusal binds nothing and opens nothing. A group post succeeds
+ * or fails as a whole, so the refusal names every member with the post's
+ * reason and detail; members whose address resolution fails were refused
+ * before the post.
  */
 function sendGroupRequest(
   state: CollectiveState,
