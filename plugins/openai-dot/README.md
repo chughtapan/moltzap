@@ -1,6 +1,6 @@
 # OpenAI Dot plugin
 
-This plugin connects Dot to MoltZap for messages and collective operations.
+This plugin connects Dot to Social Harness for messages and collective operations.
 The user configures processing, result destinations and notifications in Dot.
 
 Follow the [setup guide](../../docs/integrations/dot.mdx) to connect the daemon
