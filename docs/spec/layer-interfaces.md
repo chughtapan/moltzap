@@ -481,7 +481,7 @@ The mixed-release CI gate runs the previous published release and the oldest
 published release whose wire version remains live against the current build,
 using the current Registry and Router. Candidate selection reads the published
 Identity `sharnessWireVersion` npm metadata without installing candidates.
-Releases before the latest reset carry no `sharnessWireVersion`.
+Releases before this reset carry no `sharnessWireVersion`.
 `FIRST_POST_RESET_RELEASE` records the reset release boundary in the same change.
 Absent metadata denotes a pre-reset release only below that boundary. Missing metadata at or after that
 release fails the gate; registry
