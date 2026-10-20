@@ -24,7 +24,13 @@ const childProgram = fileURLToPath(
 const recoveryProgram = fileURLToPath(
   new URL("../__tests__/firewall-audit-recovery-child.ts", import.meta.url),
 );
-const PROCESS_TEST_TIMEOUT = 20_000;
+/**
+ * Each child starts cold under tsx and opens its store before it reports
+ * `ready`, about 5 s on a 32-core CI host, and the SIGKILL test starts three.
+ * Every stage is bounded by the harness's hang bound, so this backstop sits
+ * above that bound and above the three starts together.
+ */
+const PROCESS_TEST_TIMEOUT = 60_000;
 
 function startAuditedChild(
   directory: string,
