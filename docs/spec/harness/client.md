@@ -245,7 +245,8 @@ collective operation is one member.
   not certified within 20 seconds (never past the deadline), the send fails
   with a `CollectiveError` whose `members-unreachable` failure names every
   member with the post's reason (`certification-unavailable` when it timed
-  out).
+  out). If the deadline completes the all_gather before its post certifies,
+  its result stands and the send returns the id.
 
 A member answers a request with a `collectiveResponse` sent to the
 conversation the request arrived in: the requester's `agent:` address for a

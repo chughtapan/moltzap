@@ -34,6 +34,7 @@ import {
   slotSchema,
   unkeptEmit,
 } from "../../__tests__/collective-operation-fixtures.js";
+import { localGuidance } from "../../__tests__/message-policy-fixtures.js";
 import { SendError } from "../messaging/errors.js";
 import { InboundMessage } from "../messaging/message.js";
 import { CollectiveEmitError } from "./forms.js";
@@ -315,16 +316,27 @@ function startsWhenTheGroupPostCertifiesWithinTheWait() {
  */
 function endsInItsResultAloneWhenTheDeadlinePassesBeforeTheGroupPostCertifies() {
   const observed = newObserved();
+  const advice = localGuidance(9);
 
   return Effect.gen(function* () {
-    const posts = { attempted: 0 };
     const emitted = yield* Deferred.make<undefined>();
+    const bound: EngineSendInput[] = [];
     const layer = yield* makeLayer(observed, {
       ...signalEmitted(observed, emitted),
-      sendPost: (input) =>
-        posts.attempted++ === 0 ? Effect.never : certifyNext(observed, input),
+      admission: {
+        bindPost: (input, hold) =>
+          hold.pipe(
+            Effect.zipLeft(
+              Effect.sync(() => {
+                bound.push(input);
+              }),
+            ),
+            Effect.as({ certified: Effect.never, guidance: advice }),
+          ),
+        admitGather: () => Effect.dieMessage("an all_gather admits no gather"),
+      },
     });
-    yield* send(layer, {
+    const completed = yield* send(layer, {
       ...allGatherInput(),
       collective: {
         op: "all_gather",
@@ -334,6 +346,8 @@ function endsInItsResultAloneWhenTheDeadlinePassesBeforeTheGroupPostCertifies() 
     });
     yield* Deferred.await(emitted);
 
+    expect(bound.map(({ to }) => to)).toEqual([group]);
+    expect(completed).toMatchObject({ postIds: [], guidance: advice });
     expect(observed.emitted).toMatchObject([
       { kind: "collectiveResult", to: group },
     ]);
@@ -869,6 +883,64 @@ function ignoresACloseForAnUnknownId() {
   });
 }
 
+/**
+ * An admitted answer whose post fails after binding settles unanswered with
+ * its advice, applying the close held while it was in flight: that close
+ * lists the answer this member will not hold, so it ends the request
+ * without a result.
+ */
+function appliesAHeldCloseWhenAnAdmittedAnswerFailsAfterBinding() {
+  const observed = newObserved();
+  const advice = localGuidance(4);
+
+  return Effect.gen(function* () {
+    const attempted = yield* Deferred.make<undefined>();
+    const failing = yield* Deferred.make<undefined>();
+    const layer = yield* makeLayer(observed, {
+      self: "agent:bob",
+      admission: {
+        bindPost: (input, hold) =>
+          hold.pipe(
+            Effect.as({
+              certified: Deferred.succeed(attempted, undefined).pipe(
+                Effect.zipRight(Deferred.await(failing)),
+                Effect.zipRight(
+                  Effect.fail(new SendError({ reason: "delivery-pending" })),
+                ),
+                Effect.zipLeft(Effect.sync(() => observed.sent.push(input))),
+              ),
+              guidance: advice,
+            }),
+          ),
+        admitGather: () => Effect.dieMessage("a member admits no gather"),
+      },
+    });
+    yield* classify(layer, "agent:alice", 10, requestValue);
+    yield* layer.settleRequest(requestId, true);
+    const answering = yield* Effect.fork(
+      send(
+        layer,
+        {
+          to: group,
+          collectiveResponse: { action: "accept", content: { slot: "mon" } },
+        },
+        "inbound",
+      ),
+    );
+    yield* Deferred.await(attempted);
+    yield* classify(layer, "agent:alice", 14, close(requestId, [101]));
+    yield* Deferred.succeed(failing, undefined);
+    const completed = yield* Fiber.join(answering);
+    const again = yield* collectiveFailureOf(respond(layer, "tue"));
+
+    expect(completed).toMatchObject({ postIds: [], guidance: advice });
+    expect(observed.emitted).toMatchObject([
+      { kind: "operationFailed", id: requestId },
+    ]);
+    expect(again).toEqual({ kind: "request-expired" });
+  });
+}
+
 function ignoresACloseListingAnAnswerTheMemberDoesNotHold() {
   const observed = newObserved();
 
@@ -880,6 +952,13 @@ function ignoresACloseListingAnAnswerTheMemberDoesNotHold() {
     expect(observed.emitted).toEqual([]);
   });
 }
+
+describe("an admitted answer whose post fails after binding", () => {
+  itOnTestClock(
+    "settles unanswered with its advice and applies the close held meanwhile",
+    appliesAHeldCloseWhenAnAdmittedAnswerFailsAfterBinding,
+  );
+});
 
 describe("all_gather at the requester", () => {
   itOnTestClock(

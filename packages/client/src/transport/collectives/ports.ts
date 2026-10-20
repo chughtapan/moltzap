@@ -72,8 +72,13 @@ export type PostSender = (
   input: EngineSendInput,
 ) => Effect.Effect<EngineSentPost, SendError>;
 
-/** A certified post the agent authored, with the advice its admitting check gave the agent. */
-export interface AuthoredPost extends EngineSentPost {
+/**
+ * A bound post the agent authored: the advice its admitting check gave,
+ * known once the check admits it, and the effect that completes once the
+ * post is certified.
+ */
+export interface AdmittedPost {
+  readonly certified: Effect.Effect<EngineSentPost, SendError>;
   readonly guidance?: CheckedGuidance;
 }
 
@@ -92,16 +97,12 @@ export interface CollectiveAdmission {
   /**
    * Check and bind one post the agent authored: a multicast, an all_gather
    * request or an answer. `hold` is taken after the check, just before the
-   * bind, and given up when nothing binds; the returned effect completes
-   * once the post is certified.
+   * bind, and given up when nothing binds.
    */
   readonly bindPost: <E>(
     input: EngineSendInput,
     hold: BindHold<E>,
-  ) => Effect.Effect<
-    Effect.Effect<AuthoredPost, SendError>,
-    AuthoredPostError<E>
-  >;
+  ) => Effect.Effect<AdmittedPost, AuthoredPostError<E>>;
   /**
    * Check a gather, then return the only sender its request posts bind
    * through, each against the admitted check of exactly this content, with

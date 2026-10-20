@@ -183,8 +183,8 @@ export const collectiveAdmission = (
 });
 
 /**
- * Check and bind one authored post. The certified post returns with the
- * guidance of the check that admitted it.
+ * Check and bind one authored post. The bound post carries the guidance of
+ * the check that admitted it, whether or not it certifies.
  */
 function bindPost<E>(
   environment: FirewallEnvironment,
@@ -206,14 +206,10 @@ function bindPost<E>(
       hold,
     )
     .pipe(
-      Effect.map((certified) =>
-        certified.pipe(
-          Effect.map(({ admitted, ...post }) => ({
-            ...post,
-            guidance: admitted,
-          })),
-        ),
-      ),
+      Effect.map(({ certified, admitted }) => ({
+        certified,
+        guidance: admitted,
+      })),
     );
 }
 

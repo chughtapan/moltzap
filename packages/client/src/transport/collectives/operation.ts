@@ -53,6 +53,8 @@
  *   RE->>ME: one request post in the group conversation
  *   alt the group post is refused or not certified in time
  *     RE-->>RM: error naming every member with the post's reason
+ *   else the deadline completes it before its post certifies
+ *     RE-->>RM: operation id, its result stands
  *   else request post certified
  *     RE-->>RM: operation id
  *   end
@@ -87,7 +89,7 @@ import type { InboundMessage } from "../messaging/message.js";
 import type { CollectiveMemberOutcome, InboundItem } from "./inbound.js";
 import type {
   AdmittedGather,
-  AuthoredPost,
+  AdmittedPost,
   AuthoredPostError,
   BindHold,
   CertifiedPost,
@@ -300,8 +302,11 @@ function multicast(
     Effect.flatMap((content) =>
       bindAuthoredPost(state, { to, content }, Effect.succeed(Effect.void)),
     ),
-    Effect.flatten,
-    Effect.map((post) => ({ postIds: [post.postId], guidance: post.guidance })),
+    Effect.flatMap(({ certified, guidance }) =>
+      certified.pipe(
+        Effect.map((post) => ({ postIds: [post.postId], guidance })),
+      ),
+    ),
   );
 }
 
@@ -471,25 +476,32 @@ function gather(
       question,
       operation,
     );
-    const requests: Effect.Effect<CollectiveSendOutcome, CollectiveSendError> =
-      prepared.open.op === "gather"
-        ? admitGather(state, prepared).pipe(
-            Effect.tap(() => openGather(state, prepared, false)),
-            Effect.flatMap((admitted) =>
-              sendRequests(state, prepared, admitted.sendRequest).pipe(
-                Effect.map((sent) => ({
-                  ...sent,
-                  guidance: admitted.guidance,
-                })),
-              ),
-            ),
-          )
-        : sendGroupRequest(state, prepared);
-    const sent = yield* requests.pipe(
-      Effect.mapError(refuseOperation(prepared.id, prepared.open.to)),
-    );
+    const sent = yield* prepared.open.op === "gather"
+      ? gatherRequests(state, prepared)
+      : sendGroupRequest(state, prepared);
     return { ...sent, operationId: prepared.id };
   });
+}
+
+/**
+ * Admit a gather, open it, and send its request posts through the sender
+ * the check admitted. The admitting check's advice stays with the outcome,
+ * and with a refusal that follows admission.
+ */
+function gatherRequests(
+  state: CollectiveState,
+  prepared: PreparedGather,
+): Effect.Effect<CollectiveSendOutcome, OperationRefusal> {
+  return admitGather(state, prepared).pipe(
+    Effect.mapError(refuseOperation(prepared.id, prepared.open.to)),
+    Effect.flatMap(({ sendRequest, guidance }) =>
+      openGather(state, prepared, false).pipe(
+        Effect.zipRight(sendRequests(state, prepared, sendRequest)),
+        Effect.map((sent) => ({ ...sent, guidance })),
+        Effect.mapError(refusedAs(prepared.id, prepared.open.to, guidance)),
+      ),
+    ),
+  );
 }
 
 /**
@@ -646,55 +658,56 @@ function updateGather(
  * ends, abandons the all_gather: the group's GENESIS needs every member. The
  * deadline timer is forked, and the all_gather opened, just before the post
  * binds and so before the wait starts, so the timer can complete the
- * all_gather first; its result then stands and the send succeeds, so an
- * operation ends in exactly one refusal or one result. A firewall's check
- * runs before that, outside the wait, and a refusal binds nothing and opens
- * nothing. A group post succeeds or fails as a whole, so the refusal names
- * every member with the post's reason and detail; members whose address
- * resolution fails were refused before the post.
+ * all_gather first; its result then stands and the send succeeds with the
+ * advice the admitting check gave, so an operation ends in exactly one
+ * refusal or one result. A firewall's check runs before that, outside the
+ * wait, and a refusal binds nothing and opens nothing. A group post succeeds
+ * or fails as a whole, so the refusal names every member with the post's
+ * reason and detail; members whose address resolution fails were refused
+ * before the post.
  */
 function sendGroupRequest(
   state: CollectiveState,
   prepared: PreparedGather,
-): Effect.Effect<CollectiveSendOutcome, AuthoredPostError<CollectiveError>> {
-  const opened = { now: false };
+): Effect.Effect<CollectiveSendOutcome, OperationRefusal> {
+  const { id, open } = prepared;
   const hold = openGather(state, prepared, true).pipe(
-    Effect.tap(() => {
-      opened.now = true;
-    }),
-    Effect.as(
-      forgetGather(state, prepared.id).pipe(
-        Effect.tap(() => {
-          opened.now = false;
-        }),
-      ),
-    ),
+    Effect.as(forgetGather(state, id)),
   );
   return bindAuthoredPost(
     state,
-    { to: prepared.open.to, content: prepared.content },
+    { to: open.to, content: prepared.content },
     hold,
   ).pipe(
-    Effect.flatMap((certified) =>
-      requestWait(prepared).pipe(
-        Effect.flatMap((wait) =>
-          certified.pipe(
-            Effect.timeoutFail({
-              duration: wait,
-              onTimeout: () =>
-                new SendError({ reason: "certification-unavailable" }),
-            }),
-          ),
+    Effect.catchTag("SendError", (error) =>
+      abandonGroupRequest(state, prepared, error),
+    ),
+    Effect.mapError(refuseOperation(id, open.to)),
+    Effect.flatMap(({ certified, guidance }) =>
+      withinRequestWait(prepared, certified).pipe(
+        Effect.map((post) => ({ postIds: [post.postId], guidance })),
+        Effect.catchTag("SendError", (error) =>
+          state.gathers.has(id)
+            ? abandonGroupRequest(state, prepared, error)
+            : Effect.succeed({ postIds: [], guidance }),
         ),
+        Effect.mapError(refusedAs(id, open.to, guidance)),
       ),
     ),
-    Effect.map((post) => ({ postIds: [post.postId], guidance: post.guidance })),
-    Effect.catchTag("SendError", (error) =>
-      Effect.suspend(() =>
-        !opened.now || state.gathers.has(prepared.id)
-          ? abandonGroupRequest(state, prepared, error)
-          : Effect.succeed({ postIds: [] }),
-      ),
+  );
+}
+
+/** A request post, failing as uncertified when the send's wait ends first. */
+function withinRequestWait(
+  prepared: PreparedGather,
+  certified: AdmittedPost["certified"],
+) {
+  return requestWait(prepared).pipe(
+    Effect.flatMap((duration) =>
+      Effect.timeoutFail(certified, {
+        duration,
+        onTimeout: () => new SendError({ reason: "certification-unavailable" }),
+      }),
     ),
   );
 }
@@ -886,7 +899,7 @@ function respond(
     const content = yield* responseContent(request, value).pipe(
       Effect.mapError(refused),
     );
-    const certified = yield* bindAuthoredPost(
+    const { certified, guidance } = yield* bindAuthoredPost(
       state,
       { to: request.to, content },
       claimRequest(state, id, request).pipe(Effect.mapError(refused)),
@@ -910,26 +923,27 @@ function respond(
       Effect.onInterrupt(() =>
         Effect.ignore(settleAnswer(state, id, request, Option.none())),
       ),
-      Effect.mapError(refused),
+      Effect.mapError(
+        refusedAs<SendError | CollectiveError>(id, request.to, guidance),
+      ),
     );
-    return { operationId: id, postIds: [post.postId], guidance: post.guidance };
+    return { operationId: id, postIds: [post.postId], guidance };
   });
 }
 
 /**
  * Bind one post the agent authored, holding `hold` across the bind: through
  * the firewall's check when one is installed, otherwise by taking the hold
- * and sending through `sendPost`. The returned effect completes once the
- * post is certified.
+ * and sending through `sendPost`.
  */
 function bindAuthoredPost<E>(
   state: CollectiveState,
   input: EngineSendInput,
   hold: BindHold<E>,
-): Effect.Effect<Effect.Effect<AuthoredPost, SendError>, AuthoredPostError<E>> {
+): Effect.Effect<AdmittedPost, AuthoredPostError<E>> {
   const { admission } = state.ports;
   return admission === undefined
-    ? hold.pipe(Effect.as(state.ports.sendPost(input)))
+    ? hold.pipe(Effect.as({ certified: state.ports.sendPost(input) }))
     : admission.bindPost(input, hold);
 }
 

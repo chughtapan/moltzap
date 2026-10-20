@@ -135,39 +135,49 @@ const identities = Effect.gen(function* () {
   };
 });
 
-/** Real storage and send preparation run with a suspended Router send. */
-export const fixture = Effect.gen(function* () {
-  const known = yield* identities;
-  const { local, remote, third, store, signer } = known;
-  const outbound = yield* Deferred.make<undefined>();
-  const engine = yield* makeEndpointEngine({
-    localAgentCard: local.card,
-    signingAuthority: local.authority,
-    registrySignerPublicKey: signer,
-    registry: {
-      lookup: (request) =>
-        Effect.succeed({
-          kind: "found",
-          agentCard:
-            "agentName" in request && request.agentName === third.card.agentName
-              ? third.card
-              : remote.card,
-        }),
-    },
-    store,
-    actionPolicy: () => Effect.succeed("sign"),
-    reportStorageFault: () => Effect.dieMessage("unexpected store fault"),
-    routerWorker: {
-      currentAnchor: Effect.succeed(anchor),
-      awaitAnchor: Effect.succeed(anchor),
-      send: () =>
-        Deferred.succeed(outbound, undefined).pipe(
-          Effect.zipRight(Effect.never),
-        ),
-    },
-  });
-  return { ...known, engine, outbound };
-}).pipe(Effect.withSpan("fixture"));
+/**
+ * Real storage and send preparation run with a suspended Router send. The
+ * engine asks `decide` for each proposal: one it refuses fails its bound
+ * post's activation.
+ * @param decide The engine's answer to each proposal, signing by default.
+ * @returns The fixture's identities, storage, engine and Router barrier.
+ */
+export const engineFixture = (decide?: () => "sign" | "refuse") =>
+  Effect.gen(function* () {
+    const known = yield* identities;
+    const { local, remote, third, store, signer } = known;
+    const outbound = yield* Deferred.make<undefined>();
+    const engine = yield* makeEndpointEngine({
+      localAgentCard: local.card,
+      signingAuthority: local.authority,
+      registrySignerPublicKey: signer,
+      registry: {
+        lookup: (request) =>
+          Effect.succeed({
+            kind: "found",
+            agentCard:
+              "agentName" in request &&
+              request.agentName === third.card.agentName
+                ? third.card
+                : remote.card,
+          }),
+      },
+      store,
+      actionPolicy: () => Effect.sync(() => decide?.() ?? "sign"),
+      reportStorageFault: () => Effect.dieMessage("unexpected store fault"),
+      routerWorker: {
+        currentAnchor: Effect.succeed(anchor),
+        awaitAnchor: Effect.succeed(anchor),
+        send: () =>
+          Deferred.succeed(outbound, undefined).pipe(
+            Effect.zipRight(Effect.never),
+          ),
+      },
+    });
+    return { ...known, engine, outbound };
+  }).pipe(Effect.withSpan("fixture"));
+/** The fixture whose engine signs every proposal. */
+export const fixture = engineFixture();
 /** The acquired identities and storage remain live for the test scope. */
 export type Fixture = Effect.Effect.Success<typeof fixture>;
 

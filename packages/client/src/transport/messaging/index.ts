@@ -116,16 +116,20 @@ export interface EndpointEngine {
   /**
    * Check and bind one application post. Inference completes outside
    * protocol locks, then `hold` is taken, then the intent binds atomically
-   * with the check's evidence comparison. The returned effect completes once
-   * the post is certified, so a caller can bound that wait apart from the
-   * check, and carries the `admitted` value of the check that admitted it.
+   * with the check's evidence comparison. A bound post returns the
+   * `admitted` value of the check that admitted it at once, and `certified`
+   * completes once the post is certified, so a caller can bound that wait
+   * apart from the check.
    */
   readonly bindChecked: <E, A>(
     input: EngineSendInput,
     check: PreparedSendCheck<A>,
     hold: BindHold<E>,
   ) => Effect.Effect<
-    Effect.Effect<EngineSentPost & { readonly admitted: A }, SendError>,
+    {
+      readonly certified: Effect.Effect<EngineSentPost, SendError>;
+      readonly admitted: A;
+    },
     SendError | FirewallSendError | E
   >;
   /**
@@ -377,7 +381,8 @@ const LOCAL_DRAIN_TIMEOUT = Duration.seconds(10);
  * fails the send as `delivery-pending` whatever the cause: a worker failure
  * that ends once the Router answers leaves the background drain to deliver
  * the post, and any other stops the daemon, whose recovery resumes the post
- * when it restarts.
+ * when it restarts. A completion already settled, such as an activation that
+ * failed, returns at once rather than waiting on other posts' drain.
  * @param runtime The engine that sends.
  * @param prepared The durable post identity and its certified completion.
  * @returns The post's id and certified record hash.
@@ -387,11 +392,13 @@ const finishPreparedSend = (
   prepared: Effect.Effect.Success<ReturnType<typeof prepareSend>>,
 ) =>
   Effect.gen(function* () {
-    yield* runtime.outbox.drain.pipe(
-      Effect.timeout(LOCAL_DRAIN_TIMEOUT),
-      // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Every drain failure, the timeout included, leaves the post queued and still delivered, as this function's JSDoc explains.
-      Effect.mapError(() => new SendError({ reason: "delivery-pending" })),
-    );
+    if (!(yield* Deferred.isDone(prepared.completion))) {
+      yield* runtime.outbox.drain.pipe(
+        Effect.timeout(LOCAL_DRAIN_TIMEOUT),
+        // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Every drain failure, the timeout included, leaves the post queued and still delivered, as this function's JSDoc explains.
+        Effect.mapError(() => new SendError({ reason: "delivery-pending" })),
+      );
+    }
     const recordHash = yield* Deferred.await(prepared.completion);
     return { postId: prepared.postId, recordHash };
   });
@@ -591,11 +598,10 @@ const endpointEngine = (runtime: EngineRuntime): EndpointEngine =>
       hold: BindHold<E>,
     ) =>
       prepareCheckedSend(runtime, input, check, hold).pipe(
-        Effect.map((prepared) =>
-          finishPreparedSend(runtime, prepared).pipe(
-            Effect.map((post) => ({ ...post, admitted: prepared.admitted })),
-          ),
-        ),
+        Effect.map((prepared) => ({
+          certified: finishPreparedSend(runtime, prepared),
+          admitted: prepared.admitted,
+        })),
       ),
     sendAdmitted: (input: EngineSendInput, checkId: string) =>
       prepareAdmittedSend(runtime, input, checkId).pipe(
