@@ -1,6 +1,6 @@
 /** @file Serialized owner edits replace immutable chains without replacing daemon resources. */
 
-import { Clock, Effect, Schema } from "effect";
+import { Clock, Effect, Option, Schema } from "effect";
 import type { InstalledFirewall } from "./firewall-checks.js";
 import {
   type DecidingRule,
@@ -114,6 +114,7 @@ function buildPolicy(options: CapturedOptions, rules: readonly EnglishRule[]) {
       rules: documents,
       provider: options.english.provider,
       settings: options.english.settings,
+      fixedRuleIds: options.english.fixedRules.map((rule) => rule.id),
     });
     return yield* installFirewall({
       ...options.fixed,
@@ -226,7 +227,12 @@ export const installEditableFirewall = Effect.fn("installEditableFirewall")(
         })),
       update: (request) =>
         gate.withPermits(1)(updatePolicy(captured, store, state, request)),
-      decisions: (request) => readDecisions(store, request),
+      decisions: (request) =>
+        readDecisions(
+          store,
+          request,
+          (captured.english?.fixedRules ?? []).map((rule) => rule.id),
+        ),
     };
     return Object.freeze({
       ...active,
@@ -308,12 +314,15 @@ function updatePolicy(
 function readDecisions(
   store: EndpointStore,
   request: { readonly since?: number },
+  fixedRuleIds: readonly string[],
 ) {
   return Effect.gen(function* () {
     const entries = yield* store.readFirewallDecisions(request.since);
-    const rows = yield* Effect.forEach(entries, decisionRows, {
-      concurrency: 1,
-    });
+    const rows = yield* Effect.forEach(
+      entries,
+      (entry) => decisionRows(entry, fixedRuleIds),
+      { concurrency: 1 },
+    );
     return yield* Schema.decodeUnknown(firewallDecisionsSchema)({
       decisions: rows.flat(),
       activations: (yield* store.readFirewallActivations(request)).map(
@@ -323,9 +332,12 @@ function readDecisions(
   }).pipe(Effect.mapError(persistenceFailure));
 }
 
-function decisionRows(entry: FirewallAuditEntry & { readonly time: number }) {
+function decisionRows(
+  entry: FirewallAuditEntry & { readonly time: number },
+  fixedRuleIds: readonly string[],
+) {
   return decodeFirewallAuditEntry(entry).pipe(
-    Effect.map((check) => projectDecision(check, entry.time)),
+    Effect.map((check) => projectDecision(check, entry.time, fixedRuleIds)),
   );
 }
 
@@ -334,7 +346,18 @@ type DecodedCheck = Effect.Effect.Success<
 >;
 type DecodedResult = NonNullable<DecodedCheck["result"]>;
 
-function projectDecision(check: DecodedCheck, time: number) {
+type DecisionRow = (typeof firewallDecisionsSchema.Type.decisions)[number];
+type Registration = DecodedCheck["input"]["installation"]["incoming"][number];
+
+const englishProvenance = Schema.parseJson(
+  Schema.Struct({ fixedRuleIds: Schema.optional(Schema.Array(Schema.String)) }),
+);
+
+function projectDecision(
+  check: DecodedCheck,
+  time: number,
+  fixedRuleIds: readonly string[],
+) {
   const result = check.result;
   if (
     result === null ||
@@ -360,12 +383,13 @@ function projectDecision(check: DecodedCheck, time: number) {
       .filter((entry) => entry.provenance.format === englishPolicyFormat)
       .map((entry) => entry.id),
   );
-  const cause = decisionCause(result.judgment, deciding, english);
-  const decidedBy = deciding.map((rule) =>
-    rule.advice === undefined
-      ? { ruleId: rule.ruleId }
-      : { ruleId: rule.ruleId, advice: rule.advice },
-  );
+  const cause = decisionCause(result, deciding, english);
+  const origin = ruleOrigin(registrations, fixedRuleIds);
+  const decidedBy = deciding.map((rule) => ({
+    ruleId: rule.ruleId,
+    from: origin(rule),
+    ...(rule.advice === undefined ? {} : { advice: rule.advice }),
+  }));
   return peers.map((peerAgentId) => ({
     checkId: check.checkId,
     time,
@@ -381,21 +405,51 @@ function projectDecision(check: DecodedCheck, time: number) {
 }
 
 /**
+ * Where a deciding rule is defined, as `policy_read` lists it: a rule of the
+ * editable English middleware is `fixed` or `editable`, and any other is
+ * `code`. The fixed ids come from the installation the check retained; a
+ * check retained before installations recorded them uses the fixed ids
+ * configured now.
+ */
+function ruleOrigin(
+  registrations: readonly Registration[],
+  fixedRuleIds: readonly string[],
+): (rule: DecidingRule) => DecisionRow["decidedBy"][number]["from"] {
+  const english = registrations.find((entry) => entry.id === englishId);
+  const recorded =
+    english === undefined
+      ? undefined
+      : Option.getOrUndefined(
+          Schema.decodeUnknownOption(englishProvenance)(
+            english.provenance.data,
+          ),
+        )?.fixedRuleIds;
+  const fixed = new Set(recorded ?? fixedRuleIds);
+  return (rule) => {
+    if (rule.middlewareId !== englishId) {
+      return "code";
+    }
+    return fixed.has(rule.ruleId) ? "fixed" : "editable";
+  };
+}
+
+/**
  * The cause of a decision, read from its first English deciding rule, or
  * from its first deciding rule when no English rule decided it. A check
- * that could not run is `unavailable` from either kind of middleware; any
- * other code finding is `code`. With no deciding rule, an admission is the
- * `default` and any other outcome is the endpoint's own hold.
+ * that could not run is `unavailable` from either kind of middleware,
+ * including one that registers no rule; any other code finding is `code`.
+ * Otherwise, with no deciding rule, an admission is the `default` and any
+ * other outcome is the endpoint's own hold.
  */
 function decisionCause(
-  judgment: DecodedResult["judgment"],
+  result: DecodedResult,
   deciding: readonly DecidingRule[],
   english: ReadonlySet<string>,
-): (typeof firewallDecisionsSchema.Type.decisions)[number]["cause"] {
+): DecisionRow["cause"] {
   const first =
     deciding.find((rule) => english.has(rule.middlewareId)) ?? deciding[0];
   if (first === undefined) {
-    return judgment === "allow" ? "default" : "endpoint";
+    return emptyCause(result);
   }
   if (first.finding === "unavailable") {
     return "unavailable";
@@ -404,6 +458,16 @@ function decisionCause(
     return "code";
   }
   return first.finding === "uncertain" ? "uncertain" : "judgment";
+}
+
+function emptyCause(result: DecodedResult): DecisionRow["cause"] {
+  if (
+    result.reason === "check-unavailable" &&
+    result.checks.some((check) => check.status === "unavailable")
+  ) {
+    return "unavailable";
+  }
+  return result.judgment === "allow" ? "default" : "endpoint";
 }
 
 /**

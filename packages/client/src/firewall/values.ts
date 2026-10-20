@@ -588,7 +588,9 @@ const decisionCause = Schema.Literal(
 /**
  * One row per peer contains no message content or provider traces. The only
  * text is `decidedBy[].advice`, the deciding rule's own registered feedback,
- * or its guidance for an admission. `checkedRuleIds` lists every rule with a
+ * or its guidance for an admission. `decidedBy[].from` says where the rule is
+ * defined, as `policy_read` lists it: a code middleware, a fixed English rule,
+ * or an owner-editable English rule. `checkedRuleIds` lists every rule with a
  * finding in the completed chain.
  */
 export const firewallDecisionsSchema = exact({
@@ -605,6 +607,7 @@ export const firewallDecisionsSchema = exact({
       decidedBy: Schema.Array(
         exact({
           ruleId: Schema.NonEmptyString,
+          from: Schema.Literal("code", "fixed", "editable"),
           advice: Schema.optional(Schema.NonEmptyString),
         }),
       ),

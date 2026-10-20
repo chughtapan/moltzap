@@ -173,7 +173,7 @@ discover or call them; the baseline daemon does not list them.
 | --- | --- | --- |
 | `policy_read` | `{}` | `{rules, fixedRules, activeRevision}`; editable English documents and every fixed rule as `FixedRule` |
 | `policy_update` | `{add?: Rule[], remove?: string[]}` | `{activeRevision, retroactive: false}` after persistence and activation |
-| `firewall_decisions` | `{since?: number}` | `{decisions: [{checkId, time, direction, peerAgentId, outcome, disposition, cause, decidedBy: [{ruleId, advice?}], checkedRuleIds, activeRevision}], activations: [{time, activeRevision, addedRuleIds, removedRuleIds}]}` |
+| `firewall_decisions` | `{since?: number}` | `{decisions: [{checkId, time, direction, peerAgentId, outcome, disposition, cause, decidedBy: [{ruleId, from, advice?}], checkedRuleIds, activeRevision}], activations: [{time, activeRevision, addedRuleIds, removedRuleIds}]}` |
 
 `Rule`, `FixedRule` and the atomic edit/failure contract are defined by
 [editable English policy](./message-policy.md#editable-english-policy).
@@ -190,8 +190,9 @@ own result or failure, has `peerAgentId: null`. `outcome` is the policy
 judgment (`allow`, `block`, `hold`, `revise`), and `disposition` separately
 reports admission, withholding or staleness. `cause` says how the outcome
 came about (`judgment`, `uncertain`, `unavailable`, `code`, `endpoint` or
-`default`), and `decidedBy` names the rules that produced it, each with its
-registered `advice` when it has one, as specified by
+`default`), and `decidedBy` names the rules that produced it, each with
+where it is defined (`from`: `code`, `fixed` or `editable`, as `policy_read`
+lists it) and its registered `advice` when it has one, as specified by
 [decision reasons](./message-policy.md#decision-reasons).
 `checkedRuleIds` lists every rule with a finding in the completed chain.
 The feed contains no message text, owner facts or provider traces; its only

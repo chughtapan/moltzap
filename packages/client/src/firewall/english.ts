@@ -256,6 +256,9 @@ const checkEnglish = Effect.fn("EnglishPolicy.check")(function* (
 /**
  * Freezes English documents and provider settings for repeated checks in either
  * direction. Question semantics and documents determine the recorded revision.
+ * `fixedRuleIds` names the rules composition fixed against owner edits; it is
+ * recorded in the provenance only, so a retained check keeps which of its
+ * rules were fixed, and never changes checking.
  *
  * ```mermaid
  * flowchart TD
@@ -273,6 +276,7 @@ export const makeEnglishPolicy = Effect.fn("makeEnglishPolicy")(
     readonly rules: readonly EnglishRule[];
     readonly provider: DecisionProvider;
     readonly settings: unknown;
+    readonly fixedRuleIds?: readonly string[];
   }): Effect.fn.Return<MessageMiddleware, CheckInputError> {
     const settings = yield* decodeFrozen(
       EnglishPolicySettings,
@@ -305,7 +309,12 @@ export const makeEnglishPolicy = Effect.fn("makeEnglishPolicy")(
       id,
       revision,
       rules: descriptions,
-      provenance: englishProvenance(rules, settings, options.provider),
+      provenance: englishProvenance(
+        rules,
+        settings,
+        options.provider,
+        options.fixedRuleIds,
+      ),
       check: (input: MiddlewareInput) =>
         checkEnglish(input, { rules, revision }, provider, settings),
     });
@@ -330,6 +339,7 @@ function englishProvenance(
   rules: readonly EnglishRule[],
   settings: EnglishPolicySettings,
   provider: DecisionProvider,
+  fixedRuleIds?: readonly string[],
 ) {
   return Object.freeze({
     format: englishPolicyFormat,
@@ -338,6 +348,9 @@ function englishProvenance(
       rules,
       settings,
       provider: provider.provenance ?? null,
+      ...(fixedRuleIds === undefined
+        ? {}
+        : { fixedRuleIds: [...fixedRuleIds] }),
     }),
   });
 }

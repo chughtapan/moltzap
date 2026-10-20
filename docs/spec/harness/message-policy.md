@@ -577,6 +577,16 @@ or its feedback when the reason permits that feedback's next action. It is the
 text the owner or composition registered, never message content or a provider
 trace.
 
+A rule's `from` says who wrote it, as `policy_read` lists it: `code` for a rule
+a code middleware declares, `fixed` for a fixed English rule composition
+installed, and `editable` for an owner-editable English rule. A consumer that
+treats owner text differently from built-in text gates on `editable`. Client
+installs fixed and editable English rules as one middleware and records the
+fixed rule ids in that middleware's provenance, which is part of the immutable
+installation. A row therefore keeps the origin its rules had when it was checked,
+after later edits and restarts. A check retained before installations recorded
+the fixed ids reads them from the fixed rules configured now.
+
 `cause` reads the first English deciding rule, or the first deciding rule when
 no English rule decided. An English rule is one an English policy registers,
 identified by its registration's provenance format.
@@ -585,7 +595,7 @@ identified by its registration's provenance format.
 | --- | --- |
 | `judgment` | A settled English judgment. |
 | `uncertain` | An unsettled English judgment: a norm admitted with guidance, or a safety or autonomy rule held. |
-| `unavailable` | A check could not run: the decision provider failed, was unreachable or returned an invalid response, the request exceeded its budget, or a middleware failed or timed out. Enforcement holds the message. |
+| `unavailable` | A check could not run: the decision provider failed, was unreachable or returned an invalid response, the request exceeded its budget, or a middleware failed or timed out, including one with no deciding rule. Enforcement holds the message. |
 | `code` | A code middleware's finding. |
 | `endpoint` | A hold Client made with no deciding rule: missing context evidence, a terminal or unsupported item, invalid evidence, or advice that could not be projected. |
 | `default` | An admission no rule qualified. |
