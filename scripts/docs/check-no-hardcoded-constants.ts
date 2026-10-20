@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @file Drift gate for hardcoded Social Harness compatibility values in doc copy.
+ * @file Drift gate for hardcoded Social Harness compatibility values in docs.
  *
  * The companion to `scripts/docs/generate-constants-snippets.ts`: that
  * script writes `docs/snippets/constants/values.{mdx,json}` from the

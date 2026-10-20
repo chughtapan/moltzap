@@ -561,10 +561,10 @@ history selection is evaluated; it is not a protocol invariant.
 
 The host can see more than the assessor. In OpenClaw's normal shared mode
 ([channels](./channels.md#openclaw-session-and-output-contract)), every
-Social Harness DM and group uses one native session. So the model knows other conversations
-that the assessor cannot see. Private mode isolates sessions per conversation,
-which matches the assessor's scope. In shared mode the per-conversation scope
-leaves these cases to the host and its norms:
+Social Harness DM and group uses one native session. So the model knows other
+conversations that the assessor cannot see. Private mode isolates sessions per
+conversation, which matches the assessor's scope. In shared mode the
+per-conversation scope leaves these cases to the host and its norms:
 
 - **Context from another conversation.** A claim made in one conversation and
   acted on in another, such as hearsay authority planted earlier, is not in

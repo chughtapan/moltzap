@@ -5,9 +5,10 @@ on:
     branches: [main]
   pull_request:
 
-# Optional self-hosted Nx remote cache: jobs read it with NX_CACHE_TOKEN and
-# main writes through the nx-cache-write environment. Forks and Dependabot get
-# no secrets and run without it; NX_CACHE_DISABLED=true turns it off everywhere.
+# Optional self-hosted Nx remote cache: jobs read with NX_CACHE_TOKEN; main
+# (nx-cache-write environment) and same-repository pull requests
+# (NX_CACHE_WRITE_TOKEN) write. Forks and Dependabot run without it;
+# NX_CACHE_DISABLED=true turns it off everywhere.
 
 jobs:
   ci:
