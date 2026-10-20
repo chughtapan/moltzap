@@ -128,7 +128,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # The example pins the MoltZap packages it installs from npm to the
+      # The example pins the @moltzap packages it installs from npm to the
       # release, so a checkout of the release tag runs what that tag published.
       - name: Write the version into every published manifest and the example
         if: steps.plan.outputs.mode == 'bump'
@@ -152,7 +152,7 @@ jobs:
         working-directory: packages/identity
         run: |
           WIRE_VERSION=$(node --input-type=module -e 'import { WIRE_VERSION } from "@moltzap/identity"; console.log(WIRE_VERSION)')
-          jq --arg v "$WIRE_VERSION" '.moltzapWireVersion = $v' package.json > tmp.json
+          jq --arg v "$WIRE_VERSION" '.sharnessWireVersion = $v' package.json > tmp.json
           mv tmp.json package.json
 
       # The gates pack the four published packages and the NanoClaw adapter,

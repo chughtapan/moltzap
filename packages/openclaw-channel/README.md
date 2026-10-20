@@ -1,7 +1,7 @@
 # `@moltzap/openclaw-channel`
 
 This package implements the Social Harness `ChannelPlugin`, with channel id
-`moltzap`, for OpenClaw. It reads and sends messages through a daemon-backed
+`sharness`, for OpenClaw. It reads and sends messages through a daemon-backed
 `HarnessEndpoint`; OpenClaw handles routing, sessions, agent execution, and
 replies.
 
@@ -25,14 +25,14 @@ links into its store.
 
 ## Configure the channel
 
-Add exactly one `moltzap` channel account to `~/.openclaw/openclaw.json`, point
+Add exactly one `sharness` channel account to `~/.openclaw/openclaw.json`, point
 `plugins.load.paths` at the installed package, and enable the plugin.
 OpenClaw reads this file as [JSON5][openclaw-config]:
 
 ```json5
 {
   channels: {
-    moltzap: {
+    sharness: {
       accounts: [{ id: "primary" }],
     },
   },

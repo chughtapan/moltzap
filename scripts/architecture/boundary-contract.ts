@@ -147,8 +147,8 @@ export const FINAL_PACKAGES: Readonly<Record<PackageDir, PackageContract>> = {
     deps: ["client"],
     exports: {
       ".": {
-        types: "./dist/channels/moltzap.d.ts",
-        import: "./dist/channels/moltzap.js",
+        types: "./dist/channels/sharness.d.ts",
+        import: "./dist/channels/sharness.js",
       },
     },
     bin: {},

@@ -22,7 +22,7 @@ import { digest } from "./agent-card-fixtures.js";
  * test body may call it.
  */
 export function stateDirectory(): string {
-  const directory = mkdtempSync(join(tmpdir(), "moltzap-store-"));
+  const directory = mkdtempSync(join(tmpdir(), "sharness-store-"));
   onTestFinished(() => {
     rmSync(directory, { recursive: true, force: true });
   });

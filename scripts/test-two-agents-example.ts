@@ -4,7 +4,7 @@
  *
  * The consumer project takes the example's own third-party dependencies, so a
  * dependency the example needs but does not declare fails here. The example
- * pins each MoltZap package to the workspace's current version, which on
+ * pins each Social Harness package to the workspace's current version, which on
  * `main` is the last release, because the release commit writes both. The
  * gate passes when the example prints bob receiving alice's message within
  * `EXAMPLE_DEADLINE`.
@@ -41,7 +41,7 @@ const EXAMPLE_DEADLINE = Duration.minutes(4);
 /** The line the example prints once bob's endpoint delivers the message. */
 const receivedLine = "bob received: from agent:alice: Hi Bob, this is Alice.";
 
-runGate("moltzap-two-agents-example-", (temporaryRoot) =>
+runGate("sharness-two-agents-example-", (temporaryRoot) =>
   Effect.gen(function* () {
     const { archives, manifests } = yield* packProductClosure(
       workspaceRoot,
@@ -65,7 +65,7 @@ runGate("moltzap-two-agents-example-", (temporaryRoot) =>
     const consumerRoot = yield* installPackedConsumer({
       temporaryRoot,
       workspaceRoot,
-      name: "moltzap-two-agents-example",
+      name: "sharness-two-agents-example",
       archives,
       dependencies: Object.fromEntries(
         Object.entries(manifest.dependencies).filter(

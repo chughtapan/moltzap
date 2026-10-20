@@ -61,7 +61,7 @@ export class RouterWorkerDiscontinuityError extends Data.TaggedError(
 
 /**
  * The Router refused this endpoint's request itself: its authentication, its
- * MoltZap version, its representation, or its local signature. Retrying
+ * Social Harness version, its representation, or its local signature. Retrying
  * cannot succeed, so the failure is fatal rather than an outage.
  */
 export class RouterWorkerRejectedError extends Data.TaggedError(

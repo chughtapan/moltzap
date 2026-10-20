@@ -80,14 +80,14 @@ function releaseWireVersion(
       Schema.decodeUnknown(
         Schema.parseJson(
           Schema.Struct({
-            moltzapWireVersion: Schema.optional(Schema.String),
+            sharnessWireVersion: Schema.optional(Schema.String),
           }),
         ),
       ),
     ),
-    Effect.flatMap(({ moltzapWireVersion }) => {
-      if (moltzapWireVersion !== undefined) {
-        return Effect.succeed(moltzapWireVersion);
+    Effect.flatMap(({ sharnessWireVersion }) => {
+      if (sharnessWireVersion !== undefined) {
+        return Effect.succeed(sharnessWireVersion);
       }
       return preResetRelease(
         version,
@@ -96,7 +96,7 @@ function releaseWireVersion(
         ? Effect.succeed(PRE_RESET_WIRE_VERSION)
         : Effect.fail(
             new ProcessTestError({
-              message: `@moltzap/identity@${version} is missing published moltzapWireVersion metadata`,
+              message: `@moltzap/identity@${version} is missing published sharnessWireVersion metadata`,
             }),
           );
     }),
@@ -430,7 +430,7 @@ it.each(["2099.101.0", "2099.102.0"])(
           Effect.sync(() => {
             expect(error).toMatchObject({
               _tag: "ProcessTestError",
-              message: `@moltzap/identity@${version} is missing published moltzapWireVersion metadata`,
+              message: `@moltzap/identity@${version} is missing published sharnessWireVersion metadata`,
             });
           }),
         ),
@@ -465,7 +465,7 @@ it("reads published wire metadata at the reset boundary", () =>
     releaseWireVersion(
       "2099.101.0",
       () =>
-        Effect.succeed(JSON.stringify({ moltzapWireVersion: WIRE_VERSION })),
+        Effect.succeed(JSON.stringify({ sharnessWireVersion: WIRE_VERSION })),
       Option.some("2099.101.0"),
     ).pipe(
       Effect.tap((wireVersion) =>

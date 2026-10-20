@@ -46,7 +46,7 @@ import { inboxWakeups } from "./events.js";
 
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
 const CLIENT_IMPLEMENTATION = {
-  name: "moltzap-harness-endpoint",
+  name: "sharness-endpoint",
   version: packageVersion,
 } as const;
 class CloseError extends Data.TaggedError("CloseError") {}

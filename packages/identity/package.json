@@ -152,5 +152,5 @@
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
-  "moltzapWireVersion": "2026.1019.2"
+  "sharnessWireVersion": "2026.1020.2"
 }

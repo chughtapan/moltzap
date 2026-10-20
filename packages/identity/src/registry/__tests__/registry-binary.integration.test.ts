@@ -456,7 +456,10 @@ const assertPublicAuthenticationFraming = (origin: URL) =>
       "/v1/identities:lookup",
       "not-json",
     ).pipe(
-      HttpClientRequest.setHeader("authorization", "MoltZap-Admission ignored"),
+      HttpClientRequest.setHeader(
+        "authorization",
+        "Sharness-Admission ignored",
+      ),
       HttpClientRequest.setHeader("sharness-version", "incompatible"),
     );
     assertBoundaryResponse(yield* executeRequest(authenticationFraming), {
@@ -895,7 +898,7 @@ const registryBinaryBehavior = Effect.gen(function* () {
     environment: infrastructure.environment,
     wrongKeyPath: infrastructure.wrongKeyPath,
     addUnknownMigration: sql`
-      INSERT INTO sharness_registry_migrations (migration_id, name)
+      INSERT INTO sharness_registry_ledger (migration_id, name)
       VALUES (9999, 'future')
     `,
   });

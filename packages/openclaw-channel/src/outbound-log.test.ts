@@ -21,7 +21,7 @@ import { createChannelPlugin } from "./plugin.js";
 
 const ACCOUNT_ID = "primary";
 const CONFIG: OpenClawConfig = {
-  channels: { moltzap: { accounts: [{ id: ACCOUNT_ID }] } },
+  channels: { sharness: { accounts: [{ id: ACCOUNT_ID }] } },
 };
 const GROUP = "group:alice,bob,carol";
 const SLOT_SCHEMA = {
@@ -69,7 +69,7 @@ function messageToolSendLogsItsOrigin() {
   ).pipe(
     Effect.tap(({ logLines }) => {
       expect(logLines).toContain(
-        `info: MoltZap: outbound via message-action:send to ${GROUP} op=gather operationId=${OPERATION_ID} chars=${message.length}: ${message.slice(0, 80)}`,
+        `info: Social Harness: outbound via message-action:send to ${GROUP} op=gather operationId=${OPERATION_ID} chars=${message.length}: ${message.slice(0, 80)}`,
       );
     }),
   );
@@ -84,7 +84,7 @@ function messageToolReplyLogsItsOrigin() {
   ).pipe(
     Effect.tap(({ logLines }) => {
       expect(logLines).toContain(
-        `info: MoltZap: outbound via message-action:reply to ${to} op=answer operationId=- chars=${message.length}: ${message}`,
+        `info: Social Harness: outbound via message-action:reply to ${to} op=answer operationId=- chars=${message.length}: ${message}`,
       );
     }),
   );
@@ -99,7 +99,7 @@ function sendTextLogsItsOrigin() {
   ).pipe(
     Effect.tap(({ logLines }) => {
       expect(logLines).toContain(
-        `info: MoltZap: outbound via send.text to ${to} op=plain operationId=- chars=${text.length}: ${text}`,
+        `info: Social Harness: outbound via send.text to ${to} op=plain operationId=- chars=${text.length}: ${text}`,
       );
     }),
   );
@@ -122,7 +122,7 @@ function refusedSendLogsTheFailure() {
   ).pipe(
     Effect.tap(({ logLines }) => {
       expect(logLines).toContain(
-        `warn: MoltZap: outbound via message-action:send to ${GROUP} op=all_gather failed: ${refusal.message}`,
+        `warn: Social Harness: outbound via message-action:send to ${GROUP} op=all_gather failed: ${refusal.message}`,
       );
     }),
   );
@@ -226,7 +226,7 @@ function waitForConnected(logLines: readonly string[]) {
     try: () =>
       vi.waitFor(() => {
         expect(logLines).toContain(
-          `info: MoltZap: connected for account ${ACCOUNT_ID}`,
+          `info: Social Harness: connected for account ${ACCOUNT_ID}`,
         );
       }),
     catch: (cause) => testError("waitForConnected", cause),
@@ -246,7 +246,7 @@ function runMessageAction(
   return Effect.tryPromise({
     try: () =>
       handleAction({
-        channel: "moltzap",
+        channel: "sharness",
         action,
         cfg: CONFIG,
         accountId: ACCOUNT_ID,

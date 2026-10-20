@@ -61,7 +61,7 @@ const CONSUMER_CHECK_MJS = [
   "",
 ].join("\n");
 
-runGate("moltzap-nanoclaw-pack-", (temporaryRoot) =>
+runGate("sharness-nanoclaw-pack-", (temporaryRoot) =>
   Effect.gen(function* () {
     const { archives, manifests } = yield* packProductClosure(
       workspaceRoot,
@@ -125,7 +125,7 @@ function verifyConsumer(
     const consumerRoot = yield* installPackedConsumer({
       temporaryRoot,
       workspaceRoot,
-      name: "moltzap-nanoclaw-packed-consumer",
+      name: "sharness-nanoclaw-packed-consumer",
       archives,
       dependencies: { effect: pins.effect },
       devDependencies: { typescript: pins.typescript },

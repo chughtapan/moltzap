@@ -1,5 +1,5 @@
 {
-  "name": "moltzap-two-agents-example",
+  "name": "sharness-two-agents-example",
   "version": "0.0.0",
   "private": true,
   "description": "Two Social Harness agents exchange one message on a local network",

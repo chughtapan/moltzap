@@ -42,7 +42,17 @@ export class RegistryStorageInitializationError extends Data.TaggedError(
     | "unavailable";
 }> {}
 
-const LEDGER_TABLE = "sharness_registry_migrations";
+const LEDGER_TABLE = "sharness_registry_ledger";
+
+/**
+ * Ledgers written by releases before the current reset. Their databases hold
+ * AgentCards signed under a wire version outside the retained history, so
+ * startup refuses them instead of serving those cards.
+ */
+const PRE_RESET_LEDGERS = [
+  "moltzap_registry_migrations",
+  "sharness_registry_migrations",
+] as const;
 
 type StorageError = UnavailableError | InternalServerError;
 type StorageInput = Readonly<{
@@ -369,9 +379,13 @@ function runStorageInitialization(input: {
   readonly registrySignerPublicKey: Ed25519PublicKey;
 }) {
   return Effect.gen(function* () {
-    const legacy =
-      yield* input.sql`SELECT to_regclass('moltzap_registry_migrations')::text AS legacy`;
-    if (legacy.some((row) => row.legacy !== null)) {
+    const legacy = yield* Effect.forEach(
+      PRE_RESET_LEDGERS,
+      (ledger) =>
+        input.sql`SELECT to_regclass(${ledger}::text)::text AS legacy`,
+      { concurrency: 1 },
+    );
+    if (legacy.flat().some((row) => row.legacy !== null)) {
       return yield* new RegistryStorageInitializationError({
         reason: "pre-reset",
       });

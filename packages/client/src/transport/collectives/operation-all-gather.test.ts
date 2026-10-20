@@ -46,7 +46,8 @@ const requestId = collectiveIdOf(alice, requestNonce);
 const otherId = `col_${"B".repeat(43)}`;
 
 /** What a send that failed after queueing its post says about it. */
-const queuedText = "the message is pending and MoltZap will still deliver it";
+const queuedText =
+  "the message is pending and Social Harness will still deliver it";
 
 /**
  * An emit port that records each item and resolves `emitted` on the first,
@@ -488,7 +489,7 @@ function reportsACloseThatCannotBeCertifiedAsAFailedOperation() {
         id,
         to: group,
         error:
-          "all_gather failed: the result could not be shared with the group: MoltZap is unavailable (network unavailable)",
+          "all_gather failed: the result could not be shared with the group: Social Harness is unavailable (network unavailable)",
       },
     ]);
   });

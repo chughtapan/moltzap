@@ -39,8 +39,8 @@ their supplied values.
 1. Create the signing key and keep it private:
 
    ```bash
-   openssl genpkey -algorithm ed25519 -out /etc/moltzap/registry-signing.pem
-   chmod 600 /etc/moltzap/registry-signing.pem
+   openssl genpkey -algorithm ed25519 -out /etc/sharness/registry-signing.pem
+   chmod 600 /etc/sharness/registry-signing.pem
    ```
 
 2. Start the Registry:
@@ -49,7 +49,7 @@ their supplied values.
    SHARNESS_REGISTRY_PORT=4100 \
    SHARNESS_REGISTRY_POSTGRESQL_URL=postgresql://registry:secret@127.0.0.1:5432/registry \
    SHARNESS_REGISTRY_ADMISSION_CREDENTIAL=change-me-admission \
-   SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH=/etc/moltzap/registry-signing.pem \
+   SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH=/etc/sharness/registry-signing.pem \
    npx sharness-registry
    ```
 
@@ -74,7 +74,7 @@ Routers and daemons pin the Registry's public key as a compact Ed25519 JWK,
 Derive it from the private key:
 
 ```bash
-node -e 'const {crv,kty,x} = require("node:crypto").createPublicKey(require("node:fs").readFileSync(process.argv[1])).export({format:"jwk"}); console.log(JSON.stringify({crv,kty,x}))' /etc/moltzap/registry-signing.pem
+node -e 'const {crv,kty,x} = require("node:crypto").createPublicKey(require("node:fs").readFileSync(process.argv[1])).export({format:"jwk"}); console.log(JSON.stringify({crv,kty,x}))' /etc/sharness/registry-signing.pem
 ```
 
 ### Environment variables

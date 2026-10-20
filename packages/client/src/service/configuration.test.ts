@@ -26,10 +26,10 @@ const registrySigner =
   '{"crv":"Ed25519","kty":"OKP","x":"y1j1FUgbqjCPeQVEnllv-2euwn_s9DeDkfEh3gk_OJ0"}';
 const directories: string[] = [];
 const noOverrides = new Map<string, string>();
-const EXPORT_PATH = "/var/run/moltzap/history.ndjson";
+const EXPORT_PATH = "/var/run/sharness/history.ndjson";
 
 const temporaryDirectory = (): string => {
-  const directory = mkdtempSync(join(tmpdir(), "moltzap-daemon-config-"));
+  const directory = mkdtempSync(join(tmpdir(), "sharness-daemon-config-"));
   directories.push(directory);
   return directory;
 };

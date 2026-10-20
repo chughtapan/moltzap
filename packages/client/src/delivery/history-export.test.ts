@@ -89,7 +89,7 @@ const appendsDecodableLines = () =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const directory = yield* fileSystem.makeTempDirectoryScoped({
-      prefix: "moltzap-history-export-",
+      prefix: "sharness-history-export-",
     });
     const path = join(directory, "history.ndjson");
     const sink = yield* makeHistoryExport(path);
@@ -105,7 +105,7 @@ const stopsAfterOneFailureLine = () =>
   Effect.gen(function* () {
     const writes: string[] = [];
     yield* Effect.gen(function* () {
-      const sink = yield* makeHistoryExport("/var/run/moltzap/history.ndjson");
+      const sink = yield* makeHistoryExport("/var/run/sharness/history.ndjson");
       yield* sink.record(inbound());
       yield* sink.record(outbound());
       yield* sink.record(outbound());

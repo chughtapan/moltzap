@@ -338,7 +338,7 @@ const stream = (
 const descriptor = () => ({
   name: INBOX_PENDING_EVENT,
   description:
-    "Runtime wakeup for pending MoltZap items. Native clients manage inbox consumption and handoff.",
+    "Runtime wakeup for pending Social Harness items. Native clients manage inbox consumption and handoff.",
   delivery: ["push"],
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
   payloadSchema: {
@@ -382,7 +382,7 @@ const installReadHandlers = (
                 {
                   name: INBOX_ITEM_EVENT,
                   description:
-                    "A MoltZap message, collective request, result, or failure. Large events reference their full content through read_event. Processing and notifications follow the user's task configuration.",
+                    "A Social Harness message, collective request, result, or failure. Large events reference their full content through read_event. Processing and notifications follow the user's task configuration.",
                   delivery: ["webhook"],
                   inputSchema: {
                     type: "object",

@@ -604,7 +604,7 @@ const makeVersionedBootstrapRequest = (
       HttpClientRequest.bodyUint8Array(bodyBytes, "application/json"),
       HttpClientRequest.setHeader(
         "authorization",
-        `MoltZap-Admission ${ADMISSION_CREDENTIAL}`,
+        `Sharness-Admission ${ADMISSION_CREDENTIAL}`,
       ),
       HttpClientRequest.setHeader("content-digest", contentDigest(bodyBytes)),
       HttpClientRequest.setHeader("sharness-version", version),

@@ -350,7 +350,8 @@ const unsettledAdvice = {
 };
 
 /** The text of a send that failed after its post was bound. */
-const queuedText = "the message is pending and MoltZap will still deliver it";
+const queuedText =
+  "the message is pending and Social Harness will still deliver it";
 
 function keepsAnAnswersAdviceWhenItsBoundPostFailsActivation() {
   return Effect.gen(function* () {

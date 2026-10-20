@@ -35,7 +35,7 @@ export const eventIdSchema = Schema.String.pipe(
 export const readEventRequestSchema = exactStruct({
   eventId: Schema.propertySignature(eventIdSchema).annotations({
     description:
-      "Event identity supplied by a MoltZap notification; retained content remains readable after acknowledgment.",
+      "Event identity supplied by a Social Harness notification; retained content remains readable after acknowledgment.",
   }),
 });
 /** The original classified payload, including after its handoff. */

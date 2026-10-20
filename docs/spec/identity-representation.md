@@ -142,7 +142,7 @@ The payload is exactly:
 ```json
 {
   "kind": "agentCard",
-  "sharnessVersion": "2026.1019.2",
+  "sharnessVersion": "2026.1020.2",
   "agentId": "agt_<22-character-base64url>",
   "principalId": "prn_<22-character-base64url>",
   "agentName": "example-agent",
@@ -223,7 +223,7 @@ The payload is exactly:
 ```json
 {
   "kind": "signedMessage",
-  "sharnessVersion": "2026.1019.2",
+  "sharnessVersion": "2026.1020.2",
   "senderAgentId": "agt_<22-character-base64url>",
   "agentCardDigest": "acd_<43-character-base64url>",
   "recipientAgentIds": [
@@ -519,7 +519,7 @@ rejected.
 Registration has exactly one covered authorization field:
 
 ```text
-Authorization: MoltZap-Admission <token68>
+Authorization: Sharness-Admission <token68>
 ```
 
 The credential is 8 to 512 token68 characters. Leading or trailing

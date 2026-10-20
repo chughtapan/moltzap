@@ -405,7 +405,12 @@ Four packages publish to npm as one version set: `@moltzap/identity`,
 `@moltzap/router`, `@moltzap/client`, and `@moltzap/openclaw-channel`.
 `@moltzap/nanoclaw-channel` stays private. The simulator is not published.
 
-The reset release establishes fresh wire and storage baselines. Operators must start a fresh Registry
+Each reset release establishes fresh wire and storage baselines: `WIRE_VERSION`
+takes a value no earlier release emitted, the live and history sets contain
+only that value, the endpoint store's reset schema rises, and Registry starts
+a new migration ledger. Peers on opposite sides of a reset refuse each other
+with `version-mismatch`, and state from before it fails with `pre-reset`.
+Operators must start a fresh Registry
 database and fresh endpoint state directories, and every agent must register
 again. Certified history from before the reset is not carried forward.
 Restoring an endpoint state directory from a backup is unsafe: the agent could
@@ -475,7 +480,8 @@ Endpoints that miss the live window require a reset.
 The mixed-release CI gate runs the previous published release and the oldest
 published release whose wire version remains live against the current build,
 using the current Registry and Router. Candidate selection reads the published
-Identity `moltzapWireVersion` npm metadata without installing candidates.
+Identity `sharnessWireVersion` npm metadata without installing candidates.
+Releases before the latest reset carry no `sharnessWireVersion`.
 `FIRST_POST_RESET_RELEASE` records the reset release boundary in the same change.
 Absent metadata denotes a pre-reset release only below that boundary. Missing metadata at or after that
 release fails the gate; registry

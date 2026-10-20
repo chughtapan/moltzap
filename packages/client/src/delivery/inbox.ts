@@ -178,7 +178,7 @@ const lostRequest = (
   kind: "operationFailed",
   id: request.id,
   to: request.to,
-  error: `reply failed: MoltZap restarted, so the question from ${request.from} can no longer be answered; an answer already sent may or may not have arrived`,
+  error: `reply failed: Social Harness restarted, so the question from ${request.from} can no longer be answered; an answer already sent may or may not have arrived`,
 });
 
 const recoverRequest = Effect.fn("recoverRequest")(function* (

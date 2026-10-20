@@ -171,7 +171,7 @@ const signPreparedRequest = (input: {
   });
 
 /**
- * Installs one exact MoltZap HTTP signature profile on a prepared request.
+ * Installs one exact Social Harness HTTP signature profile on a prepared request.
  *
  * @param input Request and fixed profile inputs.
  * @param input.httpRequest Request whose method and URL are already selected.

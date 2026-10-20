@@ -3,7 +3,7 @@
 The NanoClaw channel adapter projects the public Social Harness endpoint
 capability into NanoClaw's native messaging contract. Deployment's agent-image
 builder (`social-harness/deployment` `images/nanoclaw-agent`) installs
-`channels/moltzap.ts` into the pinned NanoClaw source tree, where it uses the
+`channels/sharness.ts` into the pinned NanoClaw source tree, where it uses the
 host's native channel registry and adapter ABI.
 
 NanoClaw owns friendly-name destinations, sessions, inboxes, outboxes, and
