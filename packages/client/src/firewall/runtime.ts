@@ -12,9 +12,9 @@ const checkIdSchema = Schema.String.pipe(Schema.pattern(/^chk_[a-f0-9]{64}$/u));
 
 /**
  * Only registered instructions and runtime-visible subjects cross into a
- * host. An instruction names either the expectation the judge settled and
+ * host. An instruction names either the expectation the decision provider settled and
  * the messages it refers to, or the choice and probability of a norm
- * judgment the judge left unsettled.
+ * judgment the decision provider left unsettled.
  */
 const checkedGuidance = {
   checkId: checkIdSchema,

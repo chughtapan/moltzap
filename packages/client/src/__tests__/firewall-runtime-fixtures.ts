@@ -356,7 +356,7 @@ export function addConversation(subject: Fixture, authoredLocally = false) {
 
 /**
  * A policy that changes the evidence on every call, so each capture it
- * judges is stale by its commit.
+ * checks is stale by its commit.
  * @param subject The fixture whose store the policy writes to.
  * @returns The middleware and the number of calls it has seen.
  */

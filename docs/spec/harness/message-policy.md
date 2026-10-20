@@ -117,7 +117,7 @@ The English middleware runs this fixed internal chain:
 5. Assess norm expectations: required response, permitted response, wait or no
    response, with selected rule and subject references.
 6. For outgoing messages, assess the candidate's conformance to the
-   expectations the judge settled.
+   expectations the decision provider settled.
 7. Return all stage findings and a private trace to the common runner for
    validation, composition and permitted feedback projection. Client then commits
    the result and applies the configured admission mode.
@@ -131,20 +131,21 @@ as described below. They remain distinct in the audit.
 An answer is uncertain when its choice is `unresolved`, its probability is
 below `minimumProbability`, or another option is more probable, as in a rounded
 near-tie the policy accepts as valid. An uncertain answer about a safety or autonomy rule
-holds the candidate, its applicability included, and a failed judge holds it
-in every stage. Applicability labels never prune active rules. Making
+holds the candidate, its applicability included, and a failed decision
+provider holds it in every stage. Applicability labels never prune active rules. Making
 applicability optional is a later experiment; increasing history length can
 increase holds even when the central safety answer is clear.
 
 An uncertain answer about a norm rule never holds the candidate, in
 applicability, expectations or conformance:
 
-- a norm whose applicability is uncertain is still judged by expectations and
-  conformance;
-- an uncertain expectation is left out of the norms conformance judges, and an
+- a norm whose applicability is uncertain is still assessed by expectations
+  and conformance;
+- an uncertain expectation is left out of the norms conformance assesses, and an
   uncertain subject reference is left out of its expectation;
 - an uncertain applicability, expectation or conformance answer is a `pass`
-  finding with reason `uncertain`, the judge's choice and its probability,
+  finding with reason `uncertain`, the decision provider's choice and its
+  probability,
   which the audit retains; and
 - each uncertain finding whose rule registers guidance reaches the agent as an
   instruction carrying the rule, that choice and probability, and the rule's
@@ -189,8 +190,8 @@ The guidance of one checked message or request contains:
 - response expectation: required, permitted, wait or none;
 - subject references to runtime-visible messages or operations;
 - selected runtime-visible English instructions; and
-- for each norm judgment the judge left uncertain, its rule, the judge's
-  choice and probability, and the rule's instruction.
+- for each norm judgment the decision provider left uncertain, its rule, the
+  decision provider's choice and probability, and the rule's instruction.
 
 A collective result's guidance is a list with one such entry per checked
 answer that drew advice, each naming the member and its own check, and one for
@@ -245,7 +246,7 @@ prohibition or an independent norm violation.
 An admitted send returns its check's guidance in its result when the check
 left a norm judgment uncertain: the same instructions as incoming guidance,
 without subjects. Settled outgoing expectations are not returned, since
-conformance judged the draft against them. The guidance is determined when the
+conformance assessed the draft against them. The guidance is determined when the
 check admits the send, so every result of that send carries it, including one
 an all_gather's deadline produces before its group post certifies, and one
 returned under `failureDelivery: "inbound"` when the send fails after admission,
@@ -292,11 +293,11 @@ must not change shared history or the answers in a canonical all_gather result.
 
 ## Collective operations
 
-Each endpoint's own firewall judges what its agent asks for and what its agent
+Each endpoint's own firewall assesses what its agent asks for and what its agent
 is shown, at the boundary between the host and Client's operations: the send
 operation going out, and the admission worker coming in. It never checks the
 collective protocol underneath. Group norms are the same installation on every
-member, and each member judges independently.
+member, and each member decides independently.
 
 ### Outgoing collective checks
 
@@ -310,7 +311,7 @@ member, and each member judges independently.
 A gather's check commits in the transaction that compares its evidence, and
 the committed check is the admitted operation: each request post binds only
 against it, in its own transaction, and only with exactly the content the
-check judged. A gather's recipients are its members' verified cards, and its
+check assessed. A gather's recipients are its members' verified cards, and its
 evidence is the recent window of the conversation its address names.
 
 An answer is checked before its request is claimed, so a close or the
@@ -527,7 +528,7 @@ same capture, restricted to admitted runtime history and the incoming candidate.
 Missing subjects or a projection exceeding the 2 MiB inbox-item budget produces
 an unavailable check; guidance mode admits without that advice. A collective
 result whose combined per-answer advice exceeds that budget is admitted without
-any of it, in either mode: each answer was already judged on its own, and only
+any of it, in either mode: each answer was already assessed on its own, and only
 the advice is lost. Peer text is
 never relabelled as a registered instruction.
 
@@ -570,7 +571,7 @@ reason that [decision composition](#outgoing-projection) selected:
 | unresolved evidence | the rules that held, and the norms whose expectations conflict |
 | norm violation | the rules that found a violation |
 | approval required | the autonomy rules that require approval |
-| admission | the norms judged uncertain, which admit with guidance; otherwise none |
+| admission | the norms assessed as uncertain, which admit with guidance; otherwise none |
 
 A rule's `advice` is its own registered text: its guidance for an admission,
 or its feedback when the reason permits that feedback's next action. It is the
@@ -621,9 +622,9 @@ per-conversation scope leaves these cases to the host and its norms:
   the second check's history.
 - **Probing spread across conversations.** One peer asking in several
   conversations, or several peers each asking a little, is not assembled into
-  one pattern. A rule that judges each message on its own, such as "no
+  one pattern. A rule that assesses each message on its own, such as "no
   calendar detail to unknown agents", still applies to every message.
-- **Relaying between conversations.** An outgoing check judges the text and
+- **Relaying between conversations.** An outgoing check assesses the text and
   recipients against the target conversation only. It cannot tell that the
   text came from another conversation.
 - **Owner channels.** Owner instructions on another channel, such as Telegram,
@@ -633,7 +634,7 @@ per-conversation scope leaves these cases to the host and its norms:
 - **Long conversations.** Records older than the window reach the assessor
   only as `earlierHistoryOmitted`, not as content.
 
-Wider scopes trade these cases against judge cost and crowding. One option is
+Wider scopes trade these cases against decision-provider cost and crowding. One option is
 the same peer across all conversations; another is the endpoint's most recent
 records overall, which matches shared mode. Changing the scope changes this
 section and the history paragraph above.

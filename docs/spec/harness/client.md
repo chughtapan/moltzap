@@ -578,7 +578,7 @@ message or request it contains a local `checkId`, registered instructions with
 middleware/rule IDs, and the selected runtime-visible subject messages (`id`,
 verified `sender`, `recipients`, `text`). Each instruction carries either a
 response expectation and subject references, or, for a norm judgment the
-judge left uncertain, the judge's `choice` and `probability`; an uncertain
+decision provider left uncertain, its `choice` and `probability`; an uncertain
 judgment admits rather than holds. For a collective result it is a list, `answers`, with
 one such entry per checked answer that drew advice, each naming its `member`,
 and an optional `question` entry. Subject text is peer evidence; it is quoted

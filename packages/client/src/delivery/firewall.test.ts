@@ -264,12 +264,12 @@ function uncertainSafetyApplicability() {
   });
 }
 
-/** An English policy of one rule, judged by `nearTieJudge`. */
+/** An English policy of one rule, decided by `nearTieProvider`. */
 function nearTiePolicy(rule: EnglishRule) {
   return makeEnglishPolicy({
     id: "owner",
     rules: [rule],
-    provider: nearTieJudge(rule),
+    provider: nearTieProvider(rule),
     settings: {
       minimumProbability: 0.5,
       maximumRequestBytes: 60_000,
@@ -278,12 +278,12 @@ function nearTiePolicy(rule: EnglishRule) {
   });
 }
 
-/** A judge certain of everything but `rule`'s applicability, which it answers with a near-tie. */
-function nearTieJudge(rule: EnglishRule): DecisionProvider {
+/** A decision provider certain of everything but `rule`'s applicability, which it answers with a near-tie. */
+function nearTieProvider(rule: EnglishRule): DecisionProvider {
   return {
     decide: (request) =>
       Effect.succeed({
-        provider: "test-judge",
+        provider: "test-provider",
         model: "test-model",
         usage: {},
         raw: "",

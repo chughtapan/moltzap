@@ -135,8 +135,8 @@ export class EnglishRule extends Schema.Class<EnglishRule>("EnglishRule")({
 
 /**
  * Pass is local to one rule; only the complete firewall may return allow. An
- * uncertain pass is a norm judgment the judge could not settle: it admits,
- * and keeps the judge's choice and probability so the agent is advised and
+ * uncertain pass is a norm judgment the decision provider could not settle:
+ * it admits, and keeps the provider's choice and probability so the agent is advised and
  * the audit can count it. It precedes plain pass, which would otherwise
  * decode it without those fields.
  */
@@ -270,7 +270,7 @@ export interface NormGuidance extends NormExpectation {
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- The guidance Schema shares its domain name with the value it decodes. */
 
-/** A rule's registered guidance beside the judge's unsettled choice and probability. */
+/** A rule's registered guidance beside the decision provider's unsettled choice and probability. */
 export const UncertainNormGuidance = Schema.Struct({
   middlewareId: identifier,
   ruleId: identifier,
