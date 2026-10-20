@@ -134,7 +134,7 @@ keeps the wakeup count independent of acknowledged history size.
 ## MCP compatibility
 
 The daemon speaks MCP revision `2026-07-28` over Streamable HTTP. Clients such
-as `@modelcontextprotocol/client` `2.0.0-beta.5` must pin this revision:
+as `@modelcontextprotocol/client` must pin this revision:
 
 ```typescript
 versionNegotiation: { mode: { pin: "2026-07-28" } }

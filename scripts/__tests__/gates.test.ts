@@ -58,8 +58,8 @@ function main(): void {
     testGeneratorIdempotence();
     testCompatibilityVersionFile();
     testBakeFailureFailClosed();
-    testNodeVersionFloorConsistency();
     testPublicationGuards();
+    testDependencyVersions();
     testMalformedBoundaryInputs();
   } finally {
     restoreAllPlants();
@@ -366,7 +366,6 @@ function testPublicationGuards(): void {
   testPublicationGuardsWrongLicense();
   testPublicationGuardsDriftedNotice();
   testPublicationGuardsForeignRepository();
-  testPublicationGuardsDriftedEngines();
   testPublicationGuardsSemver();
   testPublicationGuardsWireSemver();
   testPublicationGuardsDriftedList();
@@ -501,22 +500,6 @@ function testPublicationGuardsForeignRepository(): void {
   restoreAllPlants();
 }
 
-function testPublicationGuardsDriftedEngines(): void {
-  plantFile("packages/router/package.json", (s) =>
-    s.replace(/"node": "[^"]+"/, '"node": ">=20"'),
-  );
-  const driftedEngines = runBoundaries();
-  test(
-    "flags a published Node.js range that differs from the workspace root",
-    driftedEngines.code !== 0 &&
-      /router\/package\.json: engines\.node is ">=20", expected the root/.test(
-        driftedEngines.stderr,
-      ),
-    `expected engines failure. exit=${driftedEngines.code}, stderr=${driftedEngines.stderr.slice(0, 300)}`,
-  );
-  restoreAllPlants();
-}
-
 function testPublicationGuardsSemver(): void {
   plantFile("packages/router/package.json", (s) =>
     s.replace(/"version": "[^"]+"/, '"version": "1.2.3"'),
@@ -619,6 +602,122 @@ function testMalformedBoundaryInputs(): void {
   }
 }
 
+function testDependencyVersions(): void {
+  console.log("\n# check-dependency-versions");
+  const clean = runDependencyVersions();
+  test(
+    "clean tree passes the dependency-version gate",
+    clean.code === 0,
+    `expected exit 0, got ${clean.code}. stderr: ${clean.stderr.slice(0, 300)}`,
+  );
+  testDependencyVersionsLiteralSpecifier();
+  testDependencyVersionsExampleCopy();
+  testDependencyVersionsDriftedEngines();
+  testDependencyVersionsNodePin();
+  testDependencyVersionsActionRefs();
+}
+
+function testDependencyVersionsLiteralSpecifier(): void {
+  plantFile("packages/router/package.json", (s) =>
+    s.replace('"jose": "catalog:"', '"jose": "6.2.6"'),
+  );
+  const literal = runDependencyVersions();
+  test(
+    "flags a workspace manifest that writes its own npm version",
+    literal.code !== 0 &&
+      /router\/package\.json: dependencies\.jose is "6\.2\.6"; declare "catalog:"/.test(
+        literal.stderr,
+      ),
+    `expected catalog failure. exit=${literal.code}, stderr=${literal.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+}
+
+/** The planted range is not a published version, so no catalog bump can match it. */
+function testDependencyVersionsExampleCopy(): void {
+  const example =
+    /* Safe because the example manifest is repository-owned JSON with a dependencies object. */ JSON.parse(
+      readFileSync(
+        resolve(workspaceRoot, "examples/two-agents/package.json"),
+        "utf8",
+      ),
+    ) as { dependencies: Record<string, string> };
+  const name =
+    Object.keys(example.dependencies).find(
+      (dependency) => !dependency.startsWith("@moltzap/"),
+    ) ?? "";
+  plantFile("examples/two-agents/package.json", (s) =>
+    s.replace(
+      `"${name}": "${example.dependencies[name] ?? ""}"`,
+      `"${name}": "0.0.0-drift"`,
+    ),
+  );
+  const drifted = runDependencyVersions();
+  test(
+    "flags an example dependency that differs from the catalog",
+    drifted.code !== 0 &&
+      drifted.stderr.includes(
+        `two-agents/package.json: dependencies.${name} is "0.0.0-drift", expected the catalog range`,
+      ),
+    `expected example copy failure for ${name}. exit=${drifted.code}, stderr=${drifted.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+}
+
+function testDependencyVersionsDriftedEngines(): void {
+  plantFile("packages/router/package.json", (s) =>
+    s.replace(/"node": "[^"]+"/, '"node": ">=20"'),
+  );
+  const engines = runDependencyVersions();
+  test(
+    "flags a published Node.js range that differs from the workspace root",
+    engines.code !== 0 &&
+      /router\/package\.json: engines\.node is ">=20", expected the root/.test(
+        engines.stderr,
+      ),
+    `expected engines failure. exit=${engines.code}, stderr=${engines.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+}
+
+/** Node.js 0.0.0 lies below the floor of any supported range. */
+function testDependencyVersionsNodePin(): void {
+  plantFile(".node-version", () => "0.0.0\n");
+  const pin = runDependencyVersions();
+  test(
+    "flags a Node.js pin outside the supported range",
+    pin.code !== 0 &&
+      pin.stderr.includes(
+        ".node-version: 0.0.0 is outside the root engines.node range",
+      ),
+    `expected Node pin failure. exit=${pin.code}, stderr=${pin.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+}
+
+function testDependencyVersionsActionRefs(): void {
+  plantFile(".github/workflows/publish.yml", (s) =>
+    s.replace(/actions\/checkout@\S+/, "actions/checkout@v7"),
+  );
+  const action = runDependencyVersions();
+  test(
+    "flags an action used at two refs",
+    action.code !== 0 &&
+      /actions\/checkout: used at 2 refs/.test(action.stderr),
+    `expected action ref failure. exit=${action.code}, stderr=${action.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+}
+
+function runDependencyVersions(): {
+  code: number;
+  stderr: string;
+} {
+  return runNode([
+    resolve(workspaceRoot, "scripts/repo/check-dependency-versions.ts"),
+  ]);
+}
+
 function runBoundaries(): {
   code: number;
   stderr: string;
@@ -634,40 +733,6 @@ function withCompatibilityVersion(next: string) {
       WIRE_VERSION_LITERAL,
       `export const WIRE_VERSION = "${next}"`,
     );
-}
-
-function testNodeVersionFloorConsistency(): void {
-  console.log("\n# Node version floor consistency");
-  const workspaceManifest =
-    /* Safe because Repository-owned manifest supplies the documented runtime range. */ JSON.parse(
-      readFileSync(resolve(workspaceRoot, "package.json"), "utf8"),
-    ) as {
-      readonly engines?: {
-        readonly node?: string;
-      };
-    };
-  const pinnedNode = readFileSync(
-    resolve(workspaceRoot, ".node-version"),
-    "utf8",
-  ).trim();
-  const pinnedMajor = Number(pinnedNode.split(".")[0]);
-  const quickstartDocs = readFileSync(
-    resolve(workspaceRoot, "docs/quickstart.mdx"),
-    "utf8",
-  );
-  const workspaceNodeRange = workspaceManifest.engines?.node;
-  test(
-    "workspace and pinned runtime support Node.js 22+",
-    workspaceNodeRange?.startsWith(">=22.") === true &&
-      pinnedMajor >= 22 &&
-      pinnedMajor < 25,
-    `expected a pinned Node.js 22–24 runtime, got engines.node=${String(workspaceNodeRange)} and .node-version=${pinnedNode}`,
-  );
-  test(
-    "quickstart matches the workspace Node.js range",
-    quickstartDocs.includes(`Node.js \`${String(workspaceNodeRange)}\``),
-    `quickstart does not advertise Node.js \`${String(workspaceNodeRange)}\``,
-  );
 }
 
 function testGeneratorIdempotence(): void {

@@ -6,12 +6,135 @@ settings:
 
 catalogs:
   default:
+    '@chughtapan/safer-architecture-lsp':
+      specifier: 0.3.1
+      version: 0.3.1
+    '@effect/experimental':
+      specifier: ^0.61.0
+      version: 0.61.0
+    '@effect/language-service':
+      specifier: ^0.87.1
+      version: 0.87.1
+    '@effect/platform':
+      specifier: ^0.97.0
+      version: 0.97.0
+    '@effect/platform-node':
+      specifier: ^0.108.0
+      version: 0.108.0
+    '@effect/rpc':
+      specifier: ^0.76.0
+      version: 0.76.0
+    '@effect/sql':
+      specifier: ^0.52.0
+      version: 0.52.0
+    '@effect/sql-pg':
+      specifier: ^0.53.0
+      version: 0.53.0
+    '@effect/tsgo':
+      specifier: 0.24.3
+      version: 0.24.3
+    '@effect/vitest':
+      specifier: ^0.30.0
+      version: 0.30.0
+    '@electric-sql/pglite':
+      specifier: 0.4.4
+      version: 0.4.4
+    '@electric-sql/pglite-socket':
+      specifier: 0.1.4
+      version: 0.1.4
+    '@eslint-community/eslint-plugin-eslint-comments':
+      specifier: ^4.7.1
+      version: 4.7.2
+    '@mermaid-js/mermaid-cli':
+      specifier: ^11.15.0
+      version: 11.15.0
+    '@modelcontextprotocol/client':
+      specifier: 2.0.0-beta.5
+      version: 2.0.0-beta.5
+    '@modelcontextprotocol/node':
+      specifier: 2.0.0-beta.5
+      version: 2.0.0-beta.5
+    '@modelcontextprotocol/server':
+      specifier: 2.0.0-beta.5
+      version: 2.0.0-beta.5
+    '@noble/curves':
+      specifier: 2.4.0
+      version: 2.4.0
+    '@testcontainers/postgresql':
+      specifier: 10.28.0
+      version: 10.28.0
+    '@types/estree':
+      specifier: ^1.0.8
+      version: 1.0.9
+    '@types/node':
+      specifier: ^25.5.0
+      version: 25.5.0
     '@typescript/native':
       specifier: npm:typescript@7.0.2
       version: 7.0.2
+    canonicalize:
+      specifier: 3.0.0
+      version: 3.0.0
+    eslint:
+      specifier: ^9
+      version: 9.39.4
+    eslint-plugin-agent-code-guard:
+      specifier: 0.0.21
+      version: 0.0.21
+    fast-check:
+      specifier: 3.23.2
+      version: 3.23.2
+    http-message-signatures:
+      specifier: 1.0.6
+      version: 1.0.6
+    husky:
+      specifier: ^9.0.0
+      version: 9.1.7
+    jiti:
+      specifier: ^2.7.0
+      version: 2.7.0
+    jose:
+      specifier: 6.2.5
+      version: 6.2.5
+    mint:
+      specifier: 4.2.749
+      version: 4.2.749
+    nx:
+      specifier: ^22.7.5
+      version: 22.7.5
+    openclaw:
+      specifier: 2026.10.3
+      version: 2026.10.3
+    oxfmt:
+      specifier: ^0.7.0
+      version: 0.7.0
+    oxlint:
+      specifier: ^0.16.0
+      version: 0.16.12
+    puppeteer:
+      specifier: 24.43.1
+      version: 24.43.1
+    structured-headers:
+      specifier: 2.0.3
+      version: 2.0.3
+    tsx:
+      specifier: ^4.19.0
+      version: 4.21.0
+    typedoc:
+      specifier: ^0.28.19
+      version: 0.28.19
     typescript:
       specifier: npm:@typescript/typescript6@6.0.2
       version: 6.0.2
+    undici:
+      specifier: 7.29.0
+      version: 7.29.0
+    vitest:
+      specifier: 3.2.4
+      version: 3.2.4
+    yaml:
+      specifier: ^2.9.1
+      version: 2.9.1
 
 overrides:
   effect: 3.22.1
@@ -24,37 +147,37 @@ importers:
   .:
     devDependencies:
       '@chughtapan/safer-architecture-lsp':
-        specifier: 0.3.1
+        specifier: 'catalog:'
         version: 0.3.1
       '@effect/language-service':
-        specifier: ^0.87.1
+        specifier: 'catalog:'
         version: 0.87.1
       '@effect/platform':
-        specifier: ^0.97.0
+        specifier: 'catalog:'
         version: 0.97.0(effect@3.22.1)
       '@effect/platform-node':
-        specifier: ^0.108.0
+        specifier: 'catalog:'
         version: 0.108.0(@effect/cluster@0.60.0(@effect/platform@0.97.0(effect@3.22.1))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/workflow@0.19.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(effect@3.22.1)
       '@effect/tsgo':
-        specifier: 0.24.3
+        specifier: 'catalog:'
         version: 0.24.3
       '@eslint-community/eslint-plugin-eslint-comments':
-        specifier: ^4.7.1
-        version: 4.7.1(eslint@9.39.4(jiti@2.7.0))
+        specifier: 'catalog:'
+        version: 4.7.2(eslint@9.39.4(jiti@2.7.0))
       '@mermaid-js/mermaid-cli':
-        specifier: ^11.15.0
+        specifier: 'catalog:'
         version: 11.15.0(@babel/template@8.0.0)(@types/react@19.2.14)(playwright-core@1.63.0)(puppeteer@24.43.1(@typescript/typescript6@6.0.2))(tsx@4.21.0)(yaml@2.9.1)
       '@modelcontextprotocol/client':
-        specifier: 2.0.0-beta.5
+        specifier: 'catalog:'
         version: 2.0.0-beta.5
       '@moltzap/client':
         specifier: workspace:*
         version: link:packages/client
       '@types/estree':
-        specifier: ^1.0.8
+        specifier: 'catalog:'
         version: 1.0.9
       '@types/node':
-        specifier: ^25.5.0
+        specifier: 'catalog:'
         version: 25.5.0
       '@typescript/native':
         specifier: 'catalog:'
@@ -63,61 +186,61 @@ importers:
         specifier: 3.22.1
         version: 3.22.1
       eslint:
-        specifier: ^9
+        specifier: 'catalog:'
         version: 9.39.4(jiti@2.7.0)
       eslint-plugin-agent-code-guard:
-        specifier: 0.0.21
+        specifier: 'catalog:'
         version: 0.0.21(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@2.7.0))
       husky:
-        specifier: ^9.0.0
+        specifier: 'catalog:'
         version: 9.1.7
       jiti:
-        specifier: ^2.7.0
+        specifier: 'catalog:'
         version: 2.7.0
       mint:
-        specifier: 4.2.749
+        specifier: 'catalog:'
         version: 4.2.749(@radix-ui/react-popover@1.1.15(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.3))(react@19.2.3))(@types/node@25.5.0)(@types/react@19.2.14)(@typescript/typescript6@6.0.2)(react-dom@19.2.6(react@19.2.3))
       nx:
-        specifier: ^22.7.5
+        specifier: 'catalog:'
         version: 22.7.5(@swc/core@1.15.47(@swc/helpers@0.5.21))
       oxfmt:
-        specifier: ^0.7.0
+        specifier: 'catalog:'
         version: 0.7.0
       oxlint:
-        specifier: ^0.16.0
+        specifier: 'catalog:'
         version: 0.16.12
       puppeteer:
-        specifier: 24.43.1
+        specifier: 'catalog:'
         version: 24.43.1(@typescript/typescript6@6.0.2)
       typedoc:
-        specifier: ^0.28.19
+        specifier: 'catalog:'
         version: 0.28.19(@typescript/typescript6@6.0.2)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
-        specifier: ^3.0.0
+        specifier: 'catalog:'
         version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.1)
       yaml:
-        specifier: ^2.9.1
+        specifier: 'catalog:'
         version: 2.9.1
 
   packages/client:
     dependencies:
       '@effect/platform':
-        specifier: ^0.97.0
+        specifier: 'catalog:'
         version: 0.97.0(effect@3.22.1)
       '@effect/platform-node':
-        specifier: ^0.108.0
+        specifier: 'catalog:'
         version: 0.108.0(@effect/cluster@0.60.0(@effect/platform@0.97.0(effect@3.22.1))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/workflow@0.19.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(effect@3.22.1)
       '@modelcontextprotocol/client':
-        specifier: 2.0.0-beta.5
+        specifier: 'catalog:'
         version: 2.0.0-beta.5
       '@modelcontextprotocol/node':
-        specifier: 2.0.0-beta.5
+        specifier: 'catalog:'
         version: 2.0.0-beta.5(@modelcontextprotocol/server@2.0.0-beta.5)(hono@4.12.9)
       '@modelcontextprotocol/server':
-        specifier: 2.0.0-beta.5
+        specifier: 'catalog:'
         version: 2.0.0-beta.5
       '@moltzap/identity':
         specifier: workspace:*
@@ -126,99 +249,99 @@ importers:
         specifier: workspace:*
         version: link:../router
       canonicalize:
-        specifier: 3.0.0
+        specifier: 'catalog:'
         version: 3.0.0
       effect:
         specifier: 3.22.1
         version: 3.22.1
     devDependencies:
       '@effect/vitest':
-        specifier: ^0.30.0
+        specifier: 'catalog:'
         version: 0.30.0(effect@3.22.1)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.1))
       '@typescript/native':
         specifier: 'catalog:'
         version: typescript@7.0.2
       eslint:
-        specifier: ^9
+        specifier: 'catalog:'
         version: 9.39.4(jiti@2.7.0)
       tsx:
-        specifier: ^4.19.0
+        specifier: 'catalog:'
         version: 4.21.0
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       undici:
-        specifier: 7.29.0
+        specifier: 'catalog:'
         version: 7.29.0
       vitest:
-        specifier: ^3.2.0
+        specifier: 'catalog:'
         version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.1)
 
   packages/identity:
     dependencies:
       '@effect/experimental':
-        specifier: ^0.61.0
+        specifier: 'catalog:'
         version: 0.61.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1)
       '@effect/platform':
-        specifier: ^0.97.0
+        specifier: 'catalog:'
         version: 0.97.0(effect@3.22.1)
       '@effect/platform-node':
-        specifier: ^0.108.0
+        specifier: 'catalog:'
         version: 0.108.0(@effect/cluster@0.60.0(@effect/platform@0.97.0(effect@3.22.1))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/workflow@0.19.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(effect@3.22.1)
       '@effect/rpc':
-        specifier: ^0.76.0
+        specifier: 'catalog:'
         version: 0.76.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1)
       '@effect/sql':
-        specifier: ^0.52.0
+        specifier: 'catalog:'
         version: 0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1)
       '@effect/sql-pg':
-        specifier: ^0.53.0
+        specifier: 'catalog:'
         version: 0.53.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(effect@3.22.1)
       '@noble/curves':
-        specifier: 2.4.0
+        specifier: 'catalog:'
         version: 2.4.0
       canonicalize:
-        specifier: 3.0.0
+        specifier: 'catalog:'
         version: 3.0.0
       effect:
         specifier: 3.22.1
         version: 3.22.1
       http-message-signatures:
-        specifier: 1.0.6
+        specifier: 'catalog:'
         version: 1.0.6
       jose:
-        specifier: 6.2.5
+        specifier: 'catalog:'
         version: 6.2.5
       structured-headers:
-        specifier: 2.0.3
+        specifier: 'catalog:'
         version: 2.0.3
     devDependencies:
       '@effect/vitest':
-        specifier: ^0.30.0
+        specifier: 'catalog:'
         version: 0.30.0(effect@3.22.1)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.1))
       '@electric-sql/pglite':
-        specifier: 0.4.4
+        specifier: 'catalog:'
         version: 0.4.4
       '@electric-sql/pglite-socket':
-        specifier: 0.1.4
+        specifier: 'catalog:'
         version: 0.1.4(@electric-sql/pglite@0.4.4)
       '@testcontainers/postgresql':
-        specifier: 10.28.0
+        specifier: 'catalog:'
         version: 10.28.0
       '@typescript/native':
         specifier: 'catalog:'
         version: typescript@7.0.2
       eslint:
-        specifier: ^9
+        specifier: 'catalog:'
         version: 9.39.4(jiti@2.7.0)
       fast-check:
-        specifier: 3.23.2
+        specifier: 'catalog:'
         version: 3.23.2
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
-        specifier: 3.2.4
+        specifier: 'catalog:'
         version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.1)
 
   packages/nanoclaw-channel:
@@ -227,7 +350,7 @@ importers:
         specifier: workspace:*
         version: link:../client
       '@types/node':
-        specifier: ^25.5.0
+        specifier: 'catalog:'
         version: 25.5.0
       effect:
         specifier: 3.22.1
@@ -237,13 +360,13 @@ importers:
         specifier: 'catalog:'
         version: typescript@7.0.2
       eslint:
-        specifier: ^9
+        specifier: 'catalog:'
         version: 9.39.4(jiti@2.7.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
-        specifier: ^3.2.0
+        specifier: 'catalog:'
         version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.1)
 
   packages/openclaw-channel:
@@ -256,68 +379,68 @@ importers:
         version: 3.22.1
     devDependencies:
       '@effect/vitest':
-        specifier: ^0.30.0
+        specifier: 'catalog:'
         version: 0.30.0(effect@3.22.1)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.1))
       '@types/node':
-        specifier: ^25.5.0
+        specifier: 'catalog:'
         version: 25.5.0
       '@typescript/native':
         specifier: 'catalog:'
         version: typescript@7.0.2
       eslint:
-        specifier: ^9
+        specifier: 'catalog:'
         version: 9.39.4(jiti@2.7.0)
       openclaw:
-        specifier: 2026.10.3
+        specifier: 'catalog:'
         version: 2026.10.3(@aws-sdk/credential-provider-node@3.972.29)(@cfworker/json-schema@4.1.1)(@opentelemetry/api@1.9.1)(@opentelemetry/resources@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.10.0(@opentelemetry/api@1.9.1))(undici@8.10.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
-        specifier: ^3.2.0
+        specifier: 'catalog:'
         version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.1)
 
   packages/router:
     dependencies:
       '@effect/platform':
-        specifier: ^0.97.0
+        specifier: 'catalog:'
         version: 0.97.0(effect@3.22.1)
       '@effect/platform-node':
-        specifier: ^0.108.0
+        specifier: 'catalog:'
         version: 0.108.0(@effect/cluster@0.60.0(@effect/platform@0.97.0(effect@3.22.1))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/workflow@0.19.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1))(effect@3.22.1)
       '@effect/rpc':
-        specifier: ^0.76.0
+        specifier: 'catalog:'
         version: 0.76.0(@effect/platform@0.97.0(effect@3.22.1))(effect@3.22.1)
       '@moltzap/identity':
         specifier: workspace:*
         version: link:../identity
       canonicalize:
-        specifier: 3.0.0
+        specifier: 'catalog:'
         version: 3.0.0
       effect:
         specifier: 3.22.1
         version: 3.22.1
       jose:
-        specifier: 6.2.5
+        specifier: 'catalog:'
         version: 6.2.5
     devDependencies:
       '@effect/vitest':
-        specifier: ^0.30.0
+        specifier: 'catalog:'
         version: 0.30.0(effect@3.22.1)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.1))
       '@typescript/native':
         specifier: 'catalog:'
         version: typescript@7.0.2
       eslint:
-        specifier: ^9
+        specifier: 'catalog:'
         version: 9.39.4(jiti@2.7.0)
       fast-check:
-        specifier: 3.23.2
+        specifier: 'catalog:'
         version: 3.23.2
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
-        specifier: 3.2.4
+        specifier: 'catalog:'
         version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.1)
 
 packages:
@@ -1021,12 +1144,6 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
-
-  '@eslint-community/eslint-plugin-eslint-comments@4.7.1':
-    resolution: {integrity: sha512-Ql2nJFwA8wUGpILYGOQaT1glPsmvEwE0d+a+l7AALLzQvInqdbXJdx7aSu0DpUX9dB1wMVBMhm99/++S3MdEtQ==}
-    engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
-    peerDependencies:
-      eslint: ^6.0.0 || ^7.0.0 || ^8.0.0 || ^9.0.0 || ^10.0.0
 
   '@eslint-community/eslint-plugin-eslint-comments@4.7.2':
     resolution: {integrity: sha512-LF03qURSwEWm2dz5wtdDCzNk+7Opl0X7q6I3undsaIuNsEiNvRV3BCtqu14Q/6Pzg1tBj44LcxpW2EpSLZStZw==}
@@ -4015,11 +4132,6 @@ packages:
 
   acorn@8.11.2:
     resolution: {integrity: sha512-nc0Axzp/0FILLEVsm4fNwLCwMttvhEI263QtVPQcbpfZZ3ts0hLsZGOpE6czNlid7CJ9MlyH8reXkpsf3YUY4w==}
-    engines: {node: '>=0.4.0'}
-    hasBin: true
-
-  acorn@8.16.0:
-    resolution: {integrity: sha512-UVJyE9MttOsBQIDKw1skb9nAwQuR5wuGD3+82K6JgJlm/Y+KI92oNsMNGZCYdDsVtRHSak0pcV5Dno5+4jh9sw==}
     engines: {node: '>=0.4.0'}
     hasBin: true
 
@@ -8064,11 +8176,6 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
 
-  semver@7.8.0:
-    resolution: {integrity: sha512-AcM7dV/5ul4EekoQ29Agm5vri8JNqRyj39o0qpX6vDF2GZrtutZl5RwgD1XnZjiTAfncsJhMI48QQH3sN87YNA==}
-    engines: {node: '>=10'}
-    hasBin: true
-
   semver@7.8.5:
     resolution: {integrity: sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==}
     engines: {node: '>=10'}
@@ -9036,18 +9143,6 @@ packages:
       utf-8-validate:
         optional: true
 
-  ws@8.21.0:
-    resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-
   ws@8.21.3:
     resolution: {integrity: sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==}
     engines: {node: '>=10.0.0'}
@@ -9166,9 +9261,6 @@ packages:
 
   zod@4.3.6:
     resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
-
-  zod@4.4.3:
-    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
   zod@4.6.5:
     resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
@@ -9662,7 +9754,7 @@ snapshots:
       '@parcel/watcher': 2.5.6
       effect: 3.22.1
       multipasta: 0.2.7
-      ws: 8.21.0
+      ws: 8.21.3
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -9677,7 +9769,7 @@ snapshots:
       effect: 3.22.1
       mime: 3.0.0
       undici: 7.29.0
-      ws: 8.21.0
+      ws: 8.21.3
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -9957,17 +10049,11 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
-  '@eslint-community/eslint-plugin-eslint-comments@4.7.1(eslint@9.39.4(jiti@2.7.0))':
-    dependencies:
-      escape-string-regexp: 4.0.0
-      eslint: 9.39.4(jiti@2.7.0)
-      ignore: 7.0.5
-
   '@eslint-community/eslint-plugin-eslint-comments@4.7.2(eslint@9.39.4(jiti@2.7.0))':
     dependencies:
       escape-string-regexp: 4.0.0
       eslint: 9.39.4(jiti@2.7.0)
-      ignore: 7.0.5
+      ignore: 7.0.9
 
   '@eslint-community/eslint-utils@4.9.1(eslint@9.39.4(jiti@2.7.0))':
     dependencies:
@@ -10718,7 +10804,7 @@ snapshots:
       remark-stringify: 11.0.0
       unified: 11.0.5
       unist-util-visit: 5.0.0
-      yaml: 2.9.0
+      yaml: 2.9.1
       yargs: 17.7.1
       zod: 4.3.6
     optionalDependencies:
@@ -11019,7 +11105,7 @@ snapshots:
 
   '@modelcontextprotocol/core@2.0.0-beta.5':
     dependencies:
-      zod: 4.4.3
+      zod: 4.6.5
 
   '@modelcontextprotocol/node@2.0.0-beta.5(@modelcontextprotocol/server@2.0.0-beta.5)(hono@4.12.9)':
     dependencies:
@@ -11055,7 +11141,7 @@ snapshots:
   '@modelcontextprotocol/server@2.0.0-beta.5':
     dependencies:
       '@modelcontextprotocol/core': 2.0.0-beta.5
-      zod: 4.4.3
+      zod: 4.6.5
 
   '@mozilla/readability@0.6.0': {}
 
@@ -13121,17 +13207,11 @@ snapshots:
     dependencies:
       acorn: 8.11.2
 
-  acorn-jsx@5.3.2(acorn@8.16.0):
-    dependencies:
-      acorn: 8.16.0
-
   acorn-jsx@5.3.2(acorn@8.18.0):
     dependencies:
       acorn: 8.18.0
 
   acorn@8.11.2: {}
-
-  acorn@8.16.0: {}
 
   acorn@8.18.0: {}
 
@@ -14501,8 +14581,8 @@ snapshots:
       eslint: 9.39.4(jiti@2.7.0)
       eslint-import-context: 0.1.9(unrs-resolver@1.12.2)
       is-glob: 4.0.3
-      minimatch: 10.2.5
-      semver: 7.8.0
+      minimatch: 10.2.6
+      semver: 7.8.5
       stable-hash-x: 0.2.0
       unrs-resolver: 1.12.2
     optionalDependencies:
@@ -14524,7 +14604,7 @@ snapshots:
       html-entities: 2.6.0
       object-deep-merge: 2.0.0
       parse-imports-exports: 0.2.4
-      semver: 7.8.0
+      semver: 7.8.5
       spdx-expression-parse: 4.0.0
       to-valid-identifier: 1.0.0
     transitivePeerDependencies:
@@ -14549,9 +14629,9 @@ snapshots:
       globals: 17.6.0
       jsx-ast-utils-x: 0.1.0
       lodash.merge: 4.6.2
-      minimatch: 10.2.5
+      minimatch: 10.2.6
       scslre: 0.3.0
-      semver: 7.8.0
+      semver: 7.8.5
       ts-api-utils: 2.5.0(@typescript/typescript6@6.0.2)
       typescript: '@typescript/typescript6@6.0.2'
 
@@ -14609,8 +14689,8 @@ snapshots:
 
   espree@10.4.0:
     dependencies:
-      acorn: 8.16.0
-      acorn-jsx: 5.3.2(acorn@8.16.0)
+      acorn: 8.18.0
+      acorn-jsx: 5.3.2(acorn@8.18.0)
       eslint-visitor-keys: 4.2.1
 
   espree@11.2.0:
@@ -15898,7 +15978,7 @@ snapshots:
       strip-json-comments: 5.0.3
       tinyglobby: 0.2.16
       unbash: 3.0.0
-      yaml: 2.9.0
+      yaml: 2.9.1
       zod: 4.6.5
     transitivePeerDependencies:
       - '@emnapi/core'
@@ -16623,7 +16703,7 @@ snapshots:
 
   minimatch@10.2.5:
     dependencies:
-      brace-expansion: 5.0.6
+      brace-expansion: 5.0.9
 
   minimatch@10.2.6:
     dependencies:
@@ -18319,8 +18399,6 @@ snapshots:
 
   semver@7.7.4: {}
 
-  semver@7.8.0: {}
-
   semver@7.8.5: {}
 
   send@0.19.2:
@@ -19152,9 +19230,9 @@ snapshots:
       '@gerrit0/mini-shiki': 3.23.0
       lunr: 2.3.9
       markdown-it: 14.1.1
-      minimatch: 10.2.5
+      minimatch: 10.2.6
       typescript: '@typescript/typescript6@6.0.2'
-      yaml: 2.9.0
+      yaml: 2.9.1
 
   typescript-eslint@8.65.0(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@2.7.0)):
     dependencies:
@@ -19613,8 +19691,6 @@ snapshots:
 
   ws@8.18.3: {}
 
-  ws@8.21.0: {}
-
   ws@8.21.3: {}
 
   xml-naming@0.3.0: {}
@@ -19718,8 +19794,6 @@ snapshots:
   zod@3.25.76: {}
 
   zod@4.3.6: {}
-
-  zod@4.4.3: {}
 
   zod@4.6.5: {}
 

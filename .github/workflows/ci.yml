@@ -52,11 +52,7 @@ jobs:
           "$RUNNER_TEMP/towncrier/bin/pip" install --quiet --require-hashes --no-deps \
             -r scripts/release/towncrier-requirements.txt
           "$RUNNER_TEMP/towncrier/bin/towncrier" build --draft --version 0.0.0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
+      - uses: ./.github/actions/setup-toolchain
 
       - run: pnpm install --frozen-lockfile
       - name: Verify pnpm-lock.yaml matches package.json and the catalog
@@ -110,11 +106,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
+      - uses: ./.github/actions/setup-toolchain
 
       - run: pnpm install --frozen-lockfile
       - uses: nrwl/nx-set-shas@e602fada7ad5987b0f7b1905e7a99ea1c661514c # v5.1.0
@@ -130,11 +122,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-          cache: pnpm
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-toolchain
       - run: pnpm install --frozen-lockfile
       - run: pnpm nx run workspace:test:mixed-release

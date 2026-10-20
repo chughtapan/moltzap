@@ -1,11 +1,16 @@
 #!/usr/bin/env sh
+#
+# Clones the Effect source at the version the workspace resolves, for reading.
+# The tag copies the pnpm-workspace.yaml `effect` override and `expected` is
+# that tag's commit; scripts/repo/check-dependency-versions.ts fails when the
+# tag and the override disagree.
 
 set -eu
 
 dir=".repos/effect"
 url="https://github.com/Effect-TS/effect.git"
-tag="effect@3.22.0"
-expected="e670e0f6befb959b84208d5f77631276521020ae"
+tag="effect@3.22.1"
+expected="417e0faa80e471d77fc4a67452e68b09ae0ee861"
 
 if [ -e "$dir" ]; then
   actual=$(git -C "$dir" rev-parse HEAD 2>/dev/null || true)

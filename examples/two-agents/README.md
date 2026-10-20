@@ -20,8 +20,8 @@ When the script ends, it stops every process and deletes the keys and state.
 
 ## Run it
 
-You need Node.js 22.19 or later, below 25. Node runs the TypeScript file
-directly.
+You need a Node.js version the `engines.node` range in `package.json`
+allows. Node runs the TypeScript file directly.
 
 Install the dependencies:
 

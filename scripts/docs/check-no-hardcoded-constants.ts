@@ -9,8 +9,8 @@
  * snippet (or an explicit allowlist of auto-generated trees) is a
  * fail — the doc must `import` the value from the snippet instead.
  *
- * The exact `V2_PROTOCOL_VERSION` value comes from
- * `docs/snippets/constants/values.json`.
+ * The exact `V2_PROTOCOL_VERSION`, `NODE_VERSION_RANGE`, and
+ * `OPENCLAW_MIN_VERSION` values come from `docs/snippets/constants/values.json`.
  *
  * Plus a structural sweep for any other version-shaped literal
  * `\d{4}\.\d{3,4}\.\d+` in `docs/`, to catch new doc drift before
@@ -162,6 +162,21 @@ function buildRules(constants: readonly ConstantRecord[]): readonly Rule[] {
       ),
       hint: "Mark the file with `{/* @bake-constants: V2_PROTOCOL_VERSION */}` so the compatibility value is baked from `packages/identity/src/version.ts`.",
     });
+  }
+
+  for (const name of ["NODE_VERSION_RANGE", "OPENCLAW_MIN_VERSION"]) {
+    const constant = byName.get(name);
+    if (constant?.kind === "string") {
+      rules.push({
+        name,
+        regex: new RegExp(
+          escape(
+            /* Safe because String-kind records are emitted with string values by the generator. */ constant.value as string,
+          ),
+        ),
+        hint: `Mark the file with \`{/* @bake-constants: ${name} */}\` so the value is baked from \`${constant.sourcePath}\`.`,
+      });
+    }
   }
 
   rules.push({
