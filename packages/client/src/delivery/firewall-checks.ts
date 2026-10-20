@@ -100,7 +100,7 @@ export interface DecodedRecord extends PostProjection {
   readonly author: AgentAddress;
 }
 
-/** One check's candidate, the evidence it is judged against, and its attribution. */
+/** One check's candidate, the evidence it is assessed against, and its attribution. */
 export interface AssessmentInput {
   readonly direction: "incoming" | "outgoing";
   readonly evidence: FirewallEvidence;
@@ -233,7 +233,7 @@ export const contextFrom = Effect.fn("firewallContext")(function* (
 /**
  * Run one check: capture its context, begin its audit attempt, run the
  * middleware chain, and project its guidance. Guidance mode admits whatever
- * the chain judges; enforcement admits only an allowed message.
+ * the chain decides; enforcement admits only an allowed message.
  */
 export const assess = Effect.fn("assessMessage")(function* (
   liveEnvironment: FirewallEnvironment,
@@ -652,7 +652,7 @@ function runAssessment(
  * Projection failure holds enforcement while shadow admission omits unusable
  * advice. An outgoing check advises its sender only of the norm judgments
  * left unsettled; the settled outgoing expectations are what its
- * conformance judged.
+ * conformance assessed.
  */
 function guidanceProjection(
   result: FirewallCheck,

@@ -183,7 +183,7 @@ const unreachableMembers = Schema.NonEmptyArray(
 /**
  * What a completed send returns: a collecting operation names its id, and
  * `guidance` carries the local firewall's advice on the admitted send, such
- * as a norm judgment the judge left unsettled.
+ * as a norm judgment the decision provider left unsettled.
  */
 export interface SendResult {
   readonly operationId?: CollectiveId;

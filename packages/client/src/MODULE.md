@@ -643,7 +643,7 @@ export interface SendResult {
 
 What a completed send returns: a collecting operation names its id, and
 `guidance` carries the local firewall's advice on the admitted send, such
-as a norm judgment the judge left unsettled.
+as a norm judgment the decision provider left unsettled.
 
 ## Package subpaths
 
@@ -1145,7 +1145,7 @@ Candidate bytes are opaque canonical Client data, encoded as base64. A null
 result or checking/interrupted disposition never represents permission.
 The nullable post reference identifies supported messages without decoding candidate bytes.
 
-#### [`makeEnglishPolicy`](./firewall/english.ts#L273)
+#### [`makeEnglishPolicy`](./firewall/english.ts#L274)
 
 _Variable_
 

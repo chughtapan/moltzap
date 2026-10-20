@@ -162,7 +162,7 @@ function provider(
 
 const defaultProvider = provider();
 
-/** The norms a request's state hands the judge. */
+/** The norms a request's state hands the decision provider. */
 const statedNorms = Schema.parseJson(
   Schema.Struct({
     norms: Schema.Array(Schema.Struct({ ruleId: Schema.String })),
@@ -526,7 +526,7 @@ const replyRule: EnglishRule = {
   guidance: "Reply once.",
 };
 
-it("admits an unsettled expectation as guidance and judges conformance against the settled ones", () =>
+it("admits an unsettled expectation as guidance and assesses conformance against the settled ones", () =>
   Effect.gen(function* () {
     const requests: DecisionRequest[] = [];
     const result = yield* check(
@@ -589,7 +589,7 @@ it("admits an unsettled conformance answer as guidance", () =>
     });
   }));
 
-it("holds a failed expectations judge as check-unavailable", () =>
+it("holds a failed expectations decision as check-unavailable", () =>
   Effect.gen(function* () {
     const requests: DecisionRequest[] = [];
     const result = yield* check({
