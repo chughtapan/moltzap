@@ -16,6 +16,20 @@ Maintainers keep internal planning records and maintainer tooling outside this
 repository. You do not need them to contribute; a change that alters a public
 contract updates the matching page under `docs/spec/` in the same pull request.
 
+### Maintainer records
+
+Maintainers set `DOCS_INTERNAL_ROOT` to a checkout of the internal records at
+the revision pinned in `.agents/internal-skills.json` and start with its
+README. That revision pins the workflow; it does not approve proposed
+decisions. The pinned skills under `.agents/skills/` and `.claude/skills/` are
+updated and verified from that checkout, with `DOCS_COMMIT` set to the pinned
+revision:
+
+```shell
+"$DOCS_INTERNAL_ROOT/bin/records" skills sync --target . --revision DOCS_COMMIT
+"$DOCS_INTERNAL_ROOT/bin/records" skills check --target . --revision DOCS_COMMIT
+```
+
 ## Prerequisites
 
 *   Node.js at the version in [`.node-version`](.node-version).

@@ -61,19 +61,13 @@ do not ask for a separate plan approval unless the scope changes.
 - Update the existing PR/plan for a handoff. Add a separate handoff only when
   those records cannot carry what the next agent needs.
 
-Maintainers' agents set `DOCS_INTERNAL_ROOT` to a checkout of the internal
-records at the revision in `.agents/internal-skills.json`, start with its
-README, and sync the pinned skills with that checkout's `bin/records skills`
-commands. That revision pins the workflow; it does not approve proposed
-decisions. Public specifications remain the implementation baseline until a
-change is admitted. Agree on a complete decision candidate before starting its
-admission review; do not automatically review intermediate drafts.
-
-Public usage, specifications, package instructions, and runnable checks stay in
-this repository. Without the internal checkout, maintain public code using these
-specifications, normal planning, independent review, and Git/PR commands.
-A proposed boundary change must resolve its affected decision evidence before
-claiming approval.
+Maintainer records and the pinned internal skills follow
+[CONTRIBUTING.md → Maintainer records](CONTRIBUTING.md#maintainer-records).
+Public specifications remain the implementation baseline until a change is
+admitted. Agree on a complete decision candidate before starting its admission
+review; do not automatically review intermediate drafts. Without maintainer
+records, maintain public code using these specifications, normal planning,
+independent review, and Git/PR commands.
 
 Use an isolated worktree for concurrent changes, preserve other people's work,
 and confirm branch, commit, uncommitted changes, existing checks, and next action

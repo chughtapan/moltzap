@@ -96,8 +96,8 @@ Read `AGENTS.md` and this constitution, then the normative chapters in
 
 Public maintenance uses the checked-in specifications. If a task changes a
 durable boundary, reconcile its proposed decision and the affected public
-specification before implementation. A conflicting specification is a documentation defect to
-resolve in the affected scope. Deliberate deferrals remain open until
+specification before implementation. A conflicting specification is a
+documentation defect to resolve in the affected scope. Deliberate deferrals remain open until
 explicitly decided.
 
 `main` is the only release track. Four published packages release together
@@ -418,8 +418,8 @@ packages publish to npm as one version set while `@moltzap/nanoclaw-channel` sta
 [Publication and versions](spec/layer-interfaces.md#publication-and-versions).
 The package version is independent of the wire compatibility value.
 
-The simulator is an external consumer maintained with the evaluation suites in
-a private repository; it is not a product of this repository. Its link-fault
+The simulator is an external consumer built outside this repository with the
+evaluation suites; it is not a product of this repository. Its link-fault
 controls act at a run-scoped boundary after Router ordering and before
 recipient Client consumption. With no active fault they preserve message bytes
 and order. An active fault may perturb delivery for endpoint-recovery testing,

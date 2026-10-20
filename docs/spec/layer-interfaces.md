@@ -42,7 +42,7 @@ The final workspace has exactly five package products:
 | `@moltzap/openclaw-channel` | `@moltzap/client` | OpenClaw host integration against an injected or MCP-backed client |
 | `@moltzap/nanoclaw-channel` | `@moltzap/client` | NanoClaw host integration against its MCP-backed client |
 
-The simulator and evaluation applications live in a separate private monorepo
+The simulator and evaluation applications are built outside this repository
 and consume the published packages. Production packages do not depend on them.
 Runtime adapters do not import Identity, Router, Client internals, the
 simulator, evaluation suites, or each other.
