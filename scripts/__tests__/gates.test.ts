@@ -633,21 +633,33 @@ function testDependencyVersionsLiteralSpecifier(): void {
   restoreAllPlants();
 }
 
+/** The planted range is not a published version, so no catalog bump can match it. */
 function testDependencyVersionsExampleCopy(): void {
+  const example =
+    /* Safe because the example manifest is repository-owned JSON with a dependencies object. */ JSON.parse(
+      readFileSync(
+        resolve(workspaceRoot, "examples/two-agents/package.json"),
+        "utf8",
+      ),
+    ) as { dependencies: Record<string, string> };
+  const name =
+    Object.keys(example.dependencies).find(
+      (dependency) => !dependency.startsWith("@moltzap/"),
+    ) ?? "";
   plantFile("examples/two-agents/package.json", (s) =>
     s.replace(
-      '"@electric-sql/pglite": "0.4.4"',
-      '"@electric-sql/pglite": "0.4.3"',
+      `"${name}": "${example.dependencies[name] ?? ""}"`,
+      `"${name}": "0.0.0-drift"`,
     ),
   );
-  const example = runDependencyVersions();
+  const drifted = runDependencyVersions();
   test(
     "flags an example dependency that differs from the catalog",
-    example.code !== 0 &&
-      /two-agents\/package\.json: dependencies\.@electric-sql\/pglite is "0\.4\.3", expected the catalog range "0\.4\.4"/.test(
-        example.stderr,
+    drifted.code !== 0 &&
+      drifted.stderr.includes(
+        `two-agents/package.json: dependencies.${name} is "0.0.0-drift", expected the catalog range`,
       ),
-    `expected example copy failure. exit=${example.code}, stderr=${example.stderr.slice(0, 300)}`,
+    `expected example copy failure for ${name}. exit=${drifted.code}, stderr=${drifted.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
 }
@@ -668,14 +680,15 @@ function testDependencyVersionsDriftedEngines(): void {
   restoreAllPlants();
 }
 
+/** Node.js 0.0.0 lies below the floor of any supported range. */
 function testDependencyVersionsNodePin(): void {
-  plantFile(".node-version", () => "26.0.0\n");
+  plantFile(".node-version", () => "0.0.0\n");
   const pin = runDependencyVersions();
   test(
     "flags a Node.js pin outside the supported range",
     pin.code !== 0 &&
-      /\.node-version: 26\.0\.0 is outside the root engines\.node range/.test(
-        pin.stderr,
+      pin.stderr.includes(
+        ".node-version: 0.0.0 is outside the root engines.node range",
       ),
     `expected Node pin failure. exit=${pin.code}, stderr=${pin.stderr.slice(0, 300)}`,
   );
