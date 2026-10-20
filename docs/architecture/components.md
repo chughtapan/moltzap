@@ -58,8 +58,8 @@ bespoke CLI, Unix socket, stdio server, second MCP listener, or fallback bind.
 | `@moltzap/openclaw-channel` | OpenClaw consumer adapter | client |
 | `@moltzap/nanoclaw-channel` | NanoClaw consumer adapter | client |
 
-The private `social-harness/deployment` repository assembles the agent images
-and deployment artifacts from a core release. That artifact graph does not
+Agent images and deployment artifacts are assembled outside this repository
+from a core release. That artifact graph does not
 create runtime package imports.
 
 ## External fault injection
@@ -116,5 +116,4 @@ semantic Client boundary.
 The cutover removes the umbrella protocol and server packages, central Ledger,
 product Transcript and `LedgerOffset`, profiles, CLI/socket transport,
 standalone testbed, obsolete `v2/*` implementations, and generation-selection
-shims. Internal decision history is maintained in the shared documentation
-repository linked from `AGENTS.md`.
+shims.

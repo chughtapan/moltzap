@@ -22,12 +22,9 @@ product Ledger, Transcript service, profile system, or testbed package.
 3. `../architecture/` explains flows and components without overriding an
    interface.
 
-Social Harness packages publish under the `@moltzap` npm scope. Internal
-decisions and their evidence live in
-[the shared docs repo](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
-Use these public specifications for maintenance. A durable boundary change
-needs its source-backed decision and public specification reconciled before
-implementation; missing private docs do not block unrelated fixes.
+Social Harness packages publish under the `@moltzap` npm scope. Use these
+public specifications for maintenance. A durable boundary change updates its
+public specification before implementation.
 
 ## Experimental semantic firewall checks
 

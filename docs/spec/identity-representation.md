@@ -840,10 +840,3 @@ It requires no wire compatibility value or request signature.
   `version_mismatch`.
 - Domain refusals use status 200 and their closed `kind` result.
 - No error or result carries a free-form reason.
-
-## Decision evidence
-
-Internal ADRs and their source events live in
-[the shared docs repo](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
-This chapter contains the public specification needed to use and maintain the
-package.
