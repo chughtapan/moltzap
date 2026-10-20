@@ -19,7 +19,6 @@
   "files": [
     "dist",
     "!dist/tsconfig.tsbuildinfo",
-    "!dist/**/*.map",
     "bin",
     "LICENSE",
     "NOTICE"
