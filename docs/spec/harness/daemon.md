@@ -173,7 +173,7 @@ discover or call them; the baseline daemon does not list them.
 | --- | --- | --- |
 | `policy_read` | `{}` | `{rules, fixedRules, activeRevision}`; editable English documents and every fixed rule as `FixedRule` |
 | `policy_update` | `{add?: Rule[], remove?: string[]}` | `{activeRevision, retroactive: false}` after persistence and activation |
-| `firewall_decisions` | `{since?: number}` | `{decisions: [{checkId, time, direction, peerAgentId, outcome, disposition, ruleIds, activeRevision}], activations: [{time, activeRevision, addedRuleIds, removedRuleIds}]}` |
+| `firewall_decisions` | `{since?: number}` | `{decisions: [{checkId, time, direction, peerAgentId, outcome, disposition, cause, decidedBy: [{ruleId, advice?}], checkedRuleIds, activeRevision}], activations: [{time, activeRevision, addedRuleIds, removedRuleIds}]}` |
 
 `Rule`, `FixedRule` and the atomic edit/failure contract are defined by
 [editable English policy](./message-policy.md#editable-english-policy).
@@ -188,9 +188,14 @@ checks produce one row per recipient; incoming checks identify the verified
 author. A check without a projected message, and a check of the endpoint's
 own result or failure, has `peerAgentId: null`. `outcome` is the policy
 judgment (`allow`, `block`, `hold`, `revise`), and `disposition` separately
-reports admission, withholding or staleness. Rule ids identify findings in the completed chain.
-The feed contains no message text, guidance, feedback, owner facts or provider
-traces. Pollers deduplicate by `checkId` and peer; this bounded recent view is
+reports admission, withholding or staleness. `cause` says how the outcome
+came about (`judgment`, `uncertain`, `unavailable`, `code`, `endpoint` or
+`default`), and `decidedBy` names the rules that produced it, each with its
+registered `advice` when it has one, as specified by
+[decision reasons](./message-policy.md#decision-reasons).
+`checkedRuleIds` lists every rule with a finding in the completed chain.
+The feed contains no message text, owner facts or provider traces; its only
+text is the deciding rules' own registered feedback or guidance. Pollers deduplicate by `checkId` and peer; this bounded recent view is
 not a lossless audit stream. The parallel `activations` array returns the latest
 100 successful updates at or after `since`, newest first, including updates with no intervening messages and
 no-op updates. Each entry records Unix milliseconds, the active revision, and

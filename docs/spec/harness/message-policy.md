@@ -552,6 +552,44 @@ refuses guidance-bearing deliveries without acknowledging them and reports send
 refusals through its existing refused-message callback; it is not a qualified
 firewall host.
 
+### Decision reasons
+
+Each row of the owner decisions feed says which rules decided its outcome
+and how. Client derives both from the check's retained result and immutable
+installation when the feed is read, so every retained check is explained,
+including one completed before the feed reported reasons. Nothing new is
+stored and the store schema is unchanged.
+
+`decidedBy` lists the deciding rules once each, in chain order, chosen by the
+reason that [decision composition](#outgoing-projection) selected:
+
+| Reason | Deciding rules |
+| --- | --- |
+| prohibition | the rules that found the message prohibited |
+| unavailable assessment | every rule of a check that could not run, and the rules whose judgment could not be obtained |
+| unresolved evidence | the rules that held, and the norms whose expectations conflict |
+| norm violation | the rules that found a violation |
+| approval required | the autonomy rules that require approval |
+| admission | the norms judged uncertain, which admit with guidance; otherwise none |
+
+A rule's `advice` is its own registered text: its guidance for an admission,
+or its feedback when the reason permits that feedback's next action. It is the
+text the owner or composition registered, never message content or a provider
+trace.
+
+`cause` reads the first English deciding rule, or the first deciding rule when
+no English rule decided. An English rule is one an English policy registers,
+identified by its registration's provenance format.
+
+| Cause | Meaning |
+| --- | --- |
+| `judgment` | A settled English judgment. |
+| `uncertain` | An unsettled English judgment: a norm admitted with guidance, or a safety or autonomy rule held. |
+| `unavailable` | A check could not run: the decision provider failed, was unreachable or returned an invalid response, the request exceeded its budget, or a middleware failed or timed out. Enforcement holds the message. |
+| `code` | A code middleware's finding. |
+| `endpoint` | A hold Client made with no deciding rule: missing context evidence, a terminal or unsupported item, invalid evidence, or advice that could not be projected. |
+| `default` | An admission no rule qualified. |
+
 ### History scope
 
 The assessor sees one conversation: the recent window of the candidate's own

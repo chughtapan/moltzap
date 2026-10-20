@@ -6,8 +6,11 @@ import type {
   MessageEvent,
   MessageMiddleware,
   MiddlewareCheck,
+  MiddlewareObservation,
+  NormExpectation,
   NormGuidance,
   PolicyFinding,
+  RuleDescription,
   UncertainNormGuidance,
 } from "./values.js";
 
@@ -101,6 +104,63 @@ export function projectFeedback(
     : feedback;
 }
 
+/**
+ * A rule that produced a decision's reason. `finding` is `unavailable` when
+ * its check could not run or its judgment could not be obtained, `uncertain`
+ * when the judgment was left unsettled, and `settled` otherwise. `advice` is
+ * the rule's own registered text the decision projects for it: its guidance
+ * for an admission, or its feedback when the reason permits its next action.
+ */
+export interface DecidingRule {
+  readonly middlewareId: string;
+  readonly ruleId: string;
+  readonly finding: "settled" | "uncertain" | "unavailable";
+  readonly advice?: string;
+}
+
+interface Registration {
+  readonly id: string;
+  readonly rules: readonly RuleDescription[];
+}
+type Observation = Pick<
+  MiddlewareObservation,
+  "middlewareId" | "status" | "findings" | "expectations"
+>;
+
+/**
+ * The rules that produced `reason`, once each in chain order. An admission
+ * is decided by the norms judged uncertain, which admit with guidance, and
+ * by no rule otherwise. An unavailable check is decided by every rule it
+ * registers; a hold on unresolved evidence by its holding rules and any
+ * conflicting expectations. Every other reason is decided by the findings
+ * that select it. A hold on missing context evidence alone has no rule.
+ */
+export function decidingRules(
+  reason: Reason,
+  middleware: readonly Registration[],
+  checks: readonly Observation[],
+): readonly DecidingRule[] {
+  const selected = checks.flatMap((check) =>
+    checkDeciders(reason, middleware, check),
+  );
+  const conflicting =
+    reason === "unresolved-evidence"
+      ? conflictingExpectations(checks).map((entry) => ({
+          middlewareId: entry.middlewareId,
+          ruleId: entry.ruleId,
+          finding: "settled" as const,
+        }))
+      : [];
+  const unique = new Map<string, DecidingRule>();
+  for (const rule of [...selected, ...conflicting]) {
+    const key = JSON.stringify([rule.middlewareId, rule.ruleId]);
+    if (!unique.has(key)) {
+      unique.set(key, withAdvice(reason, middleware, rule));
+    }
+  }
+  return [...unique.values()];
+}
+
 function selectReason(
   event: MessageEvent,
   context: MessageContext,
@@ -128,6 +188,79 @@ function selectReason(
   return "eligible";
 }
 
+/** The rules of one check that produced `reason`. */
+function checkDeciders(
+  reason: Reason,
+  middleware: readonly Registration[],
+  check: Observation,
+): DecidingRule[] {
+  if (reason === "check-unavailable" && check.status === "unavailable") {
+    const registered =
+      middleware.find((entry) => entry.id === check.middlewareId)?.rules ?? [];
+    return registered.map((rule) => ({
+      middlewareId: check.middlewareId,
+      ruleId: rule.id,
+      finding: "unavailable",
+    }));
+  }
+  return check.findings.flatMap((finding) => {
+    const kind = decidingFinding(finding, reason);
+    return kind === undefined
+      ? []
+      : [
+          {
+            middlewareId: check.middlewareId,
+            ruleId: finding.ruleId,
+            finding: kind,
+          },
+        ];
+  });
+}
+
+function withAdvice(
+  reason: Reason,
+  middleware: readonly Registration[],
+  rule: DecidingRule,
+): DecidingRule {
+  const advice = registeredAdvice(
+    reason,
+    middleware
+      .find((entry) => entry.id === rule.middlewareId)
+      ?.rules.find((described) => described.id === rule.ruleId),
+  );
+  return advice === undefined ? rule : { ...rule, advice };
+}
+
+/** How a finding decided `reason`, or undefined when it did not. */
+function decidingFinding(
+  finding: PolicyFinding,
+  reason: Reason,
+): DecidingRule["finding"] | undefined {
+  if (reason === "eligible") {
+    return "choice" in finding ? "uncertain" : undefined;
+  }
+  if (!matchesReason(finding, reason)) {
+    return undefined;
+  }
+  if (reason === "check-unavailable") {
+    return "unavailable";
+  }
+  return finding.outcome === "hold" ? "uncertain" : "settled";
+}
+
+function registeredAdvice(
+  reason: Reason,
+  rule?: RuleDescription,
+): string | undefined {
+  if (reason === "eligible") {
+    return rule?.guidance;
+  }
+  return rule?.feedback !== undefined &&
+    validNextAction(reason, rule.feedback.nextAction)
+    ? rule.feedback.text
+    : undefined;
+}
+
 function unavailableCheck(
   checks: readonly MiddlewareCheck[],
   findings: readonly PolicyFinding[],
@@ -149,7 +282,7 @@ function unresolvedCheck(
   return (
     context.gaps.length !== 0 ||
     findings.some((finding) => finding.outcome === "hold") ||
-    conflictingExpectations(checks)
+    conflictingExpectations(checks).length !== 0
   );
 }
 
@@ -176,19 +309,49 @@ function hasApproval(event: MessageEvent, context: MessageContext): boolean {
   );
 }
 
-/** Unscoped opposing expectations are unresolved, never a last-writer override. */
-function conflictingExpectations(checks: readonly MiddlewareCheck[]): boolean {
-  const expectations = checks.flatMap((check) => check.expectations);
-  return expectations.some(
-    (left) =>
-      left.expectation === "required" &&
+/**
+ * The rules whose unscoped opposing expectations conflict; a conflict is
+ * unresolved, never a last-writer override.
+ */
+function conflictingExpectations(
+  checks: ReadonlyArray<
+    Pick<MiddlewareObservation, "middlewareId" | "expectations">
+  >,
+): ReadonlyArray<{ readonly middlewareId: string; readonly ruleId: string }> {
+  const expectations = checks.flatMap((check) =>
+    check.expectations.map((norm) => ({
+      middlewareId: check.middlewareId,
+      ruleId: norm.ruleId,
+      expectation: norm.expectation,
+      subjects: norm.subjects,
+    })),
+  );
+  return expectations
+    .filter((norm) =>
       expectations.some(
-        (right) =>
-          right.expectation === "wait" &&
-          (left.subjects.length === 0 ||
-            right.subjects.length === 0 ||
-            left.subjects.some((subject) => right.subjects.includes(subject))),
+        (other) => opposing(norm, other) && overlapping(norm, other),
       ),
+    )
+    .map((norm) => ({ middlewareId: norm.middlewareId, ruleId: norm.ruleId }));
+}
+
+function opposing(
+  left: Pick<NormExpectation, "expectation">,
+  right: Pick<NormExpectation, "expectation">,
+): boolean {
+  const pair = new Set([left.expectation, right.expectation]);
+  return pair.has("required") && pair.has("wait");
+}
+
+/** An expectation without subjects covers every subject. */
+function overlapping(
+  left: Pick<NormExpectation, "subjects">,
+  right: Pick<NormExpectation, "subjects">,
+): boolean {
+  return (
+    left.subjects.length === 0 ||
+    right.subjects.length === 0 ||
+    left.subjects.some((subject) => right.subjects.includes(subject))
   );
 }
 

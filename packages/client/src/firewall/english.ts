@@ -323,13 +323,16 @@ function ruleDescriptions(rules: readonly EnglishRule[]) {
   );
 }
 
+/** The provenance format every English policy registers, naming its checks as English judgments. */
+export const englishPolicyFormat = "org.social-harness/english-policy.v1";
+
 function englishProvenance(
   rules: readonly EnglishRule[],
   settings: EnglishPolicySettings,
   provider: DecisionProvider,
 ) {
   return Object.freeze({
-    format: "org.social-harness/english-policy.v1",
+    format: englishPolicyFormat,
     data: JSON.stringify({
       questionEdition,
       rules,

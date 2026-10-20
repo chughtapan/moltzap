@@ -568,7 +568,29 @@ export const firewallActivationSchema = exact({
   removedRuleIds: Schema.Array(Schema.NonEmptyString),
 });
 
-/** One row per peer contains no content, templates, feedback or provider traces. */
+/**
+ * How a decision's outcome came about. `judgment` is a settled English
+ * judgment and `uncertain` an unsettled one, admitted or held with guidance.
+ * `unavailable` is a check that could not run: the decision provider failed
+ * or was unreachable, or a middleware failed or timed out. `code` is a code
+ * middleware's finding. `endpoint` is a hold Client makes itself without a
+ * deciding rule, and `default` an admission no rule qualified.
+ */
+const decisionCause = Schema.Literal(
+  "judgment",
+  "uncertain",
+  "unavailable",
+  "code",
+  "endpoint",
+  "default",
+);
+
+/**
+ * One row per peer contains no message content or provider traces. The only
+ * text is `decidedBy[].advice`, the deciding rule's own registered feedback,
+ * or its guidance for an admission. `checkedRuleIds` lists every rule with a
+ * finding in the completed chain.
+ */
 export const firewallDecisionsSchema = exact({
   activations: Schema.Array(firewallActivationSchema),
   decisions: Schema.Array(
@@ -579,7 +601,14 @@ export const firewallDecisionsSchema = exact({
       peerAgentId: Schema.NullOr(AgentId),
       outcome: Schema.Literal("allow", "block", "hold", "revise"),
       disposition: Schema.Literal("stale", "admitted", "withheld"),
-      ruleIds: Schema.Array(Schema.NonEmptyString),
+      cause: decisionCause,
+      decidedBy: Schema.Array(
+        exact({
+          ruleId: Schema.NonEmptyString,
+          advice: Schema.optional(Schema.NonEmptyString),
+        }),
+      ),
+      checkedRuleIds: Schema.Array(Schema.NonEmptyString),
       activeRevision: Schema.NonEmptyString,
     }),
   ),

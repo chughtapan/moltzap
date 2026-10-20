@@ -13,9 +13,13 @@ import {
 } from "./values.js";
 
 /** English rules and code policies share the same checking contract. */
-export { makeEnglishPolicy } from "./english.js";
+export { englishPolicyFormat, makeEnglishPolicy } from "./english.js";
 /** Client-synthesized holds use the same permitted advice as policy decisions. */
-export { projectFeedback } from "./decision.js";
+export {
+  type DecidingRule,
+  decidingRules,
+  projectFeedback,
+} from "./decision.js";
 /** Credentials are supplied by trusted composition without environment lookup. */
 export { makeJevDecisionProvider } from "./jev.js";
 /** Closed failures never contain arbitrary agent-visible diagnostics. */

@@ -783,7 +783,7 @@ export class DecisionProviderError extends Data.TaggedError(
 
 The adapter scrubs credentials before retaining optional private diagnostics.
 
-#### [`FirewallPolicyError`](./firewall/values.ts#L589)
+#### [`FirewallPolicyError`](./firewall/values.ts#L618)
 
 _Class_
 
@@ -1209,7 +1209,7 @@ flowchart TD
   C --> R[Return all findings and private stage trace]
 ```
 
-#### [`makeFirewall`](./firewall/index.ts#L65)
+#### [`makeFirewall`](./firewall/index.ts#L69)
 
 _Variable_
 

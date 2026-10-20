@@ -3,7 +3,10 @@
 import { Clock, Effect, Schema } from "effect";
 import type { InstalledFirewall } from "./firewall-checks.js";
 import {
+  type DecidingRule,
+  decidingRules,
   decodeFrozen,
+  englishPolicyFormat,
   EnglishPolicySettings,
   EnglishRule,
   firewallDecisionsSchema,
@@ -301,7 +304,7 @@ function updatePolicy(
   }).pipe(Effect.withSpan("updateFirewallPolicy"));
 }
 
-/** Explicit projection prevents private input, diagnostics and registered text escaping through this feed. */
+/** Explicit projection prevents message content, private input, diagnostics and rule text escaping through this feed; only deciding rules' registered advice is projected. */
 function readDecisions(
   store: EndpointStore,
   request: { readonly since?: number },
@@ -329,6 +332,7 @@ function decisionRows(entry: FirewallAuditEntry & { readonly time: number }) {
 type DecodedCheck = Effect.Effect.Success<
   ReturnType<typeof decodeFirewallAuditEntry>
 >;
+type DecodedResult = NonNullable<DecodedCheck["result"]>;
 
 function projectDecision(check: DecodedCheck, time: number) {
   const result = check.result;
@@ -342,13 +346,26 @@ function projectDecision(check: DecodedCheck, time: number) {
   const message = check.input.message;
   const peers =
     message === null ? [null] : decisionPeers(message, check.direction);
-  const ruleIds = [
+  const checkedRuleIds = [
     ...new Set(
       result.checks.flatMap((middleware) =>
         middleware.findings.map((finding) => finding.ruleId),
       ),
     ),
   ];
+  const registrations = check.input.installation[check.direction];
+  const deciding = decidingRules(result.reason, registrations, result.checks);
+  const english = new Set(
+    registrations
+      .filter((entry) => entry.provenance.format === englishPolicyFormat)
+      .map((entry) => entry.id),
+  );
+  const cause = decisionCause(result.judgment, deciding, english);
+  const decidedBy = deciding.map((rule) =>
+    rule.advice === undefined
+      ? { ruleId: rule.ruleId }
+      : { ruleId: rule.ruleId, advice: rule.advice },
+  );
   return peers.map((peerAgentId) => ({
     checkId: check.checkId,
     time,
@@ -356,9 +373,37 @@ function projectDecision(check: DecodedCheck, time: number) {
     peerAgentId,
     outcome: result.judgment,
     disposition: check.disposition,
-    ruleIds,
+    cause,
+    decidedBy,
+    checkedRuleIds,
     activeRevision: check.input.configurationDigest,
   }));
+}
+
+/**
+ * The cause of a decision, read from its first English deciding rule, or
+ * from its first deciding rule when no English rule decided it. A check
+ * that could not run is `unavailable` from either kind of middleware; any
+ * other code finding is `code`. With no deciding rule, an admission is the
+ * `default` and any other outcome is the endpoint's own hold.
+ */
+function decisionCause(
+  judgment: DecodedResult["judgment"],
+  deciding: readonly DecidingRule[],
+  english: ReadonlySet<string>,
+): (typeof firewallDecisionsSchema.Type.decisions)[number]["cause"] {
+  const first =
+    deciding.find((rule) => english.has(rule.middlewareId)) ?? deciding[0];
+  if (first === undefined) {
+    return judgment === "allow" ? "default" : "endpoint";
+  }
+  if (first.finding === "unavailable") {
+    return "unavailable";
+  }
+  if (!english.has(first.middlewareId)) {
+    return "code";
+  }
+  return first.finding === "uncertain" ? "uncertain" : "judgment";
 }
 
 /**

@@ -173,7 +173,7 @@ export interface Firewall {
 
 Checking returns data; Client separately owns fresh, atomic send/delivery admission.
 
-### [`FirewallPolicyError`](./values.ts#L589)
+### [`FirewallPolicyError`](./values.ts#L618)
 
 _Class_
 
@@ -304,7 +304,7 @@ flowchart TD
   C --> R[Return all findings and private stage trace]
 ```
 
-### [`makeFirewall`](./index.ts#L65)
+### [`makeFirewall`](./index.ts#L69)
 
 _Variable_
 
