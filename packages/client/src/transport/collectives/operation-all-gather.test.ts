@@ -34,6 +34,7 @@ import {
   slotSchema,
   unkeptEmit,
 } from "../../__tests__/collective-operation-fixtures.js";
+import { localGuidance } from "../../__tests__/message-policy-fixtures.js";
 import { SendError } from "../messaging/errors.js";
 import { InboundMessage } from "../messaging/message.js";
 import { CollectiveEmitError } from "./forms.js";
@@ -315,16 +316,27 @@ function startsWhenTheGroupPostCertifiesWithinTheWait() {
  */
 function endsInItsResultAloneWhenTheDeadlinePassesBeforeTheGroupPostCertifies() {
   const observed = newObserved();
+  const advice = localGuidance(9);
 
   return Effect.gen(function* () {
-    const posts = { attempted: 0 };
     const emitted = yield* Deferred.make<undefined>();
+    const bound: EngineSendInput[] = [];
     const layer = yield* makeLayer(observed, {
       ...signalEmitted(observed, emitted),
-      sendPost: (input) =>
-        posts.attempted++ === 0 ? Effect.never : certifyNext(observed, input),
+      admission: {
+        bindPost: (input, hold) =>
+          hold.pipe(
+            Effect.zipLeft(
+              Effect.sync(() => {
+                bound.push(input);
+              }),
+            ),
+            Effect.as({ certified: Effect.never, guidance: advice }),
+          ),
+        admitGather: () => Effect.dieMessage("an all_gather admits no gather"),
+      },
     });
-    yield* send(layer, {
+    const completed = yield* send(layer, {
       ...allGatherInput(),
       collective: {
         op: "all_gather",
@@ -334,6 +346,8 @@ function endsInItsResultAloneWhenTheDeadlinePassesBeforeTheGroupPostCertifies() 
     });
     yield* Deferred.await(emitted);
 
+    expect(bound.map(({ to }) => to)).toEqual([group]);
+    expect(completed).toMatchObject({ postIds: [], guidance: advice });
     expect(observed.emitted).toMatchObject([
       { kind: "collectiveResult", to: group },
     ]);

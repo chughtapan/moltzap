@@ -116,16 +116,20 @@ export interface EndpointEngine {
   /**
    * Check and bind one application post. Inference completes outside
    * protocol locks, then `hold` is taken, then the intent binds atomically
-   * with the check's evidence comparison. The returned effect completes once
-   * the post is certified, so a caller can bound that wait apart from the
-   * check, and carries the `admitted` value of the check that admitted it.
+   * with the check's evidence comparison. A bound post returns the
+   * `admitted` value of the check that admitted it at once, and `certified`
+   * completes once the post is certified, so a caller can bound that wait
+   * apart from the check.
    */
   readonly bindChecked: <E, A>(
     input: EngineSendInput,
     check: PreparedSendCheck<A>,
     hold: BindHold<E>,
   ) => Effect.Effect<
-    Effect.Effect<EngineSentPost & { readonly admitted: A }, SendError>,
+    {
+      readonly certified: Effect.Effect<EngineSentPost, SendError>;
+      readonly admitted: A;
+    },
     SendError | FirewallSendError | E
   >;
   /**
@@ -591,11 +595,10 @@ const endpointEngine = (runtime: EngineRuntime): EndpointEngine =>
       hold: BindHold<E>,
     ) =>
       prepareCheckedSend(runtime, input, check, hold).pipe(
-        Effect.map((prepared) =>
-          finishPreparedSend(runtime, prepared).pipe(
-            Effect.map((post) => ({ ...post, admitted: prepared.admitted })),
-          ),
-        ),
+        Effect.map((prepared) => ({
+          certified: finishPreparedSend(runtime, prepared),
+          admitted: prepared.admitted,
+        })),
       ),
     sendAdmitted: (input: EngineSendInput, checkId: string) =>
       prepareAdmittedSend(runtime, input, checkId).pipe(

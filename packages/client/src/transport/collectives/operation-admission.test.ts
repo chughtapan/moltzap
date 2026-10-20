@@ -46,6 +46,7 @@ import {
   type CheckedGuidance,
   FirewallSendError,
 } from "../../firewall/runtime.js";
+import { SendError } from "../messaging/errors.js";
 import { InboundMessage } from "../messaging/message.js";
 import { collectiveIdOf } from "./part/index.js";
 
@@ -82,6 +83,7 @@ interface DoubleOptions {
   readonly gatherGate?: CheckGate;
   readonly requestsHang?: boolean;
   readonly guidance?: CheckedGuidance;
+  readonly postFails?: SendError;
 }
 
 /** What a firewall double saw. */
@@ -133,13 +135,13 @@ function checkPost<E>(
       return yield* refusal;
     }
     yield* post.hold;
-    return certifyNext(observed, post.input).pipe(
-      Effect.map((sent) =>
-        options.guidance === undefined
-          ? sent
-          : { ...sent, guidance: options.guidance },
-      ),
-    );
+    return {
+      certified:
+        options.postFails === undefined
+          ? certifyNext(observed, post.input)
+          : Effect.fail(options.postFails),
+      guidance: options.guidance,
+    };
   });
 }
 
@@ -311,6 +313,36 @@ function returnsTheAdmittingChecksAdvice() {
     expect(gathered).toMatchObject({ guidance: advice });
     expect(posted).toMatchObject({ guidance: advice });
     expect(allGathered).toMatchObject({ guidance: advice });
+  });
+}
+
+function keepsAnAdmittedAnswersAdviceWhenItsFailureArrivesInbound() {
+  return Effect.gen(function* () {
+    const advice = localGuidance(6);
+    const observed = newObserved();
+    const firewall = firewallDouble(observed, {
+      guidance: advice,
+      postFails: new SendError({ reason: "network-unavailable" }),
+    });
+    const layer = yield* makeLayer(observed, {
+      admission: firewall.admission,
+    });
+    yield* receiveGatherRequest(layer, true);
+
+    const completed = yield* send(
+      layer,
+      { to: "agent:bob", collectiveResponse: answer },
+      "inbound",
+    );
+
+    expect(completed).toEqual({
+      operationId: requestId,
+      postIds: [],
+      guidance: advice,
+    });
+    expect(observed.emitted).toMatchObject([
+      { kind: "operationFailed", id: requestId },
+    ]);
   });
 }
 
@@ -674,6 +706,10 @@ describe("collective sends under a firewall", () => {
   it(
     "returns each admitted send's advice with it: an answer, a gather, a multicast and an all_gather",
     returnsTheAdmittingChecksAdvice,
+  );
+  it(
+    "keeps an admitted answer's advice when its failure is delivered inbound",
+    keepsAnAdmittedAnswersAdviceWhenItsFailureArrivesInbound,
   );
 });
 
