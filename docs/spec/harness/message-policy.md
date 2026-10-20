@@ -210,7 +210,7 @@ different runtime path. Owner-authorized history remains an audit capability.
 
 For OpenClaw, the first projection uses the stock agent-facing body alongside a
 separately delimited original message, preserving the raw body. A result or
-failure turn is labelled as MoltZap's own, quoting the peers' answers, not as
+failure turn is labelled as Social Harness's own, quoting the peers' answers, not as
 a peer message. This is contextual guidance, not a claim of a new system-role
 capability. Qualify the actual model-visible prompt for DMs and groups. Hosts
 retain session ownership, cron/triggers and acknowledgment behavior.
@@ -375,7 +375,7 @@ Later checks see the operation as typed entries. A request record is
 runtime-visible when its item reached the inbox, and an answer record when an
 admitted result showed it; an answer a result withheld is marked withheld. An
 admitted result or failure leaves a runtime-visible entry, attributed to
-MoltZap, under its conversation's address, ordered after the records
+Social Harness, under its conversation's address, ordered after the records
 certified before it was queued and before every record certified after. Each checked message names its operation, and
 each context carries the time it was captured.
 

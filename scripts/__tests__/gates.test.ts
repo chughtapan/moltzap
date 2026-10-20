@@ -312,11 +312,11 @@ function testBakeFailureFailClosed(): void {
 }
 
 function testCompatibilityVersionFile(): void {
-  console.log("\n# MoltZap compatibility version source");
+  console.log("\n# Social Harness compatibility version source");
   plantFile(WIRE_VERSION_SOURCE, withCompatibilityVersion(""));
   const empty = runGenerate(workspaceRoot);
   test(
-    "empty MoltZap version fails closed",
+    "empty Social Harness version fails closed",
     empty.code !== 0 && /expected a nonempty version/.test(empty.stderr),
     `expected empty-version failure. exit=${empty.code}, stderr=${empty.stderr.slice(0, 300)}`,
   );
@@ -351,7 +351,7 @@ function testCompatibilityVersionFile(): void {
   plantFile(WIRE_VERSION_SOURCE, withCompatibilityVersion(nextVersion));
   const bumped = runGenerate(workspaceRoot);
   test(
-    "changed MoltZap version regenerates constants",
+    "changed Social Harness version regenerates constants",
     bumped.code === 0,
     `expected successful regeneration. exit=${bumped.code}, stderr=${bumped.stderr.slice(0, 300)}`,
   );
@@ -823,7 +823,7 @@ function testBakedVersionDrift(): void {
   plantFile(
     CONTRIBUTING_DOC,
     (s) =>
-      `${s}\nMoltZap compatibility pinned at ${compatibilityVersion} for this run.\n`,
+      `${s}\nSocial Harness compatibility pinned at ${compatibilityVersion} for this run.\n`,
   );
   const r2 = runScript(
     "scripts/docs/check-no-hardcoded-constants.ts",
@@ -913,14 +913,14 @@ function checkRegeneratedVersion(
 ): void {
   for (const path of consumers) {
     test(
-      `re-bakes MoltZap version: ${path.split("/").slice(-2).join("/")}`,
+      `re-bakes Social Harness version: ${path.split("/").slice(-2).join("/")}`,
       readFileSync(path, "utf8").includes(nextVersion),
       `${path} did not contain ${nextVersion} after regeneration`,
     );
   }
   for (const path of generated) {
     test(
-      `regenerates MoltZap version snippet: ${path.split("/").slice(-2).join("/")}`,
+      `regenerates Social Harness version snippet: ${path.split("/").slice(-2).join("/")}`,
       readFileSync(resolve(workspaceRoot, path), "utf8").includes(nextVersion),
       `${path} did not contain ${nextVersion} after regeneration`,
     );

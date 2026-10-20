@@ -40,7 +40,7 @@ const minimumRegistrationBody = Schema.Struct({
 });
 
 const admissionValue =
-  /^MoltZap-Admission ((?=.{8,512}$)[A-Za-z0-9\-._~+/]+=*)$/;
+  /^Sharness-Admission ((?=.{8,512}$)[A-Za-z0-9\-._~+/]+=*)$/;
 
 type BootstrapRegistrationInput = Readonly<{
   httpRequest: HttpServerRequest.HttpServerRequest;

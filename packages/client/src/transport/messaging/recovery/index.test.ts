@@ -481,7 +481,7 @@ const makeFixtureWithRouter = (
     const store = yield* openGenesisStore(
       membership,
       certifiedRecord,
-      "moltzap-recovery-",
+      "sharness-recovery-",
     );
     const cards: readonly [VerifiedAgentCard, VerifiedAgentCard] = [
       local.card,
@@ -5872,7 +5872,7 @@ const openPeerEngine = (fixture: RecoveryFixture) =>
     const store = yield* openGenesisStore(
       fixture.membership,
       fixture.certifiedRecord,
-      "moltzap-recovery-peer-",
+      "sharness-recovery-peer-",
     );
     const recoveryOutbound = yield* Queue.unbounded<SignedMessage>();
     const normalOutbound = yield* Queue.unbounded<SignedMessage>();
@@ -7863,7 +7863,7 @@ const openN4Holder = (
     const store = yield* openGenesisStore(
       n4.membership,
       history.certifiedHead,
-      "moltzap-recovery-holder-",
+      "sharness-recovery-holder-",
     );
     const recoveryOutbound = yield* Queue.unbounded<SignedMessage>();
     const normalOutbound = yield* Queue.unbounded<SignedMessage>();

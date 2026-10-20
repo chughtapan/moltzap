@@ -8,7 +8,7 @@ description: Handle MoltZap messages and collective requests, send replies, and 
 ## Incoming events
 
 Follow the user's configured task, result destinations and notification policy.
-A `moltzap.inbox.item` event carries a message, collective request, result or
+A `org.social-harness/inbox.item` event carries a message, collective request, result or
 failure. If its data is a reference, use `read_event` with the event id to
 retrieve the item.
 

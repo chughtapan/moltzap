@@ -1,4 +1,4 @@
-/** @file Projects the public MoltZap endpoint capability into NanoClaw. */
+/** @file Projects the public Social Harness endpoint capability into NanoClaw. */
 import {
   acquireHarnessEndpoint,
   type InboundMessage as ClientInboundMessage,
@@ -48,7 +48,7 @@ class ChannelError extends Data.TaggedError("ChannelError")<{
   }
 }
 
-const CHANNEL_ID = "moltzap";
+const CHANNEL_ID = "sharness";
 const NANOCLAW_MAIN_CHANNEL = "cli";
 const NANOCLAW_MAIN_PLATFORM_ID = "local";
 const CHANNEL_DEFAULTS = Object.freeze({
@@ -122,7 +122,7 @@ function decodeOutboundText(
       Effect.fail(
         new ChannelError({
           reason:
-            "MoltZap outbound delivery requires an explicit agent or group address",
+            "Social Harness outbound delivery requires an explicit agent or group address",
         }),
       ),
     ),
@@ -135,14 +135,15 @@ function decodeOutboundOperation(
   if (message.kind !== "chat") {
     return Effect.fail(
       new ChannelError({
-        reason: "MoltZap outbound messages must use NanoClaw chat delivery",
+        reason:
+          "Social Harness outbound messages must use NanoClaw chat delivery",
       }),
     );
   }
   if (message.files !== undefined && message.files.length > 0) {
     return Effect.fail(
       new ChannelError({
-        reason: "MoltZap outbound messages do not accept native files",
+        reason: "Social Harness outbound messages do not accept native files",
       }),
     );
   }
@@ -150,7 +151,7 @@ function decodeOutboundOperation(
   return text === null
     ? Effect.fail(
         new ChannelError({
-          reason: "MoltZap outbound messages require text content",
+          reason: "Social Harness outbound messages require text content",
         }),
       )
     : Effect.succeed(text);
@@ -205,9 +206,9 @@ function isFinalRefusal(error: unknown): error is SendError {
 }
 
 /** The sender NanoClaw records for an item the endpoint itself emitted. */
-const ENDPOINT_SENDER = "MoltZap";
+const ENDPOINT_SENDER = "Social Harness";
 
-/** A message MoltZap itself sends the model: a result or a refusal. */
+/** A message Social Harness itself sends the model: a result or a refusal. */
 function fromEndpoint(
   id: string,
   address: MessageAddressInput,
@@ -254,7 +255,7 @@ function endpointInbound(input: {
  *   participant Host as NanoClaw host
  *   Client->>Adapter: InboundDelivery<br>multicast, request, result or failure
  *   Adapter->>Host: onMetadata<br>address and group shape
- *   Adapter->>Host: await onInboundEvent<br>main session and MoltZap reply route
+ *   Adapter->>Host: await onInboundEvent<br>main session and Social Harness reply route
  *   Adapter->>Client: acknowledge delivery
  *   Host->>Adapter: deliver<br>address and text
  *   Adapter->>Adapter: parse the text as a multicast, gather, all_gather or answer
@@ -389,7 +390,7 @@ class HarnessChannelAdapter {
       try: () => new URL(this.mcpEndpoint),
       catch: () =>
         new ChannelError({
-          reason: "MoltZap channel MCP endpoint is invalid",
+          reason: "Social Harness channel MCP endpoint is invalid",
         }),
     }).pipe(Effect.flatMap(acquireHarnessEndpoint), Scope.extend(scope));
   }
@@ -406,7 +407,7 @@ class HarnessChannelAdapter {
     if (activation?.state !== "active" || config === null) {
       return Effect.fail(
         new ChannelError({
-          reason: "MoltZap channel is not connected",
+          reason: "Social Harness channel is not connected",
         }),
       );
     }
@@ -459,7 +460,7 @@ class HarnessChannelAdapter {
       ? report.pipe(
           Effect.catchAll((unreported) =>
             Effect.logWarning(
-              `MoltZap completed a ${error.reason} send to ${to} without reporting it: ${unreported.message}`,
+              `Social Harness completed a ${error.reason} send to ${to} without reporting it: ${unreported.message}`,
             ),
           ),
         )
@@ -467,7 +468,7 @@ class HarnessChannelAdapter {
   }
 
   /**
-   * Hand a refused send back to the model as a MoltZap message in the
+   * Hand a refused send back to the model as a Social Harness message in the
    * conversation it was sent to. `send_message` has already returned, so this
    * is how the model learns of it. The row completes rather than reaching
    * NanoClaw's retry: a text the parser refuses would fail the same way again,
@@ -503,7 +504,7 @@ class HarnessChannelAdapter {
       return Effect.fail(
         new ChannelError({
           reason:
-            "MoltZap local guidance requires a supported host projection; use the OpenClaw adapter for this experiment",
+            "Social Harness local guidance requires a supported host projection; use the OpenClaw adapter for this experiment",
         }),
       );
     }
@@ -513,11 +514,11 @@ class HarnessChannelAdapter {
   }
 
   /**
-   * Hand one item to NanoClaw's main session with a MoltZap reply route, in
+   * Hand one item to NanoClaw's main session with a Social Harness reply route, in
    * the one fixed form its kind defines. A multicast keeps its message; a
    * request is a message from the requester in the conversation it arrived
    * in, direct for a gather and the group for an all_gather; a result or a failure is
-   * attributed to MoltZap and routed to the address its operation named.
+   * attributed to Social Harness and routed to the address its operation named.
    * @param config The host callbacks from the active setup.
    * @param item The item the endpoint delivered.
    * @returns Completion after the host callback completed.
@@ -570,9 +571,9 @@ class HarnessChannelAdapter {
 
   /**
    * Hand one projected message to NanoClaw's main session, replying to its
-   * MoltZap address.
+   * Social Harness address.
    * @param config The host callbacks from the active setup.
-   * @param address The MoltZap conversation the message belongs to.
+   * @param address The Social Harness conversation the message belongs to.
    * @param inbound The message in NanoClaw's inbox shape.
    * @returns Completion after the host callback completed.
    */

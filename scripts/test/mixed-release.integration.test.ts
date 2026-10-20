@@ -47,7 +47,7 @@ const packages = {
  * moves it above the release it drops, so the gate skips that release rather
  * than failing on it.
  */
-const FIRST_POST_RESET_RELEASE = Option.some("2026.1019.2");
+const FIRST_POST_RESET_RELEASE = Option.some("2026.1021.2");
 const PRE_RESET_WIRE_VERSION = "pre-reset";
 
 function preResetRelease(
@@ -92,20 +92,20 @@ function releaseWireVersion(
           Schema.decodeUnknown(
             Schema.parseJson(
               Schema.Struct({
-                moltzapWireVersion: Schema.optional(Schema.String),
+                sharnessWireVersion: Schema.optional(Schema.String),
               }),
             ),
           ),
         ),
-        Effect.map(({ moltzapWireVersion }) => ({
+        Effect.map(({ sharnessWireVersion }) => ({
           identity,
-          moltzapWireVersion,
+          sharnessWireVersion,
         })),
       ),
     ),
-    Effect.flatMap(({ identity, moltzapWireVersion }) => {
-      if (moltzapWireVersion !== undefined) {
-        return Effect.succeed(moltzapWireVersion);
+    Effect.flatMap(({ identity, sharnessWireVersion }) => {
+      if (sharnessWireVersion !== undefined) {
+        return Effect.succeed(sharnessWireVersion);
       }
       return preResetRelease(
         version,
@@ -114,7 +114,7 @@ function releaseWireVersion(
         ? Effect.succeed(PRE_RESET_WIRE_VERSION)
         : Effect.fail(
             new ProcessTestError({
-              message: `@moltzap/identity@${identity}, pinned by @moltzap/client@${version}, is missing published moltzapWireVersion metadata`,
+              message: `@moltzap/identity@${identity}, pinned by @moltzap/client@${version}, is missing published sharnessWireVersion metadata`,
             }),
           );
     }),
@@ -506,7 +506,7 @@ it("reads a Client release's wire version from the Identity version it pins", ()
                   "@moltzap/router": "2099.2.0",
                 }
               : {
-                  moltzapWireVersion:
+                  sharnessWireVersion:
                     args[0] === `@moltzap/identity@${PINNED_IDENTITY}`
                       ? PINNED_WIRE_VERSION
                       : WIRE_VERSION,
@@ -619,7 +619,7 @@ it.each(["2099.101.0", "2099.102.0"])(
           Effect.sync(() => {
             expect(error).toMatchObject({
               _tag: "ProcessTestError",
-              message: `@moltzap/identity@${PINNED_IDENTITY}, pinned by @moltzap/client@${version}, is missing published moltzapWireVersion metadata`,
+              message: `@moltzap/identity@${PINNED_IDENTITY}, pinned by @moltzap/client@${version}, is missing published sharnessWireVersion metadata`,
             });
           }),
         ),
@@ -653,7 +653,7 @@ it("reads published wire metadata at the reset boundary", () =>
   Effect.runPromise(
     releaseWireVersion(
       "2099.101.0",
-      publishedMetadata(JSON.stringify({ moltzapWireVersion: WIRE_VERSION })),
+      publishedMetadata(JSON.stringify({ sharnessWireVersion: WIRE_VERSION })),
       Option.some("2099.101.0"),
     ).pipe(
       Effect.tap((wireVersion) =>

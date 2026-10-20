@@ -13,7 +13,7 @@ import { createChannelPlugin } from "./plugin.js";
 const HIDE_COLLECTIVES = "SHARNESS_EXPERIMENT_HIDE_COLLECTIVES";
 const REFUSAL = "gather, all_gather and answers are not available";
 const CONFIG: OpenClawConfig = {
-  channels: { moltzap: { accounts: [{ id: "primary" }] } },
+  channels: { sharness: { accounts: [{ id: "primary" }] } },
 };
 const SLOT_SCHEMA = {
   type: "object",
@@ -108,7 +108,7 @@ function reachesAccount(message: string) {
       Effect.flip,
       Effect.tap((failure) => {
         // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- Only a send past the switch reaches the account lookup.
-        expect(failure.detail).toContain("not connected to MoltZap");
+        expect(failure.detail).toContain("not connected to Social Harness");
       }),
     ),
   );
@@ -163,7 +163,7 @@ function messageAction(
   return Effect.tryPromise({
     try: () =>
       handleAction?.({
-        channel: "moltzap",
+        channel: "sharness",
         action,
         cfg: CONFIG,
         accountId: "primary",

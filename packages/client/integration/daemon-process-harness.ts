@@ -355,7 +355,7 @@ const acquireTemporaryDirectory: Effect.Effect<
   Scope.Scope
 > = Effect.acquireRelease(
   Effect.tryPromise({
-    try: () => mkdtemp(join(tmpdir(), "moltzap-client-process-")),
+    try: () => mkdtemp(join(tmpdir(), "sharness-client-process-")),
     catch: (cause) =>
       processTestError("could not create temporary directory", cause),
   }),
@@ -751,7 +751,7 @@ export const acquireDaemonManagementClient = (
 ): Effect.Effect<DaemonManagementClient, ProcessTestError, Scope.Scope> =>
   Effect.gen(function* () {
     const client = new Client(
-      { name: "moltzap-process-acceptance", version: "1.0.0" },
+      { name: "sharness-process-acceptance", version: "1.0.0" },
       {
         capabilities: {},
         versionNegotiation: { mode: { pin: MODERN_PROTOCOL_VERSION } },

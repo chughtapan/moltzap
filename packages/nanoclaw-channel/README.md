@@ -19,7 +19,7 @@ projects canonical address, sender, content, and exact group membership through
 NanoClaw's stock callbacks. A collective request renders as a message from
 its requester in the conversation it arrived in, direct for a gather and the
 group for an all_gather, with the question, form and deadline; a gather or
-all_gather result and an operation failure render as messages from `MoltZap`
+all_gather result and an operation failure render as messages from `Social Harness`
 to the address the operation named. The
 adapter awaits `onInbound` before acknowledging Client delivery. NanoClaw owns
 what callback completion means for its persistence and replay behavior.

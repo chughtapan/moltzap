@@ -525,7 +525,7 @@ const toolListings = {
   },
   [HARNESS_READ_EVENT_TOOL]: {
     description:
-      "Read the original full content of a MoltZap event by eventId without delivery or acknowledgment side effects.",
+      "Read the original full content of a Social Harness event by eventId without delivery or acknowledgment side effects.",
     inputSchema: readEventInput,
     outputSchema: readEventOutput,
   },

@@ -97,7 +97,7 @@ export const checkLocalItem = (
 };
 
 /** The sender a local item's evidence names: the endpoint itself, not any agent. */
-const ENDPOINT_SENDER = "moltzap";
+const ENDPOINT_SENDER = "sharness";
 
 /**
  * The judgment and reason of a retained check result; the rest is not read

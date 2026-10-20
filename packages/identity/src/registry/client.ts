@@ -354,7 +354,7 @@ const makeSignedRegistrationRequest = (
     ).pipe(
       HttpClientRequest.setHeader(
         "authorization",
-        `MoltZap-Admission ${Redacted.value(call.admissionCredential)}`,
+        `Sharness-Admission ${Redacted.value(call.admissionCredential)}`,
       ),
     );
     return yield* signHttpRequest({

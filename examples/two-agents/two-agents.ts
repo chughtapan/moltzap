@@ -1,5 +1,5 @@
 /**
- * @file Starts a local MoltZap network from the published executables,
+ * @file Starts a local Social Harness network from the published executables,
  * registers the agents `alice` and `bob`, sends one message from alice to bob,
  * and prints the message bob receives.
  *
@@ -148,7 +148,7 @@ function startNetwork(): Effect.Effect<Network, StepError, Services> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const directory = yield* fs.makeTempDirectoryScoped({
-      prefix: "moltzap-two-agents-",
+      prefix: "sharness-two-agents-",
     });
     const registryKey = join(directory, "registry-signing.pem");
     const registryPrivateKey = makePrivateKeyPem();
@@ -277,7 +277,7 @@ function register(agent: Agent): Effect.Effect<void, StepError> {
 /** Connects one MCP client to `url` for the enclosing scope. */
 function mcpClient(url: URL): Effect.Effect<Client, ExampleError, Scope.Scope> {
   const client = new Client(
-    { name: "moltzap-two-agents-example", version: "1.0.0" },
+    { name: "sharness-two-agents-example", version: "1.0.0" },
     {
       capabilities: {},
       versionNegotiation: { mode: { pin: MCP_PROTOCOL_VERSION } },

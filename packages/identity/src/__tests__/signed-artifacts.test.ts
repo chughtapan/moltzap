@@ -693,7 +693,7 @@ it("rejects a signature accepted only by cofactored Ed25519 verification", () =>
     }),
   ));
 
-it("refuses an AgentCard the Registry signed under the prior MoltZap version", () =>
+it("refuses an AgentCard the Registry signed under the prior Social Harness version", () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const refusal = yield* Schema.decodeUnknown(AgentCard)(

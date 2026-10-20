@@ -33,15 +33,15 @@ export const sendFailureText: Readonly<Record<SendFailure, string>> = {
   "unknown-agent": "an agent the address names is not a known agent",
   "membership-invalid": "the address does not name a valid set of agents",
   "content-invalid": "the message content is invalid",
-  "not-registered": "this agent is not registered with MoltZap",
-  "version-mismatch": "MoltZap is unavailable (version mismatch)",
+  "not-registered": "this agent is not registered with Social Harness",
+  "version-mismatch": "Social Harness is unavailable (version mismatch)",
   "certification-unavailable":
-    "MoltZap is unavailable (certification unavailable)",
+    "Social Harness is unavailable (certification unavailable)",
   "persistence-failed":
-    "MoltZap is unavailable (the message could not be stored)",
-  "network-unavailable": "MoltZap is unavailable (network unavailable)",
+    "Social Harness is unavailable (the message could not be stored)",
+  "network-unavailable": "Social Harness is unavailable (network unavailable)",
   "delivery-pending":
-    "the message is pending and MoltZap will still deliver it",
+    "the message is pending and Social Harness will still deliver it",
   "idempotency-conflict":
     "this send repeats an earlier send with different content",
   "outcome-unknown":

@@ -170,6 +170,10 @@ const close = (state: Reception) =>
     ),
     Effect.zipRight(Queue.shutdown(state.queue)),
   );
+
+/** The MCP client identity the inbox stream announces to the daemon. */
+const INBOX_CLIENT_INFO = { name: "sharness-inbox", version: "1" } as const;
+
 const open = (state: Reception) =>
   Effect.gen(function* () {
     state.transport.onmessage = onMessage(state);
@@ -196,7 +200,7 @@ const open = (state: Reception) =>
               cursor: null,
               _meta: {
                 [PROTOCOL_VERSION_META_KEY]: protocolVersion,
-                [CLIENT_INFO_META_KEY]: { name: "moltzap-inbox", version: "1" },
+                [CLIENT_INFO_META_KEY]: INBOX_CLIENT_INFO,
                 [CLIENT_CAPABILITIES_META_KEY]: {},
               },
             },

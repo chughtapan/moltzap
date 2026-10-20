@@ -154,14 +154,14 @@ jobs:
         working-directory: packages/identity
         run: |
           WIRE_VERSION=$(node --input-type=module -e 'import { WIRE_VERSION } from "@moltzap/identity"; console.log(WIRE_VERSION)')
-          jq --arg v "$WIRE_VERSION" '.moltzapWireVersion = $v' package.json > tmp.json
+          jq --arg v "$WIRE_VERSION" '.sharnessWireVersion = $v' package.json > tmp.json
           mv tmp.json package.json
 
       # A bump selects the changed packages and writes the version and content
       # hash into their manifests. A resume rebuilt the release commit's tree,
       # so each package it still owes must hash to the value that commit
       # recorded; a mismatch means the rebuild would publish other code than
-      # the release commit describes. The example pins each MoltZap package
+      # the release commit describes. The example pins each @moltzap package
       # it installs from npm to that package's manifest version, so a checkout
       # of the release tag runs what that tag published.
       - name: Choose the packages this run publishes
