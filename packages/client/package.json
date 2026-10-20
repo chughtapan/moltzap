@@ -110,23 +110,23 @@
     }
   },
   "dependencies": {
-    "@effect/platform": "^0.97.0",
-    "@effect/platform-node": "^0.108.0",
-    "@modelcontextprotocol/client": "2.0.0-beta.5",
-    "@modelcontextprotocol/node": "2.0.0-beta.5",
-    "@modelcontextprotocol/server": "2.0.0-beta.5",
+    "@effect/platform": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@modelcontextprotocol/client": "catalog:",
+    "@modelcontextprotocol/node": "catalog:",
+    "@modelcontextprotocol/server": "catalog:",
     "@moltzap/identity": "workspace:*",
     "@moltzap/router": "workspace:*",
-    "canonicalize": "3.0.0",
-    "effect": "^3.22.0"
+    "canonicalize": "catalog:",
+    "effect": "catalog:"
   },
   "devDependencies": {
-    "@effect/vitest": "^0.30.0",
+    "@effect/vitest": "catalog:",
     "@typescript/native": "catalog:",
-    "eslint": "^9",
-    "tsx": "^4.19.0",
+    "eslint": "catalog:",
+    "tsx": "catalog:",
     "typescript": "catalog:",
-    "undici": "7.29.0",
-    "vitest": "^3.2.0"
+    "undici": "catalog:",
+    "vitest": "catalog:"
   }
 }

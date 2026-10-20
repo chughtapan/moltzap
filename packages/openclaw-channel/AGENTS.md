@@ -21,8 +21,9 @@ re-exports. Publication follows `docs/spec/layer-interfaces.md` → Publication 
 ## OpenClaw version
 
 `peerDependencies.openclaw` is a floor: the oldest OpenClaw whose plugin SDK the
-channel supports. `devDependencies.openclaw` pins the exact release the channel
-is built and tested against. A deployment fixes its own single OpenClaw
+channel supports. The `openclaw` entry of the `pnpm-workspace.yaml` catalog
+pins the exact release the channel is built and tested against, and must
+satisfy that floor. A deployment fixes its own single OpenClaw
 release, so the channel needs a new release only when the plugin SDK breaks.
 
 ## Host integration law

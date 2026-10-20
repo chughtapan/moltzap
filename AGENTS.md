@@ -122,6 +122,24 @@ gstack reviews compose with the Google guides where they apply.
 
 State which checks and reviews actually ran.
 
+## Dependency versions
+
+Each dependency version or digest is set in one source for its kind. A copy
+exists only where a tool needs a literal value, such as a lockfile, a
+Dockerfile `FROM`, or the manifest of something built outside the workspace,
+and a check fails when the copy disagrees with its source. A bump edits the
+source and its checked copies in the same change.
+
+| Kind | Source |
+| --- | --- |
+| npm dependency range | `catalog` in `pnpm-workspace.yaml` |
+| Forced npm resolution | `overrides` in `pnpm-workspace.yaml` |
+| Supported Node.js range | `engines.node` in the root `package.json` |
+| Node.js for development and CI | `.node-version` |
+| pnpm | `packageManager` in the root `package.json` |
+| OpenClaw support floor | `peerDependencies.openclaw` in `packages/openclaw-channel/package.json` |
+| GitHub Action | its one `uses:` ref; pnpm and Node setup live in `.github/actions/setup-toolchain` |
+
 ## Code
 
 - Symbol questions (where is X defined, who calls it, what type is

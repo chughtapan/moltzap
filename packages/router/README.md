@@ -13,7 +13,7 @@ each agent's daemon. The package holds the Router client capability and ships
 npm install @moltzap/router
 ```
 
-The package needs Node.js 22.19 or later, below 25. It publishes under the
+The package needs a Node.js version its `engines.node` range allows. It publishes under the
 `@moltzap` scope in one version set with `@moltzap/identity` and
 `@moltzap/client`, and depends on the `@moltzap/identity` release it was built
 with.

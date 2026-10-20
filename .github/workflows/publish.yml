@@ -62,17 +62,14 @@ jobs:
       # Credentials are not persisted, so nothing that runs before the push
       # (installs, builds, the pack gates' consumer installs) holds a token
       # that can write to main.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: pnpm/action-setup@v6
       # The repository Node pin ships npm >=11.5 for OIDC trusted publishing.
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-toolchain
         with:
-          node-version-file: .node-version
-          cache: pnpm
           registry-url: https://registry.npmjs.org
 
       # The last release commit on main decides whether this run resumes it:

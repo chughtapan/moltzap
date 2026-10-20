@@ -83,16 +83,16 @@
   },
   "dependencies": {
     "@moltzap/client": "workspace:*",
-    "effect": "^3.22.0"
+    "effect": "catalog:"
   },
   "devDependencies": {
-    "@effect/vitest": "^0.30.0",
-    "@types/node": "^25.5.0",
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
     "@typescript/native": "catalog:",
-    "eslint": "^9",
-    "openclaw": "2026.10.3",
+    "eslint": "catalog:",
+    "openclaw": "catalog:",
     "typescript": "catalog:",
-    "vitest": "^3.2.0"
+    "vitest": "catalog:"
   },
   "peerDependencies": {
     "openclaw": ">=2026.10.3"

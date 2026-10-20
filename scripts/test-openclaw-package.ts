@@ -8,7 +8,7 @@
  * install path and registers the `moltzap` channel, and OpenClaw serves the
  * packed group-messaging skill to the model. Every check goes through the
  * channel's public entry point or OpenClaw's CLI, so a new OpenClaw release
- * changes only the channel's `devDependencies.openclaw`.
+ * changes only the `openclaw` entry of the `pnpm-workspace.yaml` catalog.
  */
 import { FileSystem } from "@effect/platform";
 import { Effect, Schema } from "effect";
@@ -36,30 +36,23 @@ type OpenClawCli = <A, I>(
 ) => Effect.Effect<A, GateError, GateServices>;
 
 const jsonObject = Schema.Record({ key: Schema.String, value: Schema.Unknown });
-const channelManifest = Schema.Struct({
-  devDependencies: Schema.Struct({ openclaw: Schema.String }),
-});
 const openClawManifest = Schema.Struct({
   scripts: Schema.Struct({ postinstall: Schema.String }),
 });
 const pluginList = Schema.Struct({ plugins: Schema.Array(jsonObject) });
 
 const workspaceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const channelRoot = join(workspaceRoot, "packages", "openclaw-channel");
 
 runGate("moltzap-openclaw-pack-", (temporaryRoot) =>
   Effect.gen(function* () {
-    /** The OpenClaw release the channel is built and tested against. */
-    const openclawVersion = (yield* readJsonFile(
-      join(channelRoot, "package.json"),
-      channelManifest,
-    )).devDependencies.openclaw;
     const { archives } = yield* packProductClosure(
       workspaceRoot,
       "openclaw-channel",
       temporaryRoot,
     );
     const pins = yield* readConsumerPins(workspaceRoot);
+    /** The OpenClaw release the channel is built and tested against. */
+    const openclawVersion = pins.openclaw;
     const consumerRoot = yield* installPackedConsumer({
       temporaryRoot,
       workspaceRoot,

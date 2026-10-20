@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 /**
- * @file Source-of-truth generator for the doc-embedded MoltZap compatibility
- * value. Reads `WIRE_VERSION` from its owning Identity source file and
- * emits two sibling files under `docs/snippets/constants/`:
+ * @file Source-of-truth generator for the doc-embedded constants: the MoltZap
+ * compatibility value (`WIRE_VERSION` in its owning Identity source file),
+ * the supported Node.js range (root `package.json` `engines.node`), and the
+ * oldest supported OpenClaw (the floor of the OpenClaw channel's `openclaw`
+ * peer range). Emits two sibling files under
+ * `docs/snippets/constants/`:
  *
  *   - `values.json` — JSON record consumed by
  *     `scripts/docs/check-no-hardcoded-constants.ts` (the drift gate).
@@ -139,28 +142,23 @@ function main(): void {
   );
 }
 
+const OPENCLAW_CHANNEL_MANIFEST = "packages/openclaw-channel/package.json";
+
+type SourceRead = ReturnType<typeof readCompatibilityVersion>;
+
+/** One constant's source and the result of reading it. */
+interface ConstantSource {
+  readonly name: string;
+  readonly sourcePath: string;
+  readonly read: SourceRead;
+  readonly note: string;
+}
+
 function collect(): readonly Constant[] {
-  const failures: string[] = [];
-  const requireString = (
-    name: string,
-    sourcePath: string,
-    read: ReturnType<typeof readCompatibilityVersion>,
-    note: string,
-  ): Constant | null => {
-    if ("error" in read) {
-      failures.push(`${name}: ${read.error}`);
-      return null;
-    }
-    return { kind: "string", name, value: read.value, sourcePath, note };
-  };
-  const constants: ReadonlyArray<Constant | null> = [
-    requireString(
-      "V2_PROTOCOL_VERSION",
-      WIRE_VERSION_SOURCE,
-      readCompatibilityVersion(workspaceRoot),
-      "Current wire compatibility value for Identity and Router representations; package release versions are independent of it.",
-    ),
-  ];
+  const sources = constantSources();
+  const failures = sources.flatMap(({ name, read }) =>
+    "error" in read ? [`${name}: ${read.error}`] : [],
+  );
   if (failures.length > 0) {
     const lines = [
       "generate-constants-snippets: failed to read source constants:",
@@ -169,7 +167,95 @@ function collect(): readonly Constant[] {
     console.error(lines.join("\n"));
     process.exit(1);
   }
-  return constants.filter((c): c is Constant => c !== null);
+  return sources.flatMap(({ name, sourcePath, read, note }) =>
+    "error" in read
+      ? []
+      : [
+          {
+            kind: "string" as const,
+            name,
+            value: read.value,
+            sourcePath,
+            note,
+          },
+        ],
+  );
+}
+
+function constantSources(): readonly ConstantSource[] {
+  return [
+    {
+      name: "V2_PROTOCOL_VERSION",
+      sourcePath: WIRE_VERSION_SOURCE,
+      read: readCompatibilityVersion(workspaceRoot),
+      note: "Current wire compatibility value for Identity and Router representations; package release versions are independent of it.",
+    },
+    {
+      name: "NODE_VERSION_RANGE",
+      sourcePath: "package.json",
+      read: readManifestField("package.json", "engines", "node"),
+      note: "Supported Node.js range, copied into every published manifest.",
+    },
+    {
+      name: "OPENCLAW_MIN_VERSION",
+      sourcePath: OPENCLAW_CHANNEL_MANIFEST,
+      read: rangeFloor(
+        readManifestField(
+          OPENCLAW_CHANNEL_MANIFEST,
+          "peerDependencies",
+          "openclaw",
+        ),
+      ),
+      note: "Oldest OpenClaw release the channel supports, the floor of its `>=` peer range.",
+    },
+  ];
+}
+
+/**
+ * Read one string field of one object section of a package manifest.
+ * @param manifestPath Workspace-relative manifest path.
+ * @param section Top-level object field.
+ * @param key Field inside that section.
+ * @returns The nonempty string, or why it could not be read.
+ */
+function readManifestField(
+  manifestPath: string,
+  section: string,
+  key: string,
+): SourceRead {
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(
+      readFileSync(resolve(workspaceRoot, manifestPath), "utf8"),
+    );
+  } catch (cause) {
+    return { error: `could not read ${manifestPath}: ${String(cause)}` };
+  }
+  const value = fieldOf(fieldOf(manifest, section), key);
+  return typeof value === "string" && value.length > 0
+    ? { value }
+    : { error: `expected a nonempty ${section}.${key} in ${manifestPath}` };
+}
+
+function fieldOf(source: unknown, key: string): unknown {
+  return typeof source === "object" && source !== null
+    ? Object.entries(source).find(([name]) => name === key)?.[1]
+    : undefined;
+}
+
+/**
+ * The version a `>=` range starts at.
+ * @param read A range read from its manifest.
+ * @returns The floor version, or why the range has none.
+ */
+function rangeFloor(read: SourceRead): SourceRead {
+  if ("error" in read) {
+    return read;
+  }
+  const floor = /^>=(\S+)$/.exec(read.value)?.[1];
+  return floor === undefined
+    ? { error: `expected a ">=VERSION" range, got "${read.value}"` }
+    : { value: floor };
 }
 
 function renderMdx(constants: readonly Constant[]): string {
