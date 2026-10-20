@@ -127,8 +127,7 @@ State which checks and reviews actually ran.
 Each dependency version or digest is set in one source for its kind. A copy
 exists only where a tool needs a literal value, such as a lockfile, a
 Dockerfile `FROM`, or the manifest of something built outside the workspace,
-and a check fails when the copy disagrees with its source. A bump edits the
-source and its checked copies in the same change.
+and a check fails when the copy disagrees with its source.
 
 | Kind | Source |
 | --- | --- |
