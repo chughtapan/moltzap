@@ -354,7 +354,7 @@ const queuedText = "the message is pending and MoltZap will still deliver it";
 
 function keepsAnAnswersAdviceWhenItsBoundPostFailsActivation() {
   return Effect.gen(function* () {
-    const subject = yield* engineFixture("refuse");
+    const subject = yield* engineFixture(() => "refuse");
     yield* seedRequest(subject, Date.now() + 60_000, question);
     const runtime = yield* incomingFixture(subject, unsettled, {}, false);
     yield* admitPending(runtime);
@@ -379,7 +379,7 @@ function keepsAnAnswersAdviceWhenItsBoundPostFailsActivation() {
 
 function keepsAnAllGathersAdviceWhenItsBoundPostFailsActivation() {
   return Effect.gen(function* () {
-    const subject = yield* engineFixture("refuse");
+    const subject = yield* engineFixture(() => "refuse");
     const runtime = yield* incomingFixture(subject, unsettled);
 
     const completed = yield* runtime.delivery.operations.send({
@@ -396,6 +396,49 @@ function keepsAnAllGathersAdviceWhenItsBoundPostFailsActivation() {
     expect(runtime.emitted).toHaveLength(1);
     expect(failures).toHaveLength(1);
     expect(failures[0]).toContain(queuedText);
+  });
+}
+
+/**
+ * Guidance mode admits the all_gather although the stalled post is an
+ * unfinished intent, so its refused activation is what the send reports.
+ */
+function refusesAnAllGatherWhoseActivationFailsBehindAnotherPostsDrain() {
+  return Effect.gen(function* () {
+    const decisions = { made: 0 };
+    const subject = yield* engineFixture(() =>
+      decisions.made++ === 0 ? "sign" : "refuse",
+    );
+    const runtime = yield* incomingFixture(
+      subject,
+      policy(() => Effect.succeed(pass)),
+      {
+        mode: "guidance",
+      },
+    );
+    const stalled = yield* runtime.delivery.operations
+      .send({ input: sendInput({ to: bob, text: "Tuesday." }) })
+      .pipe(Effect.forkScoped);
+    yield* Deferred.await(subject.outbound);
+
+    const refusal = yield* Effect.flip(
+      runtime.delivery.operations.send({
+        input: sendInput({
+          to: group,
+          text: question,
+          collective: {
+            op: "all_gather",
+            deadline: 1,
+            requestedSchema: formSchema,
+          },
+        }),
+      }),
+    );
+
+    expect(refusal).toMatchObject({
+      failure: { kind: "members-unreachable" },
+    });
+    yield* Fiber.interrupt(stalled);
   });
 }
 
@@ -440,12 +483,19 @@ describe("collective sends under a firewall", () => {
     "binds nothing when the daemon stops during a gather's check",
     bindsNothingWhenStoppedDuringAGatherCheck,
   );
+});
+
+describe("collective sends whose bound post fails activation", () => {
   it(
-    "keeps an admitted answer's advice when its bound post fails activation, and replays it under its key",
+    "keeps an admitted answer's advice, and replays it under its key",
     keepsAnAnswersAdviceWhenItsBoundPostFailsActivation,
   );
   it(
-    "keeps an admitted all_gather's advice when its bound group post fails activation",
+    "keeps an admitted all_gather's advice",
     keepsAnAllGathersAdviceWhenItsBoundPostFailsActivation,
+  );
+  it(
+    "refuses an all_gather at once, behind another post's stalled drain",
+    refusesAnAllGatherWhoseActivationFailsBehindAnotherPostsDrain,
   );
 });

@@ -137,12 +137,12 @@ const identities = Effect.gen(function* () {
 
 /**
  * Real storage and send preparation run with a suspended Router send. The
- * engine signs every proposal, or refuses each one with `refuse`, so a bound
- * post then fails its activation.
- * @param decision The engine's answer to every proposal.
+ * engine asks `decide` for each proposal: one it refuses fails its bound
+ * post's activation.
+ * @param decide The engine's answer to each proposal, signing by default.
  * @returns The fixture's identities, storage, engine and Router barrier.
  */
-export const engineFixture = (decision: "sign" | "refuse" = "sign") =>
+export const engineFixture = (decide?: () => "sign" | "refuse") =>
   Effect.gen(function* () {
     const known = yield* identities;
     const { local, remote, third, store, signer } = known;
@@ -163,7 +163,7 @@ export const engineFixture = (decision: "sign" | "refuse" = "sign") =>
           }),
       },
       store,
-      actionPolicy: () => Effect.succeed(decision),
+      actionPolicy: () => Effect.sync(() => decide?.() ?? "sign"),
       reportStorageFault: () => Effect.dieMessage("unexpected store fault"),
       routerWorker: {
         currentAnchor: Effect.succeed(anchor),

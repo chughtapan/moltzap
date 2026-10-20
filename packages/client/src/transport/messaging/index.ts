@@ -381,7 +381,8 @@ const LOCAL_DRAIN_TIMEOUT = Duration.seconds(10);
  * fails the send as `delivery-pending` whatever the cause: a worker failure
  * that ends once the Router answers leaves the background drain to deliver
  * the post, and any other stops the daemon, whose recovery resumes the post
- * when it restarts.
+ * when it restarts. A completion already settled, such as an activation that
+ * failed, returns at once rather than waiting on other posts' drain.
  * @param runtime The engine that sends.
  * @param prepared The durable post identity and its certified completion.
  * @returns The post's id and certified record hash.
@@ -391,11 +392,13 @@ const finishPreparedSend = (
   prepared: Effect.Effect.Success<ReturnType<typeof prepareSend>>,
 ) =>
   Effect.gen(function* () {
-    yield* runtime.outbox.drain.pipe(
-      Effect.timeout(LOCAL_DRAIN_TIMEOUT),
-      // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Every drain failure, the timeout included, leaves the post queued and still delivered, as this function's JSDoc explains.
-      Effect.mapError(() => new SendError({ reason: "delivery-pending" })),
-    );
+    if (!(yield* Deferred.isDone(prepared.completion))) {
+      yield* runtime.outbox.drain.pipe(
+        Effect.timeout(LOCAL_DRAIN_TIMEOUT),
+        // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Every drain failure, the timeout included, leaves the post queued and still delivered, as this function's JSDoc explains.
+        Effect.mapError(() => new SendError({ reason: "delivery-pending" })),
+      );
+    }
     const recordHash = yield* Deferred.await(prepared.completion);
     return { postId: prepared.postId, recordHash };
   });
