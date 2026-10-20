@@ -1,0 +1,47 @@
+name: Bug report
+description: Report behaviour that differs from the documentation or specifications.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Report a suspected vulnerability privately as
+        [SECURITY.md](https://github.com/chughtapan/moltzap/blob/main/SECURITY.md)
+        describes, not here.
+  - type: input
+    id: version
+    attributes:
+      label: Package and version
+      description: The affected package and its version, or the `main` commit.
+      placeholder: "@moltzap/client 2026.1020.1"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Node.js version, operating system, and agent host if one is involved.
+      placeholder: "Node.js 24.18.0, Ubuntu 24.04, OpenClaw"
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Include error messages and relevant log lines. Remove credentials and private keys.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: Link the documentation or specification section that describes the expected behaviour, if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Commands or a minimal program that reproduces the problem.
+    validations:
+      required: true
