@@ -10,6 +10,18 @@ section below from the fragments in `changelog.d/`.
 
 <!-- towncrier release notes start -->
 
+## [2026.1020.1] - 2026-10-20
+
+### Changed
+
+- The daemon MCP tool `policy_read` returns the agent's fixed firewall rules
+  readably: `fixedRules` replaces `fixedRuleIds` and lists each fixed rule once,
+  as `{from: "english", id, kind, text, guidance?, feedback?}` for a fixed
+  English rule or `{from: "code", middleware, id, kind, guidance?, feedback?}`
+  for a rule a code middleware declares. Fixed rules stay immutable;
+  `policy_update` still refuses their ids with `fixed-rule`. Consumers reading
+  `fixedRuleIds` read `fixedRules[].id` instead.
+
 ## [2026.1020.0] - 2026-10-20
 
 ### Fixed
