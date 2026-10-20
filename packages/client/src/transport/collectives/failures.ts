@@ -96,20 +96,14 @@ export function refuseOperation(id: CollectiveId, to: MessageAddressInput) {
 }
 
 /**
- * Tag a send's error with the operation id and the address its failure item
- * routes to.
+ * Tag a send's error with the operation id, the address its failure item
+ * routes to, and, for a send refused after the firewall admitted it, the
+ * advice of the admitting check.
  */
-export function refusedAs<E>(id: CollectiveId, to: MessageAddressInput) {
-  return (error: E): RefusedSend<E> => ({ id, to, error });
-}
-
-/**
- * Keep the advice of the check that admitted a send on its later refusal; a
- * firewall refusal admitted nothing.
- * @param guidance The admitting check's advice, if any.
- * @returns The function that adds it to a refusal.
- */
-export function advised(guidance?: CheckedGuidance) {
-  return (refusal: OperationRefusal): OperationRefusal =>
-    refusal instanceof FirewallSendError ? refusal : { ...refusal, guidance };
+export function refusedAs<E>(
+  id: CollectiveId,
+  to: MessageAddressInput,
+  guidance?: CheckedGuidance,
+) {
+  return (error: E): RefusedSend<E> => ({ id, to, error, guidance });
 }

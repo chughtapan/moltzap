@@ -97,8 +97,7 @@ export interface CollectiveAdmission {
   /**
    * Check and bind one post the agent authored: a multicast, an all_gather
    * request or an answer. `hold` is taken after the check, just before the
-   * bind, and given up when nothing binds; the returned post's `certified`
-   * completes once the post is certified.
+   * bind, and given up when nothing binds.
    */
   readonly bindPost: <E>(
     input: EngineSendInput,

@@ -106,7 +106,6 @@ import {
   type RecordHash,
 } from "../wire/index.js";
 import {
-  advised,
   type OperationRefusal,
   refusedAs,
   type RefusedSend,
@@ -491,14 +490,13 @@ function gatherRequests(
   state: CollectiveState,
   prepared: PreparedGather,
 ): Effect.Effect<CollectiveSendOutcome, OperationRefusal> {
-  const refuse = refuseOperation(prepared.id, prepared.open.to);
   return admitGather(state, prepared).pipe(
-    Effect.mapError(refuse),
+    Effect.mapError(refuseOperation(prepared.id, prepared.open.to)),
     Effect.flatMap(({ sendRequest, guidance }) =>
       openGather(state, prepared, false).pipe(
         Effect.zipRight(sendRequests(state, prepared, sendRequest)),
         Effect.map((sent) => ({ ...sent, guidance })),
-        Effect.mapError((error) => advised(guidance)(refuse(error))),
+        Effect.mapError(refusedAs(prepared.id, prepared.open.to, guidance)),
       ),
     ),
   );
@@ -669,41 +667,30 @@ function sendGroupRequest(
   state: CollectiveState,
   prepared: PreparedGather,
 ): Effect.Effect<CollectiveSendOutcome, OperationRefusal> {
-  const refuse = refuseOperation(prepared.id, prepared.open.to);
-  const opened = { now: false };
+  const { id, open } = prepared;
   const hold = openGather(state, prepared, true).pipe(
-    Effect.tap(() => {
-      opened.now = true;
-    }),
-    Effect.as(
-      forgetGather(state, prepared.id).pipe(
-        Effect.tap(() => {
-          opened.now = false;
-        }),
-      ),
-    ),
+    Effect.as(forgetGather(state, id)),
   );
-  const settle = (error: SendError, guidance?: AdmittedPost["guidance"]) =>
-    !opened.now || state.gathers.has(prepared.id)
-      ? abandonGroupRequest(state, prepared, error)
-      : Effect.succeed({ postIds: [], guidance });
   return bindAuthoredPost(
     state,
-    { to: prepared.open.to, content: prepared.content },
+    { to: open.to, content: prepared.content },
     hold,
   ).pipe(
-    Effect.matchEffect({
-      onFailure: (error) =>
-        (error._tag === "SendError" ? settle(error) : Effect.fail(error)).pipe(
-          Effect.mapError(refuse),
+    Effect.catchTag("SendError", (error) =>
+      abandonGroupRequest(state, prepared, error),
+    ),
+    Effect.mapError(refuseOperation(id, open.to)),
+    Effect.flatMap(({ certified, guidance }) =>
+      withinRequestWait(prepared, certified).pipe(
+        Effect.map((post) => ({ postIds: [post.postId], guidance })),
+        Effect.catchTag("SendError", (error) =>
+          state.gathers.has(id)
+            ? abandonGroupRequest(state, prepared, error)
+            : Effect.succeed({ postIds: [], guidance }),
         ),
-      onSuccess: ({ certified, guidance }) =>
-        withinRequestWait(prepared, certified).pipe(
-          Effect.map((post) => ({ postIds: [post.postId], guidance })),
-          Effect.catchTag("SendError", (error) => settle(error, guidance)),
-          Effect.mapError((error) => advised(guidance)(refuse(error))),
-        ),
-    }),
+        Effect.mapError(refusedAs(id, open.to, guidance)),
+      ),
+    ),
   );
 }
 
@@ -933,7 +920,9 @@ function respond(
       Effect.onInterrupt(() =>
         Effect.ignore(settleAnswer(state, id, request, Option.none())),
       ),
-      Effect.mapError((error) => advised(guidance)(refused(error))),
+      Effect.mapError(
+        refusedAs<SendError | CollectiveError>(id, request.to, guidance),
+      ),
     );
     return { operationId: id, postIds: [post.postId], guidance };
   });
@@ -942,8 +931,7 @@ function respond(
 /**
  * Bind one post the agent authored, holding `hold` across the bind: through
  * the firewall's check when one is installed, otherwise by taking the hold
- * and sending through `sendPost`. The bound post's `certified` completes once
- * the post is certified.
+ * and sending through `sendPost`.
  */
 function bindAuthoredPost<E>(
   state: CollectiveState,
