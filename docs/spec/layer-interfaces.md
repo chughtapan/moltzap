@@ -49,11 +49,10 @@ simulator, evaluation suites, or each other.
 
 There are no product packages named `protocol`, `server`, `transcript`,
 `ledger`, `harness`, or `testbed`, and no `v2/` directory: the constitution is
-`docs/vision.md`. Internal decisions and source evidence live in the shared docs
-repo.
+`docs/vision.md`.
 
-Root-owned build orchestration, and the image builds in
-`social-harness/deployment`, may consume several package artifacts without
+Root-owned build orchestration, and agent-image builds outside this repository,
+may consume several package artifacts without
 creating package-runtime dependencies. Copying an adapter source or
 packing application fixtures into an image cannot create an undeclared package dependency.
 
@@ -424,9 +423,8 @@ mismatches. Release notes mark each reset release with the phrase
 - The package version is independent of `WIRE_VERSION`, the MCP revision,
   and every persisted-schema version. Advancing one never advances another.
 - Releases run from `main` through `.github/workflows/publish.yml` with npm
-  provenance and publish npm packages only. The private
-  `social-harness/deployment` repository builds and publishes the OpenClaw
-  and NanoClaw agent images; see its [`images/README.md`](https://github.com/social-harness/deployment/blob/main/images/README.md).
+  provenance and publish npm packages only. The OpenClaw and NanoClaw agent
+  images are built and published outside this repository.
 - `scripts/architecture/check-boundaries.ts` fails when a published manifest
   is private, when its `engines.node` differs from the root `package.json`
   range, when the four versions differ, when the NanoClaw adapter is not

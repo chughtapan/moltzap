@@ -12,9 +12,9 @@ Contributions are judged against the public contracts in this repository:
 [`docs/spec/`](docs/spec/). [`AGENTS.md`](AGENTS.md) and each package's
 `AGENTS.md` add repository and package instructions.
 
-Maintainers keep internal design records in a separate repository. You do not
-need access to it to contribute; a change that alters a public contract
-updates the matching page under `docs/spec/` in the same pull request.
+Maintainers keep internal planning records and maintainer tooling outside this
+repository. You do not need them to contribute; a change that alters a public
+contract updates the matching page under `docs/spec/` in the same pull request.
 
 ## Prerequisites
 

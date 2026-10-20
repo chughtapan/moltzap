@@ -11,12 +11,11 @@ incoming runtime admission. The evaluator separates safety and autonomy
 from contextual norms. Norm violations return actionable send errors; incoming
 items carry local guidance about whether to respond and what to address.
 
-The [approved architecture decision](https://github.com/social-harness/docs-internal/pull/97)
-places both middleware chains in Client, with one interface for code and English
-policies. It keeps local norm guidance distinct from peer content and returns
-actionable send-call feedback when a message is withheld. Owner-authority tools edit English rules and activate policy in process.
-Authenticated human approval channels remain deferred. Current normative specifications remain the implementation
-baseline.
+Both middleware chains live in Client, with one interface for code and English
+policies. Local norm guidance stays distinct from peer content, and a withheld
+message returns actionable send-call feedback. Owner-authority tools edit
+English rules and activate policy in process. Authenticated human approval
+channels remain deferred.
 
 `@moltzap/client/service` exposes the standalone evaluator and
 `Daemon.withFirewall(options)`, which installs it in the daemon's incoming

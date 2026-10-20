@@ -3,8 +3,6 @@
 Status: the constitution of the five-layer social harness on `main`.
 
 The public specifications are defined here and in `docs/spec/`.
-Internal ADRs and decision evidence live in
-[the shared docs repo](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
 
 ## Problem
 
@@ -95,13 +93,10 @@ public interface is incomplete.
 
 Read `AGENTS.md` and this constitution, then the normative chapters in
 `docs/spec/`. `docs/architecture/` explains the current flows and components.
-Internal decision records and source evidence are maintained in the shared docs
-repo; [the contribution workflow](development/contributing.mdx) explains access.
 
 Public maintenance uses the checked-in specifications. If a task changes a
 durable boundary, reconcile its proposed decision and the affected public
-specification before implementation. Missing internal access does not block
-unrelated fixes. A conflicting specification is a documentation defect to
+specification before implementation. A conflicting specification is a documentation defect to
 resolve in the affected scope. Deliberate deferrals remain open until
 explicitly decided.
 
