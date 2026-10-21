@@ -177,9 +177,6 @@ export interface EndpointEngine {
   readonly acceptRouterIngress: (
     ingress: RouterWorkerIngress<DecodedOuterBody>,
   ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
-  readonly acceptRecoveryIngress: (
-    ingress: RouterWorkerIngress<DecodedOuterBody>,
-  ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
   readonly recoverCertifiedHistory: (
     recovery: RouterWorkerRecovery,
   ) => Effect.Effect<void, RouterWorkerRecoveryError>;
@@ -627,9 +624,6 @@ const endpointEngine = (runtime: EngineRuntime): EndpointEngine =>
     ) => acknowledgeMessage(runtime, deliveryToken),
     acceptRouterIngress: (
       ingress: Parameters<EndpointEngine["acceptRouterIngress"]>[0],
-    ) => acceptEngineIngressWithRecovery(runtime, ingress),
-    acceptRecoveryIngress: (
-      ingress: Parameters<EndpointEngine["acceptRecoveryIngress"]>[0],
     ) => acceptEngineIngressWithRecovery(runtime, ingress),
     recoverCertifiedHistory: (
       recovery: Parameters<EndpointEngine["recoverCertifiedHistory"]>[0],

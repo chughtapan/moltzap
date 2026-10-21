@@ -148,9 +148,6 @@ export interface RouterWorkerCallbacks<Payload> {
   readonly acceptPayload: (
     input: RouterWorkerIngress<Payload>,
   ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
-  readonly acceptRecoveryPayload: (
-    input: RouterWorkerIngress<Payload>,
-  ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
   readonly abandonVolatileFolds: (
     reason: RouterDiscontinuityReason,
   ) => Effect.Effect<void>;

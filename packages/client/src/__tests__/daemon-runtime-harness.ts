@@ -379,7 +379,6 @@ function makeEngine(
             delivery.acknowledged = true;
           }),
     acceptRouterIngress: () => Effect.succeed("ignored"),
-    acceptRecoveryIngress: () => Effect.succeed("ignored"),
     recoverCertifiedHistory: () => Effect.void,
     drainOutbound: Effect.void,
     runOutbound: background === "outbound" ? failure : Effect.never,

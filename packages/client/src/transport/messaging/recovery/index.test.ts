@@ -608,7 +608,7 @@ const deliverRecovery = (
   engine: EndpointEngine,
   ingress: Effect.Effect<RouterWorkerIngress<DecodedOuterBody>>,
 ) =>
-  ingress.pipe(Effect.flatMap((value) => engine.acceptRecoveryIngress(value)));
+  ingress.pipe(Effect.flatMap((value) => engine.acceptRouterIngress(value)));
 
 /**
  * Opens a group conversation of `size` fixed members on the fixture's store:
@@ -1961,7 +1961,7 @@ const runSameInstanceRecovery = <A, E>(
     const result = yield* during;
     yield* catchUpIncompleteIngress(fixture, request).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     yield* Fiber.join(recovering);
@@ -1976,7 +1976,7 @@ const ignoresReanchorVoteDuringFeedGapRecovery = () =>
       "feed_gap",
       peerReanchorVote(fixture).pipe(
         Effect.flatMap((ingress) =>
-          fixture.engine.acceptRecoveryIngress(ingress),
+          fixture.engine.acceptRouterIngress(ingress),
         ),
       ),
     );
@@ -1989,7 +1989,7 @@ const ignoresReanchorVoteAfterRecovery = () =>
     yield* runSameInstanceRecovery(fixture, "feed_gap", Effect.void);
     const disposition = yield* peerReanchorVote(fixture).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     expect(disposition).toBe(ignoredDisposition);
@@ -2006,13 +2006,13 @@ const completeRestartRecovery = () =>
     const firstRequest = yield* decodeCatchUpRequest(firstOutbound);
     yield* catchUpPageIngress(fixture, firstRequest).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     const terminalRequest = yield* takeCatchUpRequest(recoveryOutbound);
     yield* catchUpIncompleteIngress(fixture, terminalRequest).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     const proposal = yield* takeReanchorVote(recoveryOutbound);
@@ -2025,7 +2025,7 @@ const completeRestartRecovery = () =>
     });
     yield* peerReanchorVoteIngress(fixture, proposal).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     const completed = yield* Queue.take(recoveryOutbound).pipe(
@@ -2134,13 +2134,13 @@ const reproposesPendingPostAfterRestart = () =>
     const request = yield* takeCatchUpRequest(recoveryOutbound);
     yield* catchUpIncompleteIngress(fixture, request).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     const reanchor = yield* takeReanchorVote(recoveryOutbound);
     yield* peerReanchorVoteIngress(fixture, reanchor).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     yield* Queue.take(recoveryOutbound);
@@ -2211,7 +2211,7 @@ const recoverColdStartAtUnchangedInstance = () =>
       routerInstanceId: oldRouterInstanceId,
     }).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     yield* Fiber.join(recovering);
@@ -2274,7 +2274,7 @@ const recoverMixedRouterInstances = () =>
       request: unchangedRequest,
       routerInstanceId: oldRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
+      Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
     );
 
     const certified = fixture.certifiedRecord.actionCertifiedRecord;
@@ -2299,7 +2299,7 @@ const recoverMixedRouterInstances = () =>
       },
       routerInstanceId: oldRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
+      Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
     );
     const resumedUnchanged = yield* Queue.take(recoveryOutbound);
     expect(resumedUnchanged.messageId).toBe(retainedUnchanged.messageId);
@@ -2314,7 +2314,7 @@ const recoverMixedRouterInstances = () =>
           request: changedRequest,
           routerInstanceId: oldRouterInstanceId,
         }).pipe(
-          Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
+          Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
         ),
       { concurrency: 1, discard: true },
     );
@@ -2646,13 +2646,13 @@ const recoverDisseminationObligations = () =>
     const request = yield* takeCatchUpRequest(recoveryOutbound);
     yield* catchUpIncompleteIngress(fixture, request).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     const proposal = yield* takeReanchorVote(recoveryOutbound);
     yield* peerReanchorVoteIngress(fixture, proposal).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     yield* Queue.take(recoveryOutbound).pipe(
@@ -2729,7 +2729,7 @@ const restartEmptyConversation = () =>
     const request = yield* takeCatchUpRequest(recoveryOutbound);
     yield* catchUpIncompleteIngress(fixture, request).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     yield* Fiber.join(recovering);
@@ -2861,7 +2861,7 @@ const ignoresRelayedCompletionForAnchoredConversation = () =>
       routerInstanceId: newRouterInstanceId,
     }).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     expect(disposition).toBe(ignoredDisposition);
@@ -2899,7 +2899,7 @@ const proposeAtRestart = (fixture: RecoveryFixture) =>
       yield* startRestartRecovery(fixture);
     yield* catchUpIncompleteIngress(fixture, request).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     const voteMessage = yield* Queue.take(outbound);
@@ -2949,7 +2949,7 @@ const adoptsRelayedCompletionForReanchoringConversation = () =>
       routerInstanceId: newRouterInstanceId,
     }).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     const followUp = yield* takeCatchUpRequest(outbound);
@@ -2986,12 +2986,12 @@ const ignoresReanchorVoteWithMismatchedAnchorHash = () =>
       anchorHash: otherAnchorHash,
     }).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     const genuine = yield* peerReanchorVoteIngress(fixture, proposal).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     yield* Fiber.join(recovery);
@@ -3020,12 +3020,12 @@ const replaysPeerVoteHeldBeforeCatchUpCompletes = () =>
 
     const early = yield* peerReanchorVote(fixture).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     yield* catchUpIncompleteIngress(fixture, request).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     yield* Fiber.join(recovery);
@@ -3066,12 +3066,12 @@ const ignoresReanchorVoteAddressedBeyondItsMembers = () =>
       routerInstanceId: newRouterInstanceId,
     }).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     const genuine = yield* peerReanchorVoteIngress(fixture, proposal).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     yield* Fiber.join(recovery);
@@ -3107,12 +3107,12 @@ const ignoresReanchorVoteWhoseEvidenceSignerIsNotAMember = () =>
       evidenceSigner: { card: outsider, authority: outsiderAuthority },
     }).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     const genuine = yield* peerReanchorVoteIngress(fixture, proposal).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     yield* Fiber.join(recovery);
@@ -3150,7 +3150,7 @@ const rebroadcastsPersistedLocalVote = () =>
     } = yield* startRestartRecovery(fixture);
     yield* catchUpIncompleteIngress(fixture, secondRequest).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     const replayedVote = yield* takeReanchorVote(secondOutbound);
@@ -3174,7 +3174,7 @@ const rebroadcastsPersistedCompletedReanchor = () =>
     } = yield* startRestartRecovery(fixture);
     yield* catchUpIncompleteIngress(fixture, secondRequest).pipe(
       Effect.flatMap((ingress) =>
-        fixture.engine.acceptRecoveryIngress(ingress),
+        fixture.engine.acceptRouterIngress(ingress),
       ),
     );
     const replayed = yield* Queue.take(secondOutbound).pipe(
@@ -3263,7 +3263,7 @@ const recoversN4PartiallyDisseminatedSuccessor = () =>
       request: directRequest,
       routerInstanceId: newRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
+      Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
     );
     yield* catchUpIncompleteIngressFrom({
       membership: n4.membership,
@@ -3271,7 +3271,7 @@ const recoversN4PartiallyDisseminatedSuccessor = () =>
       request: n4Request,
       routerInstanceId: newRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
+      Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
     );
     yield* catchUpIncompleteIngressFrom({
       membership: n4.membership,
@@ -3279,7 +3279,7 @@ const recoversN4PartiallyDisseminatedSuccessor = () =>
       request: n4Request,
       routerInstanceId: newRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
+      Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
     );
     const beforeCompleteSource = yield* fixture.store.recover();
     expect(
@@ -3304,7 +3304,7 @@ const recoversN4PartiallyDisseminatedSuccessor = () =>
       item: history.certifiedSuccessor,
       routerInstanceId: newRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
+      Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
     );
     const advancedRequest = yield* takeCatchUpRequest(recoveryOutbound);
     expect(advancedRequest).toMatchObject({
@@ -3331,7 +3331,7 @@ const recoversN4PartiallyDisseminatedSuccessor = () =>
       request: advancedRequest,
       routerInstanceId: newRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
+      Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
     );
     yield* catchUpIncompleteIngressFrom({
       membership: n4.membership,
@@ -3339,7 +3339,7 @@ const recoversN4PartiallyDisseminatedSuccessor = () =>
       request: advancedRequest,
       routerInstanceId: newRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
+      Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
     );
     yield* catchUpIncompleteIngressFrom({
       membership: n4.membership,
@@ -3347,7 +3347,7 @@ const recoversN4PartiallyDisseminatedSuccessor = () =>
       request: advancedRequest,
       routerInstanceId: newRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
+      Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
     );
     const proposal = yield* takeReanchorVote(recoveryOutbound);
     expect(proposal.reanchor.selectedRecordHash).toBe(
@@ -3359,7 +3359,7 @@ const recoversN4PartiallyDisseminatedSuccessor = () =>
       proposal,
       routerInstanceId: newRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
+      Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
     );
     yield* peerReanchorVoteIngressFrom({
       membership: n4.membership,
@@ -3367,7 +3367,7 @@ const recoversN4PartiallyDisseminatedSuccessor = () =>
       proposal,
       routerInstanceId: newRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
+      Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
     );
     const completed = yield* Queue.take(recoveryOutbound).pipe(
       Effect.flatMap((message) => openForwarded(message)),
@@ -3442,7 +3442,7 @@ const blocksN4ReanchorBehindStagedSuccessor = () =>
       request: directRequest,
       routerInstanceId: newRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
+      Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
     );
     yield* catchUpIncompleteIngressFrom({
       membership: n4.membership,
@@ -3450,7 +3450,7 @@ const blocksN4ReanchorBehindStagedSuccessor = () =>
       request: n4Request,
       routerInstanceId: newRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
+      Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
     );
     yield* catchUpIncompleteIngressFrom({
       membership: n4.membership,
@@ -3458,7 +3458,7 @@ const blocksN4ReanchorBehindStagedSuccessor = () =>
       request: n4Request,
       routerInstanceId: newRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
+      Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
     );
     yield* catchUpIncompleteIngressFrom({
       membership: n4.membership,
@@ -3466,7 +3466,7 @@ const blocksN4ReanchorBehindStagedSuccessor = () =>
       request: n4Request,
       routerInstanceId: newRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
+      Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
     );
 
     const blocked = yield* fixture.store.recover();
@@ -5949,7 +5949,7 @@ const relayRecoveryTraffic = (
           signingAuthority: receiver.authority,
         }).pipe(
           Effect.flatMap((payload) =>
-            engine.acceptRecoveryIngress({
+            engine.acceptRouterIngress({
               routerInstanceId,
               message,
               senderCard: sender.card,
