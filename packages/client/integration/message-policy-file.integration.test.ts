@@ -15,10 +15,7 @@ import { Effect, Schedule, Schema } from "effect";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  FirewallAuditRecord,
-  messagePolicyFormat,
-} from "../src/service/index.js";
+import { FirewallAuditRecord } from "../src/service/index.js";
 import {
   acquireDaemonManagementClient,
   acquireDaemonProcess,
@@ -30,6 +27,8 @@ import {
   processTrace,
   stopProcess,
 } from "./daemon-process-harness.js";
+
+const FORMAT = "org.social-harness/message-policy/v1";
 
 const CREDENTIAL = "sk-proj-integrationCredential1234";
 
@@ -101,7 +100,7 @@ const enforcedCodeRules = Effect.gen(function* () {
     writeFile(
       policyFile,
       JSON.stringify({
-        format: messagePolicyFormat,
+        format: FORMAT,
         mode: "enforcement",
         incoming: [{ use: "acknowledgements" }],
         outgoing: [{ use: "credentials" }],
@@ -157,11 +156,9 @@ const invalidDocument = Effect.gen(function* () {
   const stock = yield* makeDaemonProcessFixture(infrastructure, "carol");
   const policyFile = join(infrastructure.temporaryDirectory, "carol.json");
   yield* Effect.promise(() =>
-    writeFile(
-      policyFile,
-      JSON.stringify({ format: messagePolicyFormat, mode: "off" }),
-      { mode: 0o600 },
-    ),
+    writeFile(policyFile, JSON.stringify({ format: FORMAT, mode: "off" }), {
+      mode: 0o600,
+    }),
   );
   const failure = yield* awaitDaemonStartupFailure(
     withPolicy(stock, { SHARNESS_MESSAGE_POLICY_FILE: policyFile }),

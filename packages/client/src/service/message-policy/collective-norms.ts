@@ -31,8 +31,8 @@ const COLLECTIVE_NORMS_ID = "org.social-harness/collective-norms";
 
 /**
  * The English rule that asks for one collective in place of a hand-run
- * gather. A check reads one conversation's window, so the rule judges what
- * that window shows: a plain message asking several members to each reply,
+ * gather. A check reads one conversation's window, so the rule assesses
+ * what that window shows: a plain message asking several members to each reply,
  * or a question it shows the agent already asked another member.
  */
 const ONE_GATHER_RULE: EnglishRule = {
@@ -98,13 +98,13 @@ const INCOMING_ENGLISH_RULES: readonly EnglishRule[] = [
 
 /**
  * One deterministic rule: its registration, the statement the edition
- * carries in place of English text, and its judgment of one send by an agent
- * with the given facilitator role.
+ * carries in place of English text, and its assessment of one send by an
+ * agent with the given facilitator role.
  */
 interface CodeRule {
   readonly description: RuleDescription;
   readonly statement: string;
-  readonly judge: (
+  readonly assess: (
     message: Message,
     situation: {
       readonly context: MessageContext;
@@ -113,7 +113,7 @@ interface CodeRule {
   ) => "pass" | "not-applicable" | "revise";
 }
 
-/** The bundle's code rules, which judge only what the agent sends. */
+/** The bundle's code rules, which assess only what the agent sends. */
 const CODE_RULES: readonly CodeRule[] = [
   {
     description: {
@@ -126,7 +126,7 @@ const CODE_RULES: readonly CodeRule[] = [
     },
     statement:
       "Only an agent configured as the run's facilitator starts a gather or all_gather that asks two or more members.",
-    judge: (message, { facilitator }) =>
+    assess: (message, { facilitator }) =>
       message.operation?.kind === "request" && message.recipients.length > 1
         ? revisionOutcome(!facilitator)
         : "not-applicable",
@@ -142,7 +142,7 @@ const CODE_RULES: readonly CodeRule[] = [
     },
     statement:
       "An agent does not open a request in a conversation where an earlier request of its own is still open: no result or failure has arrived for it, its deadline has not passed, and, for a gather, its member has not answered it.",
-    judge: (message, { context }) =>
+    assess: (message, { context }) =>
       message.operation?.kind === "request"
         ? revisionOutcome(hasOpenRequest(context))
         : "not-applicable",
@@ -158,7 +158,7 @@ const CODE_RULES: readonly CodeRule[] = [
     },
     statement:
       "An agent does not post to two or more members a plain message that only thanks or acknowledges and carries no question, number, link or other information.",
-    judge: (message) =>
+    assess: (message) =>
       message.operation === undefined && message.recipients.length > 1
         ? revisionOutcome(isAcknowledgementOnly(message.text))
         : "not-applicable",
@@ -228,11 +228,11 @@ const ACKNOWLEDGEMENT_FILLER: ReadonlySet<string> = new Set([
 
 /**
  * Every rule of the bundle in each direction, with its full text and the
- * acknowledgement vocabulary its code rule judges with, and the Client
- * release, which can change how the judge's answers compose without
- * changing the question edition. The facilitator role is an input to the
- * code rules' judgment, not part of the edition. A change to how a code rule
- * judges that these fields do not show bumps `edition`.
+ * acknowledgement vocabulary its code rule assesses with, and the Client
+ * release, which can change how the decision provider's answers compose
+ * without changing the question edition. The facilitator role is an input to
+ * the code rules' assessment, not part of the edition. A change to how a code
+ * rule assesses that these fields do not show bumps `edition`.
  */
 const EDITION = {
   edition: "org.social-harness/collective-norms/v1",
@@ -263,19 +263,23 @@ export interface CollectiveNorms {
  * The bundle under its id and one revision. The incoming registration
  * assesses the incoming English rules; the outgoing one runs the code rules
  * first and asks the English assessor only when no code rule refused the
- * send, so a deterministic refusal costs no judge call and keeps its own
- * feedback whatever the judge's state. The revision is the SHA-256 of the
- * edition, both English middlewares' revisions, which hash the English
- * settings and question semantics, and the decision provider's provenance.
+ * send, so a deterministic refusal costs no decision provider call and keeps
+ * its own feedback whatever the provider's state. The revision is the SHA-256
+ * of the edition, both English middlewares' revisions, which hash the English
+ * settings and question semantics, the history window the checks read, and
+ * the decision provider's provenance.
  * It excludes `facilitator`, which only the outgoing registration's
  * provenance records, so every member of a run registers the same revision.
  * @param provider The service that assesses the English rules.
  * @param settings The English assessment bounds.
+ * @param historyRecords The history window each check reads, if the policy
+ *     sets one.
  * @returns The incoming registration and the outgoing one for a role.
  */
 export const collectiveNorms = Effect.fn("collectiveNorms")(function* (
   provider: DecisionProvider,
   settings: EnglishPolicySettings,
+  historyRecords?: number,
 ): Effect.fn.Return<CollectiveNorms, CheckInputError> {
   const incoming = yield* makeEnglishPolicy({
     id: COLLECTIVE_NORMS_ID,
@@ -293,6 +297,7 @@ export const collectiveNorms = Effect.fn("collectiveNorms")(function* (
     JSON.stringify({
       edition: EDITION,
       english: { incoming: incoming.revision, outgoing: outgoing.revision },
+      historyRecords: historyRecords ?? null,
       provider: provider.provenance ?? null,
     }),
   );
@@ -317,7 +322,7 @@ function checkOutgoing(
 ): Effect.Effect<MiddlewareResult, MiddlewareError> {
   const code = CODE_RULES.map((rule) => ({
     ruleId: rule.description.id,
-    outcome: rule.judge(input.event.message, {
+    outcome: rule.assess(input.event.message, {
       context: input.context,
       facilitator,
     }),
@@ -396,7 +401,7 @@ function isAcknowledgementOnly(text: string): boolean {
 
 /**
  * Whether the window holds a request of the agent's own that is still open
- * in this conversation, judged at the context's capture time. A gather's
+ * in this conversation, assessed at the context's capture time. A gather's
  * answer closes its request, since its conversation has one member; an
  * all_gather stays open until its result. A group-addressed gather's request
  * posts sit in each member's direct conversation, outside the window its

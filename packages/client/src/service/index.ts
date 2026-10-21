@@ -5,6 +5,7 @@ import { wireVersions } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Data, Duration, Effect, Layer } from "effect";
+import type { FirewallPolicyError } from "../firewall/index.js";
 import {
   type FirewallOptions as InstalledFirewallOptions,
   installEditableFirewall,
@@ -28,6 +29,7 @@ import { type DaemonRuntimeError, runDaemonRuntime } from "./lifecycle.js";
 import {
   type FirewallInstallation,
   firewallInstallation,
+  policyInstallationError,
 } from "./message-policy/index.js";
 import {
   type DaemonRegistrationPersistenceError,
@@ -48,12 +50,16 @@ const liveWireVersions = wireVersions.liveSet;
 /** Trusted operators decode retained checks without reading private storage schemas. */
 export { FirewallAuditRecord } from "../delivery/index.js";
 
-/** Writers of a daemon's message-policy document and trusted composition that installs one with its own decision provider. */
+/**
+ * Writers build a daemon's message-policy document with `MessagePolicy`;
+ * `messagePolicyFirewall` is the trusted-composition hook that installs a
+ * decoded document through `Daemon.withFirewall` with a decision provider of
+ * the composition's own.
+ */
 export {
   decodeMessagePolicy,
   MessagePolicy,
   messagePolicyFirewall,
-  messagePolicyFormat,
 } from "./message-policy/index.js";
 
 /** Checking factories have no daemon execution authority. */
@@ -152,7 +158,7 @@ export namespace Daemon {
         installation.options === undefined
           ? undefined
           : yield* installEditableFirewall(installation.options, store).pipe(
-              Effect.mapError(configurationFailure),
+              Effect.mapError((cause) => installFailure(installation, cause)),
             );
       const registration = yield* readDaemonRegistrationState({
         store,
@@ -207,6 +213,23 @@ export namespace Daemon {
       phase: error.phase,
       ...(error.reason === undefined ? {} : { reason: error.reason }),
     });
+  }
+
+  /**
+   * A file-described firewall that fails to install names its setting.
+   * @param installation What the daemon was installing, and from where.
+   * @param cause The closed installation failure.
+   * @returns The configuration-phase startup failure.
+   */
+  function installFailure(
+    installation: FirewallInstallation,
+    cause: FirewallPolicyError,
+  ): StartupError {
+    return configurationFailure(
+      installation.fromPolicyFile === true
+        ? policyInstallationError(cause)
+        : cause,
+    );
   }
 
   function configurationFailure(cause: unknown): StartupError {

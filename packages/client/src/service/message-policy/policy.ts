@@ -10,7 +10,7 @@ import {
 } from "../../firewall/index.js";
 
 /** The `format` every message-policy document names. */
-export const messagePolicyFormat = "org.social-harness/message-policy/v1";
+const messagePolicyFormat = "org.social-harness/message-policy/v1";
 
 /** A tool name as hosts register it: letters, digits and underscores. */
 const toolName = Schema.String.pipe(Schema.pattern(/^\w+$/u));
@@ -127,8 +127,10 @@ const document = Schema.Struct({
  * middleware of each direction in chain order, its fixed and initial
  * editable English rules, the decision provider those rules and the
  * collective norms need, and the check bounds. Absent settings take Client's
- * defaults. English rules or the collective norms without a decision provider
- * are refused.
+ * defaults. English rules or the collective norms without a decision
+ * provider, the collective norms with the `unavailable` provider, which would
+ * leave every one of their English checks unavailable, and an English rule
+ * id given twice across the fixed and initial rules are refused.
  */
 export const MessagePolicy = document.pipe(
   Schema.filter(
@@ -139,6 +141,18 @@ export const MessagePolicy = document.pipe(
         "decisionProvider is required for English rules and the collective norms",
     },
   ),
+  Schema.filter(
+    (policy) =>
+      policy.decisionProvider?.kind !== "unavailable" ||
+      !installsCollectiveNorms(policy),
+    {
+      message: () => "the collective norms need an available decisionProvider",
+    },
+  ),
+  Schema.filter((policy) => uniqueEnglishRuleIds(policy), {
+    message: () =>
+      "english rule ids must be unique across fixedRules and initialRules",
+  }),
 );
 
 /** One decoded message-policy document, with Client's defaults filled in. */
@@ -157,10 +171,19 @@ export const decodeMessagePolicy = Schema.decodeUnknown(
 );
 
 function needsDecisionProvider(policy: typeof document.Type): boolean {
-  return (
-    policy.english !== undefined ||
-    [...policy.incoming, ...policy.outgoing].some(
-      (entry) => entry.use === "collective-norms",
-    )
+  return policy.english !== undefined || installsCollectiveNorms(policy);
+}
+
+function installsCollectiveNorms(policy: typeof document.Type): boolean {
+  return [...policy.incoming, ...policy.outgoing].some(
+    (entry) => entry.use === "collective-norms",
   );
+}
+
+function uniqueEnglishRuleIds(policy: typeof document.Type): boolean {
+  const ids = [
+    ...(policy.english?.fixedRules ?? []),
+    ...(policy.english?.initialRules ?? []),
+  ].map((rule) => rule.id);
+  return new Set(ids).size === ids.length;
 }

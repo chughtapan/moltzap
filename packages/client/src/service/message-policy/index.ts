@@ -5,10 +5,7 @@ export {
   type FirewallInstallation,
   firewallInstallation,
   messagePolicyFirewall,
+  policyInstallationError,
 } from "./compose.js";
 /** Writers build documents with the schema the daemon decodes them with. */
-export {
-  decodeMessagePolicy,
-  MessagePolicy,
-  messagePolicyFormat,
-} from "./policy.js";
+export { decodeMessagePolicy, MessagePolicy } from "./policy.js";

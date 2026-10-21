@@ -3,8 +3,9 @@
 import { live as it } from "@effect/vitest";
 import { Ed25519PublicKey } from "@moltzap/identity";
 import { ConfigProvider, Effect, Layer, Redacted, Schema } from "effect";
+import { generateKeyPairSync } from "node:crypto";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests create and remove exact temporary policy and key files around the configuration boundary.
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect } from "vitest";
@@ -36,11 +37,14 @@ const DOCUMENT = {
     ],
   },
 };
+const UNAVAILABLE_DOCUMENT = {
+  ...DOCUMENT,
+  decisionProvider: { kind: "unavailable" },
+};
 const JEV_DOCUMENT = {
   ...DOCUMENT,
   decisionProvider: { kind: "jev", model: "jev-1.13.0" },
 };
-const AUDIT_EXPORT = "/var/lib/sharness/exports/firewall.ndjson";
 
 afterEach(() => {
   for (const directory of directories.splice(0)) {
@@ -58,7 +62,7 @@ it("installs no firewall without a policy file", () =>
 it.each([
   [
     "an audit export without a policy file",
-    () => ({ firewallAuditExport: AUDIT_EXPORT }),
+    () => ({ firewallAuditExport: "/var/lib/sharness/firewall.ndjson" }),
     "message-policy-required",
   ],
   [
@@ -92,6 +96,80 @@ it.each([
     }),
     "decision-provider-key",
   ],
+  [
+    "a document over 1 MiB",
+    () => ({
+      messagePolicyFile: file({
+        ...DOCUMENT,
+        decisionProvider: { kind: "unavailable" },
+        facts: [
+          {
+            id: "large",
+            source: "owner",
+            text: "x".repeat(1_100_000),
+            visibility: "assessor",
+          },
+        ],
+      }),
+    }),
+    "message-policy-file",
+  ],
+  [
+    "an English rule id given as both fixed and initial",
+    () => ({
+      messagePolicyFile: file({
+        ...JEV_DOCUMENT,
+        english: {
+          fixedRules: DOCUMENT.english.fixedRules,
+          initialRules: [
+            {
+              ...DOCUMENT.english.fixedRules[0],
+              kind: "norm",
+              guidance: "Ask.",
+            },
+          ],
+        },
+      }),
+      decisionProviderKeyFile: Redacted.make(file("key-value")),
+    }),
+    "message-policy",
+  ],
+  [
+    "the collective norms with an unavailable decision provider",
+    () => ({
+      messagePolicyFile: file({
+        format: FORMAT,
+        mode: "enforcement",
+        incoming: [{ use: "collective-norms" }],
+        decisionProvider: { kind: "unavailable" },
+      }),
+    }),
+    "message-policy",
+  ],
+  [
+    "a relative audit export",
+    () => ({
+      messagePolicyFile: file(UNAVAILABLE_DOCUMENT),
+      firewallAuditExport: "exports/firewall.ndjson",
+    }),
+    "firewall-audit-export",
+  ],
+  [
+    "an audit export in a missing directory",
+    () => ({
+      messagePolicyFile: file(UNAVAILABLE_DOCUMENT),
+      firewallAuditExport: join(directory(), "absent", "firewall.ndjson"),
+    }),
+    "firewall-audit-export",
+  ],
+  [
+    "an audit export in a directory others can read",
+    () => ({
+      messagePolicyFile: file(UNAVAILABLE_DOCUMENT),
+      firewallAuditExport: join(sharedDirectory(), "firewall.ndjson"),
+    }),
+    "firewall-audit-export",
+  ],
 ] as const)("refuses %s", ([, fields, reason]) =>
   Effect.gen(function* () {
     const error = yield* firewallInstallation(configuration(fields())).pipe(
@@ -121,6 +199,7 @@ it("names where a document is invalid, never what it holds", () =>
 
 it("installs the document with its key, Client's default settings and the audit export", () =>
   Effect.gen(function* () {
+    const auditExport = join(directory(), "firewall.ndjson");
     const installed = yield* firewallInstallation(
       configuration({
         messagePolicyFile: file({
@@ -128,7 +207,7 @@ it("installs the document with its key, Client's default settings and the audit 
           maximumConcurrentChecks: 2,
         }),
         decisionProviderKeyFile: Redacted.make(file("key-value\n")),
-        firewallAuditExport: AUDIT_EXPORT,
+        firewallAuditExport: auditExport,
       }),
     );
     const options = yield* Effect.fromNullable(installed.options);
@@ -141,17 +220,15 @@ it("installs the document with its key, Client's default settings and the audit 
       "builtin.policy-owner",
     ]);
     expect(options.english?.provider.provenance?.data).toContain("jev-1.13.0");
-    expect(installed.auditExport).toBe(AUDIT_EXPORT);
+    expect(installed.auditExport).toBe(auditExport);
   }));
 
-it("installs English rules with an unavailable provider and no key", () =>
+it("installs English rules with an unavailable provider without reading a key file", () =>
   Effect.gen(function* () {
     const installed = yield* firewallInstallation(
       configuration({
-        messagePolicyFile: file({
-          ...DOCUMENT,
-          decisionProvider: { kind: "unavailable" },
-        }),
+        messagePolicyFile: file(UNAVAILABLE_DOCUMENT),
+        decisionProviderKeyFile: Redacted.make(join(directory(), "absent")),
       }),
     );
     expect(installed.options?.english?.fixedRules).toHaveLength(1);
@@ -168,6 +245,45 @@ it("fails daemon configuration on an invalid policy before reading the agent key
     );
     expect(error.phase).toBe("configuration");
     expect(error.message).toContain("SHARNESS_MESSAGE_POLICY_FILE");
+  }));
+
+it("names the policy file when its rules cannot be installed", () =>
+  Effect.gen(function* () {
+    const root = directory();
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const key = join(root, "agent.pem");
+    const admission = join(root, "admission");
+    writeFileSync(key, privateKey.export({ type: "pkcs8", format: "pem" }), {
+      mode: 0o600,
+    });
+    writeFileSync(admission, "admission-credential", { mode: 0o600 });
+    const error = yield* Layer.build(Daemon.layer).pipe(
+      Effect.scoped,
+      Effect.withConfigProvider(
+        environment({
+          SHARNESS_STATE_DIRECTORY: join(root, "state"),
+          SHARNESS_AGENT_PRIVATE_KEY_FILE: key,
+          SHARNESS_ADMISSION_CREDENTIAL_FILE: admission,
+          SHARNESS_MESSAGE_POLICY_FILE: file({
+            ...UNAVAILABLE_DOCUMENT,
+            english: {
+              initialRules: [
+                {
+                  id: "credentials",
+                  kind: "norm",
+                  text: "Be careful.",
+                  guidance: "Ask.",
+                },
+              ],
+            },
+          }),
+        }),
+      ),
+      Effect.flip,
+    );
+    expect(error.phase).toBe("configuration");
+    expect(error.message).toContain("SHARNESS_MESSAGE_POLICY_FILE");
+    expect(error.message).toContain("could not be installed");
   }));
 
 it("refuses a policy file beside a composition's own firewall", () =>
@@ -254,6 +370,13 @@ function environment(extra: Readonly<Record<string, string>>) {
       }),
     ),
   );
+}
+
+/** A directory of the daemon's user that its group and others can read. */
+function sharedDirectory(): string {
+  const shared = directory();
+  chmodSync(shared, 0o755);
+  return shared;
 }
 
 function directory(): string {

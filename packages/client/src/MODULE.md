@@ -649,11 +649,11 @@ as a norm judgment the decision provider left unsettled.
 
 ### `@moltzap/client/service`
 
-#### [`Daemon`](./service/index.ts#L87)
+#### [`Daemon`](./service/index.ts#L93)
 
 _Namespace_
 
-#### [`Daemon.StartupError`](./service/index.ts#L101)
+#### [`Daemon.StartupError`](./service/index.ts#L107)
 
 _Class_
 
@@ -690,7 +690,7 @@ _Class_
 
 Closed startup phase with sanitized configuration details.
 
-#### [`Daemon.FirewallOptions`](./service/index.ts#L92)
+#### [`Daemon.FirewallOptions`](./service/index.ts#L98)
 
 _TypeAlias_
 
@@ -706,7 +706,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-#### [`Daemon.help`](./service/index.ts#L89)
+#### [`Daemon.help`](./service/index.ts#L95)
 
 _Variable_
 
@@ -716,7 +716,7 @@ _Variable_
 
 Usage text listing the daemon process's environment variables.
 
-#### [`Daemon.layer`](./service/index.ts#L181)
+#### [`Daemon.layer`](./service/index.ts#L187)
 
 _Variable_
 
@@ -729,7 +729,7 @@ _Variable_
 Complete production process composition for `sharnessd`, with the
 firewall `SHARNESS_MESSAGE_POLICY_FILE` describes when it is set.
 
-#### [`Daemon.withFirewall`](./service/index.ts#L191)
+#### [`Daemon.withFirewall`](./service/index.ts#L197)
 
 _Function_
 
@@ -1096,7 +1096,7 @@ export type FirewallAuditRecord = typeof FirewallAuditRecord.Type;
 
 Completion verifies the snapshot, not completion or delivery of each attempt.
 
-#### [`MessagePolicy (type)`](./service/message-policy/policy.ts#L145)
+#### [`MessagePolicy (type)`](./service/message-policy/policy.ts#L159)
 
 _TypeAlias_
 
@@ -1106,7 +1106,7 @@ export type MessagePolicy = typeof MessagePolicy.Type;
 
 One decoded message-policy document, with Client's defaults filled in.
 
-#### [`decodeMessagePolicy`](./service/message-policy/policy.ts#L154)
+#### [`decodeMessagePolicy`](./service/message-policy/policy.ts#L168)
 
 _Variable_
 
@@ -1290,7 +1290,7 @@ flowchart TD
   D --> R[Return to Client for enforcement]
 ```
 
-#### [`MessagePolicy (value)`](./service/message-policy/policy.ts#L133)
+#### [`MessagePolicy (value)`](./service/message-policy/policy.ts#L135)
 
 _Variable_
 
@@ -1304,6 +1304,18 @@ export const MessagePolicy = document.pipe(
         "decisionProvider is required for English rules and the collective norms",
     },
   ),
+  Schema.filter(
+    (policy) =>
+      policy.decisionProvider?.kind !== "unavailable" ||
+      !installsCollectiveNorms(policy),
+    {
+      message: () => "the collective norms need an available decisionProvider",
+    },
+  ),
+  Schema.filter((policy) => uniqueEnglishRuleIds(policy), {
+    message: () =>
+      "english rule ids must be unique across fixedRules and initialRules",
+  }),
 )
 ```
 
@@ -1311,10 +1323,12 @@ The message policy of one daemon: its firewall mode, the built-in code
 middleware of each direction in chain order, its fixed and initial
 editable English rules, the decision provider those rules and the
 collective norms need, and the check bounds. Absent settings take Client's
-defaults. English rules or the collective norms without a decision provider
-are refused.
+defaults. English rules or the collective norms without a decision
+provider, the collective norms with the `unavailable` provider, which would
+leave every one of their English checks unavailable, and an English rule
+id given twice across the fixed and initial rules are refused.
 
-#### [`messagePolicyFirewall`](./service/message-policy/compose.ts#L46)
+#### [`messagePolicyFirewall`](./service/message-policy/compose.ts#L59)
 
 _Variable_
 
@@ -1325,25 +1339,29 @@ export const messagePolicyFirewall = Effect.fn("messagePolicyFirewall")(
     provider: DecisionProvider,
   ): Effect.fn.Return<FirewallOptions, CheckInputError> {
     const bundle = yield* Effect.cached(
-      collectiveNorms(provider, policy.englishSettings),
+      collectiveNorms(
+        provider,
+        policy.englishSettings,
+        policy.maximumHistoryRecords,
+      ),
+    );
+    const incomingChain = yield* Effect.forEach(
+      policy.incoming,
+      (entry) => incoming(entry, bundle),
+      { concurrency: 1 },
+    );
+    const outgoingChain = yield* Effect.forEach(
+      policy.outgoing,
+      (entry) => outgoing(entry, bundle),
+      { concurrency: 1 },
     );
     return {
       mode: policy.mode,
-      incoming: yield* Effect.forEach(
-        policy.incoming,
-        (entry) => incoming(entry, bundle),
-        { concurrency: 1 },
-      ),
-      outgoing: yield* Effect.forEach(
-        policy.outgoing,
-        (entry) => outgoing(entry, bundle),
-        { concurrency: 1 },
-      ),
+      incoming: incomingChain,
+      outgoing: outgoingChain,
       settings: policy.settings,
       facts: policy.facts,
-      codeDigest: createHash("sha256")
-        .update(JSON.stringify({ client: packageVersion, policy }))
-        .digest("hex"),
+      codeDigest: armDigest(policy, [...incomingChain, ...outgoingChain]),
       maximumHistoryRecords: policy.maximumHistoryRecords,
       maximumConcurrentChecks: policy.maximumConcurrentChecks,
       english:
@@ -1362,18 +1380,14 @@ export const messagePolicyFirewall = Effect.fn("messagePolicyFirewall")(
 
 The firewall installation of one message-policy document: its built-in
 middleware in chain order, its English rules assessed by `provider`, and
-its settings. `codeDigest` identifies the document and the Client release
-that interprets it.
-
-#### [`messagePolicyFormat`](./service/message-policy/policy.ts#L13)
-
-_Variable_
-
-```ts
-export const messagePolicyFormat = "org.social-harness/message-policy/v1"
-```
-
-The `format` every message-policy document names.
+its settings. This is the trusted-composition hook: a composition that
+brings its own decision provider installs the result with
+`Daemon.withFirewall`. `codeDigest` is the SHA-256 of the Client release,
+the mode, each registration's id and revision, the fixed English rules,
+the decision provider and the settings. It leaves out what differs between
+the agents of one arm: the facilitator role, which no revision holds, the
+allowed-sender list and the initial editable rules, so every member
+records the same digest.
 
 #### [`makeJevDecisionProvider`](./firewall/jev.ts#L182)
 

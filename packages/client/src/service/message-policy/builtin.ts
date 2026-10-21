@@ -170,6 +170,9 @@ export function acknowledgementsPolicy(): MessageMiddleware {
   };
 }
 
+/** The allowed-sender middleware's id; its revision names the agent's own sender list. */
+export const ALLOWED_SENDERS_ID = "org.social-harness/allowed-senders";
+
 /**
  * A received message is blocked unless its certified sender is one of
  * `agentIds`; names or claims in its body grant nothing. An empty list
@@ -182,7 +185,7 @@ export function allowedSendersPolicy(
 ): MessageMiddleware {
   const allowed = new Set(agentIds);
   return {
-    id: "org.social-harness/allowed-senders",
+    id: ALLOWED_SENDERS_ID,
     revision: sha256(
       JSON.stringify({
         edition: "org.social-harness/allowed-senders/v1",

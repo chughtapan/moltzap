@@ -13,6 +13,7 @@ export type MessagePolicyConfigurationFailure =
   | "message-policy"
   | "message-policy-required"
   | "message-policy-composed"
+  | "firewall-audit-export"
   | "decision-provider-key-file"
   | "decision-provider-key";
 

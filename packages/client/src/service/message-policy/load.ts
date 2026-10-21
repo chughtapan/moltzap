@@ -9,7 +9,8 @@ import {
   Schema,
 } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Configuration reads the configured policy file before the daemon composes its platform services.
-import { readFile } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
+import { dirname, isAbsolute } from "node:path";
 import {
   type DecisionProvider,
   DecisionProviderError,
@@ -52,6 +53,8 @@ const failureMessages: Readonly<
     "SHARNESS_MESSAGE_POLICY_FILE must contain a valid org.social-harness/message-policy/v1 document",
   "message-policy-required":
     "SHARNESS_FIREWALL_AUDIT_EXPORT requires SHARNESS_MESSAGE_POLICY_FILE",
+  "firewall-audit-export":
+    "SHARNESS_FIREWALL_AUDIT_EXPORT must be an absolute path in an existing directory owned by the daemon's user with no group or other access",
   "message-policy-composed":
     "SHARNESS_MESSAGE_POLICY_FILE cannot be set for a daemon whose composition installs its own firewall",
   "decision-provider-key-file":
@@ -72,8 +75,9 @@ export interface LoadedMessagePolicy {
  * unset. A `jev` decision provider reads its key from
  * `SHARNESS_DECISION_PROVIDER_KEY_FILE` and retries transient failures; the
  * key file is not read for any other provider. An audit export without a
- * policy, an unreadable or invalid document, and a missing or invalid key
- * fail configuration naming no file content.
+ * policy or outside a private directory of the daemon's user, an unreadable
+ * or invalid document, and a missing or invalid key fail configuration naming
+ * no file content.
  * @param configuration The daemon's loaded process configuration.
  * @returns The document, its decision provider and its audit export path.
  */
@@ -95,10 +99,14 @@ export const loadMessagePolicy = (
         decodeMessagePolicy(text).pipe(Effect.mapError(invalidPolicy)),
       ),
     );
+    const auditExport = configuration.firewallAuditExport;
+    if (auditExport !== undefined) {
+      yield* requirePrivateParent(auditExport);
+    }
     return Option.some({
       policy,
       provider: yield* decisionProvider(policy, configuration),
-      auditExport: configuration.firewallAuditExport,
+      auditExport,
     });
   }).pipe(Effect.withSpan("loadMessagePolicy"));
 
@@ -115,6 +123,27 @@ export function policyConfigurationError(
     reason,
     message: failureMessages[reason],
   });
+}
+
+/** The audit export's directory exists, belongs to the daemon's user and admits no one else. */
+function requirePrivateParent(path: string) {
+  const refused = () => policyConfigurationError("firewall-audit-export");
+  if (!isAbsolute(path)) {
+    return Effect.fail(refused());
+  }
+  return Effect.tryPromise({
+    try: () => lstat(dirname(path)),
+    catch: refused,
+  }).pipe(
+    Effect.filterOrFail(
+      (parent) =>
+        parent.isDirectory() &&
+        parent.uid === process.getuid?.() &&
+        (parent.mode & 0o077) === 0,
+      refused,
+    ),
+    Effect.asVoid,
+  );
 }
 
 function readPolicyText(path: string) {

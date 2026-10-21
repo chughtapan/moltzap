@@ -6,12 +6,9 @@ import type { FirewallOptions } from "../../delivery/index.js";
 import type {
   CheckInputError,
   DecisionProvider,
+  FirewallPolicyError,
   MessageMiddleware,
 } from "../../firewall/index.js";
-import type {
-  DaemonConfigurationError,
-  DaemonProcessConfiguration,
-} from "../bootstrap.js";
 import type {
   IncomingMiddlewareEntry,
   MessagePolicy,
@@ -19,7 +16,12 @@ import type {
 } from "./policy.js";
 import { packageVersion } from "../../endpoint/implementation.js";
 import {
+  DaemonConfigurationError,
+  type DaemonProcessConfiguration,
+} from "../bootstrap.js";
+import {
   acknowledgementsPolicy,
+  ALLOWED_SENDERS_ID,
   allowedSendersPolicy,
   credentialsPolicy,
   plainLanguagePolicy,
@@ -27,17 +29,28 @@ import {
 import { type CollectiveNorms, collectiveNorms } from "./collective-norms.js";
 import { loadMessagePolicy, policyConfigurationError } from "./load.js";
 
-/** The firewall a daemon installs, if any, and where its audit goes. */
+/**
+ * The firewall a daemon installs, if any, and where its audit goes.
+ * `fromPolicyFile` marks one the environment's message-policy file
+ * describes, so an installation failure names that setting.
+ */
 export interface FirewallInstallation {
   readonly options?: FirewallOptions;
   readonly auditExport?: string;
+  readonly fromPolicyFile?: boolean;
 }
 
 /**
  * The firewall installation of one message-policy document: its built-in
  * middleware in chain order, its English rules assessed by `provider`, and
- * its settings. `codeDigest` identifies the document and the Client release
- * that interprets it.
+ * its settings. This is the trusted-composition hook: a composition that
+ * brings its own decision provider installs the result with
+ * `Daemon.withFirewall`. `codeDigest` is the SHA-256 of the Client release,
+ * the mode, each registration's id and revision, the fixed English rules,
+ * the decision provider and the settings. It leaves out what differs between
+ * the agents of one arm: the facilitator role, which no revision holds, the
+ * allowed-sender list and the initial editable rules, so every member
+ * records the same digest.
  * @param policy The decoded document.
  * @param provider The service that assesses its English rules and the
  *     collective norms; unused when the document installs neither.
@@ -49,25 +62,29 @@ export const messagePolicyFirewall = Effect.fn("messagePolicyFirewall")(
     provider: DecisionProvider,
   ): Effect.fn.Return<FirewallOptions, CheckInputError> {
     const bundle = yield* Effect.cached(
-      collectiveNorms(provider, policy.englishSettings),
+      collectiveNorms(
+        provider,
+        policy.englishSettings,
+        policy.maximumHistoryRecords,
+      ),
+    );
+    const incomingChain = yield* Effect.forEach(
+      policy.incoming,
+      (entry) => incoming(entry, bundle),
+      { concurrency: 1 },
+    );
+    const outgoingChain = yield* Effect.forEach(
+      policy.outgoing,
+      (entry) => outgoing(entry, bundle),
+      { concurrency: 1 },
     );
     return {
       mode: policy.mode,
-      incoming: yield* Effect.forEach(
-        policy.incoming,
-        (entry) => incoming(entry, bundle),
-        { concurrency: 1 },
-      ),
-      outgoing: yield* Effect.forEach(
-        policy.outgoing,
-        (entry) => outgoing(entry, bundle),
-        { concurrency: 1 },
-      ),
+      incoming: incomingChain,
+      outgoing: outgoingChain,
       settings: policy.settings,
       facts: policy.facts,
-      codeDigest: createHash("sha256")
-        .update(JSON.stringify({ client: packageVersion, policy }))
-        .digest("hex"),
+      codeDigest: armDigest(policy, [...incomingChain, ...outgoingChain]),
       maximumHistoryRecords: policy.maximumHistoryRecords,
       maximumConcurrentChecks: policy.maximumConcurrentChecks,
       english:
@@ -106,12 +123,57 @@ export const firewallInstallation = (
                   policyConfigurationError("message-policy"),
                 ),
                 Effect.tap(logInstalled),
-                Effect.map((options) => ({ options, auditExport })),
+                Effect.map((options) => ({
+                  options,
+                  auditExport,
+                  fromPolicyFile: true,
+                })),
               )
             : Effect.fail(policyConfigurationError("message-policy-composed")),
       }),
     ),
   );
+
+/**
+ * The configuration failure for a document whose rules the daemon could not
+ * install against its store, such as an initial rule reusing a code rule's
+ * id.
+ * @param cause The closed installation failure.
+ * @returns The failure naming `SHARNESS_MESSAGE_POLICY_FILE` and the reason.
+ */
+export function policyInstallationError(
+  cause: FirewallPolicyError,
+): DaemonConfigurationError {
+  const base = policyConfigurationError("message-policy");
+  return new DaemonConfigurationError({
+    reason: base.reason,
+    message: `${base.message}; its rules could not be installed (${cause.reason})`,
+  });
+}
+
+/** The digest every agent of one arm shares; see {@link messagePolicyFirewall}. */
+function armDigest(
+  policy: MessagePolicy,
+  registrations: readonly MessageMiddleware[],
+): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        client: packageVersion,
+        mode: policy.mode,
+        registrations: registrations.map(({ id, revision }) =>
+          id === ALLOWED_SENDERS_ID ? { id } : { id, revision },
+        ),
+        fixedRules: policy.english?.fixedRules ?? null,
+        decisionProvider: policy.decisionProvider ?? null,
+        englishSettings: policy.englishSettings,
+        settings: policy.settings,
+        maximumHistoryRecords: policy.maximumHistoryRecords ?? null,
+        maximumConcurrentChecks: policy.maximumConcurrentChecks ?? null,
+      }),
+    )
+    .digest("hex");
+}
 
 function logInstalled(options: FirewallOptions) {
   const registrations = new Set(

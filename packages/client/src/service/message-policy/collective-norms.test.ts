@@ -19,8 +19,9 @@ import {
   type Message,
   type MessageContext,
   messagePolicyFirewall,
-  messagePolicyFormat,
 } from "../index.js";
+
+const FORMAT = "org.social-harness/message-policy/v1";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Closed judgments, next actions, rule ids and the bundle id are the public contract under test. */
 
@@ -250,6 +251,59 @@ it("registers one id and revision in both directions whatever the role", () =>
     expect(registrations[0]?.revision).toMatch(/^[a-f0-9]{64}$/u);
   }));
 
+it("records the same code digest for both facilitator roles", () =>
+  Effect.gen(function* () {
+    const facilitator = yield* chains(true, firstChoiceProvider());
+    const member = yield* chains(false, firstChoiceProvider());
+    expect(facilitator.codeDigest).toBe(member.codeDigest);
+  }));
+
+it.each([
+  [
+    "the English settings",
+    {
+      englishSettings: {
+        minimumProbability: 0.6,
+        maximumRequestBytes: 384_000,
+        timeoutMilliseconds: 15_000,
+      },
+    },
+    firstChoiceProvider(),
+  ],
+  ["the history window", { maximumHistoryRecords: 32 }, firstChoiceProvider()],
+  [
+    "the decision provider's model",
+    {},
+    {
+      ...firstChoiceProvider(),
+      provenance: { format: "fixture", data: "model-2" },
+    },
+  ],
+] as const)(
+  "moves the bundle revision and code digest with %s",
+  ([, fields, provider]) =>
+    Effect.gen(function* () {
+      const before = yield* chains(true, firstChoiceProvider());
+      const after = yield* chains(true, provider, fields);
+      expect(after.incoming[0]?.revision).not.toBe(
+        before.incoming[0]?.revision,
+      );
+      expect(after.codeDigest).not.toBe(before.codeDigest);
+    }),
+);
+
+it("moves the code digest with a fixed rule's text", () =>
+  Effect.gen(function* () {
+    const rule = { id: "fixed", kind: "norm", guidance: "Be brief." } as const;
+    const first = yield* chains(true, firstChoiceProvider(), {
+      english: { fixedRules: [{ ...rule, text: "Keep it short." }] },
+    });
+    const second = yield* chains(true, firstChoiceProvider(), {
+      english: { fixedRules: [{ ...rule, text: "Keep it shorter." }] },
+    });
+    expect(second.codeDigest).not.toBe(first.codeDigest);
+  }));
+
 it.each([true, false])(
   "records the role in the outgoing provenance (facilitator: %s)",
   (facilitator) =>
@@ -260,7 +314,7 @@ it.each([true, false])(
     }),
 );
 
-it("admits a send whose conformance the judge leaves unresolved, with that uncertainty as advice", () =>
+it("admits a send whose conformance the decision provider leaves unresolved, with that uncertainty as advice", () =>
   Effect.gen(function* () {
     const result = yield* checkOutgoing(
       { facilitator: true, provider: unsettledProvider("conformance") },
@@ -299,7 +353,7 @@ it("refuses a document that installs the bundle with no decision provider", () =
   Effect.gen(function* () {
     const decoded = yield* decodeMessagePolicy(
       JSON.stringify({
-        format: messagePolicyFormat,
+        format: FORMAT,
         mode: "enforcement",
         incoming: [{ use: "collective-norms" }],
       }),
@@ -339,15 +393,20 @@ function collectiveFirewall(facilitator: boolean, provider: DecisionProvider) {
 }
 
 /** The firewall options of an enforcement document installing the bundle. */
-function chains(facilitator: boolean, provider: DecisionProvider) {
+function chains(
+  facilitator: boolean,
+  provider: DecisionProvider,
+  fields: object = {},
+) {
   return decodeMessagePolicy(
     JSON.stringify({
-      format: messagePolicyFormat,
+      format: FORMAT,
       mode: "enforcement",
       incoming: [{ use: "collective-norms" }],
       outgoing: [{ use: "collective-norms", facilitator }],
       decisionProvider: { kind: "jev", model: "jev-1.13.0" },
       maximumHistoryRecords: 48,
+      ...fields,
     }),
   ).pipe(
     Effect.flatMap((policy) => messagePolicyFirewall(policy, provider)),

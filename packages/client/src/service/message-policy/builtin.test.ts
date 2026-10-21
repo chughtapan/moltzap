@@ -13,8 +13,9 @@ import {
   type Message,
   type MessageContext,
   messagePolicyFirewall,
-  messagePolicyFormat,
 } from "../index.js";
+
+const FORMAT = "org.social-harness/message-policy/v1";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Closed judgments, next actions and expectations are the public contract under test. */
 
@@ -300,7 +301,7 @@ function received(candidate: typeof Message.Encoded, context: MessageContext) {
 function firewallFor(fields: object) {
   return decodeMessagePolicy(
     JSON.stringify({
-      format: messagePolicyFormat,
+      format: FORMAT,
       mode: "enforcement",
       ...fields,
     }),
