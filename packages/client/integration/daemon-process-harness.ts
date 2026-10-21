@@ -389,123 +389,135 @@ const encodePublicKey = (
     ),
   );
 
-/**
- * Starts disposable PGlite, Registry, and Router processes. The Registry waits
- * for PGlite to listen; the Router reads the Registry only to serve a request,
- * so it starts alongside them.
- */
-export const acquireProcessInfrastructure: Effect.Effect<
-  ProcessInfrastructure,
-  ProcessTestError,
-  Scope.Scope
-> = Effect.gen(function* () {
-  const versions = yield* Effect.serviceOption(WireVersions);
-  const temporaryDirectory = yield* acquireTemporaryDirectory;
-  const registryKeyPath = join(temporaryDirectory, "registry-key.pem");
-  const registryPrivateKey = makePrivateKeyPem();
-  yield* writePrivateFile(registryKeyPath, registryPrivateKey);
-  const registryAuthority = yield* AgentSigningAuthority.fromPkcs8(
-    Redacted.make(registryPrivateKey),
-  ).pipe(
-    Effect.mapError((cause) =>
-      processTestError("could not load Registry signer", cause),
-    ),
-  );
-  const registrySignerPublicKeyJson = yield* encodePublicKey(
-    AgentSigningAuthority.publicKey(registryAuthority),
-  );
-  const [postgresqlPort, registryPort, routerPort] = yield* Effect.all(
-    [reservePort, reservePort, reservePort] as const,
-    { concurrency: 3 },
-  );
-  const registryOrigin = new URL(`http://${LOOPBACK_HOST}:${registryPort}`);
-  const routerOrigin = new URL(`http://${LOOPBACK_HOST}:${routerPort}`);
+/** The Registry and Router executables one infrastructure runs. */
+export interface NetworkBinaries {
+  readonly registry: string;
+  readonly router: string;
+}
 
-  const startRegistry = Effect.gen(function* () {
-    const postgresql = yield* managedProcess(PGLITE_BINARY, [
-      "--db=memory://",
-      `--port=${postgresqlPort}`,
-      `--host=${LOOPBACK_HOST}`,
-      "--max-connections=20",
-    ]);
-    yield* awaitReady(postgresql, canConnect(postgresqlPort), "listening");
-    const registryCommand: readonly [string, readonly string[]] = Option.isNone(
+/**
+ * Starts disposable PGlite, Registry, and Router processes from `binaries`,
+ * such as a published release's executables. The Registry waits for PGlite
+ * to listen; the Router reads the Registry only to serve a request, so it
+ * starts alongside them. An injected `WireVersions` runs the workspace
+ * Registry and Router under those sets instead.
+ */
+export const acquireProcessInfrastructureFrom = (
+  binaries: NetworkBinaries,
+): Effect.Effect<ProcessInfrastructure, ProcessTestError, Scope.Scope> =>
+  Effect.gen(function* () {
+    const versions = yield* Effect.serviceOption(WireVersions);
+    const temporaryDirectory = yield* acquireTemporaryDirectory;
+    const registryKeyPath = join(temporaryDirectory, "registry-key.pem");
+    const registryPrivateKey = makePrivateKeyPem();
+    yield* writePrivateFile(registryKeyPath, registryPrivateKey);
+    const registryAuthority = yield* AgentSigningAuthority.fromPkcs8(
+      Redacted.make(registryPrivateKey),
+    ).pipe(
+      Effect.mapError((cause) =>
+        processTestError("could not load Registry signer", cause),
+      ),
+    );
+    const registrySignerPublicKeyJson = yield* encodePublicKey(
+      AgentSigningAuthority.publicKey(registryAuthority),
+    );
+    const [postgresqlPort, registryPort, routerPort] = yield* Effect.all(
+      [reservePort, reservePort, reservePort] as const,
+      { concurrency: 3 },
+    );
+    const registryOrigin = new URL(`http://${LOOPBACK_HOST}:${registryPort}`);
+    const routerOrigin = new URL(`http://${LOOPBACK_HOST}:${routerPort}`);
+
+    const startRegistry = Effect.gen(function* () {
+      const postgresql = yield* managedProcess(PGLITE_BINARY, [
+        "--db=memory://",
+        `--port=${postgresqlPort}`,
+        `--host=${LOOPBACK_HOST}`,
+        "--max-connections=20",
+      ]);
+      yield* awaitReady(postgresql, canConnect(postgresqlPort), "listening");
+      const registryCommand: readonly [string, readonly string[]] =
+        Option.isNone(versions)
+          ? [binaries.registry, []]
+          : [
+              process.execPath,
+              [
+                "--conditions=sharness-test",
+                "--input-type=module",
+                "-e",
+                `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity/test"; import { layer } from "@moltzap/identity/registry/server"; import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions.value)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
+              ],
+            ];
+      const registry = yield* managedProcess(
+        registryCommand[0],
+        registryCommand[1],
+        {
+          SHARNESS_REGISTRY_HOST: LOOPBACK_HOST,
+          SHARNESS_REGISTRY_PORT: String(registryPort),
+          SHARNESS_REGISTRY_POSTGRESQL_URL: `postgresql://postgres:postgres@${LOOPBACK_HOST}:${postgresqlPort}/postgres`,
+          SHARNESS_REGISTRY_ADMISSION_CREDENTIAL: ADMISSION_CREDENTIAL,
+          SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH: registryKeyPath,
+          SHARNESS_REGISTRY_LIST_PAGE_SIZE: "16",
+        },
+        join(WORKSPACE_ROOT, "packages/client"),
+      );
+      yield* awaitReady(registry, isHealthy(registryOrigin), "health response");
+    });
+    const scope = yield* Effect.scope;
+    const routerCommand: readonly [string, readonly string[]] = Option.isNone(
       versions,
     )
-      ? [REGISTRY_BINARY, []]
+      ? [binaries.router, []]
       : [
           process.execPath,
           [
             "--conditions=sharness-test",
             "--input-type=module",
             "-e",
-            `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity/test"; import { layer } from "@moltzap/identity/registry/server"; import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions.value)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
+            `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity/test"; import { RouterServer } from "@moltzap/router/server"; import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(RouterServer.layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions.value)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
           ],
         ];
-    const registry = yield* managedProcess(
-      registryCommand[0],
-      registryCommand[1],
+    const startRouter = managedProcess(
+      routerCommand[0],
+      routerCommand[1],
       {
-        SHARNESS_REGISTRY_HOST: LOOPBACK_HOST,
-        SHARNESS_REGISTRY_PORT: String(registryPort),
-        SHARNESS_REGISTRY_POSTGRESQL_URL: `postgresql://postgres:postgres@${LOOPBACK_HOST}:${postgresqlPort}/postgres`,
-        SHARNESS_REGISTRY_ADMISSION_CREDENTIAL: ADMISSION_CREDENTIAL,
-        SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH: registryKeyPath,
-        SHARNESS_REGISTRY_LIST_PAGE_SIZE: "16",
+        SHARNESS_ROUTER_HOST: LOOPBACK_HOST,
+        SHARNESS_ROUTER_PORT: String(routerPort),
+        SHARNESS_ROUTER_REGISTRY_ORIGIN: registryOrigin.origin,
+        SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY: registrySignerPublicKeyJson,
+        SHARNESS_ROUTER_REQUEST_CONCURRENCY_LIMIT: "16",
+        SHARNESS_ROUTER_HELD_POLL_CAPACITY: "8",
       },
       join(WORKSPACE_ROOT, "packages/client"),
+    ).pipe(
+      Effect.tap((router) =>
+        awaitReady(router, isHealthy(routerOrigin), "health response"),
+      ),
+      Scope.extend(scope),
     );
-    yield* awaitReady(registry, isHealthy(registryOrigin), "health response");
-  });
-  const scope = yield* Effect.scope;
-  const routerCommand: readonly [string, readonly string[]] = Option.isNone(
-    versions,
-  )
-    ? [ROUTER_BINARY, []]
-    : [
-        process.execPath,
-        [
-          "--conditions=sharness-test",
-          "--input-type=module",
-          "-e",
-          `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity/test"; import { RouterServer } from "@moltzap/router/server"; import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(RouterServer.layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions.value)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
-        ],
-      ];
-  const startRouter = managedProcess(
-    routerCommand[0],
-    routerCommand[1],
-    {
-      SHARNESS_ROUTER_HOST: LOOPBACK_HOST,
-      SHARNESS_ROUTER_PORT: String(routerPort),
-      SHARNESS_ROUTER_REGISTRY_ORIGIN: registryOrigin.origin,
-      SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY: registrySignerPublicKeyJson,
-      SHARNESS_ROUTER_REQUEST_CONCURRENCY_LIMIT: "16",
-      SHARNESS_ROUTER_HELD_POLL_CAPACITY: "8",
-    },
-    join(WORKSPACE_ROOT, "packages/client"),
-  ).pipe(
-    Effect.tap((router) =>
-      awaitReady(router, isHealthy(routerOrigin), "health response"),
-    ),
-    Scope.extend(scope),
-  );
-  const [, firstRouter] = yield* Effect.all([startRegistry, startRouter], {
-    concurrency: 2,
-  });
-  const router = yield* Ref.make(firstRouter);
-  const restartRouter = Ref.get(router).pipe(
-    Effect.flatMap(stopProcess),
-    Effect.zipRight(startRouter),
-    Effect.flatMap((restarted) => Ref.set(router, restarted)),
-  );
+    const [, firstRouter] = yield* Effect.all([startRegistry, startRouter], {
+      concurrency: 2,
+    });
+    const router = yield* Ref.make(firstRouter);
+    const restartRouter = Ref.get(router).pipe(
+      Effect.flatMap(stopProcess),
+      Effect.zipRight(startRouter),
+      Effect.flatMap((restarted) => Ref.set(router, restarted)),
+    );
 
-  return {
-    registryOrigin,
-    routerOrigin,
-    registrySignerPublicKeyJson,
-    temporaryDirectory,
-    restartRouter,
-  };
+    return {
+      registryOrigin,
+      routerOrigin,
+      registrySignerPublicKeyJson,
+      temporaryDirectory,
+      restartRouter,
+    };
+  });
+
+/** Starts disposable PGlite, Registry, and Router processes from the workspace. */
+export const acquireProcessInfrastructure = acquireProcessInfrastructureFrom({
+  registry: REGISTRY_BINARY,
+  router: ROUTER_BINARY,
 });
 
 /** Creates one independent daemon key, credential file, and durable state path. */

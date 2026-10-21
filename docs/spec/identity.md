@@ -290,7 +290,10 @@ Registry state.
 
 Every new artifact emits `WIRE_VERSION`, currently `2026.1019.2`. `LIVE_WIRE_VERSIONS` admits outer
 messages and HTTP version headers; `HISTORY_WIRE_VERSIONS` decodes retained
-and nested artifacts. Both sets currently contain only the emitted version.
+and nested artifacts. The live set holds the emitted version and at most one
+adjacent version, per the
+[wire compatibility window](./layer-interfaces.md#wire-compatibility-window).
+Both sets currently contain only the emitted version.
 AgentCards use the history set even during live authentication: immutable
 cards stay valid until a protocol reset, without renewal.
 
