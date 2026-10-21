@@ -141,16 +141,20 @@ pages, and source-owned constants generate shared snippets. Run
 
 - `main` is the only long-lived branch; every change lands there by pull
   request.
-- Releases are manual runs of `.github/workflows/publish.yml`. One run
-  computes one calendar version, publishes at it only the public packages that
-  changed since their last published version, and commits those version bumps
-  and any changelog section it writes from the fragments in `changelog.d/`. The job runs in the `release` GitHub
-  environment, whose required reviewers gate every release. The release
-  commit and tag are pushed with a GitHub App token: `RELEASE_APP_ID` is an
-  Actions variable and `RELEASE_APP_PRIVATE_KEY` an Actions secret for an App
-  installed on this repository with contents write access and allowed to push
-  `main`. npm publishes without a token, so each published package lists
-  `publish.yml` on this repository as a trusted publisher.
+- Releases are manual runs of `.github/workflows/publish.yml`. The
+  dispatched run computes one calendar version, commits it for the public
+  packages that changed since their last published version, along with any
+  changelog section it writes from the fragments in `changelog.d/`, pushes
+  that release commit and its tag, and dispatches a second run. The second
+  run publishes from the release commit, so npm's provenance names it.
+  Building and packing run in a job that holds no token; the push and the
+  publish run in separate jobs in the `release` GitHub environment, whose
+  required reviewers gate every release. The push uses a GitHub App token:
+  `RELEASE_APP_ID` is an Actions variable and `RELEASE_APP_PRIVATE_KEY` an
+  Actions secret for an App installed on this repository with contents write
+  access and allowed to push `main`. npm publishes without a token, so each
+  published package lists `publish.yml` on this repository as a trusted
+  publisher.
 - A release commit on `main` whose version some package still lacks on npm is
   resumed by every later run. When that release can never complete, dispatch
   with **Start a new version** checked: the run leaves the release commit
