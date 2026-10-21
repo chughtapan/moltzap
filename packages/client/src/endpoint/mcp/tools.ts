@@ -14,7 +14,6 @@ import {
 } from "@modelcontextprotocol/server";
 import {
   Cause,
-  type Context,
   Effect,
   Either,
   Exit,
@@ -22,6 +21,7 @@ import {
   Layer,
   Option,
   type ParseResult,
+  type Runtime,
   Schema,
   Scope,
 } from "effect";
@@ -172,7 +172,7 @@ interface RunOperationOptions<Value extends Readonly<Record<string, unknown>>> {
   readonly fallbackReason: string;
   readonly signal: AbortSignal;
   readonly requestScope: Scope.CloseableScope;
-  readonly context: Context.Context<never>;
+  readonly services: Runtime.Runtime<never>;
 }
 
 const makeStandardSchema = <Value>(jsonSchema: unknown) =>
@@ -336,7 +336,7 @@ const runOperation = async <Value extends Readonly<Record<string, unknown>>>(
     options.operation,
     options.signal,
     options.requestScope,
-    options.context,
+    options.services,
   );
   if (Exit.isFailure(outcome)) {
     const expectedFailure = Option.match(Cause.dieOption(outcome.cause), {
@@ -370,7 +370,7 @@ const runOperation = async <Value extends Readonly<Record<string, unknown>>>(
  * @param operation A multicast, collective send or collective response.
  * @param signal The request's abort signal, which interrupts the send.
  * @param requestScope The handler lifetime that joins request finalizers before closing.
- * @param context The trusted daemon services captured when the handler is acquired.
+ * @param services The trusted daemon services captured when the handler is acquired.
  * @returns The send's tool result.
  */
 // #ignore-sloppy-code-next-line[async-keyword]: MCP tool handlers are Promise callbacks, so this edge awaits Effect before returning the SDK result.
@@ -381,9 +381,9 @@ const runSendOperation = async (
   >,
   signal: AbortSignal,
   requestScope: Scope.CloseableScope,
-  context: Context.Context<never>,
+  services: Runtime.Runtime<never>,
 ) => {
-  const outcome = await runRequest(operation, signal, requestScope, context);
+  const outcome = await runRequest(operation, signal, requestScope, services);
   if (Exit.isFailure(outcome)) {
     const data = Option.match(Cause.failureOption(outcome.cause), {
       onNone: (): HarnessSendErrorData => ({ reason: "outcome-unknown" }),
@@ -590,7 +590,7 @@ interface ToolCallInput {
   readonly metadata: unknown;
   readonly signal: AbortSignal;
   readonly requestScope: Scope.CloseableScope;
-  readonly context: Context.Context<never>;
+  readonly services: Runtime.Runtime<never>;
 }
 
 const toolNotFound = (name: string): never => {
@@ -603,14 +603,14 @@ const toolNotFound = (name: string): never => {
 const requestRuntime = (input: ToolCallInput) => ({
   signal: input.signal,
   requestScope: input.requestScope,
-  context: input.context,
+  services: input.services,
 });
 
 const decodeInvocationInput = <A>(
   input: Effect.Effect<A, ParseResult.ParseError>,
   signal: AbortSignal,
   requestScope: Scope.CloseableScope,
-  context: Context.Context<never>,
+  services: Runtime.Runtime<never>,
 ) =>
   runEventOperation(
     input.pipe(
@@ -625,7 +625,7 @@ const decodeInvocationInput = <A>(
     ),
     signal,
     requestScope,
-    context,
+    services,
   );
 
 /**
@@ -645,7 +645,7 @@ const handleSendToolCall = async (
     decodeHarnessSendCall(input.toolArguments, input.metadata),
     input.signal,
     input.requestScope,
-    input.context,
+    input.services,
   );
   const send = operations
     .send(decoded)
@@ -660,7 +660,7 @@ const handleSendToolCall = async (
       send,
       input.signal,
       input.requestScope,
-      input.context,
+      input.services,
     ),
     input.name,
   );
@@ -677,7 +677,7 @@ const handleReadSendToolCall = async (
         decodeHarnessReadSendRequest(input.toolArguments),
         input.signal,
         input.requestScope,
-        input.context,
+        input.services,
       ),
     ),
     label: "Send lookup",
@@ -698,7 +698,7 @@ const POLICY_REASONS = new Set([
 interface ToolOperations extends HarnessMcpOperations {
   readonly events: HarnessEvents;
   readonly requestScope: Scope.CloseableScope;
-  readonly context: Context.Context<never>;
+  readonly services: Runtime.Runtime<never>;
 }
 
 // #ignore-sloppy-code-next-line[async-keyword]: The MCP edge validates its Promise-native tool schema before running the owner operation.
@@ -717,7 +717,7 @@ const handleOwnerOperation = async (
       operation,
       input.signal,
       input.requestScope,
-      input.context,
+      input.services,
     ),
   );
 };
@@ -963,7 +963,7 @@ const installToolCallHandler = (
       metadata: context.mcpReq._meta,
       signal: context.mcpReq.signal,
       requestScope: operations.requestScope,
-      context: operations.context,
+      services: operations.services,
     };
     return handleToolCall(input, operations, role);
   });
@@ -972,12 +972,12 @@ const runtimeOperations = (
   operations: HarnessMcpOperations,
   events: HarnessEvents,
   requestScope: Scope.CloseableScope,
-  context: Context.Context<never>,
+  services: Runtime.Runtime<never>,
 ): ToolOperations => ({
   ...operations,
   events,
   requestScope,
-  context,
+  services,
   acknowledgeDelivery: (token) =>
     operations
       .acknowledgeDelivery(token)
@@ -1006,7 +1006,7 @@ const officialHandler = (
   options: HarnessMcpHandlerOptions,
   events: HarnessEvents,
   requestScope: Scope.CloseableScope,
-  effectContext: Context.Context<never>,
+  services: Runtime.Runtime<never>,
 ) =>
   createMcpHandler(
     (context) => {
@@ -1020,12 +1020,7 @@ const officialHandler = (
       }
       return makeServer(
         options,
-        runtimeOperations(
-          options.operations,
-          events,
-          requestScope,
-          effectContext,
-        ),
+        runtimeOperations(options.operations, events, requestScope, services),
         role,
       );
     },
@@ -1082,7 +1077,7 @@ const acquireHandler = (
   scope: Scope.CloseableScope,
 ) =>
   Effect.gen(function* () {
-    const context = yield* Effect.context<never>();
+    const services = yield* Effect.runtime();
     const gate = yield* Effect.makeSemaphore(1);
     const webhook = yield* acquireWebhook(options, scope, gate);
     const events = yield* makeHarnessEvents({
@@ -1095,7 +1090,7 @@ const acquireHandler = (
     });
     return guardedHandler(
       options,
-      officialHandler(options, events, scope, context),
+      officialHandler(options, events, scope, services),
       events,
       scope,
     );

@@ -9,6 +9,7 @@ catalog:
   "@chughtapan/safer-architecture-lsp": 0.3.1
   "@effect/experimental": ^0.61.0
   "@effect/language-service": ^0.87.1
+  "@effect/opentelemetry": 0.64.0
   "@effect/platform": ^0.97.0
   "@effect/platform-node": ^0.108.0
   "@effect/rpc": ^0.76.0
@@ -24,6 +25,14 @@ catalog:
   "@modelcontextprotocol/node": 2.0.0-beta.5
   "@modelcontextprotocol/server": 2.0.0-beta.5
   "@noble/curves": 2.4.0
+  "@opentelemetry/api": ^1.9.0
+  "@opentelemetry/exporter-trace-otlp-proto": ^0.223.0
+  "@opentelemetry/resources": ^2.12.0
+  "@opentelemetry/sdk-logs": ^0.223.0
+  "@opentelemetry/sdk-metrics": ^2.12.0
+  "@opentelemetry/sdk-trace-base": ^2.12.0
+  "@opentelemetry/sdk-trace-node": ^2.12.0
+  "@opentelemetry/semantic-conventions": ^1.33.0
   "@testcontainers/postgresql": 10.28.0
   "@types/estree": ^1.0.8
   "@types/node": ^25.5.0
@@ -42,6 +51,7 @@ catalog:
   openclaw: 2026.10.3
   oxfmt: ^0.7.0
   oxlint: ^0.16.0
+  protobufjs: 7.6.5
   puppeteer: 24.43.1
   structured-headers: 2.0.3
   tsx: ^4.19.0

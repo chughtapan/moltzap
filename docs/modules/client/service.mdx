@@ -13,11 +13,11 @@ Production composition for one explicitly configured endpoint daemon.
 
 ## Public surface
 
-### [`Daemon`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L75)
+### [`Daemon`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L124)
 
 _Namespace_
 
-### [`FirewallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L80)
+### [`FirewallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L129)
 
 _TypeAlias_
 
@@ -33,7 +33,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-### [`help`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L77)
+### [`help`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L126)
 
 _Variable_
 
@@ -43,19 +43,19 @@ _Variable_
 
 Usage text listing the daemon process's environment variables.
 
-### [`layer`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L165)
+### [`layer`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L220)
 
 _Variable_
 
 ```ts
   export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
     runDaemon(),
-  )
+  ).pipe(Layer.provide(telemetry))
 ```
 
 Complete production process composition for `sharnessd`.
 
-### [`StartupError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L89)
+### [`StartupError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L138)
 
 _Class_
 
@@ -92,7 +92,7 @@ _Class_
 
 Closed startup phase with sanitized configuration details.
 
-### [`withFirewall`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L174)
+### [`withFirewall`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L229)
 
 _Function_
 

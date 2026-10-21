@@ -1,14 +1,18 @@
 /** @file Production composition for one explicitly configured endpoint daemon. */
 
+import { NodeSdk } from "@effect/opentelemetry";
 import { NodeHttpClient } from "@effect/platform-node";
 import { wireVersions } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
-import { Data, Duration, Effect, Layer } from "effect";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
+import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { Config, Data, Duration, Effect, Layer, Option } from "effect";
 import {
   type FirewallOptions as InstalledFirewallOptions,
   installEditableFirewall,
 } from "../delivery/index.js";
+import { packageVersion } from "../endpoint/implementation.js";
 import {
   type EndpointStoreError,
   inspectEndpointStore,
@@ -40,6 +44,51 @@ const ROUTER_SEND_TIMEOUT = Duration.seconds(30);
 const ROUTER_POLL_TIMEOUT = Duration.seconds(35);
 
 const liveWireVersions = wireVersions.liveSet;
+
+const spanExportSettings = Config.all({
+  endpoint: Config.option(Config.string("OTEL_EXPORTER_OTLP_ENDPOINT")),
+  protocol: Config.string("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL").pipe(
+    Config.orElse(() => Config.string("OTEL_EXPORTER_OTLP_PROTOCOL")),
+    Config.withDefault("http/protobuf"),
+  ),
+  serviceName: Config.string("OTEL_SERVICE_NAME").pipe(
+    Config.withDefault("sharnessd"),
+  ),
+});
+
+/**
+ * Exports every span the daemon records as OTLP/HTTP protobuf while
+ * `OTEL_EXPORTER_OTLP_ENDPOINT` is set; unset, the layer is empty and no
+ * exporter exists. A trace protocol other than http/protobuf, from
+ * `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` or `OTEL_EXPORTER_OTLP_PROTOCOL`, is
+ * refused at startup rather than exported in a format the collector does not
+ * expect. The OpenTelemetry exporter and batch processor read the rest of
+ * their standard variables themselves, and the resource takes
+ * `OTEL_RESOURCE_ATTRIBUTES`.
+ */
+const spanExport: Layer.Layer<never, DaemonConfigurationError> =
+  Layer.unwrapEffect(
+    Effect.gen(function* () {
+      const settings = yield* spanExportSettings.pipe(Effect.orDie);
+      if (Option.isNone(settings.endpoint)) {
+        return Layer.empty;
+      }
+      if (settings.protocol !== "http/protobuf") {
+        return yield* new DaemonConfigurationError({
+          reason: "environment",
+          message:
+            "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL and OTEL_EXPORTER_OTLP_PROTOCOL support only http/protobuf",
+        });
+      }
+      return NodeSdk.layer(() => ({
+        resource: {
+          serviceName: settings.serviceName,
+          serviceVersion: packageVersion,
+        },
+        spanProcessor: new BatchSpanProcessor(new OTLPTraceExporter()),
+      })).pipe(Layer.discard);
+    }),
+  );
 
 /** Trusted operators decode retained checks without reading private storage schemas. */
 export { FirewallAuditRecord } from "../delivery/index.js";
@@ -161,10 +210,16 @@ export namespace Daemon {
       );
     }).pipe(Effect.withSpan("Daemon.layer"));
 
+  /**
+   * The opt-in span export each composition is built inside, so it closes
+   * after the daemon and flushes every span the daemon ended.
+   */
+  const telemetry = Layer.mapError(spanExport, configurationFailure);
+
   /** Complete production process composition for `sharnessd`. */
   export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
     runDaemon(),
-  );
+  ).pipe(Layer.provide(telemetry));
 
   /**
    * Fixed middleware and persisted English rules are installed before the daemon accepts host calls.
@@ -175,7 +230,9 @@ export namespace Daemon {
     options: FirewallOptions,
   ): Layer.Layer<never, StartupError> => {
     const { auditExport, ...policyOptions } = options;
-    return Layer.scopedDiscard(runDaemon(policyOptions, auditExport));
+    return Layer.scopedDiscard(runDaemon(policyOptions, auditExport)).pipe(
+      Layer.provide(telemetry),
+    );
   };
 
   /**
