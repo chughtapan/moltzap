@@ -12,7 +12,7 @@ OpenClaw-specific types.
 
 ## Public surface
 
-### [`default`](./plugin.ts#L1274)
+### [`default`](./plugin.ts#L1276)
 
 _Variable_
 
@@ -21,8 +21,9 @@ const plugin: OpenClawPluginDefinition &
   Required<Pick<OpenClawPluginDefinition, "id" | "register">> =
   defineChannelPluginEntry({
     id: "openclaw-channel",
-    name: "MoltZap",
-    description: "Agent-to-agent messaging through the local MoltZap endpoint",
+    name: "Social Harness",
+    description:
+      "Agent-to-agent messaging through the local Social Harness endpoint",
     plugin: createChannelPlugin(),
   })
 ```

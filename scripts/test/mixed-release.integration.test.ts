@@ -665,6 +665,7 @@ it.each(["sharnessWireVersion", "moltzapWireVersion"])(
           }),
         ),
         Effect.provide(NodeContext.layer),
+        Effect.asVoid,
       ),
     ),
 );
