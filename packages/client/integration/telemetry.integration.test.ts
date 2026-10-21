@@ -210,22 +210,30 @@ const gatherFrom = (
 /**
  * The requester exports and installs a firewall that passes every message,
  * so it runs `Daemon.withFirewall` and the firewall's checks admit its
- * collectives. The third daemon reaches the Router through a hold proxy. In a three-member group every post needs every member, so holding
- * that member keeps the requester's proposals uncertified. A restarted
- * Router is a new instance, so afterwards every conversation catches up.
+ * collectives. It names its service through `OTEL_RESOURCE_ATTRIBUTES`. The
+ * third daemon reaches the Router through a hold proxy. In a three-member
+ * group every post needs every member, so holding that member keeps the
+ * requester's proposals uncertified. A restarted Router is a new instance, so
+ * afterwards every conversation catches up.
  */
 const markerBehavior = Effect.gen(function* () {
   const infrastructure = yield* acquireProcessInfrastructure;
   const receiver = yield* acquireOtlpReceiver;
   const proxy = yield* acquireRouterHoldProxy(infrastructure.routerOrigin);
   const fixtures = [
-    exportingTo(
-      yield* makeDaemonProcessFixture(
-        infrastructure,
-        "otel-requester",
-        "guidance",
+    withEnvironment(
+      exportingTo(
+        yield* makeDaemonProcessFixture(
+          infrastructure,
+          "otel-requester",
+          "guidance",
+        ),
+        receiver,
       ),
-      receiver,
+      {
+        OTEL_RESOURCE_ATTRIBUTES:
+          "service.name=otel-requester-service,sharness.agent=otel-requester",
+      },
     ),
     yield* makeDaemonProcessFixture(infrastructure, "otel-member-a"),
     withEnvironment(
@@ -279,6 +287,13 @@ const markerBehavior = Effect.gen(function* () {
   );
   expectMarked(completed, gatherId, gatherRequest, "gather");
   expectMarked(completed, allGatherId, allGatherRequest, "all_gather");
+  expect(
+    markers(completed, "collective.opened", "operationId", gatherId)[0]
+      ?.resource,
+  ).toMatchObject({
+    "service.name": "otel-requester-service",
+    "sharness.agent": "otel-requester",
+  });
 
   yield* proxy.hold;
   yield* Effect.addFinalizer(() => proxy.release);

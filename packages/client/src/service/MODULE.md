@@ -8,11 +8,11 @@ Production composition for one explicitly configured endpoint daemon.
 
 ## Public surface
 
-### [`Daemon`](./index.ts#L148)
+### [`Daemon`](./index.ts#L215)
 
 _Namespace_
 
-### [`FirewallOptions`](./index.ts#L153)
+### [`FirewallOptions`](./index.ts#L220)
 
 _TypeAlias_
 
@@ -28,7 +28,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-### [`help`](./index.ts#L150)
+### [`help`](./index.ts#L217)
 
 _Variable_
 
@@ -38,7 +38,7 @@ _Variable_
 
 Usage text listing the daemon process's environment variables.
 
-### [`layer`](./index.ts#L244)
+### [`layer`](./index.ts#L311)
 
 _Variable_
 
@@ -50,7 +50,7 @@ _Variable_
 
 Complete production process composition for `sharnessd`.
 
-### [`StartupError`](./index.ts#L162)
+### [`StartupError`](./index.ts#L229)
 
 _Class_
 
@@ -87,7 +87,7 @@ _Class_
 
 Closed startup phase with sanitized configuration details.
 
-### [`withFirewall`](./index.ts#L253)
+### [`withFirewall`](./index.ts#L320)
 
 _Function_
 

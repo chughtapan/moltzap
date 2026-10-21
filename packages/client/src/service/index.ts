@@ -5,6 +5,7 @@ import { NodeHttpClient } from "@effect/platform-node";
 import { wireVersions } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
+import { diag, DiagConsoleLogger, DiagLogLevel } from "@opentelemetry/api";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { Config, Data, Duration, Effect, Layer, Option } from "effect";
@@ -45,50 +46,119 @@ const ROUTER_POLL_TIMEOUT = Duration.seconds(35);
 
 const liveWireVersions = wireVersions.liveSet;
 
-/** An empty variable reads as unset, as OpenTelemetry's own exporter reads it. */
+/**
+ * One standard OpenTelemetry variable, trimmed.
+ * @param name An `OTEL_*` environment variable.
+ * @returns Its value, or none when it is unset or blank, as OpenTelemetry's
+ *     own exporter reads it.
+ */
+const otelVariable = (name: string) =>
+  Config.option(Config.string(name)).pipe(
+    Config.map((value) =>
+      value.pipe(
+        Option.map((text) => text.trim()),
+        Option.filter((text) => text !== ""),
+      ),
+    ),
+  );
+
 const spanExportSettings = Config.all({
-  endpoint: Config.option(Config.nonEmptyString("OTEL_EXPORTER_OTLP_ENDPOINT")),
-  protocol: Config.nonEmptyString("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL").pipe(
-    Config.orElse(() => Config.nonEmptyString("OTEL_EXPORTER_OTLP_PROTOCOL")),
-    Config.withDefault("http/protobuf"),
-  ),
-  serviceName: Config.option(Config.nonEmptyString("OTEL_SERVICE_NAME")),
-  resourceAttributes: Config.nonEmptyString("OTEL_RESOURCE_ATTRIBUTES").pipe(
-    Config.withDefault(""),
-  ),
+  endpoint: otelVariable("OTEL_EXPORTER_OTLP_ENDPOINT"),
+  tracesProtocol: otelVariable("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"),
+  protocol: otelVariable("OTEL_EXPORTER_OTLP_PROTOCOL"),
+  serviceName: otelVariable("OTEL_SERVICE_NAME"),
+  resourceAttributes: otelVariable("OTEL_RESOURCE_ATTRIBUTES"),
 });
+
+type SpanExportSettings = Config.Config.Success<typeof spanExportSettings>;
 
 /**
  * The resource's service name. The resource layer lets an explicit name
  * override both standard variables, so the default applies only when neither
  * names one.
  * @param settings The span export settings read from the environment.
- * @returns `OTEL_SERVICE_NAME`, else a `service.name` in
- *     `OTEL_RESOURCE_ATTRIBUTES` split the way the resource layer splits it,
+ * @returns `OTEL_SERVICE_NAME`, else the last `service.name` in
+ *     `OTEL_RESOURCE_ATTRIBUTES` parsed the way the resource layer parses it,
  *     else `sharnessd`.
  */
-function spanServiceName(
-  settings: Config.Config.Success<typeof spanExportSettings>,
-): string {
-  const attributed = settings.resourceAttributes
+function spanServiceName(settings: SpanExportSettings): string {
+  const attributed = Option.getOrElse(settings.resourceAttributes, () => "")
     .split(",")
     .map((attribute) => attribute.split("="))
-    .find((parts) => parts.length === 2 && parts[0]?.trim() === "service.name");
+    .filter(
+      (parts) => parts.length === 2 && parts[0]?.trim() === "service.name",
+    )
+    .at(-1)?.[1]
+    ?.trim();
   return Option.getOrElse(
     settings.serviceName,
-    () => attributed?.[1]?.trim() ?? "sharnessd",
+    () => attributed ?? "sharnessd",
   );
 }
 
 /**
+ * Why the span export settings cannot start an exporter, if they cannot: an
+ * endpoint that is not an http(s) URL, which the exporter would replace with
+ * its localhost default, or a trace protocol other than http/protobuf.
+ * @param endpoint The configured `OTEL_EXPORTER_OTLP_ENDPOINT`.
+ * @param settings The span export settings read from the environment.
+ * @returns The refusal, or none.
+ */
+function spanExportRefusal(
+  endpoint: string,
+  settings: SpanExportSettings,
+): Option.Option<DaemonConfigurationError> {
+  const protocol = settings.tracesProtocol.pipe(
+    Option.orElse(() => settings.protocol),
+    Option.getOrElse(() => "http/protobuf"),
+  );
+  if (
+    !URL.canParse(endpoint) ||
+    !/^https?:$/u.test(new URL(endpoint).protocol)
+  ) {
+    return Option.some(
+      new DaemonConfigurationError({
+        reason: "environment",
+        message:
+          "OTEL_EXPORTER_OTLP_ENDPOINT must be an http or https URL. Docs: https://opentelemetry.io/docs/specs/otel/protocol/exporter/#endpoint-urls-for-otlphttp",
+      }),
+    );
+  }
+  return protocol === "http/protobuf"
+    ? Option.none()
+    : Option.some(
+        new DaemonConfigurationError({
+          reason: "environment",
+          message:
+            "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL and OTEL_EXPORTER_OTLP_PROTOCOL support only http/protobuf. Docs: https://opentelemetry.io/docs/specs/otel/protocol/exporter/#specify-protocol",
+        }),
+      );
+}
+
+/**
+ * OpenTelemetry's own warnings and export failures, which go nowhere without
+ * a logger, on standard error for as long as the export runs.
+ */
+const exportDiagnostics = Layer.scopedDiscard(
+  Effect.acquireRelease(
+    Effect.sync(() =>
+      diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.WARN),
+    ),
+    () =>
+      Effect.sync(() => {
+        diag.disable();
+      }),
+  ),
+);
+
+/**
  * Exports every span the daemon records as OTLP/HTTP protobuf while
  * `OTEL_EXPORTER_OTLP_ENDPOINT` is set; unset, the layer is empty and no
- * exporter exists. A trace protocol other than http/protobuf, from
- * `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` or `OTEL_EXPORTER_OTLP_PROTOCOL`, is
- * refused at startup rather than exported in a format the collector does not
- * expect. The OpenTelemetry exporter and batch processor read the rest of
- * their standard variables themselves, and the resource takes
- * `OTEL_RESOURCE_ATTRIBUTES`.
+ * exporter exists. Settings the exporter could not honour, per
+ * {@link spanExportRefusal}, are refused at startup rather than exported
+ * somewhere or in a format the collector does not expect. The OpenTelemetry
+ * exporter and batch processor read the rest of their standard variables
+ * themselves, and the resource takes `OTEL_RESOURCE_ATTRIBUTES`.
  */
 const spanExport: Layer.Layer<never, DaemonConfigurationError> =
   Layer.unwrapEffect(
@@ -97,12 +167,9 @@ const spanExport: Layer.Layer<never, DaemonConfigurationError> =
       if (Option.isNone(settings.endpoint)) {
         return Layer.empty;
       }
-      if (settings.protocol !== "http/protobuf") {
-        return yield* new DaemonConfigurationError({
-          reason: "environment",
-          message:
-            "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL and OTEL_EXPORTER_OTLP_PROTOCOL support only http/protobuf. Docs: https://opentelemetry.io/docs/specs/otel/protocol/exporter/#specify-protocol",
-        });
+      const refusal = spanExportRefusal(settings.endpoint.value, settings);
+      if (Option.isSome(refusal)) {
+        return yield* refusal.value;
       }
       return NodeSdk.layer(() => ({
         resource: {
@@ -110,7 +177,7 @@ const spanExport: Layer.Layer<never, DaemonConfigurationError> =
           serviceVersion: packageVersion,
         },
         spanProcessor: new BatchSpanProcessor(new OTLPTraceExporter()),
-      })).pipe(Layer.discard);
+      })).pipe(Layer.discard, Layer.provide(exportDiagnostics));
     }),
   );
 

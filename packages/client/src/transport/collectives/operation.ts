@@ -613,10 +613,12 @@ function sendGroupRequest(
     { to: open.to, content: prepared.content },
     hold,
   ).pipe(
+    Effect.onExit((exit) =>
+      Exit.isSuccess(exit) ? Effect.void : forgetGather(state, id),
+    ),
     Effect.catchTag("SendError", (error) =>
       abandonGroupRequest(state, prepared, error),
     ),
-    Effect.tapError(() => forgetGather(state, id)),
     Effect.mapError(refuseOperation(id, open.to)),
     Effect.flatMap(({ certified, guidance }) =>
       withinRequestWait(prepared, certified).pipe(
@@ -753,10 +755,8 @@ function releaseGather(
 type ClosedOutcome = "completed" | "failed" | "refused";
 
 /**
- * Record a short `collective.closed` span, once, for an operation that
- * recorded `collective.opened`: its result was emitted (`completed`); its
- * all_gather close was not certified, or its result or failure could not be
- * kept (`failed`); or it was abandoned after opening (`refused`).
+ * Record `collective.closed` for an abandoned operation that recorded
+ * `collective.opened` and whose completion does not already own the span.
  */
 function markClosed(
   state: CollectiveState,
@@ -764,13 +764,21 @@ function markClosed(
   outcome: ClosedOutcome,
 ): Effect.Effect<void> {
   return Effect.suspend(() =>
-    state.announced.delete(id)
-      ? Effect.withSpan(Effect.void, "collective.closed", {
-          captureStackTrace: false,
-          attributes: { operationId: id, outcome },
-        })
-      : Effect.void,
+    state.announced.delete(id) ? closedSpan(id, outcome) : Effect.void,
   );
+}
+
+/**
+ * The short `collective.closed` span: the operation's result was emitted
+ * (`completed`); its all_gather close was not certified, or its result or
+ * failure could not be kept (`failed`); or it was abandoned after opening
+ * (`refused`).
+ */
+function closedSpan(id: CollectiveId, outcome: ClosedOutcome) {
+  return Effect.withSpan(Effect.void, "collective.closed", {
+    captureStackTrace: false,
+    attributes: { operationId: id, outcome },
+  });
 }
 
 /**
@@ -778,7 +786,9 @@ function markClosed(
  * now; an all_gather first posts its close, off the calling fiber because
  * completion can run inside a publication pass that certification waits on.
  * An operation completes once; a later call does nothing. The deadline timer
- * calls it too, so it leaves the timer to its caller.
+ * calls it too, so it leaves the timer to its caller. Completion takes over
+ * the operation's `collective.closed` span, so an abandonment racing it
+ * cannot close the operation while its close post is still in flight.
  */
 function completeGather(
   state: CollectiveState,
@@ -790,6 +800,9 @@ function completeGather(
       return Effect.void;
     }
     state.gathers.delete(id);
+    const announced = state.announced.delete(id);
+    const close = (outcome: ClosedOutcome) =>
+      announced ? closedSpan(id, outcome) : Effect.void;
     const result: CollectiveResultItem = {
       kind: "collectiveResult",
       op: open.op,
@@ -804,15 +817,11 @@ function completeGather(
           .emit(result, countedProvenance(open))
           .pipe(
             Effect.onExit((exit) =>
-              markClosed(
-                state,
-                id,
-                Exit.isSuccess(exit) ? "completed" : "failed",
-              ),
+              close(Exit.isSuccess(exit) ? "completed" : "failed"),
             ),
           );
       case "all_gather":
-        return closeAllGather(state, open, result).pipe(
+        return closeAllGather(state, open, result, close).pipe(
           Effect.forkIn(state.ports.scope),
           Effect.asVoid,
         );
@@ -829,12 +838,14 @@ function completeGather(
  * its result counts, and emit the result once the close is certified. A close
  * that is not certified ends the operation at the asker as an
  * `operationFailed` item, whose text says when the close is still queued for
- * the members.
+ * the members. `close` records the operation's `collective.closed` span once
+ * the result or failure is emitted, or could not be.
  */
 function closeAllGather(
   state: CollectiveState,
   open: OpenGather,
   result: CollectiveResultItem,
+  close: (outcome: ClosedOutcome) => Effect.Effect<void>,
 ): Effect.Effect<void, CollectiveEmitError> {
   const included = open.members.flatMap((member) =>
     Option.toArray(Option.fromNullable(open.answerHashes.get(member))),
@@ -862,11 +873,7 @@ function closeAllGather(
           .pipe(Effect.as<ClosedOutcome>("completed")),
     }),
     Effect.onExit((exit) =>
-      markClosed(
-        state,
-        result.id,
-        Exit.isSuccess(exit) ? exit.value : "failed",
-      ),
+      close(Exit.isSuccess(exit) ? exit.value : "failed"),
     ),
     Effect.asVoid,
   );

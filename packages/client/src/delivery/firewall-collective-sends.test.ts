@@ -1,6 +1,11 @@
 /** @file A firewall's checks of what the agent sends in a collective operation, through real Client storage and send preparation. */
 
+import * as NodeSdk from "@effect/opentelemetry/NodeSdk";
 import { scopedLive as it } from "@effect/vitest";
+import {
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
 import { Deferred, Duration, Effect, Fiber } from "effect";
 import { describe, expect } from "vitest";
 import type { MiddlewareInput } from "../firewall/values.js";
@@ -96,6 +101,51 @@ function refusesAGatherAfterStaleCaptures() {
     expect(churn.count()).toBe(STALE_CAPTURES);
     expect(yield* unfinishedIntents(subject)).toEqual([]);
   });
+}
+
+/** The attributes of every finished span named `name`, in finishing order. */
+function finished(exporter: InMemorySpanExporter, name: string) {
+  return exporter
+    .getFinishedSpans()
+    .filter((span) => span.name === name)
+    .map((span) => span.attributes);
+}
+
+/**
+ * A stale capture gives the all_gather's bind hold up and the recheck takes
+ * it again, reopening the operation; a trace reader still sees it opened
+ * once and not closed.
+ */
+function opensAnAllGatherOnceAcrossAStaleCapture() {
+  const exporter = new InMemorySpanExporter();
+  return Effect.gen(function* () {
+    const subject = yield* fixture;
+    const churn = churnPolicy(subject);
+    const staleOnce = policy((input) =>
+      churn.count() === 0
+        ? churn.middleware.check(input)
+        : Effect.succeed(pass),
+    );
+    const delivery = yield* outgoingFixture(subject, staleOnce);
+
+    const sending = yield* delivery.operations
+      .send({ input: gatherSend(question, "all_gather") })
+      .pipe(Effect.forkScoped);
+    yield* awaitBoundIntents(subject, 1);
+
+    expect(churn.count()).toBe(1);
+    const opened = finished(exporter, "collective.opened");
+    expect(opened).toHaveLength(1);
+    expect(opened[0]).toMatchObject({ op: "all_gather" });
+    expect(finished(exporter, "collective.closed")).toEqual([]);
+    yield* Fiber.interrupt(sending);
+  }).pipe(
+    Effect.provide(
+      NodeSdk.layer(() => ({
+        spanProcessor: new SimpleSpanProcessor(exporter),
+      })),
+    ),
+  );
 }
 
 function checksAnAllGatherAsItsQuestion() {
@@ -454,6 +504,10 @@ describe("collective sends under a firewall", () => {
   it(
     "refuses a gather after two stale captures without binding a request post",
     refusesAGatherAfterStaleCaptures,
+  );
+  it(
+    "opens an all_gather once when a stale capture makes it take its bind hold again",
+    opensAnAllGatherOnceAcrossAStaleCapture,
   );
   it(
     "checks an all_gather's group post as its question and binds nothing when held",

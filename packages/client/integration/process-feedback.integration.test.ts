@@ -145,11 +145,26 @@ it(
 );
 
 it(
-  "treats an empty OTLP endpoint as unset",
+  "refuses an OTLP endpoint that is not an http or https URL at startup",
   () =>
     Effect.gen(function* () {
       const result = yield* runProcess([], {
-        OTEL_EXPORTER_OTLP_ENDPOINT: "",
+        OTEL_EXPORTER_OTLP_ENDPOINT: "collector:4318",
+      });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain(
+        "OTEL_EXPORTER_OTLP_ENDPOINT must be an http or https URL",
+      );
+    }),
+  15_000,
+);
+
+it(
+  "treats a blank OTLP endpoint as unset",
+  () =>
+    Effect.gen(function* () {
+      const result = yield* runProcess([], {
+        OTEL_EXPORTER_OTLP_ENDPOINT: " ",
         OTEL_EXPORTER_OTLP_PROTOCOL: "grpc",
       });
       expect(result.stderr).not.toContain(protocolRefusal);

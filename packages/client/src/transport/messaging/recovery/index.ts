@@ -114,9 +114,10 @@ export const catchUpRetrySchedule = Schedule.exponential(catchUpRetryBase).pipe(
 
 /**
  * How a bracketed retry schedule ended, as its `retry.settled` span's
- * `outcome`: a proposal was `certified` or `superseded`, a conversation
- * `recovered`, the attempts ran out (`gave-up`), the engine or a replacing
- * arm ended them (`interrupted`), or a store read or defect did (`failed`).
+ * `outcome`: a proposal was `certified`; a later proposal, a moved head or a
+ * re-anchor round took over (`superseded`); a conversation `recovered`; the
+ * attempts ran out (`gave-up`); the engine or a replacing arm ended them
+ * (`interrupted`); or a store read or defect did (`failed`).
  */
 export type RetryOutcome =
   | "certified"
@@ -693,7 +694,8 @@ function armCatchUp(
  * position a quorum already settles recovers on its own fiber in the run's
  * scope: recovering the conversation removes this retry fiber, which it could
  * not do from inside it. That recovery is bracketed as catch-up of its own,
- * so a trace reader keeps the conversation busy until it ends.
+ * so a trace reader keeps the conversation busy until it recovers the
+ * conversation or hands it on to a re-anchor round.
  * @param run Recovery run that holds the conversation.
  * @param conversationId Conversation to catch up.
  * @returns The retries, ending once any settled position's recovery started.
@@ -707,7 +709,7 @@ function retryCatchUp(
     catchUpRetrySchedule,
   ).pipe(
     markRetries("catch-up", conversationId, (exit) =>
-      catchUpOutcome(run, conversationId, exit),
+      catchUpOutcome(run, conversationId, exit, "gave-up"),
     ),
     Effect.zipRight(
       Effect.sync(() => settleOnQuorum(run.catchUp, conversationId)),
@@ -716,7 +718,7 @@ function retryCatchUp(
       settled
         ? run.catchUp.onPositionReady(conversationId).pipe(
             markRetries("catch-up", conversationId, (exit) =>
-              catchUpOutcome(run, conversationId, exit),
+              catchUpOutcome(run, conversationId, exit, "superseded"),
             ),
             Effect.catchAll(() =>
               Effect.logWarning(
@@ -737,25 +739,30 @@ function retryCatchUp(
 }
 
 /**
- * How a conversation's catch-up retries ended.
- * @param run Recovery run that held the retries.
- * @param conversationId Conversation the retries asked for.
- * @param exit How the retry fiber ended.
+ * How a conversation's catch-up retries, or the quorum recovery that took
+ * over from them, ended.
+ * @param run Recovery run that held the conversation.
+ * @param conversationId Conversation being caught up.
+ * @param exit How the bracketed fiber ended.
+ * @param returned The outcome when it returned without recovering the
+ *     conversation: `gave-up` for retries that ran out, `superseded` for a
+ *     quorum recovery that handed the conversation to a re-anchor round.
  * @returns `recovered` once the conversation recovered, which removes its
- *     retries; `gave-up` when they ran out; `failed` when a store read ended
- *     them; `interrupted` when the run, or a fresh arm of the same
- *     conversation, replaced them.
+ *     retries; `returned`; `failed` when a store read or defect ended it; or
+ *     `interrupted` when the run, or a fresh arm of the same conversation,
+ *     replaced it.
  */
 function catchUpOutcome(
   run: RecoveryRun,
   conversationId: ConversationIdValue,
   exit: Exit.Exit<unknown, unknown>,
+  returned: RetryOutcome,
 ): RetryOutcome {
   if (run.completedConversations.has(conversationId)) {
     return "recovered";
   }
   if (Exit.isSuccess(exit)) {
-    return "gave-up";
+    return returned;
   }
   return Exit.isInterrupted(exit) ? "interrupted" : "failed";
 }

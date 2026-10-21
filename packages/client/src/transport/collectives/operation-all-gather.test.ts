@@ -275,7 +275,7 @@ function namesEveryMemberWhenTheGroupPostIsNotCertifiedInTime() {
 
 /**
  * One second short of the all_gather request wait. It intentionally
- * duplicates the private `operation.ts → REQUEST_SEND_WAIT` instead of
+ * duplicates the private `request-sends.ts → REQUEST_SEND_WAIT` instead of
  * deriving from the `requestSendWait` mirror, so shortening the production
  * wait fails the test below even when the mirror is shortened with it.
  */
