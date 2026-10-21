@@ -148,6 +148,36 @@ function opensAnAllGatherOnceAcrossAStaleCapture() {
   );
 }
 
+/**
+ * Every recheck of the all_gather's bind finds its capture stale, so the
+ * send is refused after its hold was given up; a trace reader sees it opened
+ * once and closed once as refused.
+ */
+function closesAnAllGatherRefusedAfterStaleCaptures() {
+  const exporter = new InMemorySpanExporter();
+  return Effect.gen(function* () {
+    const subject = yield* fixture;
+    const churn = churnPolicy(subject);
+    const delivery = yield* outgoingFixture(subject, churn.middleware);
+
+    const refusal = yield* Effect.flip(
+      delivery.operations.send({ input: gatherSend(question, "all_gather") }),
+    );
+
+    expect(refusal).toMatchObject({ refusal: "unresolved-evidence" });
+    expect(finished(exporter, "collective.opened")).toHaveLength(1);
+    expect(finished(exporter, "collective.closed")).toMatchObject([
+      { outcome: "refused" },
+    ]);
+  }).pipe(
+    Effect.provide(
+      NodeSdk.layer(() => ({
+        spanProcessor: new SimpleSpanProcessor(exporter),
+      })),
+    ),
+  );
+}
+
 function checksAnAllGatherAsItsQuestion() {
   return Effect.gen(function* () {
     const subject = yield* fixture;
@@ -508,6 +538,10 @@ describe("collective sends under a firewall", () => {
   it(
     "opens an all_gather once when a stale capture makes it take its bind hold again",
     opensAnAllGatherOnceAcrossAStaleCapture,
+  );
+  it(
+    "closes an all_gather as refused once stale captures refuse its bind",
+    closesAnAllGatherRefusedAfterStaleCaptures,
   );
   it(
     "checks an all_gather's group post as its question and binds nothing when held",

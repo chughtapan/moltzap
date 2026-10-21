@@ -215,7 +215,10 @@ interface CollectiveState {
   readonly ports: CollectivePorts;
   readonly gathers: Map<CollectiveId, OpenGather>;
   readonly requests: Map<CollectiveId, ReceivedRequest>;
-  /** Operations that recorded `collective.opened` and still owe `collective.closed`. */
+  /**
+   * Operations that recorded `collective.opened` whose `collective.closed`
+   * neither completion nor abandonment has claimed yet.
+   */
   readonly announced: Set<CollectiveId>;
 }
 
@@ -598,7 +601,9 @@ function updateGather(
  * wait, and a refusal binds nothing and opens nothing. A group post succeeds
  * or fails as a whole, so the refusal names every member with the post's
  * reason and detail; members whose address resolution fails were refused
- * before the post.
+ * before the post. A bind that fails after giving its hold up closes the
+ * operation as refused; one that keeps the hold leaves the operation to its
+ * deadline.
  */
 function sendGroupRequest(
   state: CollectiveState,
@@ -614,7 +619,9 @@ function sendGroupRequest(
     hold,
   ).pipe(
     Effect.onExit((exit) =>
-      Exit.isSuccess(exit) ? Effect.void : forgetGather(state, id),
+      Exit.isSuccess(exit) || state.gathers.has(id)
+        ? Effect.void
+        : markRefused(state, id),
     ),
     Effect.catchTag("SendError", (error) =>
       abandonGroupRequest(state, prepared, error),
@@ -732,9 +739,7 @@ function forgetGather(
   state: CollectiveState,
   id: CollectiveId,
 ): Effect.Effect<void> {
-  return releaseGather(state, id).pipe(
-    Effect.zipRight(markClosed(state, id, "refused")),
-  );
+  return releaseGather(state, id).pipe(Effect.zipRight(markRefused(state, id)));
 }
 
 /**
@@ -755,16 +760,16 @@ function releaseGather(
 type ClosedOutcome = "completed" | "failed" | "refused";
 
 /**
- * Record `collective.closed` for an abandoned operation that recorded
- * `collective.opened` and whose completion does not already own the span.
+ * Record `collective.closed` as `refused` for an abandoned operation that
+ * recorded `collective.opened` and whose completion does not already own the
+ * span.
  */
-function markClosed(
+function markRefused(
   state: CollectiveState,
   id: CollectiveId,
-  outcome: ClosedOutcome,
 ): Effect.Effect<void> {
   return Effect.suspend(() =>
-    state.announced.delete(id) ? closedSpan(id, outcome) : Effect.void,
+    state.announced.delete(id) ? closedSpan(id, "refused") : Effect.void,
   );
 }
 

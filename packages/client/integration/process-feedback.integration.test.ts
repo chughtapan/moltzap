@@ -144,6 +144,9 @@ it(
   15_000,
 );
 
+const endpointRefusal =
+  "OTEL_EXPORTER_OTLP_ENDPOINT and OTEL_EXPORTER_OTLP_TRACES_ENDPOINT must be http or https URLs";
+
 it(
   "refuses an OTLP endpoint that is not an http or https URL at startup",
   () =>
@@ -152,9 +155,22 @@ it(
         OTEL_EXPORTER_OTLP_ENDPOINT: "collector:4318",
       });
       expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain(
-        "OTEL_EXPORTER_OTLP_ENDPOINT must be an http or https URL",
-      );
+      expect(result.stderr).toContain(endpointRefusal);
+    }),
+  15_000,
+);
+
+it(
+  "refuses a traces endpoint that is not an http or https URL at startup",
+  () =>
+    Effect.gen(function* () {
+      const receiver = yield* acquireOtlpReceiver;
+      const result = yield* runProcess([], {
+        OTEL_EXPORTER_OTLP_ENDPOINT: receiver.endpoint.origin,
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "collector:4318/v1/traces",
+      });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain(endpointRefusal);
     }),
   15_000,
 );
