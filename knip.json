@@ -37,10 +37,13 @@
       "entry": [
         "src/**/*.test.ts",
         "src/**/*.types-check.ts",
+        "integration/**/*.integration.test.ts",
+        "integration/firewall-daemon.ts",
         "vitest*.config.ts"
       ],
       "project": [
         "src/**/*.ts",
+        "integration/**/*.ts",
         "*.ts"
       ]
     },

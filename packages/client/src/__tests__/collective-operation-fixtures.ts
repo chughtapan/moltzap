@@ -114,7 +114,7 @@ export const certifyNext = (observed: Observed, input: EngineSendInput) =>
 
 /**
  * The send's wait for its request posts, mirroring the private
- * `operation.ts → REQUEST_SEND_WAIT`. Tests advance the test clock by it to
+ * `request-sends.ts → REQUEST_SEND_WAIT`. Tests advance the test clock by it to
  * end that wait, so a change to the production bound is made here too.
  */
 export const requestSendWait = Duration.seconds(20);

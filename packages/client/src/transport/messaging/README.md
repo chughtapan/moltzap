@@ -32,3 +32,6 @@ waits behind (`pendingRecoveryFence`). Phases never import each other's
 internals.
 
 `outbox.ts` builds the `EngineOutbox` port; only `index.ts` imports it.
+`retry-markers.ts` records the `retry.pending` and `retry.settled` spans that
+bracket long waits; the phases and the outbox import it, and `index.ts`
+re-exports it for delivery's checks and the endpoint's webhook retries.

@@ -1,26 +1,20 @@
 /** @file Test-only Router proxy that parks delivery-bearing poll responses. */
 
-import {
-  Deferred,
-  Effect,
-  FiberSet,
-  Option,
-  Ref,
-  Schema,
-  type Scope,
-} from "effect";
+import { Deferred, Effect, Option, Ref, Schema, type Scope } from "effect";
 import { Buffer } from "node:buffer";
 import {
-  createServer,
   type IncomingHttpHeaders,
   type IncomingMessage,
   request as requestHttp,
-  type Server,
   type ServerResponse,
 } from "node:http";
 import { ProcessTestError } from "./daemon-process-harness.js";
+import {
+  acquireLoopbackServer,
+  LOOPBACK_HOST,
+  readBody,
+} from "./loopback-server.js";
 
-const LOOPBACK_HOST = "127.0.0.1";
 const ROUTER_POLL_PATH = "/v1/messages:poll";
 const HOP_BY_HOP_HEADERS = [
   "connection",
@@ -64,20 +58,6 @@ interface HoldState {
   readonly gate: Option.Option<Deferred.Deferred<void>>;
   readonly parkedResponses: number;
 }
-
-const readBody = (incoming: IncomingMessage) =>
-  Effect.async<Buffer, ProcessTestError>((resume) => {
-    const chunks: Buffer[] = [];
-    incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
-    incoming.once("end", () => resume(Effect.succeed(Buffer.concat(chunks))));
-    incoming.once("error", (cause) =>
-      resume(
-        Effect.fail(
-          new ProcessTestError({ message: "proxy request failed", cause }),
-        ),
-      ),
-    );
-  });
 
 const withoutHopByHop = (headers: IncomingHttpHeaders): IncomingHttpHeaders => {
   const copied = { ...headers };
@@ -213,35 +193,6 @@ const handle = (
     Effect.catchAll(() => Effect.sync(() => failResponse(response))),
   );
 
-const listen = (server: Server) =>
-  Effect.async<number, ProcessTestError>((resume) => {
-    const onError = (cause: Error): void => {
-      resume(
-        Effect.fail(
-          new ProcessTestError({ message: "proxy could not listen", cause }),
-        ),
-      );
-    };
-    server.once("error", onError);
-    server.listen(0, LOOPBACK_HOST, () => {
-      server.removeListener("error", onError);
-      const address = server.address();
-      resume(
-        address === null || typeof address === "string"
-          ? Effect.fail(
-              new ProcessTestError({ message: "proxy exposed no TCP port" }),
-            )
-          : Effect.succeed(address.port),
-      );
-    });
-  });
-
-const closeServer = (server: Server) =>
-  Effect.async<void>((resume) => {
-    server.close(() => resume(Effect.void));
-    server.closeAllConnections();
-  });
-
 /**
  * Starts a loopback reverse proxy in front of the real Router. Responses are
  * parked only after the Router has answered, so a parked poll proves the
@@ -256,12 +207,8 @@ export const acquireRouterHoldProxy = (
       gate: Option.none(),
       parkedResponses: 0,
     });
-    const run = yield* FiberSet.makeRuntime<never>();
-    const server = createServer((incoming, response) => {
-      run(handle(upstream, state, incoming, response));
-    });
-    const port = yield* Effect.acquireRelease(listen(server), () =>
-      closeServer(server),
+    const { port } = yield* acquireLoopbackServer((incoming, response) =>
+      handle(upstream, state, incoming, response),
     );
     const hold = Deferred.make<void>().pipe(
       Effect.flatMap((gate) =>

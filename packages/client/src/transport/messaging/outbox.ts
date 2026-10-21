@@ -24,6 +24,7 @@ import {
   signOuterPacket,
   type VerifiedMembership,
 } from "../wire/index.js";
+import { exitOutcome, markRetries } from "./retry-markers.js";
 
 /**
  * The outbox's mutable state. `queued` holds outbox identities in durable
@@ -158,19 +159,26 @@ function push(
  * Wake on each signal and drain once the worker is attached. After a
  * transient worker failure, back off, wait for the worker to re-anchor, and
  * drain again; recovery may have reset the queue meanwhile, so each attempt
- * re-reads its head. A fatal failure is logged with its reason before it ends
+ * re-reads its head. A drain that starts with queued identities is marked as
+ * `outbound` work, since its waits for the Router can last the whole outage
+ * and emit nothing. A fatal failure is logged with its reason before it ends
  * the daemon.
  * @param state Outbox whose queued identities the worker sends.
  * @returns An effect that drains until a fatal worker failure.
  */
 function run(state: OutboxState): Effect.Effect<never, RouterWorkerSendError> {
-  const drainWhenAttached = state.input.routerWorker.awaitAnchor.pipe(
+  const attachedDrain = state.input.routerWorker.awaitAnchor.pipe(
     Effect.zipRight(drain(state)),
     Effect.retry(
       routerWorkerReconnectSchedule.pipe(
         Schedule.whileInput(isTransientRouterWorkerError),
       ),
     ),
+    markRetries("outbound", "outbox", (exit) => exitOutcome(exit, "sent")),
+  );
+  const drainWhenAttached = Effect.suspend(() =>
+    state.queued.length === 0 ? Effect.void : attachedDrain,
+  ).pipe(
     Effect.tapError((error) =>
       Effect.logError(
         `Outbound drain stopping, daemon exits: ${describeRouterWorkerFailure(error)}`,
