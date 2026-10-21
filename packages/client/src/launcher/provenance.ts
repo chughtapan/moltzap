@@ -1,7 +1,7 @@
 /**
  * @file Accepts a downloaded package only when its bytes are the ones npm
  * recorded and a Sigstore-verified SLSA provenance attestation says this
- * repository's release workflow on `main` built exactly those bytes.
+ * project's release workflow on `main` built exactly those bytes.
  */
 
 import type { HttpClient } from "@effect/platform";
@@ -19,12 +19,25 @@ import { type PackedManifest, readPackedManifest } from "./packed-manifest.js";
 import { downloadJson, type PublishedPackage } from "./registry.js";
 
 /**
- * The one build identity the launcher trusts: the certificate's subject
- * alternative name for `.github/workflows/publish.yml` on `refs/heads/main`
- * of `chughtapan/moltzap`. A repository move changes this value first.
+ * The repositories whose release workflow the launcher trusts. The project
+ * lives at `social-harness/moltzap`; `chughtapan/moltzap`, its earlier home,
+ * stays trusted so releases built in either place verify for launchers
+ * installed from either.
  */
-const RELEASE_IDENTITY =
-  "https://github.com/chughtapan/moltzap/.github/workflows/publish.yml@refs/heads/main";
+const RELEASE_REPOSITORIES = [
+  "social-harness/moltzap",
+  "chughtapan/moltzap",
+] as const;
+
+/**
+ * The build identities the launcher trusts: each certificate subject
+ * alternative name for `.github/workflows/publish.yml` on `refs/heads/main`
+ * of a {@link RELEASE_REPOSITORIES} repository.
+ */
+const RELEASE_IDENTITIES: readonly string[] = RELEASE_REPOSITORIES.map(
+  (repository) =>
+    `https://github.com/${repository}/.github/workflows/publish.yml@refs/heads/main`,
+);
 
 /** The OIDC issuer of GitHub Actions workload certificates. */
 const RELEASE_ISSUER = "https://token.actions.githubusercontent.com";
@@ -53,7 +66,7 @@ interface ProvenanceOptions {
 
 /**
  * Checks that `bytes` are the tarball npm recorded for `published` and that
- * its SLSA provenance, signed for {@link RELEASE_IDENTITY}, covers them;
+ * its SLSA provenance, signed for one of {@link RELEASE_IDENTITIES}, covers them;
  * fails with `provenance` naming the package otherwise.
  */
 export const verifyProvenance = Effect.fn("Launcher.verifyProvenance")(
@@ -158,22 +171,43 @@ function signedPayload(
     if (!isBundleWithDsseEnvelope(bundle)) {
       return yield* refuse("its provenance carries no envelope");
     }
-    yield* Effect.tryPromise({
-      try: () =>
+    yield* signedByReleaseIdentity(
+      (identity) =>
         verify(bundleToJSON(bundle), {
           certificateIssuer: RELEASE_ISSUER,
-          certificateIdentityURI: RELEASE_IDENTITY,
+          certificateIdentityURI: identity,
           tufCachePath: options.tufCachePath,
         }),
-      catch: () =>
-        refuse(`its provenance is not signed by ${RELEASE_IDENTITY}`),
-    });
+      refuse,
+    );
     return yield* Schema.decodeUnknown(Schema.parseJson(statement))(
       bundle.content.dsseEnvelope.payload.toString("utf8"),
     ).pipe(
       Effect.mapError(() => refuse("its provenance statement is malformed")),
     );
   });
+}
+
+/**
+ * Succeeds when `verifyAs` accepts the bundle for any of
+ * {@link RELEASE_IDENTITIES}; Sigstore matches one identity per call.
+ */
+export function signedByReleaseIdentity(
+  verifyAs: (identity: string) => Promise<unknown>,
+  refuse: (why: string) => LauncherError,
+): Effect.Effect<void, LauncherError> {
+  return Effect.firstSuccessOf(
+    RELEASE_IDENTITIES.map((identity) =>
+      Effect.tryPromise(() => verifyAs(identity)),
+    ),
+  ).pipe(
+    Effect.asVoid,
+    Effect.mapError(() =>
+      refuse(
+        `its provenance is not signed by ${RELEASE_IDENTITIES.join(" or ")}`,
+      ),
+    ),
+  );
 }
 
 function refusal(published: PublishedPackage): (why: string) => LauncherError {

@@ -1,0 +1,1 @@
+`sharnessd-launcher` accepts releases whose provenance was built by the release workflow of `social-harness/moltzap` as well as `chughtapan/moltzap`, so launchers installed now keep upgrading after the repository moves to the `social-harness` organization.
