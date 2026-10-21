@@ -367,9 +367,8 @@ const matchesRecovery = (
 /**
  * Anchor a restarted or rejoined Router and reconcile certified history, then
  * go active. Recovery fences each conversation and asks for catch-up without
- * waiting for answers, so the worker polls nothing until it is active: every
- * message the Router holds meanwhile, recovery traffic or not, is accepted
- * through the active path afterwards rather than consumed and dropped here.
+ * waiting for answers, so the worker polls nothing until it is active, and
+ * every message the Router holds meanwhile reaches the active path.
  * @param runtime Worker runtime whose generation is being recovered.
  * @param recovering Generation-scoped state to reconcile.
  * @returns An effect that completes after the worker becomes active.
