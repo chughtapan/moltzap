@@ -166,6 +166,13 @@ and a check fails when the copy disagrees with its source.
   follows the file the change touches.
 - A fix should shrink the system. Prefer removing or consolidating over
   adding a layer, flag, or special case.
+- Validate only what our code consumes. Configuration another system owns
+  (providers, models, credentials, harness and host settings) passes
+  through for that system to accept or reject; a closed set or refusal of it
+  in code narrows an interface that is not ours. Our own usage choices, such
+  as which credentials or limits we run with, go in AGENTS.md or the docs,
+  not in a check. Wire formats, our state machines and our trust boundaries
+  (admission, the firewall, release provenance) are ours to validate.
 
 Effect idiom, typed errors, exhaustive switches, and cast bans are enforced by
 `lint:sloppy-code-guard` and the `agent-code-guard` eslint rules. Read their
