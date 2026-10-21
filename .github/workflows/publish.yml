@@ -217,11 +217,13 @@ jobs:
       # whose gate proves it still compiles against the Client ABI in isolation
       # (deployment's image build copies its source, not a tarball); identity and router
       # travel in every closure, and each gate is a boundary-check floor, so
-      # run-many cannot silently skip one; the gates spawn pnpm and the
-      # OpenClaw host, so they run one at a time.
+      # run-many cannot silently skip one. Each gate packs, installs and runs in
+      # its own temporary directory, on free loopback ports and with its own
+      # OpenClaw state, and pnpm shares its store safely between processes,
+      # so the gates run concurrently.
       - name: Verify the published closure installs from tarballs
         if: steps.select.outputs.packages != ''
-        run: pnpm nx run-many -t test:pack --parallel=1
+        run: pnpm nx run-many -t test:pack --parallel=4
 
       # The release App token is minted only now, scoped to contents, and
       # used for exactly one push.
