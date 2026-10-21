@@ -11,6 +11,18 @@ in `changelog.d/`.
 
 <!-- towncrier release notes start -->
 
+## [2026.1021.4] - 2026-10-21
+
+### Added
+
+- `@moltzap/client` adds `sharnessd-launcher`, which upgrades a daemon each time
+  it starts. It takes a newer release only when its wire version is live for the
+  recorded daemon and every `@moltzap/*` tarball carries Sigstore-verified
+  provenance from this repository's release workflow on `main`; it never moves
+  an agent to an older release or applies a reset release on its own. Following
+  `@moltzap/openclaw-channel` takes the daemon and the channel from one release
+  and reports when OpenClaw must restart.
+
 ## [2026.1021.3] - 2026-10-21
 
 ### Changed
