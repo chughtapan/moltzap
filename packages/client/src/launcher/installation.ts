@@ -205,6 +205,35 @@ export const pointCurrent = Effect.fn("Launcher.pointCurrent")(
 );
 
 /**
+ * Removes every installed prefix and cached tarball in `directory` that
+ * `record` does not name, so the volume holds only the release that runs;
+ * fails with `record`.
+ */
+export const pruneReleases = Effect.fn("Launcher.pruneReleases")(
+  function* (directory: string, record: LauncherRecord) {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const kept = new Set([
+      record.prefix,
+      ...record.packages.map((installed) => installed.tarball),
+    ]);
+    for (const folder of ["releases", "tarballs"]) {
+      const parent = path.join(directory, folder);
+      const entries = (yield* fs.exists(parent))
+        ? yield* fs.readDirectory(parent)
+        : [];
+      for (const entry of entries) {
+        const target = path.join(parent, entry);
+        if (!kept.has(target)) {
+          yield* fs.remove(target, { recursive: true, force: true });
+        }
+      }
+    }
+  },
+  Effect.mapError((failure) => launcherError("record", failure.message)),
+);
+
+/**
  * The wire versions the daemon installed under `prefix` admits, read from
  * the Identity package it runs, or an `integrity` failure.
  */

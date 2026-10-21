@@ -53,6 +53,13 @@ const manifest = Schema.Struct({
 
 const distTags = Schema.Record({ key: Schema.String, value: Schema.String });
 
+/**
+ * The names and versions a release may pin. Both reach file names on the
+ * home volume, so anything else is refused before it is used.
+ */
+const PACKAGE_NAME = /^@moltzap\/[a-z0-9][a-z0-9-]*$/u;
+const CALENDAR_VERSION = /^\d+\.\d+\.\d+$/u;
+
 /** How long one registry read, body included, may take. */
 const READ_TIMEOUT = "60 seconds";
 
@@ -70,8 +77,11 @@ export const taggedVersion = Effect.fn("Launcher.taggedVersion")(function* (
     distTags,
   );
   const version = tags[tag];
-  if (version === undefined) {
-    return yield* launcherError("registry", `${name} has no dist-tag ${tag}`);
+  if (version === undefined || !CALENDAR_VERSION.test(version)) {
+    return yield* launcherError(
+      "registry",
+      `${name} has no calendar version on dist-tag ${tag}`,
+    );
   }
   return version;
 });
@@ -95,7 +105,18 @@ const publishedPackage = Effect.fn("Launcher.publishedPackage")(function* (
       `the registry answered ${published.name}@${published.version} for ${name}@${version}`,
     );
   }
-  return toPublished(published);
+  const result = toPublished(published);
+  const unexpected = Object.entries(result.siblings).find(
+    ([sibling, pin]) =>
+      !PACKAGE_NAME.test(sibling) || !CALENDAR_VERSION.test(pin),
+  );
+  if (unexpected !== undefined) {
+    return yield* launcherError(
+      "registry",
+      `${name}@${version} pins ${unexpected[0]} to ${unexpected[1]}, not a calendar version of a scoped package`,
+    );
+  }
+  return result;
 });
 
 /**

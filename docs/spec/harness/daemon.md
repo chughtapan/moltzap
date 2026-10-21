@@ -127,7 +127,10 @@ from issuer `https://token.actions.githubusercontent.com`, with a subject
 naming the package and those bytes. It then installs the verified tarballs
 with `npm install --ignore-scripts`, fetching only their other dependencies
 from the registry. Provenance is checked once per release; later starts check
-the cached tarballs offline.
+the cached tarballs offline. Once a start records a new release, the launcher
+removes every other installed prefix and cached tarball from the directory.
+A dist-tag or sibling pin that is not a calendar version of a `@moltzap/*`
+package is refused before anything is downloaded.
 
 Any failure on the way to a candidate keeps the recorded release, and the
 printed choice names why: `current`, `older`, `outside-wire-window`,

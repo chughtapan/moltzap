@@ -21,6 +21,7 @@ import {
   type LauncherRecord,
   liveWireVersions,
   pointCurrent,
+  pruneReleases,
   readRecord,
   seedRecord,
   writeRecord,
@@ -101,6 +102,9 @@ export const prepare = Effect.fn("Launcher.prepare")(function* (
   const running = outcome.kind === "take" ? outcome.record : recorded;
   yield* writeRecord(configuration.directory, running);
   yield* pointCurrent(configuration.directory, running.prefix);
+  if (outcome.kind === "take") {
+    yield* pruneReleases(configuration.directory, running);
+  }
   const prepared: Prepared = {
     releasePackage: running.releasePackage,
     version: running.version,

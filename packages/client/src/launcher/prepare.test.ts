@@ -195,6 +195,37 @@ const keepsWhenUnreachable = () =>
     });
   }).pipe(Effect.scoped, Effect.provide(NodeContext.layer));
 
+const keepsAnUnsafePin = () =>
+  Effect.gen(function* () {
+    const { home, seed } = yield* volume;
+    const asked: string[] = [];
+    const routes = release("2026.1025.1", WIRE);
+    const prepared = yield* prepare(configuration(home, follow), seed).pipe(
+      Effect.provide(
+        start(
+          {
+            ...routes,
+            [`${REGISTRY}/@moltzap%2fclient/2026.1025.1`]: json({
+              name: "@moltzap/client",
+              version: "2026.1025.1",
+              dist: {
+                integrity: integrityOf(new TextEncoder().encode("client")),
+                tarball: `${REGISTRY}/tarballs/client.tgz`,
+              },
+              dependencies: { "@moltzap/identity": "../../../escape" },
+            }),
+          },
+          asked,
+        ),
+      ),
+    );
+    expect(prepared).toMatchObject({
+      version: "2026.1021.1",
+      kept: "unresolved",
+    });
+    expect(asked.filter((url) => url.includes("/tarballs/"))).toEqual([]);
+  }).pipe(Effect.scoped, Effect.provide(NodeContext.layer));
+
 const refusesAChangedTarball = () =>
   Effect.gen(function* () {
     const { home, seed } = yield* volume;
@@ -241,6 +272,10 @@ describe("a launcher start", () => {
   it(
     "keeps the recorded release when the registry is unreachable",
     keepsWhenUnreachable,
+  );
+  it(
+    "keeps the recorded release when a release pins a sibling to something other than a calendar version",
+    keepsAnUnsafePin,
   );
   it(
     "refuses to start a recorded release whose cached tarball changed",
