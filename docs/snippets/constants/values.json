@@ -10,7 +10,7 @@
     },
     {
       "name": "NODE_VERSION_RANGE",
-      "value": ">=22.19.0 <25",
+      "value": ">=22.19.0",
       "kind": "string",
       "sourcePath": "package.json",
       "note": "Supported Node.js range, copied into every published manifest."
