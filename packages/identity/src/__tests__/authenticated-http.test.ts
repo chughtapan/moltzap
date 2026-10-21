@@ -3,7 +3,7 @@
 import {
   Headers,
   HttpClientRequest,
-  HttpServerRequest,
+  type HttpServerRequest,
 } from "@effect/platform";
 import {
   Clock,
@@ -13,8 +13,6 @@ import {
   Either,
   Encoding,
   Fiber,
-  Layer,
-  Match,
   Ref,
   Schema,
 } from "effect";
@@ -29,7 +27,6 @@ import {
   agentSigningPrivateKey,
   ed25519PublicKeyThumbprintUri,
 } from "../agent-key.js";
-import { AuthenticatedHttp } from "../authenticated-http.js";
 import {
   AuthenticationFailedError,
   UnavailableError,
@@ -40,9 +37,7 @@ import {
   verifyHttpRequestSignature,
 } from "../http-signature.js";
 import { AgentId, type AgentId as AgentIdValue } from "../identifiers.js";
-import { Registry } from "../registry.js";
 import {
-  type RegistryClientService,
   RegistryConnectionError,
   type RegistryLookupResult,
 } from "../registry/contract.js";
@@ -53,12 +48,19 @@ import {
   makeIdentityFixture,
   retainedIdentityFixture,
 } from "./authenticated-http-fixtures.js";
+import {
+  authenticatedHttpLayerWithRegistry,
+  type PreparedRequest,
+  prepareRequest,
+  registryWithLookup,
+  toServerRequest,
+  unreadable,
+  verifyAgentRequest,
+  verifyThroughLookupResult,
+} from "./authenticated-http-requests.js";
 
 /* eslint-disable agent-code-guard/no-example-only-tests -- regression-only suite: each case exercises a distinct HTTP proof, replay-ordering, cache, or cancellation contract. The concurrency timelines are not an input domain to generate over. */
 
-const REQUEST_URL = new URL(
-  "http://identity.test/v1/messages:poll?view=current",
-);
 const NORMAL_FIELDS = Object.freeze([
   "@method",
   "@authority",
@@ -89,12 +91,6 @@ const VERIFIED_PROOF_FIELDS = Object.freeze([
   "callerAgentId",
   "request",
 ]);
-
-interface PreparedRequest {
-  readonly bodyBytes: Uint8Array;
-  readonly clientRequest: HttpClientRequest.HttpClientRequest;
-  readonly serverRequest: HttpServerRequest.HttpServerRequest;
-}
 
 interface RequestMutation {
   readonly name: string;
@@ -132,51 +128,6 @@ const identifier = (prefix: string, byte: number): string =>
 
 const makeAgentId = (byte: number) =>
   Schema.decodeUnknownSync(AgentId)(identifier("agt_", byte));
-
-const requestBodyBytes = (request: HttpClientRequest.HttpClientRequest) =>
-  Match.value(request.body).pipe(
-    Match.tag("Uint8Array", (body) =>
-      Effect.succeed(Uint8Array.from(body.body)),
-    ),
-    Match.tag("Empty", "Raw", "FormData", "Stream", () =>
-      Effect.dieMessage("signed request did not retain byte body"),
-    ),
-    Match.exhaustive,
-  );
-
-const toServerRequest = (
-  request: HttpClientRequest.HttpClientRequest,
-): HttpServerRequest.HttpServerRequest => {
-  const url = new URL(request.url);
-  const webRequest = new Request(url, {
-    method: request.method,
-    headers: {
-      ...request.headers,
-      host: url.host,
-    },
-  });
-  return HttpServerRequest.fromWeb(webRequest);
-};
-
-const prepareRequest = (input: {
-  readonly fixture: IdentityFixture;
-  readonly callerAgentId?: AgentIdValue;
-  readonly encodedRequest?: unknown;
-}) =>
-  Effect.gen(function* () {
-    const clientRequest = yield* AuthenticatedHttp.signAgentRequest({
-      httpRequest: HttpClientRequest.post(REQUEST_URL),
-      callerAgentId: input.callerAgentId ?? input.fixture.agentCard.agentId,
-      encodedRequest: input.encodedRequest ?? { pollCursor: "cursor" },
-      signingAuthority: input.fixture.signingAuthority,
-    });
-    const bodyBytes = yield* requestBodyBytes(clientRequest);
-    return {
-      bodyBytes,
-      clientRequest,
-      serverRequest: toServerRequest(clientRequest),
-    } satisfies PreparedRequest;
-  });
 
 const verifySignature = (prepared: PreparedRequest, fixture: IdentityFixture) =>
   verifyHttpRequestSignature({
@@ -248,15 +199,6 @@ const lookupAgentCard = (controller: LookupController, agentId: AgentIdValue) =>
     return { kind: "found", agentCard: mode.agentCard } as const;
   });
 
-/** A Registry whose only operation under test is `lookup`. */
-const registryWithLookup = (
-  lookup: RegistryClientService["lookup"],
-): RegistryClientService => ({
-  register: () => Effect.dieMessage("registration is outside this test"),
-  lookup,
-  list: () => Effect.dieMessage("listing is outside this test"),
-});
-
 const registryService = (controller: LookupController) =>
   registryWithLookup((request) =>
     "agentId" in request
@@ -281,54 +223,8 @@ const deadlineRegistryService = (controller: LookupController) =>
       : Effect.dieMessage("the request under test must select an AgentId"),
   );
 
-const authenticatedHttpLayerWithRegistry = (
-  registry: RegistryClientService,
-  registryLookupConcurrencyLimit = 4,
-) =>
-  AuthenticatedHttp.layer({
-    liveNonceCapacity: 64,
-    agentCardCacheCapacity: 8,
-    registryLookupConcurrencyLimit,
-  }).pipe(Layer.provide(Layer.succeed(Registry, registry)));
-
 const authenticatedHttpLayer = (controller: LookupController) =>
   authenticatedHttpLayerWithRegistry(registryService(controller));
-
-const verifyAgentRequest = (prepared: PreparedRequest) =>
-  AuthenticatedHttp.verifyAgentRequest({
-    httpRequest: prepared.serverRequest,
-    bodyBytes: prepared.bodyBytes,
-  });
-
-/** A view of `value` that throws on every member read. */
-const unreadable = <Value extends object>(value: Value): Value =>
-  new Proxy(value, {
-    get: () => {
-      throw new Error("unreadable");
-    },
-  });
-
-/**
- * Verifies a request from a fresh identity through a Registry whose lookup
- * returns what `lookupResult` builds from that identity's verified card.
- */
-const verifyThroughLookupResult = (
-  lookupResult: (agentCard: VerifiedAgentCard) => RegistryLookupResult,
-) =>
-  Effect.gen(function* () {
-    const fixture = yield* makeIdentityFixture;
-    const prepared = yield* prepareRequest({ fixture });
-    const verified = yield* verifyAgentRequest(prepared).pipe(
-      Effect.provide(
-        authenticatedHttpLayerWithRegistry(
-          registryWithLookup(() =>
-            Effect.succeed(lookupResult(fixture.agentCard)),
-          ),
-        ),
-      ),
-    );
-    return { fixture, verified };
-  });
 
 const releaseLookups = (controller: LookupController) =>
   Deferred.succeed(controller.release, undefined).pipe(Effect.asVoid);
@@ -854,6 +750,31 @@ it.each([
       }),
     ),
 );
+
+it("fails authentication when the Registry answers with another agent's verified card", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const other = yield* makeIdentityFixture;
+      const prepared = yield* prepareRequest({
+        fixture: other,
+        callerAgentId: makeAgentId(9),
+      });
+
+      const refusal = yield* Effect.flip(
+        verifyAgentRequest(prepared).pipe(
+          Effect.provide(
+            authenticatedHttpLayerWithRegistry(
+              registryWithLookup(() =>
+                Effect.succeed({ kind: "found", agentCard: other.agentCard }),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(refusal).toStrictEqual(new AuthenticationFailedError());
+    }),
+  ));
 
 it("authenticates when the Registry's result carries members beyond its type", () =>
   Effect.runPromise(
