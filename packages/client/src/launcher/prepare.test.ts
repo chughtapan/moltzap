@@ -226,6 +226,25 @@ const keepsAnUnsafePin = () =>
     expect(asked.filter((url) => url.includes("/tarballs/"))).toEqual([]);
   }).pipe(Effect.scoped, Effect.provide(NodeContext.layer));
 
+const waitsForNoLiveLauncher = () =>
+  Effect.gen(function* () {
+    const { home, seed } = yield* volume;
+    const fs = yield* FileSystem.FileSystem;
+    yield* fs.makeDirectory(home, { recursive: true });
+    yield* fs.writeFileString(`${home}/launcher.lock`, `${process.ppid}\n`);
+    const held = yield* prepare(
+      configuration(home, { kind: "off" }),
+      seed,
+    ).pipe(Effect.provide(start({})), Effect.exit);
+    expect(JSON.stringify(held)).toContain('"reason":"record"');
+    yield* fs.writeFileString(`${home}/launcher.lock`, "2147483646\n");
+    const prepared = yield* prepare(
+      configuration(home, { kind: "off" }),
+      seed,
+    ).pipe(Effect.provide(start({})));
+    expect(prepared.kept).toBe("upgrade-off");
+  }).pipe(Effect.scoped, Effect.provide(NodeContext.layer));
+
 const refusesAChangedTarball = () =>
   Effect.gen(function* () {
     const { home, seed } = yield* volume;
@@ -276,6 +295,10 @@ describe("a launcher start", () => {
   it(
     "keeps the recorded release when a release pins a sibling to something other than a calendar version",
     keepsAnUnsafePin,
+  );
+  it(
+    "refuses to prepare while another live launcher holds the directory, and takes over a stale lock",
+    waitsForNoLiveLauncher,
   );
   it(
     "refuses to start a recorded release whose cached tarball changed",

@@ -20,6 +20,7 @@ import {
   install,
   type LauncherRecord,
   liveWireVersions,
+  lockDirectory,
   pointCurrent,
   pruneReleases,
   readRecord,
@@ -80,13 +81,17 @@ const KEEP_REASONS: Readonly<Record<LauncherError["reason"], KeepReason>> = {
 
 /**
  * Chooses, installs and records the release this start runs, given the
- * launcher's settings and the prefix the image installed. It fails only
- * when nothing is safe to run.
+ * launcher's settings and the prefix the image installed, holding the
+ * launcher directory for the scope. It fails only when nothing is safe to
+ * run. The `current` link moves before the record commits, so a start
+ * interrupted between them takes the release again and still reports
+ * `restartHost`.
  */
 export const prepare = Effect.fn("Launcher.prepare")(function* (
   configuration: LauncherConfiguration,
   seed: string,
 ) {
+  yield* lockDirectory(configuration.directory);
   const recorded = yield* recordedRelease(configuration, seed);
   yield* checkIntegrity(recorded);
   const outcome = yield* candidate(configuration, recorded).pipe(
@@ -100,8 +105,8 @@ export const prepare = Effect.fn("Launcher.prepare")(function* (
     ),
   );
   const running = outcome.kind === "take" ? outcome.record : recorded;
-  yield* writeRecord(configuration.directory, running);
   yield* pointCurrent(configuration.directory, running.prefix);
+  yield* writeRecord(configuration.directory, running);
   if (outcome.kind === "take") {
     yield* pruneReleases(configuration.directory, running);
   }

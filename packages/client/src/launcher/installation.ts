@@ -6,6 +6,7 @@
  * tarballs, and only read after.
  */
 
+import type { PlatformError } from "@effect/platform/Error";
 import {
   Command,
   type CommandExecutor,
@@ -61,6 +62,7 @@ export interface ReleaseToInstall {
 }
 
 const RECORD_FILE = "launcher.json";
+const LOCK_FILE = "launcher.lock";
 const CURRENT_LINK = "current";
 
 const manifestSchema = Schema.Struct({
@@ -188,6 +190,36 @@ export const install = Effect.fn("Launcher.install")(
 );
 
 /**
+ * Holds `directory` for one start for the scope's lifetime, so two
+ * launchers on one volume never interleave their reads and writes. A lock
+ * left by a process that is gone, or by this process's own PID after a
+ * restart, is taken over; one held by a live process fails with `record`.
+ */
+export const lockDirectory = Effect.fn("Launcher.lockDirectory")(function* (
+  directory: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const lock = path.join(directory, LOCK_FILE);
+  yield* fs
+    .makeDirectory(directory, { recursive: true })
+    .pipe(Effect.mapError(() => recordFailure(directory)));
+  const holder = yield* lockHolder(lock);
+  if (holder !== undefined) {
+    return yield* launcherError(
+      "record",
+      `another launcher, PID ${holder}, holds ${lock}`,
+    );
+  }
+  yield* Effect.acquireRelease(
+    fs
+      .writeFileString(lock, `${process.pid}\n`, { flag: "wx" })
+      .pipe(Effect.mapError(() => recordFailure(lock))),
+    () => fs.remove(lock, { force: true }).pipe(Effect.ignore),
+  );
+});
+
+/**
  * Points `current` in `directory` at `prefix` atomically, so a host that
  * loads the channel through it sees one whole release; fails with `record`.
  */
@@ -294,7 +326,7 @@ function cacheTarballs(
           cache,
           `${fileName(tarball.name)}-${tarball.version}.tgz`,
         );
-        return fs.writeFile(file, tarball.bytes).pipe(
+        return writeAtomically(file, tarball.bytes).pipe(
           Effect.as({
             name: tarball.name,
             version: tarball.version,
@@ -427,12 +459,63 @@ function recordOf(
   };
 }
 
+/**
+ * Writes `bytes` to `file` through a temporary file and a rename, so a
+ * tarball another recorded release names is never seen half written.
+ */
+function writeAtomically(
+  file: string,
+  bytes: Uint8Array,
+): Effect.Effect<void, PlatformError, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const temporary = `${file}.partial`;
+    yield* fs.writeFile(temporary, bytes);
+    yield* fs.rename(temporary, file);
+  });
+}
+
 function fileName(name: string): string {
   return name.replace("@", "").replace("/", "-");
 }
 
 function installFailure(prefix: string): LauncherError {
   return launcherError("install", `could not install into ${prefix}`);
+}
+
+/** The PID of a live process other than this one holding `lock`, after removing a stale lock. */
+function lockHolder(
+  lock: string,
+): Effect.Effect<string | undefined, LauncherError, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    if (!(yield* fs.exists(lock))) {
+      return undefined;
+    }
+    const holder = (yield* fs.readFileString(lock)).trim();
+    if (holder !== String(process.pid) && processIsAlive(holder)) {
+      return holder;
+    }
+    yield* fs.remove(lock, { force: true });
+    return undefined;
+  }).pipe(Effect.mapError(() => recordFailure(lock)));
+}
+
+function processIsAlive(pid: string): boolean {
+  const id = Number(pid);
+  if (!Number.isInteger(id) || id <= 0) {
+    return false;
+  }
+  try {
+    process.kill(id, 0);
+    return true;
+  } catch (signalError: unknown) {
+    return (
+      signalError instanceof Error &&
+      "code" in signalError &&
+      signalError.code === "EPERM"
+    );
+  }
 }
 
 function recordFailure(file: string): LauncherError {

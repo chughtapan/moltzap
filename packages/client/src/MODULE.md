@@ -1456,6 +1456,7 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `launcher/index.ts`
 - `launcher/installation.ts`
 - `launcher/integrity.ts`
+- `launcher/packed-manifest.ts`
 - `launcher/prepare.ts`
 - `launcher/provenance.ts`
 - `launcher/README.md`

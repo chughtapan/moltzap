@@ -29,10 +29,9 @@ export const main = Effect.fn("Launcher.main")(function* (
   if (command !== undefined && command !== "prepare") {
     return yield* launcherError("configuration", `unknown command ${command}`);
   }
-  const configuration = yield* loadConfiguration;
-  const prepared = yield* prepare(
-    configuration,
-    yield* seedPrefix(configuration),
+  const configuration = yield* absolute(yield* loadConfiguration);
+  const prepared = yield* Effect.scoped(
+    prepare(configuration, yield* seedPrefix(configuration)),
   );
   yield* Console.error(describe(prepared));
   if (command === "prepare") {
@@ -49,6 +48,25 @@ export const main = Effect.fn("Launcher.main")(function* (
     ),
   );
 });
+
+/**
+ * The settings with the directory and seed resolved against the working
+ * directory, since `npm install` runs from inside the launcher directory.
+ *
+ * @param configuration The settings as configured.
+ * @returns The settings with absolute paths.
+ */
+function absolute(
+  configuration: LauncherConfiguration,
+): Effect.Effect<LauncherConfiguration, never, Path.Path> {
+  return Effect.map(Path.Path, (path) => ({
+    ...configuration,
+    directory: path.resolve(configuration.directory),
+    ...(configuration.seed === undefined
+      ? {}
+      : { seed: path.resolve(configuration.seed) }),
+  }));
+}
 
 /**
  * The prefix the image installed.

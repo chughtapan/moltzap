@@ -102,7 +102,10 @@ The directory holds `launcher.json`, the record of the release the agent runs;
 `tarballs/`, the verified tarballs installed releases came from; `releases/`,
 one installed prefix per release; `current`, a link to the prefix that runs,
 which a host loads the channel through; and `sigstore/`, the Sigstore trust
-root cache. The first start records the image's release without the network.
+root cache. With no record, a start takes the image's release as the
+recorded one, without the network, and then resolves a candidate as every
+start does. One start at a time holds the directory through `launcher.lock`;
+a lock whose process is gone is taken over.
 
 Every start first checks the recorded release without the network: each
 cached tarball must still have the integrity it was verified with, and its
@@ -127,7 +130,9 @@ from issuer `https://token.actions.githubusercontent.com`, with a subject
 naming the package and those bytes. It then installs the verified tarballs
 with `npm install --ignore-scripts`, fetching only their other dependencies
 from the registry. Provenance is checked once per release; later starts check
-the cached tarballs offline. Once a start records a new release, the launcher
+the cached tarballs offline. A start moves `current` before it commits the
+record, so one interrupted between them takes the release again and still
+reports `restartHost`. Once a start records a new release, the launcher
 removes every other installed prefix and cached tarball from the directory.
 A dist-tag or sibling pin that is not a calendar version of a `@moltzap/*`
 package is refused before anything is downloaded.

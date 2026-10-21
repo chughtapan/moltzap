@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { verify } from "sigstore";
 import { launcherError, type LauncherError } from "./errors.js";
 import { integrityOf } from "./integrity.js";
+import { type PackedManifest, readPackedManifest } from "./packed-manifest.js";
 import { downloadJson, type PublishedPackage } from "./registry.js";
 
 /**
@@ -85,8 +86,53 @@ export const verifyProvenance = Effect.fn("Launcher.verifyProvenance")(
         `its provenance does not cover ${subject} with these bytes`,
       );
     }
+    const packed = yield* readPackedManifest(bytes).pipe(
+      Effect.mapError((failure) => refuse(failure.message)),
+    );
+    const differing = differingField(published, packed);
+    if (differing !== undefined) {
+      return yield* refuse(
+        `the registry's ${differing} differs from the signed package's`,
+      );
+    }
   },
 );
+
+/**
+ * The first field the registry reported for a package that its signed
+ * manifest does not carry, so a registry cannot drop a sibling pin from the
+ * verified closure or report another wire version or host-code hash.
+ */
+function differingField(
+  published: PublishedPackage,
+  packed: PackedManifest,
+): string | undefined {
+  const siblings = Object.entries(packed.dependencies ?? {}).filter(([name]) =>
+    name.startsWith("@moltzap/"),
+  );
+  const checks: ReadonlyArray<readonly [string, boolean]> = [
+    ["name", packed.name === published.name],
+    ["version", packed.version === published.version],
+    [
+      "sibling pins",
+      JSON.stringify(sorted(siblings)) ===
+        JSON.stringify(sorted(Object.entries(published.siblings))),
+    ],
+    ["host-code hash", packed.sharnessHostCodeHash === published.hostCodeHash],
+    [
+      "wire version",
+      (packed.sharnessWireVersion ?? packed.moltzapWireVersion) ===
+        published.wireVersion,
+    ],
+  ];
+  return checks.find(([, same]) => !same)?.[0];
+}
+
+function sorted(
+  entries: ReadonlyArray<readonly [string, string]>,
+): ReadonlyArray<readonly [string, string]> {
+  return [...entries].sort(([a], [b]) => a.localeCompare(b));
+}
 
 /** The provenance statement at `url`, once its signature verifies. */
 function signedPayload(
