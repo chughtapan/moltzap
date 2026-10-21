@@ -11,6 +11,14 @@ in `changelog.d/`.
 
 <!-- towncrier release notes start -->
 
+## [2026.1021.5] - 2026-10-21
+
+### Fixed
+
+- `sharnessd-launcher` follows a new agent image: when the image installs
+  another release where the recorded one was, the next start records that
+  release instead of refusing to start.
+
 ## [2026.1021.4] - 2026-10-21
 
 ### Added
