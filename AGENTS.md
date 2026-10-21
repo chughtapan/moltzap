@@ -14,8 +14,7 @@ session or checking its hash does not load its instructions.
 | Find, file or review an internal record | `.agents/skills/records/SKILL.md` |
 | Write or edit public documentation | `.agents/skills/docs/SKILL.md` |
 
-Load only applicable skills, then follow their targeted references. If private
-docs are unavailable, use the installed skills' public-maintenance fallback.
+Load only applicable skills, then follow their targeted references.
 Do not ask the user to invoke skills for you.
 
 Every `CLAUDE.md` is a symlink to the `AGENTS.md` beside it. `packages/*/AGENTS.md` adds
@@ -62,23 +61,13 @@ do not ask for a separate plan approval unless the scope changes.
 - Update the existing PR/plan for a handoff. Add a separate handoff only when
   those records cannot carry what the next agent needs.
 
-Shared workflow and internal decisions live in
-[`social-harness/docs-internal`](https://github.com/social-harness/docs-internal/blob/main/README.md).
-Set `DOCS_INTERNAL_ROOT` to a checkout at the revision recorded in
-`.agents/internal-skills.json` and start with its README. That revision pins the
-workflow and navigation; it does not approve proposed decisions. Public
-specifications remain the implementation baseline until a change is admitted.
-Agree on a complete decision candidate before starting its admission review;
-do not automatically review intermediate drafts.
-Both hosts use the revision in `.agents/internal-skills.json`; sync and
-check updates with that checkout's `bin/records skills` commands.
-
-Public usage, specifications, package instructions, and runnable checks stay in
-this repository. Without private docs, maintain public code
-using these specifications, normal planning, independent review, and Git/PR
-commands.
-A proposed boundary change must resolve its affected decision evidence before
-claiming approval. Missing private access does not block unrelated maintenance.
+Maintainer records and the pinned internal skills follow
+[CONTRIBUTING.md → Maintainer records](CONTRIBUTING.md#maintainer-records).
+Public specifications remain the implementation baseline until a change is
+admitted. Agree on a complete decision candidate before starting its admission
+review; do not automatically review intermediate drafts. Without maintainer
+records, maintain public code using these specifications, normal planning,
+independent review, and Git/PR commands.
 
 Use an isolated worktree for concurrent changes, preserve other people's work,
 and confirm branch, commit, uncommitted changes, existing checks, and next action
@@ -220,15 +209,14 @@ in logic the PR changes is resolved by the PR's author.
 
 Read this file and `docs/vision.md`, then the applicable public specification
 under `docs/spec/` and package instructions. Architecture pages explain the
-current implementation. Internal ADRs and original source evidence belong in
-the shared docs repo. Reconcile a boundary change with its public
-specification; do not leave a binding interface specification only in private
-docs, chat, or agent state.
+current implementation. Reconcile a boundary change with its public
+specification; do not leave a binding interface specification only in chat,
+agent state, or records outside this repository.
 
 Writing or regenerating public docs uses the `docs` skill at
 `.agents/skills/docs/SKILL.md`; `.claude/skills/docs` links to the same source.
 Keep repository-owned skills under `.agents/skills/` with a matching Claude
-link. Update the pinned internal skills through `bin/records skills sync`.
+link.
 Generated files come from their source and must not be edited by hand.
 
 <!-- nx configuration start-->

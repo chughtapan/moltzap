@@ -108,8 +108,8 @@ Callers must change a code policy's revision when its behavior changes.
 
 Findings accumulate. `pass` and `not-applicable` describe one rule; they cannot
 erase a `block`, `hold`, `revise` or `approval-required` from another check.
-A norm rule may also `pass` with reason `uncertain`, naming the judge's
-`choice` and `probability`: the rule admits, and its registered guidance
+A norm rule may also `pass` with reason `uncertain`, naming the decision
+provider's `choice` and `probability`: the rule admits, and its registered guidance
 reaches the agent with that choice and probability. Any other rule kind must
 hold instead.
 Composition prioritizes prohibition, unavailable/uncertain evidence, norm
@@ -144,8 +144,8 @@ An answer is uncertain when its choice is `unresolved`, its probability is
 below `minimumProbability`, or another option is more probable. An uncertain answer about a safety or autonomy rule
 holds, its applicability included. One about a norm never holds: an uncertain
 applicability, expectation or conformance answer is an uncertain `pass`, the
-norm is still judged by expectations and conformance, conformance judges only
-the expectations the judge settled, and an uncertain subject reference is left
+norm is still assessed by expectations and conformance, conformance assesses
+only the expectations the decision provider settled, and an uncertain subject reference is left
 out of its expectation. A failed or invalid provider answer holds in every stage.
 A rounded near-tie is valid: in a distribution reported in hundredths, Jev's
 stated choice may trail another option by the same tolerance its sum has. Such

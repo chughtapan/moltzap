@@ -129,7 +129,7 @@ type Observation = Pick<
 
 /**
  * The rules that produced `reason`, once each in chain order. An admission
- * is decided by the norms judged uncertain, which admit with guidance, and
+ * is decided by the norms assessed as uncertain, which admit with guidance, and
  * by no rule otherwise. An unavailable check is decided by every rule it
  * registers; a hold on unresolved evidence by its holding rules and any
  * conflicting expectations. Every other reason is decided by the findings
@@ -373,7 +373,7 @@ function matchesReason(finding: PolicyFinding, reason: Reason): boolean {
 
 /**
  * Each settled expectation and each uncertain pass whose rule registers
- * guidance becomes one entry; an uncertain one carries the judge's choice
+ * guidance becomes one entry; an uncertain one carries the decision provider's choice
  * and probability.
  */
 function projectGuidance(

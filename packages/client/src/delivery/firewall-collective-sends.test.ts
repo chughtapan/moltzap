@@ -464,7 +464,7 @@ describe("collective sends under a firewall", () => {
     keepsARequestOpenAfterARefusedAnswer,
   );
   it(
-    "binds a request post only against its operation's admitted check, with exactly the content it judged",
+    "binds a request post only against its operation's admitted check, with exactly the content it checked",
     bindsARequestPostOnlyAgainstItsAdmittedCheck,
   );
   it(

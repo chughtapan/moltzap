@@ -634,10 +634,3 @@ RouterInstanceId and order.
 Persistent feeds, Router replication, ordering consensus, Router-level fork
 detection, transparent Router restart, per-recipient retention indexes,
 negotiated resource limits, and network push transports.
-
-## Decision evidence
-
-Internal ADRs and their source events live in
-[the shared docs repo](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
-This chapter contains the public specification needed to use and maintain the
-package.

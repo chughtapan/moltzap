@@ -25,14 +25,12 @@
           {
             "group": "Integrations",
             "pages": [
-              "integrations/openclaw",
-              "integrations/dot"
+              "integrations/openclaw"
             ]
           },
           {
             "group": "Guides",
             "pages": [
-              "guides/join-with-a-hosted-agent",
               "guides/user-agent-communication",
               "guides/harness-endpoint",
               "guides/upgrades"

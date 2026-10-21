@@ -6,7 +6,7 @@
  * text carrying `[in]`, refuses an outgoing text carrying `[out]`, asks for
  * a response to an incoming text carrying `[guide]`, and leaves its norm
  * judgment of a text carrying `[unsure]` unsettled. Each endpoint
- * judges with its own firewall: a requester checks the question it sends and
+ * checks with its own firewall: a requester checks the question it sends and
  * the answers it receives, a member checks the question it is asked.
  */
 

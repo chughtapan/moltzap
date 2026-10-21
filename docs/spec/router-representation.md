@@ -305,10 +305,3 @@ and mapping:
 Registry lookup infrastructure failure during AuthenticatedHttp
 verification is 503 `unavailable`. A missing identity is an
 authentication failure at the L1 boundary.
-
-## Decision evidence
-
-Internal ADRs and their source events live in
-[the shared docs repo](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
-This chapter contains the public specification needed to use and maintain the
-package.

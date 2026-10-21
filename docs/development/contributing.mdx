@@ -78,8 +78,7 @@ or issue authorizes bounded implementation without another approval ritual.
 
 Public specifications in `docs/vision.md` and `docs/spec/`, together with the
 checks in this repository, are the authority for every contribution. A new
-boundary choice updates its public specification before implementation. You do
-not need access to any private repository to contribute.
+boundary choice updates its public specification before implementation.
 
 ## Architecture checks
 
@@ -161,33 +160,6 @@ pages, and source-owned constants generate shared snippets. Run
   this repository, not by a release here.
 - Public design contracts live in `docs/vision.md` and `docs/spec/`; see
   `AGENTS.md` for package-specific instructions.
-
-### Maintainer records
-
-Maintainers keep internal plans, ADRs, and source evidence in
-[a private shared docs repository][internal-docs].
-
-Maintainers with access set `DOCS_INTERNAL_ROOT` to a checkout at the revision
-in `.agents/internal-skills.json` and start with its README. The workflow pin
-does not establish approval of proposed ADRs.
-
-The internal `shared-sdlc` and `records` skills are pinned in
-`.agents/internal-skills.json` and readable under `.agents/skills/` and
-`.claude/skills/`. Maintainers update them from this repository's root,
-using the `bin/records` binary in the `DOCS_INTERNAL_ROOT` checkout. Replace
-`DOCS_COMMIT` with the selected full revision before running either command:
-
-```bash
-"$DOCS_INTERNAL_ROOT/bin/records" skills sync --target . --revision DOCS_COMMIT
-"$DOCS_INTERNAL_ROOT/bin/records" skills check --target . --revision DOCS_COMMIT
-```
-
-Expected result: sync updates the installed skill copies to the selected
-revision, and check confirms that they match.
-
-These commands protect local edits and do not modify upstream skills.
-
-[internal-docs]: https://github.com/social-harness/docs-internal
 
 ## Next steps
 

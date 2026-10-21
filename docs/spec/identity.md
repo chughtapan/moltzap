@@ -1042,10 +1042,3 @@ revocation, recovery, delegation evidence, peer card custody, encrypted
 keys, OS keychains, HSMs, and external signers. Application-owned TLS,
 certificate, and trusted-proxy
 policy are also outside the application contract.
-
-## Decision evidence
-
-Internal ADRs and their source events live in
-[the shared docs repo](https://github.com/social-harness/docs-internal/blob/main/data/moltzap/README.md).
-This chapter contains the public specification needed to use and maintain the
-package.

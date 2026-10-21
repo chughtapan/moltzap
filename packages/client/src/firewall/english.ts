@@ -159,7 +159,7 @@ const runStage = Effect.fn("EnglishPolicy.runStage")(function* (
 });
 
 /**
- * The judge did not settle an answer that is `unresolved`, below the routing
+ * The decision provider did not settle an answer that is `unresolved`, below the routing
  * threshold, or a rounded near-tie whose stated choice trails another option.
  */
 function unsettled(
@@ -175,7 +175,8 @@ function unsettled(
 }
 
 /**
- * Conformance judges the draft against the expectations the judge settled;
+ * Conformance assesses the draft against the expectations the decision
+ * provider settled;
  * the unsettled ones reach the agent as guidance instead. Only a failed
  * expectations stage leaves conformance unavailable.
  */
@@ -365,7 +366,7 @@ function englishRevision(
 }
 
 /**
- * The expectations the judge settled, each with the references it settled
+ * The expectations the decision provider settled, each with the references it settled
  * as relevant. An unsettled expectation reaches the agent as guidance
  * instead, and an unsettled reference is left out.
  */
@@ -461,8 +462,8 @@ function stageFindings(
 /**
  * One answered question's finding. An unsettled answer about a safety or
  * autonomy rule holds. One about a norm never holds: its applicability,
- * expectation or conformance passes with the judge's choice and probability,
- * so the norm is still judged and the agent advised, and an unsettled
+ * expectation or conformance passes with the decision provider's choice and
+ * probability, so the norm is still assessed and the agent advised, and an unsettled
  * reference only drops out of its expectation.
  */
 function questionFinding(

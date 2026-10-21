@@ -422,7 +422,7 @@ interface GatherCheck {
 
 /**
  * Check a gather once, as the question every member will read, attributed to
- * the members it asks and judged against the recent window of the
+ * the members it asks and assessed against the recent window of the
  * conversation its address names.
  */
 function checkGather(
