@@ -4,11 +4,52 @@ All notable changes to MoltZap are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions are calendar versions, `YYYY.MDD.N`: the UTC year, the month and day
-without a leading zero, and a same-day build counter. Every published package
-carries the same version in a release, and the release commit writes each
-section below from the fragments in `changelog.d/`.
+without a leading zero, and a same-day build counter. A release publishes at
+its version only the packages that changed since their last published version;
+the release commit lists them and writes each section below from the fragments
+in `changelog.d/`.
 
 <!-- towncrier release notes start -->
+
+## [2026.1021.1] - 2026-10-21
+
+### Added
+
+- Stock `sharnessd` installs a message firewall from a policy file, so a
+  deployment no longer needs its own daemon program for one.
+  `SHARNESS_MESSAGE_POLICY_FILE` names an `org.social-harness/message-policy/v1`
+  document: the firewall mode, built-in code middleware for each direction
+  (`acknowledgements`, `allowed-senders`, `credentials`, `plain-language` and
+  the `collective-norms` bundle), fixed and initial editable English rules, the
+  decision provider, and check bounds. `SHARNESS_DECISION_PROVIDER_KEY_FILE`
+  holds the key of a `jev` decision provider, and
+  `SHARNESS_FIREWALL_AUDIT_EXPORT` publishes the firewall audit on graceful
+  shutdown. Unset, the daemon runs without a firewall as before.
+  `@moltzap/client/service` exports `MessagePolicy` for writers and
+  `messagePolicyFirewall` for compositions that supply their own decision
+  provider.
+
+### Changed
+
+- Each published package now carries its own calendar version. A release
+  publishes only the packages whose packed content changed since their last
+  published version, plus every package that depends on one of them, and each
+  published package still pins its siblings to exact versions. Every published
+  manifest records `sharnessContentHash`, a hash of the packed files and
+  manifest without its version, and `@moltzap/openclaw-channel` also records
+  `sharnessHostCodeHash`, a hash of the code OpenClaw loads for it, which a
+  change confined to the daemon leaves unchanged. The first release after this
+  change republishes all four packages, because no earlier version records a
+  hash. Install `@moltzap/client` or `@moltzap/openclaw-channel` and let their
+  pins choose the other packages, rather than requesting one version of every
+  package.
+- The live wire window holds the emitted wire version and at most one adjacent
+  version. A wire bump spans two releases: the first admits the successor while
+  still emitting the current version, and the second emits the successor while
+  still admitting its predecessor, which the next release stops admitting. Any
+  two adjacent releases of the daemon, the Registry and the Router therefore
+  interoperate in either upgrade order, and the mixed-release gate checks the
+  current daemon through the previous release's Registry and Router.
 
 ## [2026.1021.0] - 2026-10-21
 
