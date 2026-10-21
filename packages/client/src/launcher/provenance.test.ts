@@ -12,10 +12,10 @@ const identity = (repository: string): string =>
 /** A Sigstore stand-in that accepts a bundle only for `signer`. */
 const signedFor =
   (signer: string) =>
-  (candidate: string): Promise<void> =>
+  (candidate: string): Effect.Effect<void, string> =>
     candidate === signer
-      ? Promise.resolve()
-      : Promise.reject(new Error("certificate identity mismatch"));
+      ? Effect.void
+      : Effect.fail("certificate identity mismatch");
 
 const refuse = (why: string) => launcherError("provenance", why);
 

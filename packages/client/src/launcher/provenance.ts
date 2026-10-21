@@ -112,6 +112,24 @@ export const verifyProvenance = Effect.fn("Launcher.verifyProvenance")(
 );
 
 /**
+ * Succeeds when `verifyAs` accepts the bundle for any of
+ * {@link RELEASE_IDENTITIES}; Sigstore matches one identity per call.
+ */
+export function signedByReleaseIdentity(
+  verifyAs: (identity: string) => Effect.Effect<unknown, unknown>,
+  refuse: (why: string) => LauncherError,
+): Effect.Effect<void, LauncherError> {
+  return Effect.firstSuccessOf(RELEASE_IDENTITIES.map(verifyAs)).pipe(
+    Effect.asVoid,
+    Effect.mapError(() =>
+      refuse(
+        `its provenance is not signed by ${RELEASE_IDENTITIES.join(" or ")}`,
+      ),
+    ),
+  );
+}
+
+/**
  * The first field the registry reported for a package that its signed
  * manifest does not carry, so a registry cannot drop a sibling pin from the
  * verified closure or report another wire version or host-code hash.
@@ -173,11 +191,13 @@ function signedPayload(
     }
     yield* signedByReleaseIdentity(
       (identity) =>
-        verify(bundleToJSON(bundle), {
-          certificateIssuer: RELEASE_ISSUER,
-          certificateIdentityURI: identity,
-          tufCachePath: options.tufCachePath,
-        }),
+        Effect.tryPromise(() =>
+          verify(bundleToJSON(bundle), {
+            certificateIssuer: RELEASE_ISSUER,
+            certificateIdentityURI: identity,
+            tufCachePath: options.tufCachePath,
+          }),
+        ),
       refuse,
     );
     return yield* Schema.decodeUnknown(Schema.parseJson(statement))(
@@ -186,28 +206,6 @@ function signedPayload(
       Effect.mapError(() => refuse("its provenance statement is malformed")),
     );
   });
-}
-
-/**
- * Succeeds when `verifyAs` accepts the bundle for any of
- * {@link RELEASE_IDENTITIES}; Sigstore matches one identity per call.
- */
-export function signedByReleaseIdentity(
-  verifyAs: (identity: string) => Promise<unknown>,
-  refuse: (why: string) => LauncherError,
-): Effect.Effect<void, LauncherError> {
-  return Effect.firstSuccessOf(
-    RELEASE_IDENTITIES.map((identity) =>
-      Effect.tryPromise(() => verifyAs(identity)),
-    ),
-  ).pipe(
-    Effect.asVoid,
-    Effect.mapError(() =>
-      refuse(
-        `its provenance is not signed by ${RELEASE_IDENTITIES.join(" or ")}`,
-      ),
-    ),
-  );
 }
 
 function refusal(published: PublishedPackage): (why: string) => LauncherError {
