@@ -129,7 +129,7 @@ AgentId and signature bytes while logical hashes exclude evidence maps.
 - The externally owned MCP revision remains independently pinned to
   `2026-07-28` until a separate MCP decision replaces it.
 - The npm package version is a release namespace of its own: four packages
-  publish as one calendar version set while `@moltzap/nanoclaw-channel` stays private, per
+  publish, each at its own calendar version, while `@moltzap/nanoclaw-channel` stays private, per
   [`layer-interfaces.md`](./layer-interfaces.md) → Publication and versions.
   It never implies a wire, MCP, or persisted-schema compatibility fact.
 

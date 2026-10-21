@@ -1,8 +1,8 @@
 /**
  * @file Manifest and configuration rules of the architecture boundary check:
  * the wire compatibility literal, workspace roots, each product's manifest,
- * TypeScript references, declared targets, and Knip ignores, and the one
- * published version set the release workflow ships.
+ * TypeScript references, declared targets, and Knip ignores, and the
+ * published set the release workflow ships.
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -51,7 +51,7 @@ const PRODUCTION_SECTIONS = [
 
 /**
  * Identity owns the one MoltZap wire compatibility value. Package release
- * versions are independent of it: a release changes every manifest without
+ * versions are independent of it: a release changes manifests without
  * touching this literal, and a wire hard cut changes this literal alone.
  * @param run Run collecting failures.
  * @returns The literal when it is a calendar version, otherwise null.
@@ -147,32 +147,21 @@ export function checkProductManifests(
 }
 
 /**
- * The published products must share one version, and the release workflow
- * must name the same set; otherwise a package silently never releases.
+ * The release workflow must name the published set; otherwise a package
+ * silently never releases. Each published package carries its own version.
  * @param run Run collecting failures.
  * @param publishedVersions Manifest location to version.
- * @returns The distinct published versions.
  */
 export function checkReleaseSet(
   run: BoundaryRun,
   publishedVersions: ReadonlyMap<string, string>,
-): ReadonlySet<string> {
+): void {
   if (publishedVersions.size === 0) {
     run.failures.push(
-      "packages/*/package.json: no published package scanned; the one-version rule would pass vacuously",
+      "packages/*/package.json: no published package scanned; the release-set rule would pass vacuously",
     );
   }
   checkReleaseWorkflow(run);
-  const distinct = new Set(publishedVersions.values());
-  if (distinct.size !== 1) {
-    const listed = [...publishedVersions]
-      .map(([where, version]) => `${where}=${version}`)
-      .join(", ");
-    run.failures.push(
-      `packages/*/package.json: published packages must share one version, got ${listed}`,
-    );
-  }
-  return distinct;
 }
 
 function readCompatibilityVersion(
@@ -304,9 +293,7 @@ function checkNotices(
 
 /**
  * A published manifest goes to npm as written: no private flag, the one
- * license, and the repository npm links provenance to. `pnpm pack` pins
- * sibling dependencies to their manifest versions, so the published versions
- * must agree before a release can install.
+ * license, the repository npm links provenance to, and a calendar version.
  * @returns The manifest version of a published product, otherwise undefined.
  */
 function checkPublication(
@@ -453,6 +440,11 @@ function checkBinaryFile(
   }
 }
 
+/**
+ * Sibling edges are `workspace:*`, which `pnpm pack` rewrites to the
+ * sibling's exact manifest version, so a published package always pins its
+ * siblings exactly.
+ */
 function checkDependencies(
   run: BoundaryRun,
   { dir, where, manifest }: ProductManifest,

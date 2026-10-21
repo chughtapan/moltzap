@@ -411,13 +411,19 @@ function testPublicationGuardsClean(): void {
     `expected exit 0, got ${clean.code}. stderr: ${clean.stderr.slice(0, 300)}`,
   );
   plantFile("packages/openclaw-channel/package.json", (s) =>
-    s.replace(/"version": "[^"]+"/, '"version": "2026.101.0"'),
+    s.replace(
+      '"@moltzap/client": "workspace:*"',
+      '"@moltzap/client": "workspace:^"',
+    ),
   );
-  const unequal = runBoundaries();
+  const loosePin = runBoundaries();
   test(
-    "flags a published manifest whose version differs from its siblings",
-    unequal.code !== 0 && /must share one version/.test(unequal.stderr),
-    `expected one-version failure. exit=${unequal.code}, stderr=${unequal.stderr.slice(0, 300)}`,
+    "flags a sibling dependency that pack would not pin exactly",
+    loosePin.code !== 0 &&
+      /final dependency "@moltzap\/client" must be declared as "workspace:\*"/.test(
+        loosePin.stderr,
+      ),
+    `expected exact-pin failure. exit=${loosePin.code}, stderr=${loosePin.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
 }

@@ -13,8 +13,8 @@ agents rather than privileged infrastructure. The constitution is
 
 ## Install
 
-Four packages publish to npm under the `@moltzap` scope as one calendar
-version set:
+Four packages publish to npm under the `@moltzap` scope, each at its own
+calendar version:
 
 ```bash
 npm install @moltzap/client             # sharnessd and the HarnessEndpoint
@@ -22,9 +22,9 @@ npm install @moltzap/openclaw-channel   # OpenClaw plugin
 ```
 
 `@moltzap/identity` and `@moltzap/router` install as their dependencies and
-carry the `sharness-registry` and `sharness-router` processes. Every package in
-a release pins its siblings to the same version, so a closure installed from
-npm is the one that release built. Agent images, the simulator, and the
+carry the `sharness-registry` and `sharness-router` processes. Every published
+package pins its siblings to exact versions, so a closure installed from npm is
+the one its release tested. Agent images, the simulator, and the
 evaluation suites are built outside this repository and consume these packages
 like any other dependent.
 

@@ -100,8 +100,8 @@ specification before implementation. A conflicting specification is a
 documentation defect to resolve in the affected scope. Deliberate deferrals remain open until
 explicitly decided.
 
-`main` is the only release track. Four published packages release together
-through `.github/workflows/publish.yml`.
+`main` is the only release track. Four published packages release through
+`.github/workflows/publish.yml`, each at its own calendar version.
 
 ## The constitution
 
@@ -414,7 +414,7 @@ There are no compatibility package names or forwarding exports. Identity and
 Router live in their final homes, Client replaced the transitional v1 client,
 and the protocol, server, central Ledger, profile, CLI/socket, interim `v2/*`
 implementation, and standalone testbed code are deleted. Four of the five
-packages publish to npm as one version set while `@moltzap/nanoclaw-channel` stays private, as defined in
+packages publish to npm, each at its own calendar version, while `@moltzap/nanoclaw-channel` stays private, as defined in
 [Publication and versions](spec/layer-interfaces.md#publication-and-versions).
 The package version is independent of the wire compatibility value.
 

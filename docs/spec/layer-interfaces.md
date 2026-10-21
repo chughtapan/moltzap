@@ -400,8 +400,9 @@ topology and cross-address context.
 
 ## Publication and versions
 
-Four packages publish to npm as one version set: `@moltzap/identity`,
-`@moltzap/router`, `@moltzap/client`, and `@moltzap/openclaw-channel`.
+Four packages publish to npm, each at its own calendar version:
+`@moltzap/identity`, `@moltzap/router`, `@moltzap/client`, and
+`@moltzap/openclaw-channel`.
 `@moltzap/nanoclaw-channel` stays private. The simulator is not published.
 
 The reset release establishes fresh wire and storage baselines. Operators must start a fresh Registry
@@ -417,9 +418,20 @@ mismatches. Release notes mark each reset release with the phrase
 
 - One release computes one calendar version, `YYYY.MDD.N`, one past the
   highest counter in the union of the four packages' npm histories and the
-  `v<version>` release tags, and writes it into every published manifest.
-- `pnpm pack` pins each workspace sibling to that exact version, so an
-  installed closure resolves the packages one release built, never a mix.
+  `v<version>` release tags. It publishes at that version only the packages
+  whose packed content changed since the version their manifest names; the
+  other packages keep their versions.
+- A package's content hash covers its packed files and its packed manifest
+  without `version`. Each published manifest records it as
+  `sharnessContentHash`, and the release selects a package when the hash
+  differs from the value npm recorded for its manifest's version, or when npm
+  recorded none. Two versions of a package with equal hashes carry the same
+  code.
+- `pnpm pack` pins each workspace sibling to the sibling's exact manifest
+  version. A dependent of a selected package therefore packs a new pin and is
+  selected too, so every published package pins its siblings to their newest
+  published versions and an installed closure resolves the versions one
+  release tested.
 - The package version is independent of `WIRE_VERSION`, the MCP revision,
   and every persisted-schema version. Advancing one never advances another.
 - Releases run from `main` through `.github/workflows/publish.yml` with npm
@@ -427,9 +439,9 @@ mismatches. Release notes mark each reset release with the phrase
   images are built and published outside this repository.
 - `scripts/architecture/check-boundaries.ts` fails when a published manifest
   is private, when its `engines.node` differs from the root `package.json`
-  range, when the four versions differ, when the NanoClaw adapter is not
-  private, or when the release workflow's package list drifts from the
-  published set. The client, OpenClaw, and NanoClaw `test:pack` gates pack
+  range, when its version is not a calendar version, when a sibling edge is
+  not an exact `workspace:*` pin, when the NanoClaw adapter is not private, or
+  when the release workflow's package list drifts from the published set. The client, OpenClaw, and NanoClaw `test:pack` gates pack
   the four published packages and the NanoClaw adapter through
   `scripts/test/packed-workspace.ts` and prove each closure installs with
   exact sibling pins and every declared executable present. The NanoClaw gate
@@ -470,10 +482,13 @@ live for at least six months after the first release that emits its successor.
 It then remains in `HISTORY_WIRE_VERSIONS` until the next protocol reset.
 Endpoints that miss the live window require a reset.
 
-The mixed-release CI gate runs the previous published release and the oldest
-published release whose wire version remains live against the current build,
-using the current Registry and Router. Candidate selection reads the published
-Identity `moltzapWireVersion` npm metadata without installing candidates.
+The mixed-release CI gate runs the previous published Client release and the
+oldest published Client release whose wire version remains live against the
+current build, each installed with the exact Identity and Router versions it
+pins,
+using the current Registry and Router. Candidate selection reads each Client release's
+Identity pin and that Identity version's `moltzapWireVersion` npm metadata
+without installing candidates.
 `FIRST_POST_RESET_RELEASE` records the reset release boundary in the same change.
 Absent metadata denotes a pre-reset release only below that boundary. Missing metadata at or after that
 release fails the gate; registry

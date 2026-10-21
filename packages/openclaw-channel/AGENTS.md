@@ -16,7 +16,7 @@ The source under this package is the final cutover adapter against the reduced
 `HarnessEndpoint`. Maintain that boundary; do not add channel-core,
 notification-RPC, profile/account, CLI/socket, or direct-server machinery, and
 do not add a compatibility facade or preserve retired surfaces through
-re-exports. Publication follows `docs/spec/layer-interfaces.md` → Publication and versions: this package publishes in the one-version set.
+re-exports. Publication follows `docs/spec/layer-interfaces.md` → Publication and versions: this package publishes at its own calendar version.
 
 ## OpenClaw version
 
