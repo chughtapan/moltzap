@@ -263,7 +263,7 @@ export const Ed25519PublicKey = Schema.transform(
 
 Exact immutable Ed25519 public JWK.
 
-### [`HISTORY_WIRE_VERSIONS`](./version.ts#L42)
+### [`HISTORY_WIRE_VERSIONS`](./version.ts#L40)
 
 _Variable_
 
@@ -317,7 +317,7 @@ Returns only retired key names so startup diagnostics cannot expose values.
 
 **Returns:** Sorted legacy keys, including keys with empty values.
 
-### [`LIVE_WIRE_VERSIONS`](./version.ts#L36)
+### [`LIVE_WIRE_VERSIONS`](./version.ts#L34)
 
 _Variable_
 
@@ -634,7 +634,7 @@ export class VersionMismatchError extends Schema.TaggedError<VersionMismatchErro
 
 The request carries a different wire compatibility value.
 
-### [`WIRE_VERSION`](./version.ts#L10)
+### [`WIRE_VERSION`](./version.ts#L8)
 
 _Variable_
 
@@ -642,13 +642,11 @@ _Variable_
 export const WIRE_VERSION = "2026.1021.3"
 ```
 
-Every newly signed artifact carries this reset wire value. It differs from
-every earlier reset's value (2026.1006.1, 2026.1019.2), so a peer from before
-the latest reset fails live admission with `version-mismatch` rather than
-exchanging renamed protocol labels; package publication never determines
-wire compatibility.
+Every newly signed artifact carries this wire value. Live admission accepts
+no other value, so a peer that emits a different one fails with
+`version-mismatch`; package publication never determines wire compatibility.
 
-### [`WireVersion`](./version.ts#L48)
+### [`WireVersion`](./version.ts#L46)
 
 _TypeAlias_
 
