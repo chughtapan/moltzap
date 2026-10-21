@@ -8,17 +8,22 @@
  * packed manifest does; the hashes run over real temporary directories.
  */
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { contentHashOfDirectory } from "./content-hash.ts";
+import {
+  contentHashOfDirectory,
+  contentHashOfTarball,
+} from "./content-hash.ts";
 import { hostCodeHashOfDirectories } from "./host-code-hash.ts";
 import {
   classifyNpmView,
@@ -176,6 +181,21 @@ await test("the content hash changes with a file's executable bit", () => {
   const after = contentHashOfDirectory(root);
   rmSync(root, { recursive: true, force: true });
   assert.notEqual(after, before);
+});
+
+await test("a packed tarball hashes as its extracted package does", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "content-hash-tarball-"));
+  const root = path.join(parent, "package");
+  renameSync(packedDirectory(MANIFEST, { ...FILES, "bin/tool": "" }), root);
+  chmodSync(path.join(root, "bin/tool"), 0o755);
+  const tarball = path.join(parent, "pkg.tgz");
+  // eslint-disable-next-line sonarjs/no-os-command-from-path -- The test packs with the system tar, as content-hash.ts extracts with it.
+  const packed = spawnSync("tar", ["-czf", tarball, "-C", parent, "package"]);
+  const hash = contentHashOfTarball(tarball);
+  const expected = contentHashOfDirectory(root);
+  rmSync(parent, { recursive: true, force: true });
+  assert.equal(packed.status, 0);
+  assert.equal(hash, expected);
 });
 
 await test("npm's answers classify as a hash, absent, or unavailable", () => {

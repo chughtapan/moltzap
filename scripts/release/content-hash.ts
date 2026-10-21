@@ -3,7 +3,9 @@
  * @file Content hash of one package as `pnpm pack` would publish it.
  *
  * Usage: `node scripts/release/content-hash.ts DIR`, where DIR names a
- * directory under `packages/`. Prints `sha256:` and a hex digest.
+ * directory under `packages/`, or `--tarball FILE` for a packed tarball.
+ * Prints `sha256:` and a hex digest. The tarball form reads no workspace, so
+ * the publish job checks what it publishes without installing anything.
  *
  * The release records this value in each published manifest as
  * `sharnessContentHash`, and compares it with the value the manifest's
@@ -90,6 +92,24 @@ export function contentHashOfDirectory(root: string): string {
       fileEntry(root, relative, relative, { siblingPins: "keep" }),
     ),
   );
+}
+
+/**
+ * Hash a packed tarball's contents, the same way {@link contentHashOfPackage}
+ * hashes what `pnpm pack` writes.
+ * @param file The `.tgz` to extract.
+ * @returns The content hash, or the extraction that failed.
+ */
+export function contentHashOfTarball(file: string): string | PackFailure {
+  return withScratch((scratch) => {
+    const extracted =
+      run("tar", ["-xzf", path.resolve(file), "-C", scratch], {
+        cwd: scratch,
+      }) ?? path.join(scratch, "package");
+    return typeof extracted === "string"
+      ? contentHashOfDirectory(extracted)
+      : extracted;
+  });
 }
 
 /**
@@ -276,12 +296,18 @@ function byteOrder(left: string, right: string): number {
 }
 
 if (import.meta.main) {
-  const [dir] = process.argv.slice(2);
-  if (dir === undefined) {
-    console.error("usage: content-hash.ts DIR");
+  const args = process.argv.slice(2);
+  const [first, second] = args;
+  if (first === undefined || (first === "--tarball" && second === undefined)) {
+    console.error(
+      "usage: content-hash.ts DIR | content-hash.ts --tarball FILE",
+    );
     process.exit(2);
   }
-  const hash = contentHashOfPackage(process.cwd(), dir);
+  const hash =
+    first === "--tarball" && second !== undefined
+      ? contentHashOfTarball(second)
+      : contentHashOfPackage(process.cwd(), first);
   if (typeof hash !== "string") {
     console.error(hash.message);
     process.exit(1);
