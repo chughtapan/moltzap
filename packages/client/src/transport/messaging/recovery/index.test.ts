@@ -607,8 +607,7 @@ const forkRecovery = (
 const deliverRecovery = (
   engine: EndpointEngine,
   ingress: Effect.Effect<RouterWorkerIngress<DecodedOuterBody>>,
-) =>
-  ingress.pipe(Effect.flatMap((value) => engine.acceptRouterIngress(value)));
+) => ingress.pipe(Effect.flatMap((value) => engine.acceptRouterIngress(value)));
 
 /**
  * Opens a group conversation of `size` fixed members on the fixture's store:
@@ -1960,9 +1959,7 @@ const runSameInstanceRecovery = <A, E>(
     const request = yield* takeCatchUpRequest(recoveryOutbound);
     const result = yield* during;
     yield* catchUpIncompleteIngress(fixture, request).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     yield* Fiber.join(recovering);
     return result;
@@ -1988,9 +1985,7 @@ const ignoresReanchorVoteAfterRecovery = () =>
     const fixture = yield* makeFixture;
     yield* runSameInstanceRecovery(fixture, "feed_gap", Effect.void);
     const disposition = yield* peerReanchorVote(fixture).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     expect(disposition).toBe(ignoredDisposition);
   });
@@ -2005,15 +2000,11 @@ const completeRestartRecovery = () =>
     expect(firstOutbound.messageId).not.toBe(staleOutbound.messageId);
     const firstRequest = yield* decodeCatchUpRequest(firstOutbound);
     yield* catchUpPageIngress(fixture, firstRequest).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     const terminalRequest = yield* takeCatchUpRequest(recoveryOutbound);
     yield* catchUpIncompleteIngress(fixture, terminalRequest).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     const proposal = yield* takeReanchorVote(recoveryOutbound);
     expect(proposal.reanchor).toMatchObject({
@@ -2024,9 +2015,7 @@ const completeRestartRecovery = () =>
       routerInstanceId: newRouterInstanceId,
     });
     yield* peerReanchorVoteIngress(fixture, proposal).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     const completed = yield* Queue.take(recoveryOutbound).pipe(
       Effect.flatMap((message) => openForwarded(message)),
@@ -2133,15 +2122,11 @@ const reproposesPendingPostAfterRestart = () =>
       yield* forkRecovery(fixture, "router_restarted", newRouterInstanceId);
     const request = yield* takeCatchUpRequest(recoveryOutbound);
     yield* catchUpIncompleteIngress(fixture, request).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     const reanchor = yield* takeReanchorVote(recoveryOutbound);
     yield* peerReanchorVoteIngress(fixture, reanchor).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     yield* Queue.take(recoveryOutbound);
     yield* Fiber.join(recovering);
@@ -2210,9 +2195,7 @@ const recoverColdStartAtUnchangedInstance = () =>
       request,
       routerInstanceId: oldRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     yield* Fiber.join(recovering);
     const resumed = yield* Queue.take(recoveryOutbound);
@@ -2645,15 +2628,11 @@ const recoverDisseminationObligations = () =>
       yield* forkRecovery(fixture, "router_restarted", newRouterInstanceId);
     const request = yield* takeCatchUpRequest(recoveryOutbound);
     yield* catchUpIncompleteIngress(fixture, request).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     const proposal = yield* takeReanchorVote(recoveryOutbound);
     yield* peerReanchorVoteIngress(fixture, proposal).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     yield* Queue.take(recoveryOutbound).pipe(
       Effect.flatMap((message) => openForwarded(message)),
@@ -2728,9 +2707,7 @@ const restartEmptyConversation = () =>
       yield* forkRecovery(fixture, "router_restarted", newRouterInstanceId);
     const request = yield* takeCatchUpRequest(recoveryOutbound);
     yield* catchUpIncompleteIngress(fixture, request).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     yield* Fiber.join(recovering);
     const recovered = yield* fixture.store.recover();
@@ -2860,9 +2837,7 @@ const ignoresRelayedCompletionForAnchoredConversation = () =>
       packet: completed,
       routerInstanceId: newRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     expect(disposition).toBe(ignoredDisposition);
     yield* Fiber.interrupt(recovery);
@@ -2898,9 +2873,7 @@ const proposeAtRestart = (fixture: RecoveryFixture) =>
     const { recovery, outbound, request } =
       yield* startRestartRecovery(fixture);
     yield* catchUpIncompleteIngress(fixture, request).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     const voteMessage = yield* Queue.take(outbound);
     return {
@@ -2948,9 +2921,7 @@ const adoptsRelayedCompletionForReanchoringConversation = () =>
       packet: completed,
       routerInstanceId: newRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     const followUp = yield* takeCatchUpRequest(outbound);
     yield* deliverRecovery(
@@ -2985,14 +2956,10 @@ const ignoresReanchorVoteWithMismatchedAnchorHash = () =>
       ...proposal,
       anchorHash: otherAnchorHash,
     }).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     const genuine = yield* peerReanchorVoteIngress(fixture, proposal).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     yield* Fiber.join(recovery);
 
@@ -3019,14 +2986,10 @@ const replaysPeerVoteHeldBeforeCatchUpCompletes = () =>
       yield* startRestartRecovery(fixture);
 
     const early = yield* peerReanchorVote(fixture).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     yield* catchUpIncompleteIngress(fixture, request).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     yield* Fiber.join(recovery);
     const proposal = yield* takeReanchorVote(outbound);
@@ -3065,14 +3028,10 @@ const ignoresReanchorVoteAddressedBeyondItsMembers = () =>
       proposal,
       routerInstanceId: newRouterInstanceId,
     }).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     const genuine = yield* peerReanchorVoteIngress(fixture, proposal).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     yield* Fiber.join(recovery);
 
@@ -3106,14 +3065,10 @@ const ignoresReanchorVoteWhoseEvidenceSignerIsNotAMember = () =>
       routerInstanceId: newRouterInstanceId,
       evidenceSigner: { card: outsider, authority: outsiderAuthority },
     }).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     const genuine = yield* peerReanchorVoteIngress(fixture, proposal).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     yield* Fiber.join(recovery);
 
@@ -3149,9 +3104,7 @@ const rebroadcastsPersistedLocalVote = () =>
       request: secondRequest,
     } = yield* startRestartRecovery(fixture);
     yield* catchUpIncompleteIngress(fixture, secondRequest).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     const replayedVote = yield* takeReanchorVote(secondOutbound);
     expect(replayedVote.signerAgentId).toBe(fixture.local.card.agentId);
@@ -3173,9 +3126,7 @@ const rebroadcastsPersistedCompletedReanchor = () =>
       request: secondRequest,
     } = yield* startRestartRecovery(fixture);
     yield* catchUpIncompleteIngress(fixture, secondRequest).pipe(
-      Effect.flatMap((ingress) =>
-        fixture.engine.acceptRouterIngress(ingress),
-      ),
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     const replayed = yield* Queue.take(secondOutbound).pipe(
       Effect.flatMap((message) => openForwarded(message)),
