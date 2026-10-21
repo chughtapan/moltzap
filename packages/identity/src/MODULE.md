@@ -263,7 +263,7 @@ export const Ed25519PublicKey = Schema.transform(
 
 Exact immutable Ed25519 public JWK.
 
-### [`HISTORY_WIRE_VERSIONS`](./version.ts#L30)
+### [`HISTORY_WIRE_VERSIONS`](./version.ts#L40)
 
 _Variable_
 
@@ -317,12 +317,12 @@ Returns only retired key names so startup diagnostics cannot expose values.
 
 **Returns:** Sorted legacy keys, including keys with empty values.
 
-### [`LIVE_WIRE_VERSIONS`](./version.ts#L24)
+### [`LIVE_WIRE_VERSIONS`](./version.ts#L34)
 
 _Variable_
 
 ```ts
-export const LIVE_WIRE_VERSIONS = [WIRE_VERSION] as const satisfies LiveWindow
+export const LIVE_WIRE_VERSIONS: DistinctWindow<typeof liveWindow> = liveWindow
 ```
 
 Versions accepted at outer-envelope and authenticated HTTP admission by the
@@ -646,7 +646,7 @@ Every newly signed artifact carries this reset wire value. The .2 value is
 distinct from the published pre-reset 2026.1019.1 package, whose wire is
 2026.1006.1; package publication never determines wire compatibility.
 
-### [`WireVersion`](./version.ts#L36)
+### [`WireVersion`](./version.ts#L46)
 
 _TypeAlias_
 
