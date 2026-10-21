@@ -170,7 +170,7 @@ export class AgentSigningError extends Data.TaggedError("AgentSigningError") {}
 
 An agent-owned HTTP request could not be signed.
 
-### [`AuthenticatedHttp`](./authenticated-http.ts#L60)
+### [`AuthenticatedHttp`](./authenticated-http.ts#L61)
 
 _Class_
 
@@ -591,7 +591,7 @@ export type VerifiedAgentCard = AgentCard & Brand.Brand<"VerifiedAgentCard">;
 
 AgentCard verified against a deployment-pinned Registry signer.
 
-### [`VerifiedAgentRequest`](./authenticated-http.ts#L38)
+### [`VerifiedAgentRequest`](./authenticated-http.ts#L39)
 
 _TypeAlias_
 

@@ -3,6 +3,7 @@
 import type { HttpClientRequest, HttpServerRequest } from "@effect/platform";
 import {
   Brand,
+  Cause,
   Context,
   Deferred,
   Effect,
@@ -354,17 +355,25 @@ function runLeadingResolution(
   );
 }
 
+/**
+ * Looks up `agentId`'s card through the `Registry`. Any layer can provide the
+ * `Registry`, so its `lookup` runs inside the effect. Registry failures have
+ * one recovery at this boundary, so a lookup that fails, throws or dies fails
+ * as `UnavailableError` and still settles the pending resolution, while an
+ * interrupted lookup stays interrupted.
+ */
 function lookupCard(
   dependencies: CardResolverDependencies,
   agentId: AgentIdValue,
 ): Effect.Effect<VerifiedAgentCard, CardResolutionError> {
   return dependencies.lookupPermits
     .withPermitsIfAvailable(1)(
-      dependencies.lookup({ agentId }).pipe(
-        // Registry failures have one recovery at this boundary: the caller
-        // identity cannot currently be resolved.
-        // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- collapse the Registry client surface into the approved boundary error
-        Effect.mapError(() => new UnavailableError()),
+      Effect.suspend(() => dependencies.lookup({ agentId })).pipe(
+        Effect.catchAllCause((cause) =>
+          Cause.isInterrupted(cause)
+            ? Effect.interrupt
+            : Effect.fail(new UnavailableError()),
+        ),
       ),
     )
     .pipe(
