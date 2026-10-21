@@ -359,6 +359,21 @@ const webhookMarkers = (exporter: InMemorySpanExporter) =>
     )
     .map((span) => ({ name: span.name, ...span.attributes }));
 
+/** The `webhook` pending marker for event `id`, as `webhookMarkers` lists it. */
+const pendingMarker = (id: string) => ({
+  name: "retry.pending",
+  kind: "webhook",
+  id,
+});
+
+/** The `webhook` settled marker for event `id`, as `webhookMarkers` lists it. */
+const settledMarker = (id: string, outcome: string) => ({
+  name: "retry.settled",
+  kind: "webhook",
+  id,
+  outcome,
+});
+
 /**
  * A delivery waiting out its backoff after a failed callback reads busy: the
  * daemon marks it pending and settles it as interrupted when it stops, the
@@ -370,13 +385,8 @@ const marksADeliveryBusyUntilItsReceipt = () => {
   const path = stateDirectory();
   const exporter = new InMemorySpanExporter();
   const id = eventIdOf(token(1));
-  const pending = { name: "retry.pending", kind: "webhook", id };
-  const settled = (outcome: string) => ({
-    name: "retry.settled",
-    kind: "webhook",
-    id,
-    outcome,
-  });
+  const pending = pendingMarker(id);
+  const settled = (outcome: string) => settledMarker(id, outcome);
   return Effect.gen(function* () {
     yield* Effect.scoped(
       Effect.gen(function* () {
@@ -409,6 +419,64 @@ const marksADeliveryBusyUntilItsReceipt = () => {
       settled("delivered"),
     ]);
   }).pipe(onSteppedClock, tracedInto(exporter));
+};
+
+/**
+ * A waiting delivery whose subscription lapses settles as given up at the
+ * next drain, since nothing retries it any more.
+ * @returns The scenario.
+ */
+const settlesALapsedDeliveryAsGivenUp = () => {
+  const exporter = new InMemorySpanExporter();
+  const id = eventIdOf(token(1));
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const store = yield* openEndpointStore(stateDirectory(), {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      });
+      const test = scriptedWebhook(store);
+      const events = yield* test.acquire;
+      yield* enqueue(store, 1);
+      yield* events.subscribe(input, "runtime");
+      test.status(503);
+      yield* events.observe();
+      yield* stepClock("25 hours");
+      yield* events.observe();
+
+      expect(webhookMarkers(exporter)).toEqual([
+        pendingMarker(id),
+        settledMarker(id, "gave-up"),
+      ]);
+    }),
+  ).pipe(onSteppedClock, tracedInto(exporter));
+};
+
+/**
+ * Revoking the subscription of a waiting delivery settles it as interrupted.
+ * @returns The scenario.
+ */
+const settlesARevokedDeliveryAsInterrupted = () => {
+  const exporter = new InMemorySpanExporter();
+  const id = eventIdOf(token(1));
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const store = yield* openEndpointStore(stateDirectory(), {
+        liveWireVersions: LIVE_WIRE_VERSIONS,
+      });
+      const test = scriptedWebhook(store);
+      const events = yield* test.acquire;
+      yield* enqueue(store, 1);
+      yield* events.subscribe(input, "runtime");
+      test.status(503);
+      yield* events.observe();
+      yield* events.revoke;
+
+      expect(webhookMarkers(exporter)).toEqual([
+        pendingMarker(id),
+        settledMarker(id, "interrupted"),
+      ]);
+    }),
+  ).pipe(onSteppedClock, tracedInto(exporter));
 };
 
 const resumesExhaustedCallbacks = () =>
@@ -601,16 +669,27 @@ describe("local Dot webhook conformance", () => {
     retriesAcrossRestart,
   );
   it(
-    "marks a delivery busy from its failed callback until its receipt, across a restart",
-    marksADeliveryBusyUntilItsReceipt,
-  );
-  it(
     "bounds complete envelopes, retains referenced payloads and drains beyond one page",
     boundsPayloadAndDrains,
   );
   it(
     "rejects private destinations, DNS to loopback and redirects through Effect HttpClient",
     rejectsUnsafeCallbacks,
+  );
+});
+
+describe("webhook delivery markers", () => {
+  it(
+    "marks a delivery busy from its failed callback until its receipt, across a restart",
+    marksADeliveryBusyUntilItsReceipt,
+  );
+  it(
+    "settles a waiting delivery as given up once its subscription lapses",
+    settlesALapsedDeliveryAsGivenUp,
+  );
+  it(
+    "settles a waiting delivery as interrupted when its subscription is revoked",
+    settlesARevokedDeliveryAsInterrupted,
   );
 });
 

@@ -199,32 +199,37 @@ function waitOutcome(
  * minutes away and the callback client records no spans. The marker settles
  * as `delivered` once the delivery leaves the outbox, `gave-up` when it
  * stalls or its subscription lapses, and `interrupted` when the subscription
- * is revoked.
+ * is revoked. The bookkeeping and its spans change together, never split by
+ * an interruption.
  * @param runtime The webhook state, clock and open marker.
  * @returns Completion once the marker matches the state.
  */
 function markWaitingDelivery(runtime: WebhookRuntime): Effect.Effect<void> {
-  return Effect.suspend(() => {
-    const marked = runtime.retrying;
-    const waiting = waitingDelivery(runtime);
-    if (marked === waiting) {
-      return Effect.void;
-    }
-    runtime.retrying = waiting;
-    return (
-      marked === undefined
-        ? Effect.void
-        : retrySettled(
-            "webhook",
-            marked,
-            waitOutcome(runtime.state.registration, marked),
-          )
-    ).pipe(
-      Effect.zipRight(
-        waiting === undefined ? Effect.void : retryPending("webhook", waiting),
-      ),
-    );
-  });
+  return Effect.uninterruptible(
+    Effect.suspend(() => {
+      const marked = runtime.retrying;
+      const waiting = waitingDelivery(runtime);
+      if (marked === waiting) {
+        return Effect.void;
+      }
+      runtime.retrying = waiting;
+      return (
+        marked === undefined
+          ? Effect.void
+          : retrySettled(
+              "webhook",
+              marked,
+              waitOutcome(runtime.state.registration, marked),
+            )
+      ).pipe(
+        Effect.zipRight(
+          waiting === undefined
+            ? Effect.void
+            : retryPending("webhook", waiting),
+        ),
+      );
+    }),
+  );
 }
 
 const save = (runtime: WebhookRuntime, registration: Registration | null) =>
@@ -698,7 +703,7 @@ export const makeWebhookEvents = (
       deliveryGate,
       generation: 0,
     };
-    yield* markWaitingDelivery(runtime);
     yield* Effect.addFinalizer(() => settleOnClose(runtime));
+    yield* markWaitingDelivery(runtime);
     return webhookOperations(runtime);
   }).pipe(Effect.withSpan("makeWebhookEvents"));

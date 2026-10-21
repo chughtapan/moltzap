@@ -1059,6 +1059,8 @@ function positionReady(
  * position has proposed a re-anchor, or holds behind a staged successor,
  * without recovering. The round has no timeout: it waits for a quorum of
  * members, so the conversation reads busy until it recovers or the run ends.
+ * The wait is recorded and its span emitted together, so an interruption
+ * cannot leave the run's finalizer settling a wait that never opened.
  * @param run Recovery run that holds the conversation.
  * @param conversationId Conversation whose position is ready.
  * @returns Completion once the wait is marked, or at once when nothing waits.
@@ -1067,17 +1069,19 @@ function awaitReanchor(
   run: RecoveryRun,
   conversationId: ConversationIdValue,
 ): Effect.Effect<void> {
-  return Effect.suspend(() => {
-    if (
-      !run.catchUp.isActive() ||
-      run.completedConversations.has(conversationId) ||
-      run.reanchorWaits.has(conversationId)
-    ) {
-      return Effect.void;
-    }
-    run.reanchorWaits.add(conversationId);
-    return retryPending("reanchor", conversationId);
-  });
+  return Effect.uninterruptible(
+    Effect.suspend(() => {
+      if (
+        !run.catchUp.isActive() ||
+        run.completedConversations.has(conversationId) ||
+        run.reanchorWaits.has(conversationId)
+      ) {
+        return Effect.void;
+      }
+      run.reanchorWaits.add(conversationId);
+      return retryPending("reanchor", conversationId);
+    }),
+  );
 }
 
 /**

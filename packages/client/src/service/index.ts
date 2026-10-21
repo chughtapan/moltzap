@@ -98,10 +98,25 @@ function spanServiceName(settings: SpanExportSettings): string {
 }
 
 /**
+ * The `v1/traces` URL under a base OTLP endpoint, keeping its query.
+ * @param endpoint The configured `OTEL_EXPORTER_OTLP_ENDPOINT`.
+ * @returns The traces URL, or `endpoint` unchanged when it does not parse,
+ *     so the caller's check refuses it.
+ */
+function tracesUnder(endpoint: string): string {
+  if (!URL.canParse(endpoint)) {
+    return endpoint;
+  }
+  const url = new URL(endpoint);
+  url.pathname = `${url.pathname.replace(/\/$/u, "")}/v1/traces`;
+  return url.href;
+}
+
+/**
  * The URL spans are posted to, or why the settings cannot start an exporter.
  * The URL is `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, else `v1/traces` under
- * `OTEL_EXPORTER_OTLP_ENDPOINT`, resolved as the exporter resolves them; the
- * caller passes it to the exporter, so the URL checked is the URL used. A URL
+ * `OTEL_EXPORTER_OTLP_ENDPOINT`; the caller passes it to the exporter, so the
+ * URL checked is the URL used. A URL
  * that is not http(s), which the exporter would replace with its localhost
  * default or could not reach, and a trace protocol other than http/protobuf
  * are refused.
@@ -126,9 +141,8 @@ function spanExportUrl(
       }),
     );
   }
-  const url = Option.getOrElse(
-    settings.tracesEndpoint,
-    () => `${endpoint.replace(/\/$/u, "")}/v1/traces`,
+  const url = Option.getOrElse(settings.tracesEndpoint, () =>
+    tracesUnder(endpoint),
   );
   return URL.canParse(url) && /^https?:$/u.test(new URL(url).protocol)
     ? Either.right(url)
