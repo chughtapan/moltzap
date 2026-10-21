@@ -362,6 +362,17 @@ jobs:
           [ "$(git log -1 --format=%s "$COMMIT")" = "chore(release): moltzap@$VERSION" ] || { echo "ERROR: unexpected release commit subject"; exit 1; }
           UNEXPECTED=$(git diff --name-only "$GITHUB_SHA" "$COMMIT" | grep -vE '^(packages/[^/]+/package\.json|examples/two-agents/package\.json|pnpm-lock\.yaml|CHANGELOG\.md|changelog\.d/.*|docs/.*|packages/.*/MODULE\.md|README\.md)$' || true)
           [ -z "$UNEXPECTED" ] || { printf 'ERROR: the release commit touches files a release never writes:\n%s\n' "$UNEXPECTED"; exit 1; }
+          # A manifest is what npm installs, so a release may change only the
+          # fields a release writes: the version, the recorded hashes and wire
+          # version, and the versions of @moltzap dependencies.
+          # shellcheck disable=SC2016 # The dollar signs are jq variables.
+          RELEASE_FIELDS='del(.version, .sharnessContentHash, .sharnessHostCodeHash, .sharnessWireVersion)
+            | (.dependencies // {}) |= with_entries(if (.key | startswith("@moltzap/")) then .value = "" else . end)'
+          for manifest in $(git diff --name-only "$GITHUB_SHA" "$COMMIT" -- 'packages/*/package.json' examples/two-agents/package.json); do
+            BEFORE=$(git show "$GITHUB_SHA:$manifest" | jq -S "$RELEASE_FIELDS")
+            AFTER=$(git show "$COMMIT:$manifest" | jq -S "$RELEASE_FIELDS")
+            [ "$BEFORE" = "$AFTER" ] || { echo "ERROR: the release commit changes $manifest beyond the fields a release writes"; exit 1; }
+          done
           echo "COMMIT=$COMMIT" >> "$GITHUB_ENV"
 
       # The release App token is minted only now, scoped to contents, and
