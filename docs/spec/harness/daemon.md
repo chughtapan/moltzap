@@ -52,8 +52,19 @@ operations; the Dot model cannot retire pending items.
 Every request, including discovery, requires authentication in this mode.
 Neither file contains Registry or Router credentials.
 
-Trusted process code can install the experimental message firewall with
-`Daemon.withFirewall(options)`. The default `layer` does not enable it.
+`SHARNESS_MESSAGE_POLICY_FILE` names a
+[message-policy document](./message-policy.md#message-policy-file) that the
+daemon installs as its experimental message firewall before it accepts host
+calls. Unset, the daemon installs no firewall. An unreadable or invalid
+document, or one whose `jev` decision provider has no readable key in
+`SHARNESS_DECISION_PROVIDER_KEY_FILE`, stops startup in phase `configuration`;
+the error names the setting and, for an invalid document, the paths of the
+invalid properties, never their values. `SHARNESS_FIREWALL_AUDIT_EXPORT` sets
+the document's `auditExport` and requires `SHARNESS_MESSAGE_POLICY_FILE`.
+
+Trusted process code can instead install a firewall of its own with
+`Daemon.withFirewall(options)`; such a daemon refuses
+`SHARNESS_MESSAGE_POLICY_FILE` in phase `configuration`.
 The fixed and editable installation is described in [message policy](./message-policy.md).
 Its optional service-only `auditExport` writes a private retained-check snapshot
 after daemon workers stop and before the endpoint store closes. Operators use
@@ -165,7 +176,8 @@ Identity. Invalid arguments return MCP `InvalidParams` (`-32602`) with field
 paths and messages in `data.issues`, as specified in
 [management failures](../management.md#closed-failures).
 
-When installed with `Daemon.withFirewall`, the post-registration owner and
+When a firewall is installed, from a message-policy document or with
+`Daemon.withFirewall`, the post-registration owner and
 trusted-local catalogs also include these tools. Tunnel runtime authority cannot
 discover or call them; the baseline daemon does not list them.
 

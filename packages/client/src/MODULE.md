@@ -649,11 +649,11 @@ as a norm judgment the decision provider left unsettled.
 
 ### `@moltzap/client/service`
 
-#### [`Daemon`](./service/index.ts#L75)
+#### [`Daemon`](./service/index.ts#L87)
 
 _Namespace_
 
-#### [`Daemon.StartupError`](./service/index.ts#L89)
+#### [`Daemon.StartupError`](./service/index.ts#L101)
 
 _Class_
 
@@ -690,7 +690,7 @@ _Class_
 
 Closed startup phase with sanitized configuration details.
 
-#### [`Daemon.FirewallOptions`](./service/index.ts#L80)
+#### [`Daemon.FirewallOptions`](./service/index.ts#L92)
 
 _TypeAlias_
 
@@ -706,7 +706,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-#### [`Daemon.help`](./service/index.ts#L77)
+#### [`Daemon.help`](./service/index.ts#L89)
 
 _Variable_
 
@@ -716,7 +716,7 @@ _Variable_
 
 Usage text listing the daemon process's environment variables.
 
-#### [`Daemon.layer`](./service/index.ts#L165)
+#### [`Daemon.layer`](./service/index.ts#L181)
 
 _Variable_
 
@@ -726,9 +726,10 @@ _Variable_
   )
 ```
 
-Complete production process composition for `sharnessd`.
+Complete production process composition for `sharnessd`, with the
+firewall `SHARNESS_MESSAGE_POLICY_FILE` describes when it is set.
 
-#### [`Daemon.withFirewall`](./service/index.ts#L174)
+#### [`Daemon.withFirewall`](./service/index.ts#L191)
 
 _Function_
 
@@ -739,6 +740,7 @@ _Function_
 ```
 
 Fixed middleware and persisted English rules are installed before the daemon accepts host calls.
+The environment must not also name a message-policy document.
 
 **Returns:** The complete daemon layer with both message boundaries checked.
 
@@ -1094,6 +1096,31 @@ export type FirewallAuditRecord = typeof FirewallAuditRecord.Type;
 
 Completion verifies the snapshot, not completion or delivery of each attempt.
 
+#### [`MessagePolicy (type)`](./service/message-policy/policy.ts#L145)
+
+_TypeAlias_
+
+```ts
+export type MessagePolicy = typeof MessagePolicy.Type;
+```
+
+One decoded message-policy document, with Client's defaults filled in.
+
+#### [`decodeMessagePolicy`](./service/message-policy/policy.ts#L154)
+
+_Variable_
+
+```ts
+export const decodeMessagePolicy = Schema.decodeUnknown(
+  Schema.parseJson(MessagePolicy),
+  { onExcessProperty: "error" },
+)
+```
+
+Decodes the text of a message-policy document, refusing any property it
+does not name, so a misspelled or newer setting never silently weakens the
+policy.
+
 #### [`FirewallAuditRecord (value)`](./delivery/firewall-values.ts#L131)
 
 _Variable_
@@ -1263,6 +1290,91 @@ flowchart TD
   D --> R[Return to Client for enforcement]
 ```
 
+#### [`MessagePolicy (value)`](./service/message-policy/policy.ts#L133)
+
+_Variable_
+
+```ts
+export const MessagePolicy = document.pipe(
+  Schema.filter(
+    (policy) =>
+      policy.decisionProvider !== undefined || !needsDecisionProvider(policy),
+    {
+      message: () =>
+        "decisionProvider is required for English rules and the collective norms",
+    },
+  ),
+)
+```
+
+The message policy of one daemon: its firewall mode, the built-in code
+middleware of each direction in chain order, its fixed and initial
+editable English rules, the decision provider those rules and the
+collective norms need, and the check bounds. Absent settings take Client's
+defaults. English rules or the collective norms without a decision provider
+are refused.
+
+#### [`messagePolicyFirewall`](./service/message-policy/compose.ts#L46)
+
+_Variable_
+
+```ts
+export const messagePolicyFirewall = Effect.fn("messagePolicyFirewall")(
+  function* (
+    policy: MessagePolicy,
+    provider: DecisionProvider,
+  ): Effect.fn.Return<FirewallOptions, CheckInputError> {
+    const bundle = yield* Effect.cached(
+      collectiveNorms(provider, policy.englishSettings),
+    );
+    return {
+      mode: policy.mode,
+      incoming: yield* Effect.forEach(
+        policy.incoming,
+        (entry) => incoming(entry, bundle),
+        { concurrency: 1 },
+      ),
+      outgoing: yield* Effect.forEach(
+        policy.outgoing,
+        (entry) => outgoing(entry, bundle),
+        { concurrency: 1 },
+      ),
+      settings: policy.settings,
+      facts: policy.facts,
+      codeDigest: createHash("sha256")
+        .update(JSON.stringify({ client: packageVersion, policy }))
+        .digest("hex"),
+      maximumHistoryRecords: policy.maximumHistoryRecords,
+      maximumConcurrentChecks: policy.maximumConcurrentChecks,
+      english:
+        policy.english === undefined
+          ? undefined
+          : {
+              fixedRules: policy.english.fixedRules,
+              initialRules: policy.english.initialRules,
+              provider,
+              settings: policy.englishSettings,
+            },
+    };
+  },
+)
+```
+
+The firewall installation of one message-policy document: its built-in
+middleware in chain order, its English rules assessed by `provider`, and
+its settings. `codeDigest` identifies the document and the Client release
+that interprets it.
+
+#### [`messagePolicyFormat`](./service/message-policy/policy.ts#L13)
+
+_Variable_
+
+```ts
+export const messagePolicyFormat = "org.social-harness/message-policy/v1"
+```
+
+The `format` every message-policy document names.
+
 #### [`makeJevDecisionProvider`](./firewall/jev.ts#L182)
 
 _Function_
@@ -1335,6 +1447,14 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `service/index.ts`
 - `service/lifecycle.ts`
 - `service/management.ts`
+- `service/message-policy/builtin.ts`
+- `service/message-policy/collective-norms.ts`
+- `service/message-policy/compose.ts`
+- `service/message-policy/index.ts`
+- `service/message-policy/load.ts`
+- `service/message-policy/outcome.ts`
+- `service/message-policy/policy.ts`
+- `service/message-policy/README.md`
 - `service/README.md`
 - `service/registration/binding.ts`
 - `service/registration/index.ts`

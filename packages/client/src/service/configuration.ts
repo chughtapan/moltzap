@@ -29,6 +29,7 @@ import {
   DaemonConfigurationError,
   type DaemonConfigurationFailure,
   type DaemonProcessConfiguration,
+  type MessagePolicyConfigurationFailure,
 } from "./bootstrap.js";
 
 const canonicalUnsignedDecimal = Schema.String.pipe(
@@ -97,6 +98,21 @@ const configurationFields = {
     configuredPath,
     undefined,
   ),
+  messagePolicyFile: setting(
+    "SHARNESS_MESSAGE_POLICY_FILE",
+    configuredPath,
+    undefined,
+  ),
+  decisionProviderKeyFile: setting(
+    "SHARNESS_DECISION_PROVIDER_KEY_FILE",
+    configuredPath,
+    undefined,
+  ),
+  firewallAuditExport: setting(
+    "SHARNESS_FIREWALL_AUDIT_EXPORT",
+    configuredPath,
+    undefined,
+  ),
 };
 
 const configuredValues = Config.all(configurationFields);
@@ -107,11 +123,18 @@ export const processHelp = [
   "",
   "Environment:",
   "  Admission credential: required only before registration; MCP credential files: supply both or neither.",
+  "  Message policy: unset, no firewall; the decision-provider key and firewall audit export apply only with it.",
   ...Object.values(configurationFields).map((field) => `  ${field.usage}`),
 ].join("\n");
 
+/** The process settings' failures; message-policy failures carry their own messages. */
+type ProcessConfigurationFailure = Exclude<
+  DaemonConfigurationFailure,
+  MessagePolicyConfigurationFailure
+>;
+
 const configurationFailureMessages: Readonly<
-  Record<DaemonConfigurationFailure, string>
+  Record<ProcessConfigurationFailure, string>
 > = {
   "legacy-key": "retired environment keys are configured",
   environment: "environment configuration is invalid",
@@ -132,7 +155,7 @@ const configurationFailureMessages: Readonly<
 };
 
 const configurationError = (
-  reason: DaemonConfigurationFailure,
+  reason: ProcessConfigurationFailure,
 ): DaemonConfigurationError =>
   new DaemonConfigurationError({
     reason,
@@ -156,6 +179,10 @@ const loadedConfiguration = configuredValues.pipe(
         configuration.mcpOwnerCredentialFile === undefined
           ? undefined
           : Redacted.make(configuration.mcpOwnerCredentialFile),
+      decisionProviderKeyFile:
+        configuration.decisionProviderKeyFile === undefined
+          ? undefined
+          : Redacted.make(configuration.decisionProviderKeyFile),
     }),
   ),
   Effect.mapError((cause) =>
@@ -218,8 +245,8 @@ export const loadDaemonProcessConfiguration: Effect.Effect<
 
 const credentialFailure =
   (
-    fileReason: DaemonConfigurationFailure,
-    valueReason: DaemonConfigurationFailure,
+    fileReason: ProcessConfigurationFailure,
+    valueReason: ProcessConfigurationFailure,
   ) =>
   (error: CredentialError): DaemonConfigurationError =>
     configurationError(error.stage === "file" ? fileReason : valueReason);

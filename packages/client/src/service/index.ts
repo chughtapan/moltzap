@@ -26,6 +26,10 @@ import {
 } from "./configuration.js";
 import { type DaemonRuntimeError, runDaemonRuntime } from "./lifecycle.js";
 import {
+  type FirewallInstallation,
+  firewallInstallation,
+} from "./message-policy/index.js";
+import {
   type DaemonRegistrationPersistenceError,
   type DaemonRegistrationRepresentationError,
   readDaemonRegistrationState,
@@ -43,6 +47,14 @@ const liveWireVersions = wireVersions.liveSet;
 
 /** Trusted operators decode retained checks without reading private storage schemas. */
 export { FirewallAuditRecord } from "../delivery/index.js";
+
+/** Writers of a daemon's message-policy document and trusted composition that installs one with its own decision provider. */
+export {
+  decodeMessagePolicy,
+  MessagePolicy,
+  messagePolicyFirewall,
+  messagePolicyFormat,
+} from "./message-policy/index.js";
 
 /** Checking factories have no daemon execution authority. */
 export {
@@ -115,14 +127,15 @@ export namespace Daemon {
     }
   }
 
-  const runDaemon = (
-    firewallOptions?: InstalledFirewallOptions,
-    auditExport?: string,
-  ) =>
+  const runDaemon = (composed?: FirewallInstallation) =>
     Effect.gen(function* () {
       const configuration = yield* loadDaemonProcessConfiguration.pipe(
         Effect.mapError(configurationFailure),
       );
+      const installation = yield* firewallInstallation(
+        configuration,
+        composed,
+      ).pipe(Effect.mapError(configurationFailure));
       const bootstrap = yield* loadDaemonBootstrap(configuration).pipe(
         Effect.mapError(configurationFailure),
       );
@@ -136,9 +149,9 @@ export namespace Daemon {
         liveWireVersions: yield* liveWireVersions,
       }).pipe(Effect.mapError(storageFailure));
       const firewall =
-        firewallOptions === undefined
+        installation.options === undefined
           ? undefined
-          : yield* installEditableFirewall(firewallOptions, store).pipe(
+          : yield* installEditableFirewall(installation.options, store).pipe(
               Effect.mapError(configurationFailure),
             );
       const registration = yield* readDaemonRegistrationState({
@@ -153,21 +166,25 @@ export namespace Daemon {
         store,
         bootstrap,
         registration,
-        ...(firewall === undefined ? {} : { firewall }),
-        ...(auditExport === undefined ? {} : { auditExport }),
+        firewall,
+        auditExport: installation.auditExport,
       }).pipe(
         Effect.provide(networkContext),
         Effect.mapError(runtimeStartupFailure),
       );
     }).pipe(Effect.withSpan("Daemon.layer"));
 
-  /** Complete production process composition for `sharnessd`. */
+  /**
+   * Complete production process composition for `sharnessd`, with the
+   * firewall `SHARNESS_MESSAGE_POLICY_FILE` describes when it is set.
+   */
   export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
     runDaemon(),
   );
 
   /**
    * Fixed middleware and persisted English rules are installed before the daemon accepts host calls.
+   * The environment must not also name a message-policy document.
    * @param options Fixed chains, provider settings and initial editable English documents.
    * @returns The complete daemon layer with both message boundaries checked.
    */
@@ -175,7 +192,9 @@ export namespace Daemon {
     options: FirewallOptions,
   ): Layer.Layer<never, StartupError> => {
     const { auditExport, ...policyOptions } = options;
-    return Layer.scopedDiscard(runDaemon(policyOptions, auditExport));
+    return Layer.scopedDiscard(
+      runDaemon({ options: policyOptions, auditExport }),
+    );
   };
 
   /**

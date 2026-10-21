@@ -7,6 +7,15 @@ import type {
 import { Data, type Effect, type Redacted } from "effect";
 import type { HarnessMcpCredentials } from "../endpoint/mcp/index.js";
 
+/** Closed reason that a message-policy setting cannot start the daemon. */
+export type MessagePolicyConfigurationFailure =
+  | "message-policy-file"
+  | "message-policy"
+  | "message-policy-required"
+  | "message-policy-composed"
+  | "decision-provider-key-file"
+  | "decision-provider-key";
+
 /** Closed reason that daemon configuration cannot become startup authority. */
 export type DaemonConfigurationFailure =
   | "legacy-key"
@@ -17,7 +26,8 @@ export type DaemonConfigurationFailure =
   | "admission-credential"
   | "mcp-runtime-credential-file"
   | "mcp-owner-credential-file"
-  | "mcp-credential";
+  | "mcp-credential"
+  | MessagePolicyConfigurationFailure;
 
 /** Daemon configuration failure with a safe operator message. */
 export class DaemonConfigurationError extends Data.TaggedError(
@@ -49,6 +59,12 @@ export interface DaemonProcessConfiguration {
   readonly historyExport?: string;
   readonly mcpRuntimeCredentialFile?: Redacted.Redacted;
   readonly mcpOwnerCredentialFile?: Redacted.Redacted;
+  /** The message-policy document the daemon installs as its firewall; unset, it installs none. */
+  readonly messagePolicyFile?: string;
+  /** The key of the decision provider a message policy names. */
+  readonly decisionProviderKeyFile?: Redacted.Redacted;
+  /** Where a message-policy daemon publishes its firewall audit on graceful shutdown. */
+  readonly firewallAuditExport?: string;
 }
 
 /** Loaded private authority required by daemon registration and network calls. */

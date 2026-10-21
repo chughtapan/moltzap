@@ -125,6 +125,9 @@ Optional:
 | `SHARNESS_HISTORY_EXPORT` | unset | File the daemon appends one `HistoryExportRecord` JSON line to per published inbound item and per completed `send` |
 | `SHARNESS_MCP_RUNTIME_CREDENTIAL_FILE` | unset | File holding the runtime bearer token for authenticated tunnel mode |
 | `SHARNESS_MCP_OWNER_CREDENTIAL_FILE` | unset | File holding the owner bearer token for authenticated tunnel mode |
+| `SHARNESS_MESSAGE_POLICY_FILE` | unset | [Message-policy document](../../docs/spec/harness/message-policy.md#message-policy-file) the daemon installs as its firewall; unset, the daemon runs without one |
+| `SHARNESS_DECISION_PROVIDER_KEY_FILE` | unset | File holding the API key of the document's `jev` decision provider |
+| `SHARNESS_FIREWALL_AUDIT_EXPORT` | unset | Absolute path the firewall audit is published to on graceful shutdown; requires `SHARNESS_MESSAGE_POLICY_FILE` |
 
 The port is a plain decimal integer with no leading zeros, sign, spaces, or
 exponent. Supply both MCP credential files or neither; they hold distinct
