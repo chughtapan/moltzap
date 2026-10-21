@@ -42,8 +42,12 @@ const packages = {
   "@moltzap/client": join(workspaceRoot, "packages/client"),
 };
 
-/** The first reset package version is set at release time. */
-const FIRST_POST_RESET_RELEASE = Option.none<string>();
+/**
+ * The first package release after the last protocol reset. A reset change
+ * moves it above the release it drops, so the gate skips that release rather
+ * than failing on it.
+ */
+const FIRST_POST_RESET_RELEASE = Option.some("2026.1019.2");
 const PRE_RESET_WIRE_VERSION = "pre-reset";
 
 function preResetRelease(
@@ -205,7 +209,12 @@ function installCandidate(temporaryRoot: string, version: string) {
   }).pipe(retryNpm);
 }
 
-/** Stop at the explicit reset boundary, retaining the oldest live release. */
+/**
+ * Stop at the explicit reset boundary, retaining the oldest live release. A
+ * previous release outside retained history skips the gate only when the
+ * reset boundary places it before the reset; otherwise the current build
+ * dropped a version it still owes the previous release, and the gate fails.
+ */
 function selectReleases(
   versions: readonly string[],
   readVersion = releaseWireVersion,
@@ -216,6 +225,7 @@ function selectReleases(
     live: LIVE_WIRE_VERSIONS,
     history: HISTORY_WIRE_VERSIONS,
   },
+  firstPostResetRelease = FIRST_POST_RESET_RELEASE,
 ) {
   return Effect.gen(function* () {
     const previous = versions.at(-1);
@@ -226,10 +236,31 @@ function selectReleases(
     }
     const previousWireVersion = yield* readVersion(previous);
     if (!sets.history.includes(previousWireVersion)) {
-      return [];
+      const boundary = Option.getOrUndefined(firstPostResetRelease);
+      if (boundary !== undefined && preResetRelease(previous, boundary)) {
+        return [];
+      }
+      return yield* new ProcessTestError({
+        message: `release ${previous} emits wire version ${previousWireVersion}, which this build neither admits nor retains; only a reset that moves FIRST_POST_RESET_RELEASE above ${previous} may drop it`,
+      });
     }
     expect(sets.live).toContain(previousWireVersion);
-    let oldest = previous;
+    const oldest = yield* oldestLiveRelease(versions, readVersion, sets);
+    return [...new Set([previous, oldest ?? previous])];
+  });
+}
+
+/** The oldest release before the reset boundary whose wire version is live. */
+function oldestLiveRelease<E, R>(
+  versions: readonly string[],
+  readVersion: (version: string) => Effect.Effect<string, E, R>,
+  sets: {
+    readonly live: readonly string[];
+    readonly history: readonly string[];
+  },
+) {
+  return Effect.gen(function* () {
+    let oldest: string | undefined;
     for (const version of [...versions].reverse().slice(1)) {
       const wireVersion = yield* readVersion(version);
       if (!sets.history.includes(wireVersion)) {
@@ -239,8 +270,32 @@ function selectReleases(
         oldest = version;
       }
     }
-    return [...new Set([previous, oldest])];
+    return oldest;
   });
+}
+
+/**
+ * Names the gate leg a failure came from: a fixture failure carries the leg in
+ * its message, and every failure logs it.
+ */
+function inLeg(leg: string) {
+  return <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(
+      Effect.catchIf(
+        (error): error is E & ProcessTestError =>
+          error instanceof ProcessTestError,
+        (error) =>
+          Effect.fail(
+            new ProcessTestError({
+              message: `${leg}: ${error.message}`,
+              cause: error,
+            }),
+          ),
+      ),
+      Effect.tapError(() =>
+        Effect.logError(`mixed-release leg failed: ${leg}`),
+      ),
+    );
 }
 
 /**
@@ -336,13 +391,19 @@ const mixedRelease = Effect.scoped(
     const currentNetwork = yield* acquireProcessInfrastructure;
     for (const version of releases) {
       const consumer = yield* installCandidate(temporaryRoot, version);
-      yield* certifyPair(currentNetwork, version, consumer, current);
+      yield* certifyPair(currentNetwork, version, consumer, current).pipe(
+        inLeg(`release ${version} daemon through the current network`),
+      );
       if (version === releases[0]) {
         yield* Effect.scoped(
           acquireProcessInfrastructureFrom(releaseNetwork(consumer)).pipe(
             Effect.flatMap((previousNetwork) =>
               certifyPair(previousNetwork, version, consumer, current),
             ),
+          ),
+        ).pipe(
+          inLeg(
+            `current daemon through the network of previous release ${version}`,
           ),
         );
       }
@@ -423,7 +484,7 @@ it("runs a single peer when the previous release is also the oldest live release
     ),
   ));
 
-it("skips only when the previous release is outside retained history", () =>
+it("skips when the reset boundary places the previous release before the reset", () =>
   Effect.runPromise(
     selectReleases(
       ["2099.101.0"],
@@ -432,6 +493,7 @@ it("skips only when the previous release is outside retained history", () =>
         live: ["new"],
         history: ["new"],
       },
+      Option.some("2099.102.0"),
     ).pipe(
       Effect.provide(NodeContext.layer),
       Effect.tap((releases) =>
@@ -441,6 +503,28 @@ it("skips only when the previous release is outside retained history", () =>
       ),
     ),
   ));
+
+it.each([Option.none<string>(), Option.some("2099.101.0")])(
+  "fails when the previous release's version left history without a reset boundary above it (%o)",
+  (boundary) =>
+    Effect.runPromise(
+      selectReleases(
+        ["2099.101.0"],
+        () => Effect.succeed("old"),
+        { live: ["new"], history: ["new"] },
+        boundary,
+      ).pipe(
+        Effect.flip,
+        Effect.tap((error) =>
+          Effect.sync(() => {
+            expect(error).toBeInstanceOf(ProcessTestError);
+          }),
+        ),
+        Effect.provide(NodeContext.layer),
+        Effect.asVoid,
+      ),
+    ),
+);
 
 it.each(["2099.101.0", "2099.102.0"])(
   "fails when post-reset release %s omits wire metadata",

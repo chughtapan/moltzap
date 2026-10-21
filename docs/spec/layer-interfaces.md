@@ -474,6 +474,11 @@ emitted version and at most one adjacent version, and the Registry, the
 Router, and the daemon each admit every version in it. A bump spans two
 releases:
 
+A bump changes only the version value. Every Identity, Router, and Client
+representation reads its type strings, headers, hash domains, and bounds from
+the single `WIRE_PROFILES` entry for `WIRE_VERSION`, so changing any profile
+value changes the stable wire envelope and ships in a reset release.
+
 1. The announcing release lists the successor in `LIVE_WIRE_VERSIONS` and
    still emits the current version.
 2. The bumping release emits the successor and keeps its predecessor in
@@ -494,8 +499,12 @@ using the current Registry and Router. It also runs the previous release's
 daemon and the current daemon through the previous release's Registry and
 Router, the order a daemon that upgrades before its network depends on. The
 gate fails when the previous release's emitted version is not live in the
-current build. Candidate selection reads the published
-Identity `moltzapWireVersion` npm metadata without installing candidates.
+current build. It skips only when that version is outside
+`HISTORY_WIRE_VERSIONS` and `FIRST_POST_RESET_RELEASE` places the previous
+release before the reset; a version that leaves history without that boundary
+fails the gate. Each failure names the leg it came from. Candidate selection
+reads the published Identity `moltzapWireVersion` npm metadata without
+installing candidates.
 `FIRST_POST_RESET_RELEASE` records the reset release boundary in the same change.
 Absent metadata denotes a pre-reset release only below that boundary. Missing metadata at or after that
 release fails the gate; registry
