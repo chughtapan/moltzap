@@ -532,7 +532,6 @@ release before the reset; a version that leaves history without that boundary
 fails the gate. Each failure names the leg it came from. Candidate selection
 reads each Client release's Identity pin and that Identity version's
 `sharnessWireVersion` npm metadata without installing candidates.
-Releases before this reset carry no `sharnessWireVersion`.
 `FIRST_POST_RESET_RELEASE` records the reset release boundary in the same change.
 Absent metadata denotes a pre-reset release only below that boundary. Missing metadata at or after that
 release fails the gate; registry
