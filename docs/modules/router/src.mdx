@@ -19,7 +19,7 @@ belong to the endpoint Harness in `@moltzap/client`.
 
 ## Public surface
 
-### [`PollCursor (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L103)
+### [`PollCursor (type)`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L103)
 
 _TypeAlias_
 
@@ -29,7 +29,7 @@ export type PollCursor = typeof PollCursor.Type;
 
 Validated opaque Router poll continuation.
 
-### [`PollCursor (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L91)
+### [`PollCursor (value)`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L91)
 
 _Variable_
 
@@ -49,7 +49,7 @@ export const PollCursor = Schema.String.pipe(
 
 Opaque, authenticated continuation for one caller and Router instance.
 
-### [`Router`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router.ts#L88)
+### [`Router`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router.ts#L88)
 
 _Class_
 
@@ -83,7 +83,7 @@ export class Router extends Context.Tag("@moltzap/router/Router")<
 
 Opaque message acceptance and endpoint-wide bounded polling.
 
-### [`RouterConnectionError`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L279)
+### [`RouterConnectionError`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L279)
 
 _Class_
 
@@ -95,7 +95,7 @@ export class RouterConnectionError extends Data.TaggedError(
 
 The Router connection could not be established or used.
 
-### [`RouterInstanceId (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L79)
+### [`RouterInstanceId (type)`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L79)
 
 _TypeAlias_
 
@@ -105,7 +105,7 @@ export type RouterInstanceId = typeof RouterInstanceId.Type;
 
 Validated Router process identity.
 
-### [`RouterInstanceId (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L73)
+### [`RouterInstanceId (value)`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L73)
 
 _Variable_
 
@@ -119,7 +119,7 @@ export const RouterInstanceId = canonicalValue(
 
 Identifies one volatile Router process instance.
 
-### [`RouterInvalidResponseError`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L289)
+### [`RouterInvalidResponseError`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L289)
 
 _Class_
 
@@ -131,7 +131,7 @@ export class RouterInvalidResponseError extends Data.TaggedError(
 
 A Router response did not match the selected operation contract.
 
-### [`RouterPollRequest (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L211)
+### [`RouterPollRequest (type)`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L211)
 
 _Interface_
 
@@ -143,7 +143,7 @@ export interface RouterPollRequest {
 
 One authenticated endpoint-wide poll request.
 
-### [`RouterPollRequest (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L220)
+### [`RouterPollRequest (value)`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L220)
 
 _Variable_
 
@@ -158,7 +158,7 @@ export const RouterPollRequest: Schema.Schema<
 
 Exact Schema for one endpoint-wide poll request.
 
-### [`RouterPollResult (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L242)
+### [`RouterPollResult (type)`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L242)
 
 _TypeAlias_
 
@@ -179,7 +179,7 @@ export type RouterPollResult =
 
 Closed outcome of one endpoint-wide bounded poll.
 
-### [`RouterPollResult (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L269)
+### [`RouterPollResult (value)`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L269)
 
 _Variable_
 
@@ -194,7 +194,7 @@ export const RouterPollResult: Schema.Schema<
 
 Exact Schema for every closed poll outcome.
 
-### [`RouterRequestTimeoutError`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L284)
+### [`RouterRequestTimeoutError`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L284)
 
 _Class_
 
@@ -206,7 +206,7 @@ export class RouterRequestTimeoutError extends Data.TaggedError(
 
 The configured complete Router call deadline expired.
 
-### [`RouterSendRequest (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L106)
+### [`RouterSendRequest (type)`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L106)
 
 _Interface_
 
@@ -220,7 +220,7 @@ export interface RouterSendRequest {
 
 One authenticated request to accept or recover an opaque message.
 
-### [`RouterSendRequest (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L141)
+### [`RouterSendRequest (value)`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L141)
 
 _Variable_
 
@@ -237,7 +237,7 @@ export const RouterSendRequest: Schema.Schema<
 
 Exact Schema for one send request.
 
-### [`RouterSendResult (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L170)
+### [`RouterSendResult (type)`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L170)
 
 _TypeAlias_
 
@@ -259,7 +259,7 @@ export type RouterSendResult =
 
 Closed outcome of accepting or recovering an opaque message.
 
-### [`RouterSendResult (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L199)
+### [`RouterSendResult (value)`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L199)
 
 _Variable_
 
@@ -278,7 +278,7 @@ export const RouterSendResult: Schema.Schema<
 
 Exact Schema for every closed send outcome.
 
-### [`SignedMessageDigest (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L88)
+### [`SignedMessageDigest (type)`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L88)
 
 _TypeAlias_
 
@@ -288,7 +288,7 @@ export type SignedMessageDigest = typeof SignedMessageDigest.Type;
 
 Validated SignedMessage equality receipt.
 
-### [`SignedMessageDigest (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L82)
+### [`SignedMessageDigest (value)`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/router/contract.ts#L82)
 
 _Variable_
 
@@ -306,11 +306,11 @@ Equality receipt for one complete retained SignedMessage.
 
 ### `@moltzap/router/server`
 
-#### [`RouterServer`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/server.ts#L33)
+#### [`RouterServer`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/server.ts#L33)
 
 _Namespace_
 
-#### [`RouterServer.StartupError`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/server.ts#L38)
+#### [`RouterServer.StartupError`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/server.ts#L38)
 
 _Class_
 
@@ -336,7 +336,7 @@ _Class_
 
 Closed Router startup phase.
 
-#### [`RouterServer.help`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/server.ts#L35)
+#### [`RouterServer.help`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/server.ts#L35)
 
 _Variable_
 
@@ -346,7 +346,7 @@ _Variable_
 
 Usage text listing the Router process's environment variables.
 
-#### [`RouterServer.layer`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/server.ts#L90)
+#### [`RouterServer.layer`](https://github.com/social-harness/moltzap/blob/main/packages/router/src/server.ts#L90)
 
 _Variable_
 

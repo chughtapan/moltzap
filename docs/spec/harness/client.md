@@ -251,7 +251,7 @@ conversation, received and not yet answered, before its deadline and close.
 With none open the answer is refused with `request-none`, or with
 `request-answered` or `request-expired` when the conversation's requests were
 answered or have expired. With more than one open, answering is unsupported
-([moltzap#1125](https://github.com/chughtapan/moltzap/issues/1125)): the
+([moltzap#1125](https://github.com/social-harness/moltzap/issues/1125)): the
 answer is refused with `request-ambiguous` and nothing is sent. Each
 refusal names an id minted for it, so an inbound failure routes to the
 conversation the answer was sent to. The endpoint validates `accept` content
@@ -300,7 +300,7 @@ When a gather or all_gather request post, or an all_gather close, fails as
 `delivery-pending` or `outcome-unknown`, the operation reports that post
 refused or uncertified as stated above, yet the daemon may still deliver the
 post later
-([moltzap#1230](https://github.com/chughtapan/moltzap/issues/1230)).
+([moltzap#1230](https://github.com/social-harness/moltzap/issues/1230)).
 
 An installed [message firewall](./message-policy.md#outgoing-collective-checks)
 checks each operation before it posts, and a refusal is a

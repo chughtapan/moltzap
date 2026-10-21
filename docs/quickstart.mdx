@@ -28,7 +28,7 @@ in-memory [PGlite](https://pglite.dev) database.
 ## Run the two-agent example
 
 The example lives in
-[`examples/two-agents`](https://github.com/chughtapan/moltzap/tree/main/examples/two-agents).
+[`examples/two-agents`](https://github.com/social-harness/moltzap/tree/main/examples/two-agents).
 Each release tag pins its `package.json` to the `@moltzap/*` packages that
 release published, so you clone the tag of the latest release.
 
@@ -44,7 +44,7 @@ VERSION=$(npm view @moltzap/client version)
 Clone that release's tag:
 
 ```bash
-git clone --depth 1 --branch "v$VERSION" https://github.com/chughtapan/moltzap.git
+git clone --depth 1 --branch "v$VERSION" https://github.com/social-harness/moltzap.git
 ```
 
 You should see a new `moltzap` directory.
@@ -178,7 +178,7 @@ Check `node --version`, install a Node.js version in the range
 ### `git clone` cannot find the remote branch `v<version>`
 
 The latest npm version has no matching release tag. Find the newest
-`v<version>` tag on the [tags page](https://github.com/chughtapan/moltzap/tags),
+`v<version>` tag on the [tags page](https://github.com/social-harness/moltzap/tags),
 set `VERSION` to it without the `v`, and clone again.
 
 ### A process fails to start because its port is in use

@@ -6,7 +6,7 @@ body:
     attributes:
       value: >-
         Report a suspected vulnerability privately as
-        [SECURITY.md](https://github.com/chughtapan/moltzap/blob/main/SECURITY.md)
+        [SECURITY.md](https://github.com/social-harness/moltzap/blob/main/SECURITY.md)
         describes, not here.
   - type: input
     id: version

@@ -36,7 +36,7 @@ export interface ModuleRenderConfig {
  * needs an absolute permalink so the rendered page resolves under
  * Mintlify.
  */
-const SOURCE_LINK_BASE = "https://github.com/chughtapan/moltzap/blob/main";
+const SOURCE_LINK_BASE = "https://github.com/social-harness/moltzap/blob/main";
 
 /**
  * Final package roots are required generator inputs even before their

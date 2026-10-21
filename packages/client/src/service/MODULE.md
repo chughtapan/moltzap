@@ -76,10 +76,10 @@ _Class_
       let remedy = "";
       if (this.reason === "pre-reset") {
         remedy =
-          ". Start with a fresh state directory and register again; see https://github.com/chughtapan/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release.";
+          ". Start with a fresh state directory and register again; see https://github.com/social-harness/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release.";
       } else if (this.reason === "outbox-too-old") {
         remedy =
-          ". Drain the outbox on the previous release before upgrading, or apply a reset release; see https://github.com/chughtapan/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release.";
+          ". Drain the outbox on the previous release before upgrading, or apply a reset release; see https://github.com/social-harness/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release.";
       }
       return `sharnessd startup failed in phase ${this.phase}${reason}${detail}${remedy}`;
     }

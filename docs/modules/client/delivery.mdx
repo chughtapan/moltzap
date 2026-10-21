@@ -13,7 +13,7 @@ One service's delivery, for the service to compose.
 
 ## Public surface
 
-### [`decodeHarnessMessageReadyEvent`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/operations.ts#L247)
+### [`decodeHarnessMessageReadyEvent`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/delivery/operations.ts#L247)
 
 _Function_
 
@@ -27,7 +27,7 @@ Decode one exact pending-delivery notification payload.
 
 **Returns:** The validated pending delivery.
 
-### [`decodeHarnessReadInboxResult`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/operations.ts#L156)
+### [`decodeHarnessReadInboxResult`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/delivery/operations.ts#L156)
 
 _Variable_
 
@@ -38,7 +38,7 @@ export const decodeHarnessReadInboxResult =
 
 Decode a bounded inbox page received through the MCP transport.
 
-### [`decodeHarnessSendErrorData`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/operations.ts#L258)
+### [`decodeHarnessSendErrorData`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/delivery/operations.ts#L258)
 
 _Function_
 
@@ -52,7 +52,7 @@ Decode the error data of one refused `send_message` call.
 
 **Returns:** The collective failure or send reason it carries.
 
-### [`decodeHarnessSendResult`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/operations.ts#L280)
+### [`decodeHarnessSendResult`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/delivery/operations.ts#L280)
 
 _Function_
 
@@ -68,7 +68,7 @@ name.
 **Returns:** The operation id a gather names and the local firewall's guidance
 on the admitted send, each if any.
 
-### [`FirewallAuditRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/firewall-values.ts#L170)
+### [`FirewallAuditRecord`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/delivery/firewall-values.ts#L170)
 
 _TypeAlias_
 
@@ -78,7 +78,7 @@ export type FirewallAuditRecord = typeof FirewallAuditRecord.Type;
 
 Completion verifies the snapshot, not completion or delivery of each attempt.
 
-### [`FirewallAuditRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/firewall-values.ts#L131)
+### [`FirewallAuditRecord`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/delivery/firewall-values.ts#L131)
 
 _Variable_
 
@@ -129,7 +129,7 @@ Candidate bytes are opaque canonical Client data, encoded as base64. A null
 result or checking/interrupted disposition never represents permission.
 The nullable post reference identifies supported messages without decoding candidate bytes.
 
-### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/history-export.ts#L50)
+### [`HistoryExportRecord`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/delivery/history-export.ts#L50)
 
 _TypeAlias_
 
@@ -139,7 +139,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/history-export.ts#L31)
+### [`HistoryExportRecord`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/delivery/history-export.ts#L31)
 
 _Variable_
 
