@@ -8,6 +8,61 @@ One service's delivery, for the service to compose.
 
 ## Public surface
 
+### [`decodeHarnessMessageReadyEvent`](./operations.ts#L312)
+
+_Function_
+
+```ts
+export function decodeHarnessMessageReadyEvent(
+  value: unknown,
+): Effect.Effect<HarnessMessageReadyEvent, ParseResult.ParseError>
+```
+
+Decode one exact pending-delivery notification payload.
+
+**Returns:** The validated pending delivery.
+
+### [`decodeHarnessReadInboxResult`](./operations.ts#L218)
+
+_Variable_
+
+```ts
+export const decodeHarnessReadInboxResult =
+  Schema.decodeUnknown(inboxResultSchema)
+```
+
+Decode a bounded inbox page received through the MCP transport.
+
+### [`decodeHarnessSendErrorData`](./operations.ts#L323)
+
+_Function_
+
+```ts
+export function decodeHarnessSendErrorData(
+  value: unknown,
+): Effect.Effect<HarnessSendErrorData, ParseResult.ParseError>
+```
+
+Decode the error data of one refused `send_message` call.
+
+**Returns:** The collective failure or send reason it carries.
+
+### [`decodeHarnessSendResult`](./operations.ts#L345)
+
+_Function_
+
+```ts
+export function decodeHarnessSendResult(
+  value: unknown,
+): Effect.Effect<HarnessSendResult, ParseResult.ParseError>
+```
+
+Decode one `send_message` result, ignoring fields this release does not
+name.
+
+**Returns:** The operation id a gather names and the local firewall's guidance
+on the admitted send, each if any.
+
 ### [`FirewallAuditRecord`](./firewall-values.ts#L170)
 
 _TypeAlias_
@@ -113,3 +168,4 @@ line with this schema rather than copying its shape.
 
 - `firewall-values.ts`
 - `history-export.ts`
+- `operations.ts`

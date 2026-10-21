@@ -138,6 +138,61 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
+### [`decodeHarnessMessageReadyEvent`](./delivery/operations.ts#L312)
+
+_Function_
+
+```ts
+export function decodeHarnessMessageReadyEvent(
+  value: unknown,
+): Effect.Effect<HarnessMessageReadyEvent, ParseResult.ParseError>
+```
+
+Decode one exact pending-delivery notification payload.
+
+**Returns:** The validated pending delivery.
+
+### [`decodeHarnessReadInboxResult`](./delivery/operations.ts#L218)
+
+_Variable_
+
+```ts
+export const decodeHarnessReadInboxResult =
+  Schema.decodeUnknown(inboxResultSchema)
+```
+
+Decode a bounded inbox page received through the MCP transport.
+
+### [`decodeHarnessSendErrorData`](./delivery/operations.ts#L323)
+
+_Function_
+
+```ts
+export function decodeHarnessSendErrorData(
+  value: unknown,
+): Effect.Effect<HarnessSendErrorData, ParseResult.ParseError>
+```
+
+Decode the error data of one refused `send_message` call.
+
+**Returns:** The collective failure or send reason it carries.
+
+### [`decodeHarnessSendResult`](./delivery/operations.ts#L345)
+
+_Function_
+
+```ts
+export function decodeHarnessSendResult(
+  value: unknown,
+): Effect.Effect<HarnessSendResult, ParseResult.ParseError>
+```
+
+Decode one `send_message` result, ignoring fields this release does not
+name.
+
+**Returns:** The operation id a gather names and the local firewall's guidance
+on the admitted send, each if any.
+
 ### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L98)
 
 _Class_

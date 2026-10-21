@@ -16,7 +16,8 @@
  * choice and probability. A send returns a collecting operation's id and
  * its check's guidance, and fails with a closed send reason or a
  * collective failure. Optional invocation identity preserves a retried send without
- * executing a new collective operation. Adapters compile against this surface,
+ * executing a new collective operation. The exported send-result decoder
+ * yields that same result type. Adapters compile against this surface,
  * so any change these canaries catch is a breaking release.
  */
 
@@ -28,6 +29,7 @@ import type {
   ConnectError,
   Content,
   ContentPart,
+  decodeHarnessSendResult,
   DeliveryAcknowledgeError,
   DirectMessage,
   FirewallSendError,
@@ -219,6 +221,12 @@ type MessageTextParserIsExact = Expect<
   >
 >;
 type SendResultIsExact = Expect<Types.Equals<SendResult, ExpectedSendResult>>;
+type SendResultDecoderIsExact = Expect<
+  Types.Equals<
+    Effect.Effect.Success<ReturnType<typeof decodeHarnessSendResult>>,
+    ExpectedSendResult
+  >
+>;
 type InboundItemIsExact = Expect<
   Types.Equals<InboundItem, ExpectedInboundItem>
 >;
@@ -329,6 +337,7 @@ export type HarnessEndpointCanaries = [
   SendInputIsExact,
   MessageTextParserIsExact,
   SendResultIsExact,
+  SendResultDecoderIsExact,
   InboundItemIsExact,
   LocalGuidanceIsExact,
   DirectMessageIsExact,

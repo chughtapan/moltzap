@@ -1,4 +1,4 @@
-/** @file Pins the exact inbox and operation MCP representation. */
+/** @file The inbox and operation MCP representation: exact requests, and results a newer daemon can extend. */
 
 import { Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
@@ -10,7 +10,9 @@ import { AgentAddress, GroupAddress } from "../transport/wire/values.js";
 import {
   decodeHarnessAcknowledgeDeliveryRequest,
   decodeHarnessMessageReadyEvent,
+  decodeHarnessReadInboxResult,
   decodeHarnessSendErrorData,
+  decodeHarnessSendResult,
 } from "./operations.js";
 
 const exact = { exact: true, onExcessProperty: "error" } as const;
@@ -71,17 +73,15 @@ function decodesCanonicalDirectDelivery(): void {
     Effect.runSync(decodeHarnessMessageReadyEvent({ deliveryToken, item })),
   ).toEqual({ deliveryToken, item });
   expect(
-    Exit.isFailure(
-      Effect.runSyncExit(
-        decodeHarnessMessageReadyEvent({
-          deliveryToken,
-          item,
-          replyGrant: "forbidden",
-        }),
-      ),
+    Effect.runSync(
+      decodeHarnessMessageReadyEvent({
+        deliveryToken,
+        item,
+        replyGrant: "forbidden",
+      }),
     ),
-    "delivery carrying a reply grant",
-  ).toBe(true);
+    "a field the event does not name is dropped",
+  ).toEqual({ deliveryToken, item });
 }
 
 function unreachableFailure(reason: string) {
@@ -245,17 +245,133 @@ describe("Harness send validation diagnostics", () => {
   it.each([
     { path: [false], message: "Expected string" },
     { path: ["input"], message: 123 },
-    { path: ["input"], message: "Expected string", rawDecoder: {} },
-  ])("rejects malformed validation diagnostics: %j", (issue) => {
+  ])("keeps the refusal but not malformed diagnostics: %j", (issue) => {
     expect(
-      Exit.isFailure(
-        Effect.runSyncExit(
-          decodeHarnessSendErrorData({
-            reason: "content-invalid",
-            issues: [issue],
-          }),
-        ),
+      Effect.runSync(
+        decodeHarnessSendErrorData({
+          reason: "content-invalid",
+          issues: [issue],
+        }),
+      ),
+    ).toEqual({ reason: "content-invalid" });
+  });
+  it("drops raw decoder data from a diagnostic", () => {
+    expect(
+      Effect.runSync(
+        decodeHarnessSendErrorData({
+          reason: "content-invalid",
+          issues: [
+            { path: ["input"], message: "Expected string", rawDecoder: {} },
+          ],
+        }),
+      ),
+    ).toEqual({
+      reason: "content-invalid",
+      issues: [{ path: ["input"], message: "Expected string" }],
+    });
+  });
+});
+
+describe("Harness send refusal data", () => {
+  it.each([
+    { reason: "firewall-refused", checkId: "chk_x" },
+    { reason: "collective-failed" },
+  ])(
+    "refuses a firewall or collective refusal missing its fields: %j",
+    (data) => {
+      expect(
+        Exit.isFailure(Effect.runSyncExit(decodeHarnessSendErrorData(data))),
+      ).toBe(true);
+    },
+  );
+});
+
+const directItem = {
+  kind: "multicast",
+  message: {
+    kind: "direct",
+    postId,
+    address: senderAddress,
+    sender: senderAddress,
+    content,
+  },
+};
+
+const fails = (effect: Effect.Effect<unknown, unknown>): boolean =>
+  Exit.isFailure(Effect.runSyncExit(effect));
+
+describe("Harness MCP results from a newer daemon", () => {
+  it("decodes a send result that carries a field this release does not name", () => {
+    expect(
+      Effect.runSync(
+        decodeHarnessSendResult({
+          operationId: collectiveId,
+          addedLater: true,
+        }),
+      ),
+    ).toEqual({ operationId: collectiveId });
+  });
+  it("decodes an inbox page whose page and entries carry added fields", () => {
+    expect(
+      Effect.runSync(
+        decodeHarnessReadInboxResult({
+          items: [{ deliveryToken, item: directItem, addedLater: 1 }],
+          nextCursor: "c1",
+          addedLater: "x",
+        }),
+      ),
+    ).toEqual({
+      items: [{ deliveryToken, item: directItem }],
+      nextCursor: "c1",
+    });
+  });
+  it("decodes a send refusal whose data carries an added field", () => {
+    expect(
+      Effect.runSync(
+        decodeHarnessSendErrorData({
+          reason: "network-unavailable",
+          detail: "router closed",
+          addedLater: true,
+        }),
+      ),
+    ).toEqual({ reason: "network-unavailable", detail: "router closed" });
+  });
+});
+
+describe("Harness MCP results keep what they name", () => {
+  it.each([
+    { case: "an inbox page without items", value: { nextCursor: "c1" } },
+    {
+      case: "an inbox entry without its delivery token",
+      value: { items: [{ item: directItem }] },
+    },
+  ])("still refuses $case", ({ value }) => {
+    expect(fails(decodeHarnessReadInboxResult(value))).toBe(true);
+  });
+  it("still refuses guidance that mixes or extends its forms", () => {
+    const checkId = `chk_${"a".repeat(64)}`;
+    expect(
+      fails(
+        decodeHarnessSendResult({
+          guidance: {
+            checkId,
+            subjects: [],
+            instructions: [
+              {
+                middlewareId: "m",
+                ruleId: "r",
+                instruction: "wait for the owner",
+                expectation: "invalid",
+                subjects: [],
+                uncertain: { choice: "approved", probability: 0.5 },
+              },
+            ],
+          },
+        }),
       ),
     ).toBe(true);
+  });
+  it("still refuses a pending-delivery event without its item", () => {
+    expect(fails(decodeHarnessMessageReadyEvent({ deliveryToken }))).toBe(true);
   });
 });
