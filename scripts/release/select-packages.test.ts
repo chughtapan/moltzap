@@ -186,6 +186,7 @@ await test("a packed tarball hashes as its extracted package does", () => {
   renameSync(packedDirectory(MANIFEST, { ...FILES, "bin/tool": "" }), root);
   chmodSync(path.join(root, "bin/tool"), 0o755);
   const tarball = path.join(parent, "pkg.tgz");
+  // eslint-disable-next-line sonarjs/no-os-command-from-path -- The test packs with the system tar, as content-hash.ts extracts with it.
   const packed = spawnSync("tar", ["-czf", tarball, "-C", parent, "package"]);
   const hash = contentHashOfTarball(tarball);
   const expected = contentHashOfDirectory(root);
