@@ -300,10 +300,10 @@ const markerBehavior = Effect.gen(function* () {
     "sharness.agent": "otel-requester",
   });
   expect(
-    attributesOf(markers(completed, "retry.settled", "kind", "check")),
+    attributesOf(markers(completed, "retry.settled", "kind", "firewall-check")),
   ).toContainEqual({
-    kind: "check",
-    id: expect.any(String),
+    kind: "firewall-check",
+    id: "outgoing",
     outcome: "checked",
   });
   expect(

@@ -2,7 +2,7 @@
 
 import { HttpClient } from "@effect/platform";
 import { ProtocolError } from "@modelcontextprotocol/server";
-import { type Clock, Effect, Schema } from "effect";
+import { type Clock, Effect, Schema, type Scope } from "effect";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { eventIdOf, type EventStore } from "../../delivery/operations.js";
 import { localGuidanceSchema } from "../../firewall/runtime.js";
@@ -131,6 +131,35 @@ const active = (runtime: WebhookRuntime) =>
   runtime.state.registration !== null &&
   runtime.state.registration.expiresAt > now(runtime);
 /**
+ * Make a persisted registration current, keeping the `webhook` marker in
+ * step; every state change goes through here.
+ * @param runtime The webhook state to update.
+ * @param state The state just persisted.
+ * @returns Completion once the state and its marker are current.
+ */
+function adopt(runtime: WebhookRuntime, state: State): Effect.Effect<void> {
+  return Effect.sync(() => {
+    runtime.state = state;
+  }).pipe(Effect.zipRight(markWaitingDelivery(runtime)));
+}
+
+/**
+ * Settle an open `webhook` marker as `interrupted` when the events close, so
+ * the daemon that reopens it after a restart does not leave this one unpaired.
+ * @param runtime The webhook state whose marker may be open.
+ * @returns Completion once no marker is open.
+ */
+function settleOnClose(runtime: WebhookRuntime): Effect.Effect<void> {
+  return Effect.suspend(() => {
+    const marked = runtime.retrying;
+    delete runtime.retrying;
+    return marked === undefined
+      ? Effect.void
+      : retrySettled("webhook", marked, "interrupted");
+  });
+}
+
+/**
  * The event id of a delivery waiting out its backoff after a failed callback,
  * which the daemon retries on its own.
  * @param runtime The webhook state and clock.
@@ -202,12 +231,7 @@ const save = (runtime: WebhookRuntime, registration: Registration | null) =>
   encodeRuntimeValue({ registration }).pipe(
     Effect.flatMap(runtime.store.writeEventState),
     Effect.mapError(persistenceFailure),
-    Effect.tap(() =>
-      Effect.sync(() => {
-        runtime.state = { registration };
-      }),
-    ),
-    Effect.zipRight(markWaitingDelivery(runtime)),
+    Effect.zipRight(adopt(runtime, { registration })),
     Effect.uninterruptible,
   );
 const retire = (runtime: WebhookRuntime) =>
@@ -431,10 +455,7 @@ const commitReceipt = (
       occurrence.deliveryToken,
       bytes,
     );
-    yield* Effect.sync(() => {
-      runtime.state = { registration: next };
-    });
-    yield* markWaitingDelivery(runtime);
+    yield* adopt(runtime, { registration: next });
     return true;
   }).pipe(Effect.mapError(persistenceFailure), Effect.uninterruptible);
 
@@ -639,7 +660,8 @@ const webhookOperations = (runtime: WebhookRuntime): HarnessWebhookEvents => ({
 /**
  * Retain exact callback bytes across retries and retire inbox items on HTTP receipt.
  * State transitions share the push ownership gate; callback I/O runs outside it.
- * A delivery retained mid-backoff reopens its `webhook` marker in this process.
+ * A delivery retained mid-backoff reopens its `webhook` marker in this process,
+ * and closing the scope settles a marker still open.
  * @param store Daemon-owned registration and delivery persistence.
  * @param gate Serializes subscription state with native push ownership.
  * @returns Protocol operations using the current Effect HTTP client and clock.
@@ -647,7 +669,11 @@ const webhookOperations = (runtime: WebhookRuntime): HarnessWebhookEvents => ({
 export const makeWebhookEvents = (
   store: EventStore,
   gate: Effect.Semaphore,
-): Effect.Effect<HarnessWebhookEvents, ProtocolError, HttpClient.HttpClient> =>
+): Effect.Effect<
+  HarnessWebhookEvents,
+  ProtocolError,
+  HttpClient.HttpClient | Scope.Scope
+> =>
   Effect.gen(function* () {
     const client = (yield* HttpClient.HttpClient).pipe(
       HttpClient.withTracerDisabledWhen(() => true),
@@ -673,5 +699,6 @@ export const makeWebhookEvents = (
       generation: 0,
     };
     yield* markWaitingDelivery(runtime);
+    yield* Effect.addFinalizer(() => settleOnClose(runtime));
     return webhookOperations(runtime);
   }).pipe(Effect.withSpan("makeWebhookEvents"));

@@ -52,6 +52,7 @@ import {
   startReanchorRun,
 } from "../reanchor/index.js";
 import {
+  exitOutcome,
   markRetries,
   type RetryOutcome,
   retryPending,
@@ -141,7 +142,7 @@ interface RecoveryRun {
   /**
    * Restarted conversations whose re-anchor `retry.pending` is open: their
    * position is ready and they wait for a quorum to certify the re-anchor.
-   * Recovering the conversation or ending the run settles each.
+   * Recovering the conversation, or closing the run's scope, settles each.
    */
   readonly reanchorWaits: Set<ConversationIdValue>;
   /**
@@ -749,13 +750,9 @@ function catchUpOutcome(
   exit: Exit.Exit<unknown, unknown>,
   returned: RetryOutcome,
 ): RetryOutcome {
-  if (run.completedConversations.has(conversationId)) {
-    return "recovered";
-  }
-  if (Exit.isSuccess(exit)) {
-    return returned;
-  }
-  return Exit.isInterrupted(exit) ? "interrupted" : "failed";
+  return run.completedConversations.has(conversationId)
+    ? "recovered"
+    : exitOutcome(exit, returned);
 }
 
 /**
@@ -882,13 +879,17 @@ function makeRecoveryRun(
     const retries = yield* FiberMap.make<ConversationIdValue>().pipe(
       Scope.extend(scope),
     );
+    const reanchorWaits = new Set<ConversationIdValue>();
+    yield* Effect.addFinalizer(() => settleReanchorWaits(reanchorWaits)).pipe(
+      Scope.extend(scope),
+    );
     const isActive = () => activeRuns.get(runtime)?.scope === scope;
     const run: RecoveryRun = {
       runtime,
       recovery,
       ...history,
       completedConversations: new Set(),
-      reanchorWaits: new Set(),
+      reanchorWaits,
       scope,
       retries,
       successor: successorPort(runtime, history),
@@ -907,6 +908,27 @@ function makeRecoveryRun(
     };
     return run;
   }).pipe(Effect.withSpan("makeRecoveryState"));
+}
+
+/**
+ * Settle every re-anchor wait still open as `interrupted`, when its run ends
+ * or the engine stops.
+ * @param waits The run's open re-anchor waits, emptied here.
+ * @returns Completion once each is settled.
+ */
+function settleReanchorWaits(
+  waits: Set<ConversationIdValue>,
+): Effect.Effect<void> {
+  return Effect.suspend(() => {
+    const open = [...waits];
+    waits.clear();
+    return Effect.forEach(
+      open,
+      (conversationId) =>
+        retrySettled("reanchor", conversationId, "interrupted"),
+      { concurrency: 1, discard: true },
+    );
+  });
 }
 
 /**
@@ -1168,8 +1190,7 @@ function endRunOnceRecovered(run: RecoveryRun): Effect.Effect<void> {
 }
 
 /**
- * Uninstall the engine's recovery run and end its catch-up retries. A
- * re-anchor wait still open settles as `interrupted`.
+ * Uninstall the engine's recovery run and end its catch-up retries.
  * @param runtime Engine whose run ends.
  * @returns Completion once no run is installed.
  */
@@ -1180,14 +1201,7 @@ function endRun(runtime: EngineRuntime): Effect.Effect<void> {
       return Effect.void;
     }
     activeRuns.delete(runtime);
-    const waits = [...run.reanchorWaits];
-    run.reanchorWaits.clear();
-    return Effect.forEach(
-      waits,
-      (conversationId) =>
-        retrySettled("reanchor", conversationId, "interrupted"),
-      { concurrency: 1, discard: true },
-    ).pipe(Effect.zipRight(Scope.close(run.scope, Exit.void)));
+    return Scope.close(run.scope, Exit.void);
   });
 }
 

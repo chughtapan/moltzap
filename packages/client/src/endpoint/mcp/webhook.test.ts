@@ -343,6 +343,12 @@ const retriesAcrossRestart = () => {
   }).pipe(onSteppedClock);
 };
 
+/** Records every span the scenario finishes in `exporter`. */
+const tracedInto = (exporter: InMemorySpanExporter) =>
+  Effect.provide(
+    NodeSdk.layer(() => ({ spanProcessor: new SimpleSpanProcessor(exporter) })),
+  );
+
 /** The `webhook` marker spans `exporter` finished, in order. */
 const webhookMarkers = (exporter: InMemorySpanExporter) =>
   exporter
@@ -355,8 +361,9 @@ const webhookMarkers = (exporter: InMemorySpanExporter) =>
 
 /**
  * A delivery waiting out its backoff after a failed callback reads busy: the
- * daemon marks it pending, the daemon that retains it after a restart marks
- * it again, and its receipt settles it as delivered.
+ * daemon marks it pending and settles it as interrupted when it stops, the
+ * daemon that retains it after a restart marks it again, and its receipt
+ * settles it as delivered.
  * @returns The scenario.
  */
 const marksADeliveryBusyUntilItsReceipt = () => {
@@ -364,6 +371,12 @@ const marksADeliveryBusyUntilItsReceipt = () => {
   const exporter = new InMemorySpanExporter();
   const id = eventIdOf(token(1));
   const pending = { name: "retry.pending", kind: "webhook", id };
+  const settled = (outcome: string) => ({
+    name: "retry.settled",
+    kind: "webhook",
+    id,
+    outcome,
+  });
   return Effect.gen(function* () {
     yield* Effect.scoped(
       Effect.gen(function* () {
@@ -378,7 +391,7 @@ const marksADeliveryBusyUntilItsReceipt = () => {
         yield* events.observe();
       }),
     );
-    expect(webhookMarkers(exporter)).toEqual([pending]);
+    expect(webhookMarkers(exporter)).toEqual([pending, settled("interrupted")]);
     yield* stepClock("3 seconds");
     yield* Effect.scoped(
       Effect.gen(function* () {
@@ -391,17 +404,11 @@ const marksADeliveryBusyUntilItsReceipt = () => {
     );
     expect(webhookMarkers(exporter)).toEqual([
       pending,
+      settled("interrupted"),
       pending,
-      { name: "retry.settled", kind: "webhook", id, outcome: "delivered" },
+      settled("delivered"),
     ]);
-  }).pipe(
-    onSteppedClock,
-    Effect.provide(
-      NodeSdk.layer(() => ({
-        spanProcessor: new SimpleSpanProcessor(exporter),
-      })),
-    ),
-  );
+  }).pipe(onSteppedClock, tracedInto(exporter));
 };
 
 const resumesExhaustedCallbacks = () =>

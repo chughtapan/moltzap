@@ -1,7 +1,7 @@
 /** @file Builds the engine's `EngineOutbox`, the port the kernel declares. */
 
 import { SignedMessage } from "@moltzap/identity";
-import { Effect, Exit, Queue, Schedule } from "effect";
+import { Effect, Queue, Schedule } from "effect";
 import type { DisseminationObligation } from "../../store/index.js";
 import type {
   EndpointEngineInput,
@@ -24,7 +24,7 @@ import {
   signOuterPacket,
   type VerifiedMembership,
 } from "../wire/index.js";
-import { markRetries } from "./retry-markers.js";
+import { exitOutcome, markRetries } from "./retry-markers.js";
 
 /**
  * The outbox's mutable state. `queued` holds outbox identities in durable
@@ -174,12 +174,7 @@ function run(state: OutboxState): Effect.Effect<never, RouterWorkerSendError> {
         Schedule.whileInput(isTransientRouterWorkerError),
       ),
     ),
-    markRetries("outbound", "outbox", (exit) => {
-      if (Exit.isSuccess(exit)) {
-        return "sent";
-      }
-      return Exit.isInterrupted(exit) ? "interrupted" : "failed";
-    }),
+    markRetries("outbound", "outbox", (exit) => exitOutcome(exit, "sent")),
   );
   const drainWhenAttached = Effect.suspend(() =>
     state.queued.length === 0 ? Effect.void : attachedDrain,

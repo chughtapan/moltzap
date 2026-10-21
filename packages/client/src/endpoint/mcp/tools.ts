@@ -1069,6 +1069,7 @@ const acquireWebhook = (
     const context = yield* Layer.buildWithScope(webhookHttpClientLayer, scope);
     return yield* makeWebhookEvents(options.eventStore, gate).pipe(
       Effect.provide(context),
+      Scope.extend(scope),
       Effect.mapError(() => ({ reason: "persistence-failed" })),
     );
   });

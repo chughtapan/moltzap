@@ -5,7 +5,7 @@
  * the other.
  */
 
-import { Effect, type Exit } from "effect";
+import { Effect, Exit } from "effect";
 
 /**
  * What a marked wait does:
@@ -14,7 +14,7 @@ import { Effect, type Exit } from "effect";
  *   that takes over from them;
  * - `reanchor`: a restarted conversation's wait for its re-anchor;
  * - `outbound`: the outbox drain, including its waits for the Router;
- * - `check`: one firewall check;
+ * - `firewall-check`: one firewall check;
  * - `webhook`: a webhook delivery's retries.
  */
 export type RetryKind =
@@ -22,7 +22,7 @@ export type RetryKind =
   | "catch-up"
   | "reanchor"
   | "outbound"
-  | "check"
+  | "firewall-check"
   | "webhook";
 
 /**
@@ -49,11 +49,28 @@ export type RetryOutcome =
   | "failed";
 
 /**
+ * The outcome of a marked wait from its exit, once the caller has ruled out
+ * the outcomes only it can name.
+ * @param exit How the bracketed effect ended.
+ * @param succeeded The outcome when it succeeded.
+ * @returns `succeeded`, `interrupted`, or `failed` for a failure or defect.
+ */
+export function exitOutcome(
+  exit: Exit.Exit<unknown, unknown>,
+  succeeded: RetryOutcome,
+): RetryOutcome {
+  if (Exit.isSuccess(exit)) {
+    return succeeded;
+  }
+  return Exit.isInterrupted(exit) ? "interrupted" : "failed";
+}
+
+/**
  * Record the short `retry.pending` span that opens a marked wait.
  * @param kind What waits.
- * @param id What the wait is for: a post, conversation, check or delivery
- *     id, or `outbox`. A reader pairs pending and settled spans by count per
- *     kind and id, so a reused id pairs correctly.
+ * @param id What the wait is for: a post, conversation or delivery id, a
+ *     check's direction, or `outbox`. A reader pairs pending and settled
+ *     spans by count per kind and id, so a reused id pairs correctly.
  * @returns Completion once the span is recorded.
  */
 export function retryPending(kind: RetryKind, id: string): Effect.Effect<void> {
