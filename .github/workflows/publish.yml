@@ -26,16 +26,21 @@ name: Publish to npm
 # release App token and runs no repository code: it checks the release
 # commit `build` made, pushes it with its tag, and dispatches the resume.
 # `publish` holds the OIDC token and runs no install or build: it checks the
-# tarballs `build` packed against their checksums and publishes them.
+# tarballs `build` packed against the release commit's manifests and content
+# hashes and publishes them. A dependency compromised in both runs' builds
+# could still pack code the release commit's hashes describe; the split keeps
+# the tokens out of its reach.
 #
 # A rerun after a partial failure converges rather than minting a second
 # release. Before the release commit exists, the version is recomputed from
 # npm and the release tags (unchanged while nothing is published at it and
 # the UTC day has not turned). Once the release commit is on main, any run
 # finds it, checks out its tree, and publishes whatever manifest version
-# there npm still lacks, however many commits landed since; when main has
-# moved past the release commit, that run's provenance names the dispatched
-# commit instead. A release that can never complete is left behind by
+# there npm still lacks, however many commits landed since. A run on an
+# older commit while the release commit is still the tip, such as a rerun of
+# the bump run, dispatches a fresh run rather than publishing; once main has
+# moved past the release commit, the run publishes and its provenance names
+# the dispatched commit instead. A release that can never complete is left behind by
 # dispatching with `start_new_version`, which mints the next version from the
 # tip instead.
 on:
@@ -51,9 +56,11 @@ on:
 
 # Two releases must never interleave: both would compute the same version from
 # the same npm state and race to push its release commit and tag. The resume
-# run that a bump dispatches waits here until the bump run ends.
+# run that a bump dispatches waits here until the bump run ends. The group is
+# per ref, so a dispatch on another branch, which runs nothing, never replaces
+# a pending main run.
 concurrency:
-  group: publish
+  group: publish-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -82,6 +89,7 @@ jobs:
       mode: ${{ steps.plan.outputs.mode }}
       version: ${{ steps.plan.outputs.version }}
       packages: ${{ steps.select.outputs.packages }}
+      release-commit: ${{ steps.plan.outputs.release-commit }}
     steps:
       # Full history: the plan step looks for the last release commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -95,9 +103,12 @@ jobs:
 
       # The last release commit on main decides whether this run resumes it:
       # a manifest version there that npm still lacks is published from that
-      # commit's own tree. Otherwise the run releases the dispatched commit,
-      # which must still be the tip of main so that the release commit and
-      # npm's provenance describe one tree.
+      # commit's own tree. A run started on an older commit while the release
+      # commit is still the tip, such as a rerun of the bump run, only
+      # dispatches a fresh run, whose provenance then names the release
+      # commit. Otherwise the run releases the dispatched commit, which must
+      # still be the tip of main so that the release commit and npm's
+      # provenance describe one tree.
       - name: Decide whether this run bumps or resumes a release
         id: plan
         env:
@@ -129,10 +140,16 @@ jobs:
             if [ -n "$MISSING" ] && [ "$START_NEW_VERSION" = "true" ]; then
               echo "Abandoning release $VERSION from $RELEASE_COMMIT; not yet on npm: $MISSING"
             elif [ -n "$MISSING" ]; then
+              if [ "$RELEASE_COMMIT" != "$GITHUB_SHA" ] && [ "$(git rev-parse origin/main)" = "$RELEASE_COMMIT" ]; then
+                echo "Release $VERSION is at the tip but this run started on $GITHUB_SHA; dispatching a run on the release commit"
+                echo "mode=redispatch" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
               echo "Resuming release $VERSION from $RELEASE_COMMIT; not yet on npm: $MISSING"
               git checkout --quiet "$RELEASE_COMMIT"
               [ "$RELEASE_COMMIT" = "$GITHUB_SHA" ] || echo "::warning::main moved past the release commit $RELEASE_COMMIT; this run's provenance names $GITHUB_SHA"
               {
+                echo "release-commit=$RELEASE_COMMIT"
                 echo "mode=resume"
                 echo "version=$VERSION"
                 echo "packages=$MISSING"
@@ -154,17 +171,20 @@ jobs:
           echo "mode=bump" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - run: pnpm install --frozen-lockfile
+      - if: steps.plan.outputs.mode != 'redispatch'
+        run: pnpm install --frozen-lockfile
 
       # Package versions are never compiled into `dist`, so the build does not
       # depend on which packages the selection later moves to the version.
       - name: Build all packages
+        if: steps.plan.outputs.mode != 'redispatch'
         run: pnpm build
 
       # Recorded before the content hash, so the hash covers it. A resume
       # writes only the key the release commit's manifest already holds, so
       # its content hash is unchanged.
       - name: Record emitted wire version in published Identity metadata
+        if: steps.plan.outputs.mode != 'redispatch'
         working-directory: packages/identity
         env:
           MODE: ${{ steps.plan.outputs.mode }}
@@ -183,6 +203,7 @@ jobs:
       # it installs from npm to that package's manifest version, so a checkout
       # of the release tag runs what that tag published.
       - name: Choose the packages this run publishes
+        if: steps.plan.outputs.mode != 'redispatch'
         id: select
         env:
           MODE: ${{ steps.plan.outputs.mode }}
@@ -358,10 +379,33 @@ jobs:
           git bundle verify --quiet "$BUNDLE"
           git fetch --quiet "$BUNDLE" "refs/tags/v$VERSION:refs/tags/v$VERSION"
           COMMIT=$(git rev-parse "refs/tags/v$VERSION^{commit}")
-          [ "$(git rev-parse "$COMMIT^")" = "$GITHUB_SHA" ] || { echo "ERROR: the release commit's parent is not $GITHUB_SHA"; exit 1; }
+          [ "$(git show -s --format=%P "$COMMIT")" = "$GITHUB_SHA" ] || { echo "ERROR: the release commit's only parent is not $GITHUB_SHA"; exit 1; }
           [ "$(git log -1 --format=%s "$COMMIT")" = "chore(release): moltzap@$VERSION" ] || { echo "ERROR: unexpected release commit subject"; exit 1; }
-          UNEXPECTED=$(git diff --name-only "$GITHUB_SHA" "$COMMIT" | grep -vE '^(packages/[^/]+/package\.json|examples/two-agents/package\.json|pnpm-lock\.yaml|CHANGELOG\.md|changelog\.d/.*|docs/.*|packages/.*/MODULE\.md|README\.md)$' || true)
-          [ -z "$UNEXPECTED" ] || { printf 'ERROR: the release commit touches files a release never writes:\n%s\n' "$UNEXPECTED"; exit 1; }
+          # Every change, read raw without rename detection: regular files
+          # only, deletions only of changelog fragments, paths only those a
+          # release writes.
+          git diff --raw --no-renames -z "$GITHUB_SHA" "$COMMIT" > "$RUNNER_TEMP/changes"
+          node --input-type=module - "$RUNNER_TEMP/changes" <<'JS'
+          import { readFileSync } from "node:fs";
+          const fields = readFileSync(process.argv[2], "latin1").split("\0");
+          const written = /^(packages\/[^/]+\/package\.json|examples\/two-agents\/package\.json|pnpm-lock\.yaml|CHANGELOG\.md|docs\/.+\.mdx?|packages\/.+\/MODULE\.md|README\.md)$/;
+          const problems = [];
+          for (let i = 0; i + 1 < fields.length; i += 2) {
+            const [, newMode, , , status] = fields[i].split(/[ \t]/);
+            const file = fields[i + 1];
+            if (status === "D") {
+              if (!/^changelog\.d\/[^/]+\.md$/.test(file)) problems.push(`deletes ${file}`);
+            } else if (newMode !== "100644") {
+              problems.push(`${file} has mode ${newMode}`);
+            } else if (!written.test(file)) {
+              problems.push(`writes ${file}`);
+            }
+          }
+          if (problems.length > 0) {
+            console.error(`ERROR: the release commit does what a release never does:\n${problems.join("\n")}`);
+            process.exit(1);
+          }
+          JS
           # A manifest is what npm installs, so a release may change only the
           # fields a release writes: the version, the recorded hashes and wire
           # version, and the versions of @moltzap dependencies.
@@ -407,10 +451,12 @@ jobs:
       contents: read
       id-token: write
     steps:
-      # Only for `.node-version` and `scripts/release/npm-version-exists.sh`;
-      # nothing here installs dependencies or builds.
+      # For `.node-version`, the release scripts, and the release commit's
+      # manifests, which name what each tarball must be; nothing here
+      # installs dependencies or builds.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       # The repository Node pin ships npm >=11.5 for OIDC trusted publishing.
@@ -424,30 +470,56 @@ jobs:
           name: tarballs
           path: ${{ runner.temp }}/tarballs
 
+      # `build` ran installed dependencies, so its tarballs are checked
+      # against the release commit before any is published: each holds the
+      # name and version that commit's manifest gives and hashes to the
+      # content hash that manifest records. A packed `publishConfig` could
+      # point npm, and the OIDC token exchange, at another registry or
+      # proxy, so a tarball carrying one is refused.
       - name: Publish every selected package not yet on npm at this version
         env:
           VERSION: ${{ needs.build.outputs.version }}
           PACKAGES: ${{ needs.build.outputs.packages }}
+          RELEASE_COMMIT: ${{ needs.build.outputs.release-commit }}
         run: |
           echo "npm version: $(npm --version)"
           test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" || {
             echo "ERROR: GitHub OIDC token request env is missing; check id-token: write permissions"
             exit 1
           }
+          [ "$(git log -1 --format=%s "$RELEASE_COMMIT")" = "chore(release): moltzap@$VERSION" ] || {
+            echo "ERROR: $RELEASE_COMMIT is not the release commit of $VERSION"
+            exit 1
+          }
           OUT="$RUNNER_TEMP/tarballs"
           (cd "$OUT" && sha256sum --check --strict --quiet SHA256SUMS)
-          # Every tarball is checked before the first publish, so a drifted
-          # one cannot leave the release half-published.
           for pkg in $PACKAGES; do
             ENTRY=$(awk -F '\t' -v p="$pkg" '$1 == p' "$OUT/packages.tsv")
-            read -r _ NAME FILE <<<"$ENTRY"
+            read -r _ _ FILE <<<"$ENTRY"
             [ -n "${FILE:-}" ] && [ -f "$OUT/$FILE" ] || { echo "ERROR: no tarball packed for $pkg"; exit 1; }
-            PACKED=$(tar -xOzf "$OUT/$FILE" package/package.json | jq -r '"\(.name)@\(.version)"')
-            [ "$PACKED" = "$NAME@$VERSION" ] || { echo "ERROR: $FILE holds $PACKED, expected $NAME@$VERSION"; exit 1; }
+            RELEASED=$(git show "$RELEASE_COMMIT:packages/$pkg/package.json")
+            EXPECTED="$(jq -r .name <<<"$RELEASED")@$(jq -r .version <<<"$RELEASED")"
+            PACKED_MANIFEST=$(tar -xOzf "$OUT/$FILE" package/package.json)
+            PACKED=$(jq -r '"\(.name)@\(.version)"' <<<"$PACKED_MANIFEST")
+            [ "$EXPECTED" = "$PACKED" ] && [ "$PACKED" = "${EXPECTED%@*}@$VERSION" ] || {
+              echo "ERROR: $FILE holds $PACKED, but the release commit names $EXPECTED at $VERSION"
+              exit 1
+            }
+            jq -e 'has("publishConfig") | not' >/dev/null <<<"$PACKED_MANIFEST" || {
+              echo "ERROR: $FILE carries a publishConfig"
+              exit 1
+            }
+            RECORDED=$(jq -r '.sharnessContentHash // ""' <<<"$RELEASED")
+            ACTUAL=$(node scripts/release/content-hash.ts --tarball "$OUT/$FILE")
+            [ -n "$RECORDED" ] && [ "$RECORDED" = "$ACTUAL" ] || {
+              echo "ERROR: $FILE hashes to $ACTUAL, but the release commit recorded '$RECORDED'"
+              exit 1
+            }
           done
           for pkg in $PACKAGES; do
             ENTRY=$(awk -F '\t' -v p="$pkg" '$1 == p' "$OUT/packages.tsv")
-            read -r _ NAME FILE <<<"$ENTRY"
+            read -r _ _ FILE <<<"$ENTRY"
+            NAME=$(git show "$RELEASE_COMMIT:packages/$pkg/package.json" | jq -r .name)
             STATUS=0
             scripts/release/npm-version-exists.sh "${NAME}@${VERSION}" || STATUS=$?
             if [ "$STATUS" -eq 0 ]; then
@@ -456,5 +528,19 @@ jobs:
             fi
             [ "$STATUS" -eq 1 ] || exit "$STATUS"
             echo "Publishing ${NAME}@${VERSION}..."
-            npm publish "$OUT/$FILE" --access public --provenance
+            npm publish "$OUT/$FILE" --access public --provenance --registry https://registry.npmjs.org/
           done
+
+  # A run started on an older commit than the release commit at the tip only
+  # starts the run that publishes it.
+  redispatch:
+    needs: build
+    if: needs.build.outputs.mode == 'redispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch a run on the release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref main
