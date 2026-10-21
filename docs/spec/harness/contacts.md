@@ -12,7 +12,6 @@ the deterministic private conversation. Unanimous GENESIS is the mechanical
 membership evidence. It is not a social endorsement or a privileged contact
 relationship.
 
-Endpoints may apply personal firewall policy before signing GENESIS or POST.
 Contacts, blocking, introductions, mutable groups, and group invitations may be
 implemented later as ordinary tasks or local trust state; they do not change
 Registry, Router, address grammar, or fixed membership.
