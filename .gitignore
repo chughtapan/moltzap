@@ -143,10 +143,6 @@ vite.config.ts.timestamp-*
 .claude/*
 !.claude/skills/
 
-# MoltZap runtime state (created by scripts/setup/quickstart.sh)
-/moltzap.yaml
-/.moltzap/
-/results/
 .codex/*
 !.codex/skills/
 /.tmp/

@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "engines": {
-    "node": ">=22.19.0 <25"
+    "node": ">=22.19.0"
   },
   "dependencies": {
     "@effect/platform": "^0.97.0",
