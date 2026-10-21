@@ -145,7 +145,7 @@ it(
 );
 
 const endpointRefusal =
-  "OTEL_EXPORTER_OTLP_ENDPOINT and OTEL_EXPORTER_OTLP_TRACES_ENDPOINT must be http or https URLs";
+  "The OTLP traces URL, OTEL_EXPORTER_OTLP_TRACES_ENDPOINT or else OTEL_EXPORTER_OTLP_ENDPOINT, must be an http or https URL";
 
 it(
   "refuses an OTLP endpoint that is not an http or https URL at startup",
