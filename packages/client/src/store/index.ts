@@ -51,7 +51,6 @@ export type {
   StoredAnchor,
   StoredMembership,
   StoredOutboundMessage,
-  StoredSendAttempt,
   StoreMutation,
 } from "./types.js";
 /** Stable opaque durable-delivery identity. */

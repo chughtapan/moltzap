@@ -56,7 +56,6 @@ export interface HarnessEndpoint {
     input: SendInput,
     options?: Readonly<{
       failureDelivery?: FailureDelivery;
-      idempotencyKey?: string;
     }>,
   ) => Effect.Effect<
     SendResult,

@@ -370,8 +370,7 @@ that destination, is the default, gather asks each member a question and
 collects one answer each, and all_gather asks a group one question and gives
 every member the same answers at the close. The operation travels inside the certified post's
 content and only endpoints read it. Every post is new, with a fresh
-Client-minted opaque `PostId`; hosts can explicitly identify transport retries
-of one invocation with an optional idempotency key. A
+Client-minted opaque `PostId`. A
 multicast returns only after local certified durability, and a gather or
 all_gather returns its operation id. Messages yield inbound items tagged by kind; a multicast
 item carries verified author, canonical address, content, and exact group

@@ -29,15 +29,12 @@ import type { CollectiveError } from "../../transport/collectives/forms.js";
 import type { SendError } from "../../transport/messaging/errors.js";
 import {
   checkHarnessSendResult,
-  decodeHarnessReadSendRequest,
   type DeliveryOperations,
   type EventStore,
   type HarnessAcknowledgeDeliveryRequest,
   harnessAcknowledgeDeliveryRequestSchema,
   type HarnessReadInboxRequest,
   type HarnessReadInboxResult,
-  type HarnessReadSendRequest,
-  type HarnessReadSendResult,
   type HarnessSendArguments,
   type HarnessSendErrorData,
   type HarnessSendResult,
@@ -73,7 +70,6 @@ import {
   HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
   HARNESS_READ_EVENT_TOOL,
   HARNESS_READ_INBOX_TOOL,
-  HARNESS_READ_SEND_TOOL,
   HARNESS_SEND_TOOL,
 } from "./names.js";
 import {
@@ -104,8 +100,6 @@ import {
   harnessFailureReasons,
   harnessReadInboxRequestJsonSchema,
   harnessReadInboxResultJsonSchema,
-  harnessReadSendRequestJsonSchema,
-  harnessReadSendResultJsonSchema,
   harnessSendArgumentsJsonSchema,
   harnessSendResultJsonSchema,
   validationIssues,
@@ -261,12 +255,6 @@ const readInboxInput = makeStandardSchema<HarnessReadInboxRequest>(
 );
 const readInboxOutput = makeStandardSchema<HarnessReadInboxResult>(
   harnessReadInboxResultJsonSchema,
-);
-const readSendInput = makeStandardSchema<HarnessReadSendRequest>(
-  harnessReadSendRequestJsonSchema,
-);
-const readSendOutput = makeStandardSchema<HarnessReadSendResult>(
-  harnessReadSendResultJsonSchema,
 );
 const {
   RUNTIME_READ_REASONS,
@@ -511,12 +499,6 @@ const toolListings = {
     inputSchema: readInboxInput,
     outputSchema: readInboxOutput,
   },
-  [HARNESS_READ_SEND_TOOL]: {
-    description:
-      "Look up the retained state and outcome of a send by its runtime idempotency key.",
-    inputSchema: readSendInput,
-    outputSchema: readSendOutput,
-  },
   [HARNESS_SEND_TOOL]: {
     description:
       "Send one multicast, gather, all_gather, or collective response to an agent or fixed-member group.",
@@ -559,7 +541,6 @@ const activeTools = [
   SEARCH_CONVERSATIONS_TOOL,
   READ_CONVERSATION_TOOL,
   HARNESS_READ_INBOX_TOOL,
-  HARNESS_READ_SEND_TOOL,
   HARNESS_SEND_TOOL,
   HARNESS_READ_EVENT_TOOL,
   HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
@@ -665,26 +646,6 @@ const handleSendToolCall = async (
     input.name,
   );
 };
-
-// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits argument decoding and the Promise-native operation bridge.
-const handleReadSendToolCall = async (
-  input: ToolCallInput,
-  operations: HarnessMcpOperations,
-) =>
-  await runValidatedOperation(readSendOutput, input.name, {
-    operation: operations.readSend(
-      await decodeInvocationInput(
-        decodeHarnessReadSendRequest(input.toolArguments),
-        input.signal,
-        input.requestScope,
-        input.services,
-      ),
-    ),
-    label: "Send lookup",
-    allowedReasons: RUNTIME_READ_REASONS,
-    fallbackReason: "persistence-failed",
-    ...requestRuntime(input),
-  });
 
 const POLICY_REASONS = new Set([
   "not-configured",
@@ -883,7 +844,6 @@ const toolHandlers = {
       fallbackReason: "persistence-failed",
     },
   ),
-  [HARNESS_READ_SEND_TOOL]: handleReadSendToolCall,
   [HARNESS_SEND_TOOL]: handleSendToolCall,
   [HARNESS_READ_EVENT_TOOL]: makeToolHandler(
     readEventInput,

@@ -188,17 +188,12 @@ function callSend(
         {
           name: HARNESS_SEND_TOOL,
           arguments: { input },
-          ...(options === undefined
+          ...(options?.failureDelivery === undefined
             ? {}
             : {
                 _meta: {
                   [HARNESS_SEND_META_KEY]: {
-                    ...(options.idempotencyKey === undefined
-                      ? {}
-                      : { idempotencyKey: options.idempotencyKey }),
-                    ...(options.failureDelivery === undefined
-                      ? {}
-                      : { failureDelivery: options.failureDelivery }),
+                    failureDelivery: options.failureDelivery,
                   },
                 },
               }),

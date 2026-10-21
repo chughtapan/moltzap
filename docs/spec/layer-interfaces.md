@@ -220,9 +220,8 @@ The stable Client invariants are:
 - every send is one collective operation, multicast by default, that names an
   explicit `agent:` or `group:` address, or one response to a collective
   request, and every post it creates has a new Client-minted identity;
-- internal recovery resumes a persisted intent. A new keyless call or a
-  different invocation key starts another invocation; same-key retries follow
-  the [retained-outcome contract](./harness/output.md#semantic-send);
+- internal recovery resumes a persisted intent, and a new call starts another
+  invocation;
 - GENESIS is unanimous and ordinary POST uses author-inclusive `q(n)` action
   certification;
 - a multicast or response returns only after local certified durability, and

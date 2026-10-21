@@ -24,57 +24,18 @@ import {
 
 const token = Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", 1));
 
-function retainsInvocationAndEventState() {
-  const path = stateDirectory();
-  const input = bytes('{"input":{"text":"hello","to":"agent:bob"}}');
-  const outcome = bytes('{"kind":"success","result":{}}');
-  const eventState = bytes('{"subscription":"private"}');
-  return Effect.gen(function* () {
-    yield* withStore(path, (store) =>
-      Effect.gen(function* () {
-        expect(yield* store.beginSendAttempt("finished", input)).toBe(
-          "inserted",
-        );
-        yield* store.finishSendAttempt("finished", outcome);
-        yield* store.beginSendAttempt("interrupted", input);
-        yield* store.writeEventState(eventState);
-      }),
-    );
-    yield* withStore(path, (store) =>
-      Effect.gen(function* () {
-        expect(yield* store.beginSendAttempt("finished", input)).toBe(
-          "existing",
-        );
-        expect(yield* store.readSendAttempt("finished")).toEqual({
-          canonicalInput: input,
-          canonicalOutcome: outcome,
-        });
-        expect(yield* store.readSendAttempt("interrupted")).toEqual({
-          canonicalInput: input,
-        });
-        expect(yield* store.readEventState()).toEqual(eventState);
-        const conflict = yield* store
-          .beginSendAttempt("finished", outcome)
-          .pipe(Effect.flip);
-        expect(conflict.reason).toBe("conflict");
-      }),
-    );
-  });
-}
-
 const identity = {
   agentId: "agent:alice",
   canonicalAgentCard: new Uint8Array([1, 2, 3]),
 };
 const { foundation, record } = storedConversation("restart");
-const sendInput = bytes('{"input":{"text":"hello","to":"agent:bob"}}');
 const eventState = bytes('{"subscription":"private"}');
 const inboxItem = bytes('{"kind":"operationFailed"}');
 
 /**
  * Give the store Alice's identity, one certified conversation with a pending
  * delivery, a proposal lock, a post intent and a queued envelope, plus the
- * host's inbox, invocation and event state, and return the queued envelope's
+ * host's inbox and event state, and return the queued envelope's
  * outbox identity.
  */
 const seedState = (store: EndpointStore) =>
@@ -106,7 +67,6 @@ const seedState = (store: EndpointStore) =>
       wireVersion: WIRE_VERSION,
       canonicalSignedMessage: bytes("plaintext outer envelope"),
     });
-    yield* store.beginSendAttempt("before-restart", sendInput);
     yield* store.writeEventState(eventState);
     yield* store.putInboxItem({
       deliveryToken: token,
@@ -138,9 +98,6 @@ function preservesStateAcrossRestart() {
       Effect.gen(function* () {
         expect(yield* store.readIdentity()).toEqual(identity);
         expect(yield* store.recover()).toEqual(before);
-        expect(yield* store.readSendAttempt("before-restart")).toEqual({
-          canonicalInput: sendInput,
-        });
         expect(yield* store.readEventState()).toEqual(eventState);
         expect((yield* store.readInbox()).items[0]?.canonicalItem).toEqual(
           inboxItem,
@@ -397,10 +354,6 @@ describe("endpoint runtime state", () => {
   it(
     "invalidates interrupted checks while preserving unresolved intent evidence",
     invalidatesInterruptedChecks,
-  );
-  it(
-    "retains completed and interrupted invocations and event state across restart",
-    retainsInvocationAndEventState,
   );
   it(
     "reports creation and reopening without changing stored identity",

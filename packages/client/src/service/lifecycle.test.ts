@@ -742,7 +742,6 @@ const listsToolsAfterACancelledRegister = () =>
       "read_conversation",
       "read_event",
       "read_inbox",
-      "read_send",
       "search_agents",
       "search_conversations",
       "send_message",

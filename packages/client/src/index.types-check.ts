@@ -15,10 +15,9 @@
  * instructions names a settled expectation or an unsettled norm judgment's
  * choice and probability. A send returns a collecting operation's id and
  * its check's guidance, and fails with a closed send reason or a
- * collective failure. Optional invocation identity preserves a retried send without
- * executing a new collective operation. The exported send-result decoder
- * yields that same result type. Adapters compile against this surface,
- * so any change these canaries catch is a breaking release.
+ * collective failure. The exported send-result decoder yields that same
+ * result type. Adapters compile against this surface, so any change these
+ * canaries catch is a breaking release.
  */
 
 import type { DateTime, Effect, Either, Scope, Stream, Types } from "effect";
@@ -201,7 +200,6 @@ type ExpectedEndpoint = Readonly<{
     input: SendInput,
     options?: Readonly<{
       failureDelivery?: "result" | "inbound";
-      idempotencyKey?: string;
     }>,
   ) => Effect.Effect<
     SendResult,
@@ -281,7 +279,6 @@ type SendReasonsAreExact = Expect<
     | "persistence-failed"
     | "network-unavailable"
     | "delivery-pending"
-    | "idempotency-conflict"
     | "outcome-unknown"
   >
 >;

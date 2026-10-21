@@ -53,7 +53,6 @@ import {
   offerPendingMessages,
   type PendingOffer,
 } from "./pass.js";
-import { makeSendInvocations } from "./send-invocations.js";
 
 /**
  * The collective layer as delivery uses it: the application send, which
@@ -403,11 +402,6 @@ export const makeHostDelivery = (
       activeConversations: new Set(),
     };
     yield* recoverRuntimeInbox(input.store, input.firewall !== undefined);
-    const invocations = yield* makeSendInvocations(
-      input.store,
-      sendOperation(input),
-      input.scope,
-    );
     const eventStore: EventStore = {
       ...input.store,
       readInbox: (bounds) => readWebhookInbox(input, bounds),
@@ -424,7 +418,7 @@ export const makeHostDelivery = (
       runAdmission: (publish: Effect.Effect<void>) =>
         runAdmission(admissionContext(input), publish),
       operations: Object.freeze({
-        ...invocations,
+        send: sendOperation(input),
         readInboxSummary: input.store.readInboxSummary,
         readEvent: ({ eventId }: { readonly eventId: string }) =>
           input.collectives() === undefined

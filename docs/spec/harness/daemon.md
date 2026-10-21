@@ -156,8 +156,8 @@ The one SQLite database uses WAL and schema version 9. It stores identity
 binding, address/member resolution, durable post intents, proposal locks,
 membership, cards, anchors, record cores, retained signature evidence,
 durability votes, certified heads, catch-up/re-anchor state, and pending
-delivery acknowledgment, classified runtime inbox items and tombstones, keyed
-send invocation outcomes, and the webhook subscription and pending callback.
+delivery acknowledgment, classified runtime inbox items and tombstones, and the
+webhook subscription and pending callback.
 Message-policy installations also use a private incoming queue with each
 result's provenance, an evidence revision, retained check inputs/results,
 editable English rules, activation records, the local evidence admitted
@@ -241,7 +241,7 @@ After registration, the trusted-local and owner catalogs include:
 - `search_conversations` and `read_conversation` using canonical addresses;
 - adapter-only `send_message`, which performs one operation or one collective
   response;
-- native runtime `acknowledge_delivery`, `read_inbox`, `read_event` and `read_send`; and
+- native runtime `acknowledge_delivery`, `read_inbox` and `read_event`; and
 - owner `event_subscription_status`, `revoke_event_subscription` and
   `resume_event_subscription`.
 

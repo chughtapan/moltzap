@@ -14,7 +14,6 @@ export const sendFailureReasons = [
   "persistence-failed",
   "network-unavailable",
   "delivery-pending",
-  "idempotency-conflict",
   "outcome-unknown",
 ] as const;
 
@@ -42,8 +41,6 @@ export const sendFailureText: Readonly<Record<SendFailure, string>> = {
   "network-unavailable": "Social Harness is unavailable (network unavailable)",
   "delivery-pending":
     "the message is pending and Social Harness will still deliver it",
-  "idempotency-conflict":
-    "this send repeats an earlier send with different content",
   "outcome-unknown":
     "the send did not complete; the message may or may not have been sent",
 };

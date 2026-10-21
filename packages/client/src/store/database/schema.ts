@@ -391,11 +391,6 @@ const runtimeSchemaSql = `
     acknowledged INTEGER NOT NULL DEFAULT 0 CHECK (acknowledged IN (0, 1))
   ) STRICT;
   CREATE INDEX runtime_inbox_unread ON runtime_inbox(sequence) WHERE acknowledged = 0;
-  CREATE TABLE runtime_sends (
-    invocation_key TEXT PRIMARY KEY,
-    canonical_input BLOB NOT NULL,
-    canonical_outcome BLOB
-  ) STRICT;
   CREATE TABLE runtime_events (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     canonical_state BLOB NOT NULL

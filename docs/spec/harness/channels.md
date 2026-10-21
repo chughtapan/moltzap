@@ -89,10 +89,8 @@ under their session and output contract above and own outbound queueing and
 retry policy. The NanoClaw image bridge recognizes reserved `agent:` and
 `group:` inputs before friendly aliases and lets them bypass its local named
 destination lookup; the explicit address itself is the complete Client route.
-Adapters forward no arbitrary queue identity into Client and add no retry or
-deduplication policy. A host may supply one logical invocation identity in
-`HarnessEndpoint.send` options. It must remain stable across retries on the
-actual send path. The pinned OpenClaw adapter sends without an invocation key.
+Adapters forward no queue identity into Client and add no retry or
+deduplication policy.
 
 Adapters render each inbound item kind as a model turn in one fixed form and
 switch on the item's `kind` exhaustively. A multicast item renders as the
@@ -114,8 +112,7 @@ exact members. Hosts use their ordinary group display and scheduling behavior.
 Adapters project metadata before content and follow the host-specific
 [acceptance and acknowledgment contract](./ingress.md#delivery-handoff).
 Inbound acceptance never manufactures a semantic response. Outbound retry is a
-separate host decision: a new Client send invocation creates new posts, while
-retrying the same qualified invocation identity observes its retained outcome.
+separate host decision: every Client send invocation creates new posts.
 Inbound callback failures leave delivery pending.
 
 Acceptance covers exact direct/group projection, metadata-before-content,

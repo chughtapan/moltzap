@@ -31,15 +31,10 @@ import {
   setGlobalDispatcher,
 } from "undici";
 import { describe, expect } from "vitest";
-import type { HarnessEndpoint } from "../harness-endpoint/capability.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { localGuidance } from "../../__tests__/message-policy-fixtures.js";
 import { readRuntimeEvent } from "../../delivery/inbox.js";
-import {
-  eventIdOf,
-  type HarnessSendRequest,
-} from "../../delivery/operations.js";
-import { makeSendInvocations } from "../../delivery/send-invocations.js";
+import { eventIdOf } from "../../delivery/operations.js";
 import { FirewallSendError } from "../../firewall/runtime.js";
 import {
   DeliveryToken,
@@ -75,7 +70,6 @@ const operations: HarnessMcpOperations = {
   readInboxSummary: () =>
     Effect.succeed({ pendingCount: 0, newestSequence: 0 }),
   readInbox: () => Effect.succeed({ items: [] }),
-  readSend: () => Effect.succeed({ state: "absent" }),
   readStatus: () => Effect.succeed({ kind: "unregistered" }),
   register: () => unusedOperation,
   searchAgents: () => unusedOperation,
@@ -108,6 +102,7 @@ function acquireBoundaryServer(
 }
 
 function acquireProtocolClient(port: number, name: string) {
+  // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- scopedLive's `it` supplies the test scope that releases it.
   return Effect.acquireRelease(
     Effect.gen(function* () {
       const client = new Client(
@@ -483,6 +478,7 @@ const reportsOutcomeUnknownWhenTheConnectionDropsMidSend = () =>
  * @returns The scoped routing.
  */
 function routeRequestsThrough(dispatcher: Dispatcher) {
+  // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- scopedLive's `it` supplies the test scope that releases it.
   return Effect.acquireRelease(
     Effect.sync(() => {
       const previous = getGlobalDispatcher();
@@ -569,7 +565,7 @@ const keepsARefusedConnectionNetworkUnavailable = () =>
   });
 
 function acquireSendEndpoint(
-  selected: Pick<HarnessMcpOperations, "protocolActive" | "send" | "readSend">,
+  selected: Pick<HarnessMcpOperations, "protocolActive" | "send">,
 ) {
   return Effect.gen(function* () {
     const { port } = yield* acquireBoundaryServer({
@@ -582,164 +578,14 @@ function acquireSendEndpoint(
   });
 }
 
-function observeInvocations(directory: string) {
-  return Effect.gen(function* () {
-    const store = yield* openEndpointStore(directory, {
-      liveWireVersions: LIVE_WIRE_VERSIONS,
-    });
-    const scope = yield* Scope.Scope;
-    const started = yield* Deferred.make<undefined>();
-    const retried = yield* Deferred.make<undefined>();
-    const complete = yield* Deferred.make<undefined>();
-    const executed: HarnessSendRequest[] = [];
-    let attempts = 0;
-    const invocations = yield* makeSendInvocations(
-      store,
-      (input) =>
-        Effect.sync(() => {
-          executed.push(input);
-        }).pipe(
-          Effect.zipRight(Deferred.succeed(started, undefined)),
-          Effect.zipRight(Deferred.await(complete)),
-          Effect.as(sendResult),
-        ),
-      scope,
-    );
-    const send: HarnessMcpOperations["send"] = (input) =>
-      Effect.sync(() => {
-        attempts += 1;
-      }).pipe(
-        Effect.zipRight(
-          Effect.suspend(() =>
-            attempts > 1 ? Deferred.succeed(retried, undefined) : Effect.void,
-          ),
-        ),
-        Effect.zipRight(invocations.send(input)),
-      );
-    return {
-      started,
-      retried,
-      complete,
-      executed,
-      send,
-      readSend: invocations.readSend,
-    };
-  });
-}
-
-const runtimeOptions = {
-  idempotencyKey: "runtime-call",
-  failureDelivery: "inbound",
-} as const;
-
-function checksSendConflicts(endpoint: HarnessEndpoint) {
-  return Effect.gen(function* () {
-    for (const idempotencyKey of ["", "bad\u0000key", "é".repeat(65)]) {
-      const failure = yield* endpoint
-        .send(sendInput, { idempotencyKey })
-        .pipe(Effect.flip);
-      expect(failure).toMatchObject({ reason: "content-invalid" });
-      expect(
-        "issues" in failure && failure.issues?.map(({ path }) => path),
-      ).toContainEqual([HARNESS_SEND_META_KEY, "idempotencyKey"]);
-    }
-    expect(
-      yield* endpoint
-        .send(sendInput, { ...runtimeOptions, failureDelivery: "result" })
-        .pipe(Effect.flip),
-    ).toMatchObject({ reason: "idempotency-conflict" });
-    expect(
-      yield* endpoint
-        .send({ ...sendInput, text: "changed" }, runtimeOptions)
-        .pipe(Effect.flip),
-    ).toMatchObject({ reason: "idempotency-conflict" });
-    yield* endpoint.send(sendInput, { idempotencyKey: "intentional-repeat" });
-    yield* endpoint.send(sendInput);
-  });
-}
-
-function checksRuntimeRetries(directory: string) {
-  return Effect.gen(function* () {
-    const observed = yield* observeInvocations(directory);
-    const endpoint = yield* acquireSendEndpoint({
-      ...observed,
-      protocolActive: () => true,
-    });
-    const hostOptions = { ...runtimeOptions, hostContext: "stays in the host" };
-    const lost = yield* endpoint
-      .send(sendInput, hostOptions)
-      .pipe(Effect.forkScoped);
-    yield* Deferred.await(observed.started);
-    const retry = yield* endpoint
-      .send(sendInput, runtimeOptions)
-      .pipe(Effect.forkScoped);
-    yield* Deferred.await(observed.retried);
-    yield* Fiber.interrupt(lost);
-    yield* Deferred.succeed(observed.complete, undefined);
-    expect(yield* Fiber.join(retry)).toEqual(sendResult);
-    expect(observed.executed).toEqual([
-      { input: sendInput, ...runtimeOptions },
-    ]);
-    yield* checksSendConflicts(endpoint);
-    expect(observed.executed).toEqual([
-      { input: sendInput, ...runtimeOptions },
-      { input: sendInput, idempotencyKey: "intentional-repeat" },
-      { input: sendInput },
-    ]);
-  });
-}
-
-function checksRetainedRuntimeSend(directory: string) {
-  return Effect.gen(function* () {
-    const store = yield* openEndpointStore(directory, {
-      liveWireVersions: LIVE_WIRE_VERSIONS,
-    });
-    const scope = yield* Scope.Scope;
-    const invocations = yield* makeSendInvocations(
-      store,
-      () => unusedOperation,
-      scope,
-    );
-    const endpoint = yield* acquireSendEndpoint({
-      ...invocations,
-      protocolActive: () => true,
-    });
-    expect(yield* endpoint.send(sendInput, runtimeOptions)).toEqual(sendResult);
-  });
-}
-
-/** The real SDK and overridden dispatcher must preserve options before durable reservation. */
-function preservesRuntimeInvocationMetadata() {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const directory = yield* fs.makeTempDirectoryScoped();
-    yield* Effect.scoped(checksRuntimeRetries(directory));
-    yield* Effect.scoped(checksRetainedRuntimeSend(directory));
-  }).pipe(Effect.provide(NodeFileSystem.layer));
-}
-
 const invalidSendCalls = [
-  { arguments: { input: sendInput, idempotencyKey: "model-key" } },
   { arguments: { input: sendInput, failureDelivery: "inbound" } },
-  {
-    arguments: { input: sendInput, idempotencyKey: "model-key" },
-    _meta: {
-      [HARNESS_SEND_META_KEY]: { idempotencyKey: "runtime-key" },
-    },
-  },
-  ...[
-    null,
-    [],
-    "key",
-    { idempotencyKey: "" },
-    { idempotencyKey: "x\u0000y" },
-    { idempotencyKey: "é".repeat(65) },
-    { failureDelivery: "other" },
-    { unexpected: true },
-  ].map((metadata) => ({
-    arguments: { input: sendInput },
-    _meta: { [HARNESS_SEND_META_KEY]: metadata },
-  })),
+  ...[null, [], "key", { failureDelivery: "other" }, { unexpected: true }].map(
+    (metadata) => ({
+      arguments: { input: sendInput },
+      _meta: { [HARNESS_SEND_META_KEY]: metadata },
+    }),
+  ),
 ];
 
 const checksSemanticSendSchema = (client: Client) =>
@@ -814,12 +660,12 @@ function rejectsSendBookkeepingArguments() {
         arguments: { input: sendInput },
         _meta: {
           "another.example/trace": { id: "independent" },
-          [HARNESS_SEND_META_KEY]: { idempotencyKey: "é".repeat(64) },
+          [HARNESS_SEND_META_KEY]: { failureDelivery: "inbound" },
         },
       }),
     );
     expect(executed).toEqual([
-      { input: sendInput, idempotencyKey: "é".repeat(64) },
+      { input: sendInput, failureDelivery: "inbound" },
     ]);
   });
 }
@@ -877,10 +723,6 @@ describe("Harness MCP HTTP boundary", () => {
     readsRetainedEventThroughSdk,
   );
   it(
-    "preserves runtime send identity through retries, conflicts and restart",
-    preservesRuntimeInvocationMetadata,
-  );
-  it(
     "rejects bookkeeping in model arguments and validates runtime metadata",
     rejectsSendBookkeepingArguments,
     MCP_TRACE_TIMEOUT_MS,
@@ -924,7 +766,6 @@ function preservesFirewallRefusal() {
     });
     const endpoint = yield* acquireSendEndpoint({
       protocolActive: () => true,
-      readSend: operations.readSend,
       send: () => Effect.fail(refusal),
     });
     const error = yield* Effect.flip(endpoint.send(sendInput));

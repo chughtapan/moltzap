@@ -19,7 +19,6 @@ import {
   scriptedWebhook,
 } from "../../__tests__/webhook-fixtures.js";
 import { openEndpointStore } from "../../store/index.js";
-import { HARNESS_SEND_META_KEY } from "./names.js";
 import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
@@ -46,7 +45,6 @@ const operations: HarnessMcpOperations = {
   readInbox: () => Effect.succeed({ items: [] }),
   readInboxSummary: () =>
     Effect.succeed({ pendingCount: 0, newestSequence: 0 }),
-  readSend: () => Effect.succeed({ state: "absent" }),
   acknowledgeDelivery: unreachable,
 };
 const eventStore: EventStore = {
@@ -115,7 +113,6 @@ const decodeJson = Schema.decodeUnknown(Schema.parseJson(Schema.Unknown));
 const noCredential = Redacted.make("");
 const deniedTools = [
   "read_inbox",
-  "read_send",
   "acknowledge_delivery",
   "read_conversation",
   "search_conversations",
@@ -128,11 +125,6 @@ const deniedTools = [
 const rejectedBearers = [
   { bearer: "no", credential: "" },
   { bearer: "a wrong", credential: "wrong" },
-];
-const invalidIdempotencyKeys = [
-  { key: "an empty", idempotencyKey: "" },
-  { key: "a control-character", idempotencyKey: "x\u0000y" },
-  { key: "an oversized", idempotencyKey: "é".repeat(65) },
 ];
 const unknownEvent = {
   name: "read_event",
@@ -164,7 +156,6 @@ const registrationStates = [
       "read_conversation",
       "read_event",
       "read_inbox",
-      "read_send",
       "resume_event_subscription",
       "revoke_event_subscription",
       "search_agents",
@@ -177,7 +168,6 @@ const registrationStates = [
       "read_conversation",
       "read_event",
       "read_inbox",
-      "read_send",
       "search_agents",
       "search_conversations",
       "send_message",
@@ -432,7 +422,7 @@ const unlistedCalls = [
   {
     caller: "the owner credential",
     state: "unregistered",
-    name: "read_send",
+    name: "read_inbox",
     given: () => credentialedHandler(false),
     credential: credentials.owner,
   },
@@ -476,10 +466,10 @@ const admittedCalls = [
   },
   {
     caller: "the owner credential",
-    name: "read_send",
-    toolArguments: { idempotencyKey: "retried-send" },
+    name: "read_inbox",
+    toolArguments: {},
     credential: credentials.owner,
-    answer: { state: "absent" },
+    answer: { items: [] },
   },
 ];
 
@@ -534,7 +524,7 @@ const ownerResumeIsRefusedThenRevokeRetiresAStalledWebhook = () =>
 
 // @agent-code-guard/regression-only: each admitted tool must reach the operation its name documents.
 describe("calls a caller's catalog lists", () => {
-  // Value: protects=runtime search_agents and owner read_send answer from their own operations; fails_when=the tool dispatch keys either name to another handler or operation; why_new=the other read_send and search_agents tests stop at input decoding or call the operations object directly; seam=none
+  // Value: protects=runtime search_agents and owner read_inbox answer from their own operations; fails_when=the tool dispatch keys either name to another handler or operation; why_new=the other read_inbox and search_agents tests stop at input decoding or call the operations object directly; seam=none
   it.each(admittedCalls)(
     "answers $name for $caller from its operation",
     ({ name, toolArguments, credential, answer }) =>
@@ -554,43 +544,6 @@ describe("calls a caller's catalog lists", () => {
     ownerResumeIsRefusedThenRevokeRetiresAStalledWebhook,
   );
 });
-
-describe.each(invalidIdempotencyKeys)(
-  "tunneled MCP invocation identity with $key key",
-  ({ idempotencyKey }) => {
-    it("refuses the runtime credential's send_message", () =>
-      verify(
-        credentialedHandler(true),
-        (handler) =>
-          callTool(
-            handler,
-            {
-              name: "send_message",
-              arguments: { input: { to: "agent:bob", text: "probe" } },
-              _meta: { [HARNESS_SEND_META_KEY]: { idempotencyKey } },
-            },
-            credentials.runtime,
-          ),
-        (body) => {
-          expect(body).toMatchObject({ error: { code: -32602 } });
-        },
-      ));
-
-    it("refuses the owner credential's read_send", () =>
-      verify(
-        credentialedHandler(true),
-        (handler) =>
-          callTool(
-            handler,
-            { name: "read_send", arguments: { idempotencyKey } },
-            credentials.owner,
-          ),
-        (body) => {
-          expect(body).toMatchObject({ error: { code: -32602 } });
-        },
-      ));
-  },
-);
 
 describe("tunneled MCP event reads for a registered daemon", () => {
   it.each(rejectedBearers)(

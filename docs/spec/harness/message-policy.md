@@ -254,17 +254,15 @@ an all_gather's deadline produces before its group post certifies, and one
 returned under `failureDelivery: "inbound"` when the send fails after admission,
 for example as `delivery-pending`, and its error arrives as an
 `operationFailed` item. The native and MCP
-send results carry the same `guidance` field, a keyed retry returns it with the
-retained outcome, and OpenClaw returns it in the message tool's result.
+send results carry the same `guidance` field, and OpenClaw returns it in the
+message tool's result.
 
 An error before admission means the candidate created no send intent. The agent
 can revise and issue a new invocation, which runs the full chain. Client does
 not rewrite the draft, automatically retry, wait for a human on the send call
 or submit a later approval on the agent's behalf.
 
-Existing idempotency remains: a keyed retry returns its retained outcome, and
-changed input under the same key fails. A fresh attempt after revision or new
-evidence is a new invocation. Once an intent is bound, existing
+A fresh attempt after revision or new evidence is a new invocation. Once an intent is bound, existing
 delivery-pending/outcome-unknown and protocol recovery semantics take over;
 policy code cannot report that already pending send as an unsent refusal.
 
@@ -335,8 +333,7 @@ can still delay the call.
 
 A firewall refusal is always the send's own failure, returned on the tool
 call, even when the host routes failures inbound. Client never authors,
-declines or retries on the agent's behalf, and a keyed retry replays the
-retained refusal.
+declines or retries on the agent's behalf.
 
 ### Incoming collective checks
 
@@ -389,7 +386,6 @@ each context carries the time it was captured.
 - Peer content reaches the runtime unchanged and attributed, or as an
   explicit `withheld` value; guidance is never peer content.
 - A refusal is a typed send failure before any send intent binds.
-- A retry under the same invocation key replays the retained outcome.
 - Hosts carry messages, guidance and errors only.
 - A daemon with no firewall installed runs none of these checks: a
   received request opens at once, and every post binds as it is sent.
