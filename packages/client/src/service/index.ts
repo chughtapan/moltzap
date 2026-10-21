@@ -1,6 +1,6 @@
 /** @file Production composition for one explicitly configured endpoint daemon. */
 
-import { NodeSdk } from "@effect/opentelemetry";
+import * as NodeSdk from "@effect/opentelemetry/NodeSdk";
 import { NodeHttpClient } from "@effect/platform-node";
 import { wireVersions } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
@@ -45,16 +45,40 @@ const ROUTER_POLL_TIMEOUT = Duration.seconds(35);
 
 const liveWireVersions = wireVersions.liveSet;
 
+/** An empty variable reads as unset, as OpenTelemetry's own exporter reads it. */
 const spanExportSettings = Config.all({
-  endpoint: Config.option(Config.string("OTEL_EXPORTER_OTLP_ENDPOINT")),
-  protocol: Config.string("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL").pipe(
-    Config.orElse(() => Config.string("OTEL_EXPORTER_OTLP_PROTOCOL")),
+  endpoint: Config.option(Config.nonEmptyString("OTEL_EXPORTER_OTLP_ENDPOINT")),
+  protocol: Config.nonEmptyString("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL").pipe(
+    Config.orElse(() => Config.nonEmptyString("OTEL_EXPORTER_OTLP_PROTOCOL")),
     Config.withDefault("http/protobuf"),
   ),
-  serviceName: Config.string("OTEL_SERVICE_NAME").pipe(
-    Config.withDefault("sharnessd"),
+  serviceName: Config.option(Config.nonEmptyString("OTEL_SERVICE_NAME")),
+  resourceAttributes: Config.nonEmptyString("OTEL_RESOURCE_ATTRIBUTES").pipe(
+    Config.withDefault(""),
   ),
 });
+
+/**
+ * The resource's service name. The resource layer lets an explicit name
+ * override both standard variables, so the default applies only when neither
+ * names one.
+ * @param settings The span export settings read from the environment.
+ * @returns `OTEL_SERVICE_NAME`, else a `service.name` in
+ *     `OTEL_RESOURCE_ATTRIBUTES` split the way the resource layer splits it,
+ *     else `sharnessd`.
+ */
+function spanServiceName(
+  settings: Config.Config.Success<typeof spanExportSettings>,
+): string {
+  const attributed = settings.resourceAttributes
+    .split(",")
+    .map((attribute) => attribute.split("="))
+    .find((parts) => parts.length === 2 && parts[0]?.trim() === "service.name");
+  return Option.getOrElse(
+    settings.serviceName,
+    () => attributed?.[1]?.trim() ?? "sharnessd",
+  );
+}
 
 /**
  * Exports every span the daemon records as OTLP/HTTP protobuf while
@@ -77,12 +101,12 @@ const spanExport: Layer.Layer<never, DaemonConfigurationError> =
         return yield* new DaemonConfigurationError({
           reason: "environment",
           message:
-            "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL and OTEL_EXPORTER_OTLP_PROTOCOL support only http/protobuf",
+            "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL and OTEL_EXPORTER_OTLP_PROTOCOL support only http/protobuf. Docs: https://opentelemetry.io/docs/specs/otel/protocol/exporter/#specify-protocol",
         });
       }
       return NodeSdk.layer(() => ({
         resource: {
-          serviceName: settings.serviceName,
+          serviceName: spanServiceName(settings),
           serviceVersion: packageVersion,
         },
         spanProcessor: new BatchSpanProcessor(new OTLPTraceExporter()),

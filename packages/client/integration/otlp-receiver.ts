@@ -1,10 +1,10 @@
 /** @file Test-only OTLP/HTTP receiver that decodes the protobuf trace exports daemons send it. */
 
-import { Duration, Effect, Ref, Schema, type Scope } from "effect";
+import { Cause, Duration, Effect, Ref, Schema, type Scope } from "effect";
 import type { Buffer } from "node:buffer";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import protobuf from "protobufjs";
-import type { ProcessTestError } from "./daemon-process-harness.js";
+import { ProcessTestError } from "./daemon-process-harness.js";
 import {
   acquireLoopbackServer,
   LOOPBACK_HOST,
@@ -14,6 +14,12 @@ import {
 const TRACES_PATH = "/v1/traces";
 const PROTOBUF_CONTENT_TYPE = "application/x-protobuf";
 const SPAN_POLL_INTERVAL = Duration.millis(100);
+
+/**
+ * How long a wait for spans lasts before it fails naming what did arrive,
+ * well inside every test's own limit.
+ */
+const SPAN_WAIT_LIMIT = Duration.minutes(2);
 
 /**
  * The fields of opentelemetry-proto's `ExportTraceServiceRequest` the tests
@@ -83,6 +89,8 @@ export interface OtlpReceiver {
   readonly connections: Effect.Effect<number>;
   /** Every span received, in arrival order. */
   readonly spans: Effect.Effect<readonly ExportedSpan[]>;
+  /** Each request the receiver refused, as its method, path and content type, or why it failed to decode. */
+  readonly rejected: Effect.Effect<readonly string[]>;
 }
 
 const AnyValue = Schema.Struct({
@@ -156,6 +164,7 @@ function decodeSpans(body: Buffer): readonly ExportedSpan[] {
  */
 const handle = (
   spans: Ref.Ref<readonly ExportedSpan[]>,
+  rejected: Ref.Ref<readonly string[]>,
   incoming: IncomingMessage,
   response: ServerResponse,
 ) =>
@@ -166,7 +175,10 @@ const handle = (
         incoming.url !== TRACES_PATH ||
         incoming.headers["content-type"] !== PROTOBUF_CONTENT_TYPE
       ) {
-        return Effect.sync(() => response.writeHead(415).end());
+        const request = `${incoming.method} ${incoming.url} ${incoming.headers["content-type"]}`;
+        return Ref.update(rejected, (current) => [...current, request]).pipe(
+          Effect.zipRight(Effect.sync(() => response.writeHead(415).end())),
+        );
       }
       const received = decodeSpans(body);
       return Ref.update(spans, (current) => [...current, ...received]).pipe(
@@ -179,13 +191,17 @@ const handle = (
         ),
       );
     }),
-    Effect.catchAllCause(() =>
-      Effect.sync(() => {
-        if (!response.headersSent) {
-          response.writeHead(400);
-        }
-        response.end();
-      }),
+    Effect.catchAllCause((cause) =>
+      Ref.update(rejected, (current) => [...current, Cause.pretty(cause)]).pipe(
+        Effect.zipRight(
+          Effect.sync(() => {
+            if (!response.headersSent) {
+              response.writeHead(400);
+            }
+            response.end();
+          }),
+        ),
+      ),
     ),
   );
 
@@ -196,9 +212,10 @@ export const acquireOtlpReceiver: Effect.Effect<
   Scope.Scope
 > = Effect.gen(function* () {
   const spans = yield* Ref.make<readonly ExportedSpan[]>([]);
+  const rejected = yield* Ref.make<readonly string[]>([]);
   const connections = yield* Ref.make(0);
   const { server, port } = yield* acquireLoopbackServer((incoming, response) =>
-    handle(spans, incoming, response),
+    handle(spans, rejected, incoming, response),
   );
   server.on("connection", () => {
     Effect.runSync(Ref.update(connections, (count) => count + 1));
@@ -207,12 +224,14 @@ export const acquireOtlpReceiver: Effect.Effect<
     endpoint: new URL(`http://${LOOPBACK_HOST}:${port}`),
     connections: Ref.get(connections),
     spans: Ref.get(spans),
+    rejected: Ref.get(rejected),
   };
 });
 
 /**
- * Polls the receiver until `ready` holds for the spans received so far. The
- * test's own limit bounds the wait.
+ * Polls the receiver until `ready` holds for the spans received so far.
+ * After {@link SPAN_WAIT_LIMIT} it fails, naming every span and refused
+ * request that did arrive.
  * @param receiver The receiver daemons export to.
  * @param ready What the received spans must show.
  * @returns The spans received when `ready` first held.
@@ -220,8 +239,22 @@ export const acquireOtlpReceiver: Effect.Effect<
 export const awaitSpans = (
   receiver: OtlpReceiver,
   ready: (spans: readonly ExportedSpan[]) => boolean,
-): Effect.Effect<readonly ExportedSpan[]> =>
+): Effect.Effect<readonly ExportedSpan[], ProcessTestError> =>
   Effect.sleep(SPAN_POLL_INTERVAL).pipe(
     Effect.zipRight(receiver.spans),
     Effect.repeat({ until: ready }),
+    Effect.timeout(SPAN_WAIT_LIMIT),
+    Effect.catchTag("TimeoutException", () =>
+      Effect.all([receiver.spans, receiver.rejected]).pipe(
+        Effect.flatMap(([spans, rejected]) =>
+          Effect.fail(
+            new ProcessTestError({
+              message: `the awaited spans never arrived; received ${JSON.stringify(
+                spans.map(({ name, attributes }) => ({ name, attributes })),
+              )}; refused ${JSON.stringify(rejected)}`,
+            }),
+          ),
+        ),
+      ),
+    ),
   );

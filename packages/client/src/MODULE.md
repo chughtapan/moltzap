@@ -649,11 +649,11 @@ as a norm judgment the decision provider left unsettled.
 
 ### `@moltzap/client/service`
 
-#### [`Daemon`](./service/index.ts#L124)
+#### [`Daemon`](./service/index.ts#L148)
 
 _Namespace_
 
-#### [`Daemon.StartupError`](./service/index.ts#L138)
+#### [`Daemon.StartupError`](./service/index.ts#L162)
 
 _Class_
 
@@ -690,7 +690,7 @@ _Class_
 
 Closed startup phase with sanitized configuration details.
 
-#### [`Daemon.FirewallOptions`](./service/index.ts#L129)
+#### [`Daemon.FirewallOptions`](./service/index.ts#L153)
 
 _TypeAlias_
 
@@ -706,7 +706,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-#### [`Daemon.help`](./service/index.ts#L126)
+#### [`Daemon.help`](./service/index.ts#L150)
 
 _Variable_
 
@@ -716,7 +716,7 @@ _Variable_
 
 Usage text listing the daemon process's environment variables.
 
-#### [`Daemon.layer`](./service/index.ts#L220)
+#### [`Daemon.layer`](./service/index.ts#L244)
 
 _Variable_
 
@@ -728,7 +728,7 @@ _Variable_
 
 Complete production process composition for `sharnessd`.
 
-#### [`Daemon.withFirewall`](./service/index.ts#L229)
+#### [`Daemon.withFirewall`](./service/index.ts#L253)
 
 _Function_
 

@@ -1,9 +1,19 @@
 /**
- * @file Who a gather's request posts go to, the posts while they are sent,
- * and how each one is settled when the requester stops waiting.
+ * @file Who a gather's request posts go to, how long its send waits for
+ * them, the posts while they are sent, and how each one is settled when the
+ * requester stops waiting.
  */
 
-import { Effect, Either, Exit, Fiber, Option, Schema } from "effect";
+import {
+  Clock,
+  Duration,
+  Effect,
+  Either,
+  Exit,
+  Fiber,
+  Option,
+  Schema,
+} from "effect";
 import type { EngineSentPost } from "../messaging/index.js";
 import type { CollectiveOperation } from "./forms.js";
 import type { Members } from "./shared-answers.js";
@@ -76,6 +86,56 @@ export function gatherAddress(
         ? Effect.fail(membershipInvalid)
         : Effect.succeed({ to: canonical.address, members: [first, ...rest] });
     }),
+  );
+}
+
+/**
+ * How long a collecting operation's send waits for its request posts before
+ * returning. A gather's request still uncertified then is left running: its
+ * member answers or is reported as no-answer at the deadline. An all_gather's
+ * one group post must be certified by then, or the all_gather cannot start:
+ * a cold group's GENESIS needs every member. The bound stays under the MCP
+ * SDK's request timeout so a waiting host receives the result rather than a
+ * transport timeout. It runs from the send's start, so a firewall's check of
+ * the operation comes out of it.
+ */
+const REQUEST_SEND_WAIT = Duration.seconds(20);
+
+/**
+ * An operation's absolute deadline, and when its send stops waiting for
+ * request posts.
+ * @param deadlineSeconds The operation's deadline, in seconds from now.
+ * @returns Both times in milliseconds since the epoch.
+ */
+export function operationTimes(deadlineSeconds: number): Effect.Effect<{
+  readonly deadlineAt: number;
+  readonly waitUntil: number;
+}> {
+  return Clock.currentTimeMillis.pipe(
+    Effect.map((now) => {
+      const untilDeadline = Duration.toMillis(
+        Duration.seconds(deadlineSeconds),
+      );
+      return {
+        deadlineAt: now + untilDeadline,
+        waitUntil:
+          now + Math.min(Duration.toMillis(REQUEST_SEND_WAIT), untilDeadline),
+      };
+    }),
+  );
+}
+
+/**
+ * How long a send still waits for request posts: until its wait ends, never
+ * past the deadline.
+ * @param waitUntil When the send stops waiting, from {@link operationTimes}.
+ * @returns The remaining wait, zero once it has passed.
+ */
+export function requestWait(
+  waitUntil: number,
+): Effect.Effect<Duration.Duration> {
+  return Clock.currentTimeMillis.pipe(
+    Effect.map((now) => Duration.millis(Math.max(0, waitUntil - now))),
   );
 }
 

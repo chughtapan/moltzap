@@ -7,6 +7,7 @@ import { Effect, Stream } from "effect";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
+import { acquireOtlpReceiver } from "./otlp-receiver.js";
 
 const binary = fileURLToPath(new URL("../bin/sharnessd", import.meta.url));
 const processName = "sharnessd";
@@ -93,19 +94,66 @@ it(
   15_000,
 );
 
+const protocolRefusal =
+  "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL and OTEL_EXPORTER_OTLP_PROTOCOL support only http/protobuf";
+
 it(
   "refuses an OTLP trace protocol other than http/protobuf at startup",
   () =>
     Effect.gen(function* () {
+      const receiver = yield* acquireOtlpReceiver;
       const result = yield* runProcess([], {
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:4318",
+        OTEL_EXPORTER_OTLP_ENDPOINT: receiver.endpoint.origin,
         OTEL_EXPORTER_OTLP_PROTOCOL: "grpc",
       });
       expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain(
-        "OTEL_EXPORTER_OTLP_PROTOCOL support only http/protobuf",
-      );
+      expect(result.stderr).toContain(protocolRefusal);
       expect(result.stdout).toBe("");
+    }),
+  15_000,
+);
+
+it(
+  "refuses a traces-only OTLP protocol other than http/protobuf at startup",
+  () =>
+    Effect.gen(function* () {
+      const receiver = yield* acquireOtlpReceiver;
+      const result = yield* runProcess([], {
+        OTEL_EXPORTER_OTLP_ENDPOINT: receiver.endpoint.origin,
+        OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "grpc",
+      });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain(protocolRefusal);
+    }),
+  15_000,
+);
+
+it(
+  "lets the traces protocol override the general one",
+  () =>
+    Effect.gen(function* () {
+      const receiver = yield* acquireOtlpReceiver;
+      const result = yield* runProcess([], {
+        OTEL_EXPORTER_OTLP_ENDPOINT: receiver.endpoint.origin,
+        OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf",
+        OTEL_EXPORTER_OTLP_PROTOCOL: "grpc",
+      });
+      expect(result.stderr).not.toContain(protocolRefusal);
+      expect(result.stderr).toContain(`${requiredVariable} is required`);
+    }),
+  15_000,
+);
+
+it(
+  "treats an empty OTLP endpoint as unset",
+  () =>
+    Effect.gen(function* () {
+      const result = yield* runProcess([], {
+        OTEL_EXPORTER_OTLP_ENDPOINT: "",
+        OTEL_EXPORTER_OTLP_PROTOCOL: "grpc",
+      });
+      expect(result.stderr).not.toContain(protocolRefusal);
+      expect(result.stderr).toContain(`${requiredVariable} is required`);
     }),
   15_000,
 );

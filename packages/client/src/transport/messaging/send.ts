@@ -52,6 +52,7 @@ import {
   catchUpRetrySchedule,
   markRetries,
   pendingRecoveryFence,
+  type RetryOutcome,
 } from "./recovery/index.js";
 
 /**
@@ -395,7 +396,7 @@ function resendOutcome(
   runtime: EngineRuntime,
   proposal: AuthorizedProposal,
   exit: Exit.Exit<unknown>,
-): string {
+): RetryOutcome {
   const { action, actionHash } = proposal;
   if (Exit.isFailure(exit)) {
     return Exit.isInterrupted(exit) ? "interrupted" : "failed";

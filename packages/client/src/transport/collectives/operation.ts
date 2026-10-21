@@ -148,10 +148,12 @@ import {
   gatherAddress,
   isAddressRefusal,
   lookupRefusals,
+  operationTimes,
   postRefusal,
   type RequestRefusal,
   type RequestSend,
   requestsSoFar,
+  requestWait,
 } from "./request-sends.js";
 import {
   type CertifiedAnswer,
@@ -178,18 +180,6 @@ type CollectingValue = Extract<
 >;
 
 type CloseValue = Extract<CollectiveValue, { readonly kind: "close" }>;
-
-/**
- * How long a collecting operation's send waits for its request posts before
- * returning. A gather's request still uncertified then is left running: its
- * member answers or is reported as no-answer at the deadline. An all_gather's
- * one group post must be certified by then, or the all_gather cannot start:
- * a cold group's GENESIS needs every member. The bound stays under the MCP
- * SDK's request timeout so a waiting host receives the result rather than a
- * transport timeout. It runs from the send's start, so a firewall's check of
- * the operation comes out of it.
- */
-const REQUEST_SEND_WAIT = Duration.seconds(20);
 
 /**
  * The longest single sleep a deadline timer takes. A JavaScript timer longer
@@ -225,6 +215,8 @@ interface CollectiveState {
   readonly ports: CollectivePorts;
   readonly gathers: Map<CollectiveId, OpenGather>;
   readonly requests: Map<CollectiveId, ReceivedRequest>;
+  /** Operations that recorded `collective.opened` and still owe `collective.closed`. */
+  readonly announced: Set<CollectiveId>;
 }
 
 const contentInvalid = () => new SendError({ reason: "content-invalid" });
@@ -244,6 +236,7 @@ export const makeCollectiveOperations = (
     ports,
     gathers: new Map(),
     requests: new Map(),
+    announced: new Set(),
   };
   return {
     send: (input, failureDelivery) =>
@@ -370,7 +363,7 @@ function prepareGather(
     yield* refuseAddressErrors(state, members).pipe(
       Effect.mapError((failure) => refused(collectiveFailure(id, failure))),
     );
-    const { deadlineAt, waitUntil } = yield* operationTimes(operation);
+    const { deadlineAt, waitUntil } = yield* operationTimes(operation.deadline);
     const content = yield* encodeCollectiveContent(
       {
         kind: "operation",
@@ -393,22 +386,6 @@ function prepareGather(
     };
     return { id, open, content, deadlineAt, waitUntil };
   });
-}
-
-/** An operation's absolute deadline, and when its send stops waiting for request posts. */
-function operationTimes(operation: CollectingOperation) {
-  return Clock.currentTimeMillis.pipe(
-    Effect.map((now) => {
-      const untilDeadline = Duration.toMillis(
-        Duration.seconds(operation.deadline),
-      );
-      return {
-        deadlineAt: now + untilDeadline,
-        waitUntil:
-          now + Math.min(Duration.toMillis(REQUEST_SEND_WAIT), untilDeadline),
-      };
-    }),
-  );
 }
 
 /**
@@ -543,7 +520,7 @@ function sendRequests(
       { concurrency: 1 },
     );
     yield* Fiber.awaitAll(sends).pipe(
-      Effect.timeoutOption(yield* requestWait(prepared)),
+      Effect.timeoutOption(yield* requestWait(prepared.waitUntil)),
     );
     const { posts, refused } = yield* requestsSoFar(sends);
     const [refusal, ...refusals] = refused;
@@ -629,7 +606,7 @@ function sendGroupRequest(
 ): Effect.Effect<CollectiveSendOutcome, OperationRefusal> {
   const { id, open } = prepared;
   const hold = openGather(state, prepared, true).pipe(
-    Effect.as(forgetGather(state, id)),
+    Effect.as(releaseGather(state, id)),
   );
   return bindAuthoredPost(
     state,
@@ -639,6 +616,7 @@ function sendGroupRequest(
     Effect.catchTag("SendError", (error) =>
       abandonGroupRequest(state, prepared, error),
     ),
+    Effect.tapError(() => forgetGather(state, id)),
     Effect.mapError(refuseOperation(id, open.to)),
     Effect.flatMap(({ certified, guidance }) =>
       withinRequestWait(prepared, certified).pipe(
@@ -659,7 +637,7 @@ function withinRequestWait(
   prepared: PreparedGather,
   certified: AdmittedPost["certified"],
 ) {
-  return requestWait(prepared).pipe(
+  return requestWait(prepared.waitUntil).pipe(
     Effect.flatMap((duration) =>
       Effect.timeoutFail(certified, {
         duration,
@@ -699,10 +677,12 @@ function abandonGroupRequest(
  * engine's uninterruptible bind hold, so the timer is made interruptible
  * explicitly: abandoning the operation must be able to stop it. An
  * operation whose deadline passed while a firewall checked it is refused as
- * `deadline-passed` instead: nothing posts, and no result follows. Opening
- * records a short `collective.opened` span with the operation's id, op and
- * absolute `deadlineAt`, so a trace reader can hold the operation open until
- * its `collective.closed` span or that deadline.
+ * `deadline-passed` instead: nothing posts, and no result follows. The first
+ * opening records a short `collective.opened` span with the operation's id, op
+ * and absolute `deadlineAt`, so a trace reader can hold the operation open
+ * until its `collective.closed` span. A stale firewall check gives an
+ * all_gather's bind hold up and takes it again, which reopens the operation
+ * without a second span.
  */
 function openGather(
   state: CollectiveState,
@@ -721,13 +701,19 @@ function openGather(
       Effect.interruptible,
       Effect.forkIn(state.ports.scope),
     );
-    yield* Effect.sync(() => {
+    const firstOpening = yield* Effect.sync(() => {
       state.gathers.set(prepared.id, {
         ...prepared.open,
         timer,
         requestsSettled,
       });
+      const first = !state.announced.has(prepared.id);
+      state.announced.add(prepared.id);
+      return first;
     });
+    if (!firstOpening) {
+      return;
+    }
     yield* Effect.withSpan(Effect.void, "collective.opened", {
       captureStackTrace: false,
       attributes: {
@@ -739,42 +725,53 @@ function openGather(
   });
 }
 
-/** How long a send still waits for request posts: until its wait ends, never past the deadline. */
-function requestWait(
-  prepared: PreparedGather,
-): Effect.Effect<Duration.Duration> {
-  return Clock.currentTimeMillis.pipe(
-    Effect.map((now) => Duration.millis(Math.max(0, prepared.waitUntil - now))),
+/** Drop an operation this endpoint abandons, and stop its deadline timer. */
+function forgetGather(
+  state: CollectiveState,
+  id: CollectiveId,
+): Effect.Effect<void> {
+  return releaseGather(state, id).pipe(
+    Effect.zipRight(markClosed(state, id, "refused")),
   );
 }
 
-/** Drop an operation this endpoint abandons, and stop its deadline timer. */
-function forgetGather(
+/**
+ * Drop an operation and stop its deadline timer, leaving its spans open: a
+ * stale bind gives its hold up this way and takes it again.
+ */
+function releaseGather(
   state: CollectiveState,
   id: CollectiveId,
 ): Effect.Effect<void> {
   return Effect.suspend(() => {
     const open = state.gathers.get(id);
     state.gathers.delete(id);
-    return open === undefined
-      ? Effect.void
-      : Effect.zipRight(Fiber.interrupt(open.timer), markClosed(id, "refused"));
-  });
-}
-
-/**
- * Record a short `collective.closed` span for an operation that opened: its
- * result was emitted (`completed`), its all_gather close was not certified
- * (`failed`), or it was abandoned after opening (`refused`).
- */
-function markClosed(id: CollectiveId, outcome: ClosedOutcome) {
-  return Effect.withSpan(Effect.void, "collective.closed", {
-    captureStackTrace: false,
-    attributes: { operationId: id, outcome },
+    return open === undefined ? Effect.void : Fiber.interrupt(open.timer);
   });
 }
 
 type ClosedOutcome = "completed" | "failed" | "refused";
+
+/**
+ * Record a short `collective.closed` span, once, for an operation that
+ * recorded `collective.opened`: its result was emitted (`completed`); its
+ * all_gather close was not certified, or its result or failure could not be
+ * kept (`failed`); or it was abandoned after opening (`refused`).
+ */
+function markClosed(
+  state: CollectiveState,
+  id: CollectiveId,
+  outcome: ClosedOutcome,
+): Effect.Effect<void> {
+  return Effect.suspend(() =>
+    state.announced.delete(id)
+      ? Effect.withSpan(Effect.void, "collective.closed", {
+          captureStackTrace: false,
+          attributes: { operationId: id, outcome },
+        })
+      : Effect.void,
+  );
+}
 
 /**
  * Complete an operation this endpoint started. A gather emits its result
@@ -803,9 +800,17 @@ function completeGather(
     };
     switch (open.op) {
       case "gather":
-        return markClosed(id, "completed").pipe(
-          Effect.zipRight(state.ports.emit(result, countedProvenance(open))),
-        );
+        return state.ports
+          .emit(result, countedProvenance(open))
+          .pipe(
+            Effect.onExit((exit) =>
+              markClosed(
+                state,
+                id,
+                Exit.isSuccess(exit) ? "completed" : "failed",
+              ),
+            ),
+          );
       case "all_gather":
         return closeAllGather(state, open, result).pipe(
           Effect.forkIn(state.ports.scope),
@@ -841,19 +846,29 @@ function closeAllGather(
   }).pipe(
     Effect.mapError(contentInvalid),
     Effect.flatMap((content) => state.ports.sendPost({ to: open.to, content })),
-    Effect.onExit((exit) =>
-      markClosed(result.id, Exit.isSuccess(exit) ? "completed" : "failed"),
-    ),
     Effect.matchEffect({
       onFailure: (error) =>
-        state.ports.emit({
-          kind: "operationFailed",
-          id: result.id,
-          to: open.to,
-          error: closeFailureText(error),
-        }),
-      onSuccess: () => state.ports.emit(result, countedProvenance(open)),
+        state.ports
+          .emit({
+            kind: "operationFailed",
+            id: result.id,
+            to: open.to,
+            error: closeFailureText(error),
+          })
+          .pipe(Effect.as<ClosedOutcome>("failed")),
+      onSuccess: () =>
+        state.ports
+          .emit(result, countedProvenance(open))
+          .pipe(Effect.as<ClosedOutcome>("completed")),
     }),
+    Effect.onExit((exit) =>
+      markClosed(
+        state,
+        result.id,
+        Exit.isSuccess(exit) ? exit.value : "failed",
+      ),
+    ),
+    Effect.asVoid,
   );
 }
 

@@ -113,12 +113,28 @@ export const catchUpRetrySchedule = Schedule.exponential(catchUpRetryBase).pipe(
 );
 
 /**
- * Bracket retries on {@link catchUpRetrySchedule} with two short spans: one
- * `retry.pending` when they start and one `retry.settled` with their outcome
- * when they end, each carrying `kind` and `id`. Attempts can be minutes apart
- * and emit nothing between them, so a trace reader counts the daemon busy
- * from one span to the other. Every pending span gets exactly one settled
- * span, however the retries end.
+ * How a bracketed retry schedule ended, as its `retry.settled` span's
+ * `outcome`: a proposal was `certified` or `superseded`, a conversation
+ * `recovered`, the attempts ran out (`gave-up`), the engine or a replacing
+ * arm ended them (`interrupted`), or a store read or defect did (`failed`).
+ */
+export type RetryOutcome =
+  | "certified"
+  | "superseded"
+  | "recovered"
+  | "gave-up"
+  | "interrupted"
+  | "failed";
+
+/**
+ * Bracket retries on {@link catchUpRetrySchedule}, or the recovery a quorum
+ * takes over from them, with two short spans: one `retry.pending` when they
+ * start and one `retry.settled` with their outcome when they end, each
+ * carrying `kind` and `id`. Attempts can be minutes apart and emit nothing
+ * between them, so a trace reader counts the daemon busy from one span to the
+ * other. Every pending span gets exactly one settled span, however the
+ * retries end; a reader pairs them by count, since a re-armed conversation or
+ * a re-proposed post reuses its id.
  * @param kind What is retried: an author's proposal or a conversation's catch-up.
  * @param id The proposal's post id, or the catch-up's conversation id.
  * @param outcome How the retries ended, named from their exit.
@@ -127,7 +143,7 @@ export const catchUpRetrySchedule = Schedule.exponential(catchUpRetryBase).pipe(
 export function markRetries<A, E, R>(
   kind: "proposal" | "catch-up",
   id: string,
-  outcome: (exit: Exit.Exit<A, E>) => string,
+  outcome: (exit: Exit.Exit<A, E>) => RetryOutcome,
 ): (retries: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R> {
   const attributes = { kind, id };
   return (retries) =>
@@ -676,7 +692,8 @@ function armCatchUp(
  * quorum of answers settle a position that waited for every member. A
  * position a quorum already settles recovers on its own fiber in the run's
  * scope: recovering the conversation removes this retry fiber, which it could
- * not do from inside it.
+ * not do from inside it. That recovery is bracketed as catch-up of its own,
+ * so a trace reader keeps the conversation busy until it ends.
  * @param run Recovery run that holds the conversation.
  * @param conversationId Conversation to catch up.
  * @returns The retries, ending once any settled position's recovery started.
@@ -698,6 +715,9 @@ function retryCatchUp(
     Effect.flatMap((settled) =>
       settled
         ? run.catchUp.onPositionReady(conversationId).pipe(
+            markRetries("catch-up", conversationId, (exit) =>
+              catchUpOutcome(run, conversationId, exit),
+            ),
             Effect.catchAll(() =>
               Effect.logWarning(
                 "Catch-up did not settle on a quorum: the endpoint store failed",
@@ -730,7 +750,7 @@ function catchUpOutcome(
   run: RecoveryRun,
   conversationId: ConversationIdValue,
   exit: Exit.Exit<unknown, unknown>,
-): string {
+): RetryOutcome {
   if (run.completedConversations.has(conversationId)) {
     return "recovered";
   }

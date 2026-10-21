@@ -27,8 +27,8 @@ import { acquireRouterHoldProxy } from "./router-hold-proxy.js";
 /**
  * Each test starts PGlite, the Registry, the Router and two or three
  * daemons; the marker trace also waits out one all_gather's 20 s request
- * wait and a proposal's next resend. The limit is the only wall-clock bound
- * the traces set themselves, apart from the silence window.
+ * wait, a proposal's next resend and a Router restart's recovery. Beside it
+ * the waits are bounded by the receiver's own span-wait limit.
  */
 const TELEMETRY_TEST_TIMEOUT_MS = 300_000;
 
@@ -36,13 +36,13 @@ const TELEMETRY_TEST_TIMEOUT_MS = 300_000;
 const ANSWERED_DEADLINE_SECONDS = TELEMETRY_TEST_TIMEOUT_MS / 1000;
 
 /** The standard batch delay, shortened from 5 s so spans reach the receiver sooner. */
-const BATCH_DELAY_MILLISECONDS = "100";
+const BATCH_DELAY = Duration.millis(100);
 
 /**
  * How long a daemon without an endpoint must stay silent after the exporting
- * daemon's spans arrive: twenty batch delays.
+ * daemon's spans arrive.
  */
-const SILENCE_WINDOW = Duration.seconds(2);
+const SILENCE_WINDOW = Duration.times(BATCH_DELAY, 20);
 
 const question = "Which day works for the review?";
 const slotSchema = {
@@ -61,16 +61,18 @@ function withEnvironment(
   };
 }
 
-/** The standard variables that point one daemon's spans at `receiver`. */
+/**
+ * The standard variables that point one daemon's spans at `receiver`. The
+ * protocol is left to its http/protobuf default.
+ */
 function exportingTo(
   fixture: DaemonProcessFixture,
   receiver: OtlpReceiver,
 ): DaemonProcessFixture {
   return withEnvironment(fixture, {
     OTEL_EXPORTER_OTLP_ENDPOINT: receiver.endpoint.origin,
-    OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf",
     OTEL_RESOURCE_ATTRIBUTES: `sharness.agent=${fixture.agentName}`,
-    OTEL_BSP_SCHEDULE_DELAY: BATCH_DELAY_MILLISECONDS,
+    OTEL_BSP_SCHEDULE_DELAY: String(Duration.toMillis(BATCH_DELAY)),
   });
 }
 
@@ -81,14 +83,18 @@ function named(
   return spans.filter((span) => span.name === name);
 }
 
-/** The marker span `name` that carries `attributes.key === value`. */
-function marker(
+/** Every marker span `name` that carries `attributes.key === value`. */
+function markers(
   spans: readonly ExportedSpan[],
   name: string,
   key: string,
   value: string,
-): ExportedSpan | undefined {
-  return named(spans, name).find((span) => span.attributes[key] === value);
+): readonly ExportedSpan[] {
+  return named(spans, name).filter((span) => span.attributes[key] === value);
+}
+
+function attributesOf(spans: readonly ExportedSpan[]) {
+  return spans.map(({ attributes }) => attributes);
 }
 
 /**
@@ -111,8 +117,8 @@ function unsettledRetries(spans: readonly ExportedSpan[]): ExportedSpan[] {
 }
 
 /**
- * Expect the operation `id` marked open with the deadline its request
- * carried, then closed as completed.
+ * Expect the operation `id` marked open once, with the deadline its request
+ * carried, then closed once as completed.
  */
 function expectMarked(
   spans: readonly ExportedSpan[],
@@ -120,24 +126,25 @@ function expectMarked(
   request: InboundItem,
   op: "gather" | "all_gather",
 ): void {
-  const opened = marker(spans, "collective.opened", "operationId", id);
-  const closed = marker(spans, "collective.closed", "operationId", id);
-  expect(opened?.attributes).toEqual({
-    operationId: id,
-    op,
-    deadlineAt: expect.any(Number),
-  });
+  const opened = markers(spans, "collective.opened", "operationId", id);
+  const closed = markers(spans, "collective.closed", "operationId", id);
+  expect(attributesOf(opened)).toEqual([
+    { operationId: id, op, deadlineAt: expect.any(Number) },
+  ]);
+  expect(attributesOf(closed)).toEqual([
+    { operationId: id, outcome: "completed" },
+  ]);
   expect(request).toMatchObject({
     kind: "collectiveRequest",
     id,
-    deadlineAt: opened?.attributes["deadlineAt"],
+    deadlineAt: opened[0]?.attributes["deadlineAt"],
   });
-  expect(closed?.attributes).toEqual({ operationId: id, outcome: "completed" });
-  expect(opened?.startTimeUnixNano).toBeLessThan(
-    closed?.startTimeUnixNano ?? 0n,
+  expect(opened[0]?.startTimeUnixNano).toBeLessThan(
+    closed[0]?.startTimeUnixNano ?? 0n,
   );
 }
 
+/** The exporting daemon runs `sharnessd`, which is `Daemon.layer`. */
 const exportBehavior = Effect.gen(function* () {
   const infrastructure = yield* acquireProcessInfrastructure;
   const receiver = yield* acquireOtlpReceiver;
@@ -146,16 +153,19 @@ const exportBehavior = Effect.gen(function* () {
     yield* makeDaemonProcessFixture(infrastructure, "otel-exporting"),
     receiver,
   );
-  /** Everything but the endpoint, so only the opt-in keeps it from exporting. */
+  /**
+   * Every exporter setting but a non-empty `OTEL_EXPORTER_OTLP_ENDPOINT`: an
+   * empty endpoint is unset, and a traces-only endpoint opts nothing in.
+   */
   const silent = withEnvironment(
     yield* makeDaemonProcessFixture(infrastructure, "otel-silent"),
     {
+      OTEL_EXPORTER_OTLP_ENDPOINT: "",
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: new URL(
         "/v1/traces",
         silentReceiver.endpoint,
       ).href,
-      OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf",
-      OTEL_BSP_SCHEDULE_DELAY: BATCH_DELAY_MILLISECONDS,
+      OTEL_BSP_SCHEDULE_DELAY: String(Duration.toMillis(BATCH_DELAY)),
     },
   );
   const [sender, target] = yield* startParticipants([exporting, silent]);
@@ -198,9 +208,11 @@ const gatherFrom = (
   });
 
 /**
- * The requester exports; the third daemon reaches the Router through a hold
- * proxy. In a three-member group every post needs every member, so holding
- * that member keeps the requester's proposals uncertified.
+ * The requester exports and installs a firewall that passes every message,
+ * so it runs `Daemon.withFirewall` and the firewall's checks admit its
+ * collectives. The third daemon reaches the Router through a hold proxy. In a three-member group every post needs every member, so holding
+ * that member keeps the requester's proposals uncertified. A restarted
+ * Router is a new instance, so afterwards every conversation catches up.
  */
 const markerBehavior = Effect.gen(function* () {
   const infrastructure = yield* acquireProcessInfrastructure;
@@ -208,7 +220,11 @@ const markerBehavior = Effect.gen(function* () {
   const proxy = yield* acquireRouterHoldProxy(infrastructure.routerOrigin);
   const fixtures = [
     exportingTo(
-      yield* makeDaemonProcessFixture(infrastructure, "otel-requester"),
+      yield* makeDaemonProcessFixture(
+        infrastructure,
+        "otel-requester",
+        "guidance",
+      ),
       receiver,
     ),
     yield* makeDaemonProcessFixture(infrastructure, "otel-member-a"),
@@ -255,10 +271,10 @@ const markerBehavior = Effect.gen(function* () {
   const completed = yield* awaitSpans(
     receiver,
     (received) =>
-      marker(received, "collective.closed", "operationId", gatherId) !==
-        undefined &&
-      marker(received, "collective.closed", "operationId", allGatherId) !==
-        undefined &&
+      markers(received, "collective.closed", "operationId", gatherId).length >
+        0 &&
+      markers(received, "collective.closed", "operationId", allGatherId)
+        .length > 0 &&
       unsettledRetries(received).length === 0,
   );
   expectMarked(completed, gatherId, gatherRequest, "gather");
@@ -293,27 +309,52 @@ const markerBehavior = Effect.gen(function* () {
   );
   expect(refused.failure).toMatchObject({ kind: "members-unreachable" });
   expect(
-    marker(yield* receiver.spans, "retry.settled", "id", pendingId),
-  ).toBeUndefined();
+    markers(yield* receiver.spans, "retry.settled", "id", pendingId),
+  ).toEqual([]);
 
   yield* proxy.release;
   yield* Fiber.join(heldSend);
   const settled = yield* awaitSpans(
     receiver,
     (received) =>
-      marker(received, "retry.settled", "id", pendingId) !== undefined &&
-      marker(received, "collective.closed", "operationId", refused.id) !==
-        undefined,
-  );
-  expect(marker(settled, "retry.settled", "id", pendingId)?.attributes).toEqual(
-    { kind: "proposal", id: pendingId, outcome: "certified" },
+      markers(received, "retry.settled", "id", pendingId).length > 0 &&
+      markers(received, "collective.closed", "operationId", refused.id).length >
+        0,
   );
   expect(
-    marker(settled, "collective.opened", "operationId", refused.id)?.attributes,
-  ).toMatchObject({ operationId: refused.id, op: "all_gather" });
+    attributesOf(markers(settled, "retry.settled", "id", pendingId)),
+  ).toEqual([{ kind: "proposal", id: pendingId, outcome: "certified" }]);
   expect(
-    marker(settled, "collective.closed", "operationId", refused.id)?.attributes,
-  ).toEqual({ operationId: refused.id, outcome: "refused" });
+    attributesOf(
+      markers(settled, "collective.opened", "operationId", refused.id),
+    ),
+  ).toEqual([
+    {
+      operationId: refused.id,
+      op: "all_gather",
+      deadlineAt: expect.any(Number),
+    },
+  ]);
+  expect(
+    attributesOf(
+      markers(settled, "collective.closed", "operationId", refused.id),
+    ),
+  ).toEqual([{ operationId: refused.id, outcome: "refused" }]);
+
+  yield* infrastructure.restartRouter;
+  const caughtUp = yield* awaitSpans(
+    receiver,
+    (received) =>
+      markers(received, "retry.pending", "kind", "catch-up").length > 0 &&
+      unsettledRetries(received).length === 0,
+  );
+  expect(
+    attributesOf(markers(caughtUp, "retry.settled", "kind", "catch-up")),
+  ).toContainEqual({
+    kind: "catch-up",
+    id: expect.any(String),
+    outcome: "recovered",
+  });
 }).pipe(Effect.scoped);
 
 it(
@@ -323,7 +364,7 @@ it(
 );
 
 it(
-  "marks collective operations open until they close, and proposals pending until a held member returns",
+  "marks collective operations open until they close, proposals pending until a held member returns, and catch-up pending until recovery",
   processTrace(markerBehavior),
   TELEMETRY_TEST_TIMEOUT_MS,
 );
