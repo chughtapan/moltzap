@@ -1,12 +1,15 @@
 /**
- * @file A gather's request posts while they are sent, and how each one is
- * settled when the requester stops waiting.
+ * @file Who a gather's request posts go to, the posts while they are sent,
+ * and how each one is settled when the requester stops waiting.
  */
 
-import { Effect, Either, Exit, Fiber, Option } from "effect";
-import type { SendError } from "../messaging/errors.js";
+import { Effect, Either, Exit, Fiber, Option, Schema } from "effect";
 import type { EngineSentPost } from "../messaging/index.js";
-import type { AgentAddress } from "../wire/values.js";
+import type { CollectiveOperation } from "./forms.js";
+import type { Members } from "./shared-answers.js";
+import { canonicalMessageAddress } from "../messaging/address.js";
+import { SendError } from "../messaging/errors.js";
+import { AgentAddress, type MessageAddressInput } from "../wire/values.js";
 
 /**
  * A member whose request post was refused, and why.
@@ -30,6 +33,51 @@ export const postRefusal = (
   error.detail === undefined
     ? { member, reason: error.reason }
     : { member, reason: error.reason, detail: error.detail };
+
+const decodeAgentAddress = Schema.decodeUnknownOption(AgentAddress);
+
+/** A collecting operation's canonical address and the members it asks. */
+interface GatherAddress {
+  readonly to: MessageAddressInput;
+  readonly members: Members;
+}
+
+/**
+ * The canonical address a collecting operation's result and failure name, by
+ * the rule every send shares, and the members it asks: the one agent of an
+ * `agent:` address, or every member of a group but the requester. An
+ * all_gather asks a group in its conversation, so an `agent:` address is
+ * refused as `membership-invalid`.
+ */
+export function gatherAddress(
+  to: MessageAddressInput,
+  self: AgentAddress,
+  op: Extract<CollectiveOperation, { readonly deadline: number }>["op"],
+): Effect.Effect<GatherAddress, SendError> {
+  const selfName = self.slice("agent:".length);
+  const membershipInvalid = new SendError({
+    reason: "membership-invalid",
+    detail: "an all_gather asks a group of two or more other agents",
+  });
+  return canonicalMessageAddress(to, selfName).pipe(
+    Effect.flatMap((canonical): Effect.Effect<GatherAddress, SendError> => {
+      if (canonical.kind === "direct") {
+        return op === "gather"
+          ? Effect.succeed({
+              to: canonical.address,
+              members: [canonical.address],
+            })
+          : Effect.fail(membershipInvalid);
+      }
+      const [first, ...rest] = canonical.memberNames
+        .filter((name) => name !== selfName)
+        .flatMap((name) => Option.toArray(decodeAgentAddress(`agent:${name}`)));
+      return first === undefined
+        ? Effect.fail(membershipInvalid)
+        : Effect.succeed({ to: canonical.address, members: [first, ...rest] });
+    }),
+  );
+}
 
 /** A request post in flight, resolving to the member's refusal, if any. */
 export type RequestSend = Fiber.RuntimeFiber<

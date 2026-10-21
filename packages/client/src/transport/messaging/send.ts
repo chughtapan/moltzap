@@ -50,6 +50,7 @@ import { SendError } from "./errors.js";
 import { anchorHashAtHead } from "./history/index.js";
 import {
   catchUpRetrySchedule,
+  markRetries,
   pendingRecoveryFence,
 } from "./recovery/index.js";
 
@@ -374,8 +375,42 @@ function queueAuthorizedProposal(
       resendProposal(runtime, proposal),
       true,
       proposalResendSchedule,
-    ).pipe(Effect.interruptible, Effect.forkIn(runtime.scope));
+    ).pipe(
+      markRetries("proposal", proposal.action.postIntent.postId, (exit) =>
+        resendOutcome(runtime, proposal, exit),
+      ),
+      Effect.interruptible,
+      Effect.forkIn(runtime.scope),
+    );
   });
+}
+
+/**
+ * How a proposal's resends ended: the engine ended them; a defect did; they
+ * ran out while the proposal still awaited its action certificate; its post
+ * was certified; or a later proposal of the intent, or a moved head,
+ * replaced it.
+ */
+function resendOutcome(
+  runtime: EngineRuntime,
+  proposal: AuthorizedProposal,
+  exit: Exit.Exit<unknown>,
+): string {
+  const { action, actionHash } = proposal;
+  if (Exit.isFailure(exit)) {
+    return Exit.isInterrupted(exit) ? "interrupted" : "failed";
+  }
+  if (
+    runtime.completedPosts.has(action.postIntent.postId) ||
+    runtime.actionFolds.get(actionHash)?.recordHash !== undefined
+  ) {
+    return "certified";
+  }
+  const conversation = runtime.conversations.get(action.conversationId);
+  return conversation !== undefined &&
+    proposalIsOpen(runtime, proposal, conversation)
+    ? "gave-up"
+    : "superseded";
 }
 
 /**

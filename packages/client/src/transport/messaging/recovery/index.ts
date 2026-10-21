@@ -113,6 +113,41 @@ export const catchUpRetrySchedule = Schedule.exponential(catchUpRetryBase).pipe(
 );
 
 /**
+ * Bracket retries on {@link catchUpRetrySchedule} with two short spans: one
+ * `retry.pending` when they start and one `retry.settled` with their outcome
+ * when they end, each carrying `kind` and `id`. Attempts can be minutes apart
+ * and emit nothing between them, so a trace reader counts the daemon busy
+ * from one span to the other. Every pending span gets exactly one settled
+ * span, however the retries end.
+ * @param kind What is retried: an author's proposal or a conversation's catch-up.
+ * @param id The proposal's post id, or the catch-up's conversation id.
+ * @param outcome How the retries ended, named from their exit.
+ * @returns The retries, bracketed.
+ */
+export function markRetries<A, E, R>(
+  kind: "proposal" | "catch-up",
+  id: string,
+  outcome: (exit: Exit.Exit<A, E>) => string,
+): (retries: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R> {
+  const attributes = { kind, id };
+  return (retries) =>
+    Effect.uninterruptibleMask((restore) =>
+      Effect.withSpan(Effect.void, "retry.pending", {
+        captureStackTrace: false,
+        attributes,
+      }).pipe(
+        Effect.zipRight(restore(retries)),
+        Effect.onExit((exit) =>
+          Effect.withSpan(Effect.void, "retry.settled", {
+            captureStackTrace: false,
+            attributes: { ...attributes, outcome: outcome(exit) },
+          }),
+        ),
+      ),
+    );
+}
+
+/**
  * One authenticated recovery run. It holds each conversation that has not
  * recovered behind its own fence; the others carry on. Its catch-up and
  * re-anchor reach it only through the ports built here.
@@ -654,6 +689,9 @@ function retryCatchUp(
     resendCertifiedHistoryRequest(run.catchUp, conversationId),
     catchUpRetrySchedule,
   ).pipe(
+    markRetries("catch-up", conversationId, (exit) =>
+      catchUpOutcome(run, conversationId, exit),
+    ),
     Effect.zipRight(
       Effect.sync(() => settleOnQuorum(run.catchUp, conversationId)),
     ),
@@ -676,6 +714,30 @@ function retryCatchUp(
       ),
     ),
   );
+}
+
+/**
+ * How a conversation's catch-up retries ended.
+ * @param run Recovery run that held the retries.
+ * @param conversationId Conversation the retries asked for.
+ * @param exit How the retry fiber ended.
+ * @returns `recovered` once the conversation recovered, which removes its
+ *     retries; `gave-up` when they ran out; `failed` when a store read ended
+ *     them; `interrupted` when the run, or a fresh arm of the same
+ *     conversation, replaced them.
+ */
+function catchUpOutcome(
+  run: RecoveryRun,
+  conversationId: ConversationIdValue,
+  exit: Exit.Exit<unknown, unknown>,
+): string {
+  if (run.completedConversations.has(conversationId)) {
+    return "recovered";
+  }
+  if (Exit.isSuccess(exit)) {
+    return "gave-up";
+  }
+  return Exit.isInterrupted(exit) ? "interrupted" : "failed";
 }
 
 /**
