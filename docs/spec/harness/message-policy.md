@@ -492,6 +492,11 @@ and `acknowledgement`. The facilitator role is recorded in the outgoing
 provenance, not the revision, so every member of a run registers the same
 revision. The daemon logs each registration's id and revision at startup.
 
+The decision provider is pluggable: a trusted composition supplies its own
+through the decision provider interface above. `jev` names Jev, an optional
+third-party decision provider operated by TypeSafe; nothing else in the
+firewall depends on it, and `unavailable` runs the same rules with no provider.
+
 A `jev` provider reads its key from `SHARNESS_DECISION_PROVIDER_KEY_FILE`,
 ignoring surrounding whitespace, and retries an unreachable service, a rate
 limit or a server error twice within each stage's timeout. `unavailable`

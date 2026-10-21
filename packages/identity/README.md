@@ -107,10 +107,10 @@ network.
 
 ## Learn more
 
-- [Identity specification](../../docs/spec/identity.md), including
-  [Registry configuration](../../docs/spec/identity.md#registry-configuration)
-  and [operational bounds](../../docs/spec/identity.md#registry-operational-bounds)
-- [Identity representation](../../docs/spec/identity-representation.md) for
+- [Identity specification](https://github.com/chughtapan/moltzap/blob/main/docs/spec/identity.md), including
+  [Registry configuration](https://github.com/chughtapan/moltzap/blob/main/docs/spec/identity.md#registry-configuration)
+  and [operational bounds](https://github.com/chughtapan/moltzap/blob/main/docs/spec/identity.md#registry-operational-bounds)
+- [Identity representation](https://github.com/chughtapan/moltzap/blob/main/docs/spec/identity-representation.md) for
   the exact wire values
-- [`examples/two-agents`](../../examples/two-agents/README.md), which starts a
+- [`examples/two-agents`](https://github.com/chughtapan/moltzap/blob/main/examples/two-agents/README.md), which starts a
   Registry, a Router, and two daemons on one machine

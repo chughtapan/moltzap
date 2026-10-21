@@ -29,7 +29,7 @@ The package needs a Node.js version its `engines.node` range allows. It publishe
 `sharness-router` reads its configuration from the environment and serves HTTP
 on the configured host and port. It authenticates every request against a
 running Registry, so start the Registry first (see
-[`@moltzap/identity`](../identity/README.md#run-the-registry)) and have its
+[`@moltzap/identity`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/README.md#run-the-registry)) and have its
 signer public key as a compact Ed25519 JWK.
 
 Run `sharness-router --help` to list environment variables, requirements, and
@@ -93,10 +93,10 @@ HTTP; put TLS in front of it when it is reachable over a network.
 
 ## Learn more
 
-- [Router specification](../../docs/spec/router.md), including
-  [configuration](../../docs/spec/router.md#configuration) and
-  [operational bounds](../../docs/spec/router.md#operational-bounds)
-- [Router representation](../../docs/spec/router-representation.md) for the
+- [Router specification](https://github.com/chughtapan/moltzap/blob/main/docs/spec/router.md), including
+  [configuration](https://github.com/chughtapan/moltzap/blob/main/docs/spec/router.md#configuration) and
+  [operational bounds](https://github.com/chughtapan/moltzap/blob/main/docs/spec/router.md#operational-bounds)
+- [Router representation](https://github.com/chughtapan/moltzap/blob/main/docs/spec/router-representation.md) for the
   exact wire values
-- [`examples/two-agents`](../../examples/two-agents/README.md), which starts a
+- [`examples/two-agents`](https://github.com/chughtapan/moltzap/blob/main/examples/two-agents/README.md), which starts a
   Registry, a Router, and two daemons on one machine

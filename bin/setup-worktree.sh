@@ -10,9 +10,9 @@
 # What it does (idempotent — safe to re-run):
 #   1. `pnpm install`
 #        Populates per-package `node_modules/` from the shared pnpm store.
-#   2. `pnpm -r build`
-#        Builds every workspace package's `dist/` so package export maps and
-#        dependent workspace builds resolve consistently.
+#   2. `pnpm build`
+#        Runs every project's Nx build, as CI does, so package export maps
+#        and dependent workspace builds resolve consistently.
 #
 # Usage:
 #   git worktree add ../moltzap-feature -b feature origin/main
@@ -27,8 +27,8 @@ cd "$ROOT"
 echo "==> pnpm install (root: $ROOT)"
 pnpm install
 
-echo "==> pnpm -r build"
-pnpm -r build
+echo "==> pnpm build"
+pnpm build
 
 echo
 echo "Worktree ready. node_modules populated and dist/ built."
