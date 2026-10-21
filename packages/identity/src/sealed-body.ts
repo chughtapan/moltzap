@@ -21,6 +21,7 @@ import {
 } from "./identifiers.js";
 import {
   compareAgentIds,
+  isParsedSignedMessage,
   MAXIMUM_BODY_BYTES,
   MAXIMUM_RECIPIENTS,
   MessageId,
@@ -428,7 +429,9 @@ const authorityCard = (
 /**
  * Decrypts a verified SignedMessage body sealed to the local agent.
  *
- * It first refuses an AgentCard whose key is not the authority's Ed25519 key.
+ * It first refuses a SignedMessage this package did not parse, so a view whose
+ * member reads throw fails as an opening error, and an AgentCard whose key is
+ * not the authority's Ed25519 key.
  * A successful unwrap cannot prove that pairing: a sender may wrap any entry
  * to any key, and an Ed25519 key and its negation share one X25519 key.
  *
@@ -450,6 +453,9 @@ const open = (
   input: OpenInput,
 ): Effect.Effect<Uint8Array, SealedBodyOpeningError> =>
   Effect.gen(function* () {
+    if (!isParsedSignedMessage(input.signedMessage)) {
+      return yield* new SealedBodyOpeningError();
+    }
     const card = yield* authorityCard(input);
     const representation = yield* decodeCanonicalJson(
       sealedBodyRepresentation,

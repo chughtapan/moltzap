@@ -328,7 +328,7 @@ export const LIVE_WIRE_VERSIONS: DistinctWindow<typeof liveWindow> = liveWindow
 Versions accepted at outer-envelope and authenticated HTTP admission by the
 Registry, the Router, and the daemon.
 
-### [`LiveSignedMessage`](./signed-message.ts#L356)
+### [`LiveSignedMessage`](./signed-message.ts#L363)
 
 _TypeAlias_
 
@@ -448,7 +448,7 @@ export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()
 
 No exact HTTP route owns the request target.
 
-### [`SealedBody`](./sealed-body.ts#L565)
+### [`SealedBody`](./sealed-body.ts#L571)
 
 _Variable_
 
@@ -465,7 +465,7 @@ Seals a SignedMessage body to its recipients, opens a verified sealed body,
 and reports sealed sizes. `SignedMessage.sign` never seals; the caller
 chooses which bodies to seal and signs the sealed bytes.
 
-### [`SealedBodyOpeningError`](./sealed-body.ts#L200)
+### [`SealedBodyOpeningError`](./sealed-body.ts#L201)
 
 _Class_
 
@@ -477,7 +477,7 @@ export class SealedBodyOpeningError extends Data.TaggedError(
 
 A verified SignedMessage body does not open as a sealed body for this agent.
 
-### [`SealedBodySealingError`](./sealed-body.ts#L195)
+### [`SealedBodySealingError`](./sealed-body.ts#L196)
 
 _Class_
 
@@ -505,7 +505,7 @@ export interface SignedMessage {
 
 Immutable attributed-message fields exposed to Router consumers.
 
-### [`SignedMessage (value)`](./signed-message.ts#L539)
+### [`SignedMessage (value)`](./signed-message.ts#L546)
 
 _Variable_
 
@@ -531,7 +531,7 @@ export const SignedMessage = Object.assign(signedMessageSchema, {
 
 Opaque attributed message operations and exact representation Schema.
 
-### [`SignedMessageSigningError`](./signed-message.ts#L346)
+### [`SignedMessageSigningError`](./signed-message.ts#L353)
 
 _Class_
 
@@ -543,7 +543,7 @@ export class SignedMessageSigningError extends Data.TaggedError(
 
 A message cannot be signed under the supplied immutable identity.
 
-### [`SignedMessageVerificationError`](./signed-message.ts#L351)
+### [`SignedMessageVerificationError`](./signed-message.ts#L358)
 
 _Class_
 
@@ -606,7 +606,7 @@ export type VerifiedAgentRequest = Readonly<{
 
 Request body and caller identity established by AuthenticatedHttp.
 
-### [`VerifiedSignedMessage`](./signed-message.ts#L340)
+### [`VerifiedSignedMessage`](./signed-message.ts#L347)
 
 _TypeAlias_
 
