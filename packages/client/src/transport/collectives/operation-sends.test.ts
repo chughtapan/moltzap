@@ -28,7 +28,8 @@ import { SendError } from "../messaging/errors.js";
 import { collectiveIdOf } from "./part/index.js";
 
 /** What a send that failed after queueing its post says about it. */
-const queuedText = "the message is pending and MoltZap will still deliver it";
+const queuedText =
+  "the message is pending and Social Harness will still deliver it";
 
 function certifiesAMulticastAsItsTextAndAnExplicitMulticastPart() {
   const observed = newObserved();

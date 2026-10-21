@@ -519,12 +519,13 @@ rejected.
 Registration has exactly one covered authorization field:
 
 ```text
-Authorization: MoltZap-Admission <token68>
+Authorization: Sharness-Admission <token68>
 ```
 
-The credential is 8 to 512 token68 characters. Leading or trailing
-whitespace, multiple credentials, parameters, and a different scheme
-are rejected. The configured and received credential remains redacted
+The Registry also accepts the scheme name `MoltZap-Admission` with the same
+credential, which the published Client sends. The credential is 8 to 512
+token68 characters. Leading or trailing whitespace, multiple credentials,
+parameters, and any other scheme are rejected. The configured and received credential remains redacted
 in values, logs, traces, metrics, defects, and public errors.
 
 ## Registered-agent AuthenticatedHttp validation order

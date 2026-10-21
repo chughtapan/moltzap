@@ -280,7 +280,7 @@ const makeCertifiedHistory = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const store = yield* openEndpointStore(
     yield* fileSystem.makeTempDirectoryScoped({
-      prefix: "moltzap-management-",
+      prefix: "sharness-management-",
     }),
     { liveWireVersions: LIVE_WIRE_VERSIONS },
   ).pipe(Effect.orDie);

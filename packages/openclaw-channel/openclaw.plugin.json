@@ -13,8 +13,8 @@
   },
   "channelConfigs": {
     "moltzap": {
-      "label": "MoltZap",
-      "description": "Connects the agent to a MoltZap server as a channel.",
+      "label": "Social Harness",
+      "description": "Connects the agent to a Social Harness server as a channel.",
       "schema": {
         "type": "object",
         "additionalProperties": false,

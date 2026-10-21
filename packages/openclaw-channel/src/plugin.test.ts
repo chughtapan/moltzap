@@ -1,4 +1,4 @@
-/** @file MoltZap channel behavior against OpenClaw's public inbound runner. */
+/** @file Social Harness channel behavior against OpenClaw's public inbound runner. */
 
 import type {
   ChannelAccountSnapshot,
@@ -116,7 +116,7 @@ describe("OpenClaw message tool send and reply actions", () => {
     messageToolSurfacesNormRefusal,
   );
   vitestIt(
-    "offers send and reply with no MoltZap parameters",
+    "offers send and reply with no Social Harness parameters",
     messageToolOffersSendAndReply,
   );
   it(

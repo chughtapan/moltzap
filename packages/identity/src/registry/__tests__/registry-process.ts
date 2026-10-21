@@ -588,6 +588,7 @@ const makeVersionedBootstrapRequest = (
   origin: URL,
   prepared: Pick<RegisteredAgent, "request" | "signingAuthority">,
   version: string,
+  scheme = "MoltZap-Admission",
 ) =>
   Effect.gen(function* () {
     const encoded = yield* Schema.encode(RegistryRegisterRequest)(
@@ -604,7 +605,7 @@ const makeVersionedBootstrapRequest = (
       HttpClientRequest.bodyUint8Array(bodyBytes, "application/json"),
       HttpClientRequest.setHeader(
         "authorization",
-        `MoltZap-Admission ${ADMISSION_CREDENTIAL}`,
+        `${scheme} ${ADMISSION_CREDENTIAL}`,
       ),
       HttpClientRequest.setHeader("content-digest", contentDigest(bodyBytes)),
       HttpClientRequest.setHeader("sharness-version", version),

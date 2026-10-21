@@ -516,7 +516,7 @@ export function registerOpenClawChannel(): Effect.Effect<
       openClawPlugin.register(api);
       if (registered === null) {
         throw new ProcessTestError({
-          message: "OpenClaw did not register the MoltZap channel",
+          message: "OpenClaw did not register the Social Harness channel",
         });
       }
       return registered;

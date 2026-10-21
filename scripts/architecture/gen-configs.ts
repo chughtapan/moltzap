@@ -407,7 +407,7 @@ const architectureConfigDefinitions: ReadonlyArray<{
           {
             file: "http-signature.ts",
             reason:
-              "Standards adapter boundary for the closed MoltZap HTTP signature profiles",
+              "Standards adapter boundary for the closed Social Harness HTTP signature profiles",
           },
           {
             file: "registry.ts",

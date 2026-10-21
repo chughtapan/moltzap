@@ -38,7 +38,7 @@ export const exactStruct = <Fields extends Schema.Struct.Fields>(
 
 /**
  * Whether a value is the prefix followed by the canonical base64url of a
- * 32-byte hash, the shape of every minted MoltZap identifier.
+ * 32-byte hash, the shape of every minted Social Harness identifier.
  * @param prefix The identifier's kind prefix, such as `pst_`.
  * @param value The candidate identifier.
  * @returns Whether the value is canonical for that prefix.

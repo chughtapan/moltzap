@@ -526,7 +526,9 @@ live in the current build. It skips only when that version is outside
 release before the reset; a version that leaves history without that boundary
 fails the gate. Each failure names the leg it came from. Candidate selection
 reads each Client release's Identity pin and that Identity version's
-`moltzapWireVersion` npm metadata without installing candidates.
+`sharnessWireVersion` npm metadata, or `moltzapWireVersion` when a release
+predates the new key, without installing candidates. A release records its
+emitted version under both keys.
 `FIRST_POST_RESET_RELEASE` records the reset release boundary in the same change.
 Absent metadata denotes a pre-reset release only below that boundary. Missing metadata at or after that
 release fails the gate; registry

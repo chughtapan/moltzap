@@ -1,4 +1,4 @@
-/** @file OpenClaw plugin that registers the MoltZap channel. */
+/** @file OpenClaw plugin that registers the Social Harness channel. */
 
 import type {
   ChannelGatewayContext,
@@ -72,7 +72,7 @@ const LOG_PREVIEW_CHARS = 80;
 const HIDE_COLLECTIVES_VARIABLE = "SHARNESS_EXPERIMENT_HIDE_COLLECTIVES";
 
 /**
- * The message tool actions MoltZap handles. Both take the same text and send
+ * The message tool actions Social Harness handles. Both take the same text and send
  * it the same way; `reply` is where an answer belongs, because OpenClaw fills
  * its target with the current turn's conversation.
  */
@@ -198,16 +198,16 @@ class OpenClawInboundError extends Data.TaggedError("OpenClawInboundError")<{
   readonly detail: string;
 }> {
   override get message(): string {
-    return `MoltZap inbound delivery failed for ${this.accountId}/${this.turnId}: ${this.reason}: ${this.detail}`;
+    return `Social Harness inbound delivery failed for ${this.accountId}/${this.turnId}: ${this.reason}: ${this.detail}`;
   }
 }
 
 /** What each refused host send means, in words its model reads as the tool error. */
 const outboundFailureText: Readonly<Record<OpenClawOutboundFailure, string>> = {
-  "account-not-connected": "this agent is not connected to MoltZap",
+  "account-not-connected": "this agent is not connected to Social Harness",
   "invalid-address": "the address is not a valid agent: or group: address",
   "invalid-operation": "the message has no text",
-  "unsupported-action": "MoltZap supports only send and reply",
+  "unsupported-action": "Social Harness supports only send and reply",
 };
 
 class OpenClawOutboundError extends Data.TaggedError("OpenClawOutboundError")<{
@@ -231,7 +231,7 @@ class OpenClawCollectivesUnavailableError extends Data.TaggedError(
 }
 
 /**
- * A message tool send carrying OpenClaw's plural `targets`. A MoltZap send
+ * A message tool send carrying OpenClaw's plural `targets`. A Social Harness send
  * goes to exactly one address, so the send fails rather than reach only
  * `target`.
  */
@@ -249,7 +249,7 @@ class OpenClawConfigurationError extends Data.TaggedError(
   readonly detail: string;
 }> {
   override get message(): string {
-    return `MoltZap configuration is invalid: ${this.detail}`;
+    return `Social Harness configuration is invalid: ${this.detail}`;
   }
 }
 
@@ -259,7 +259,7 @@ class OpenClawRuntimeError extends Data.TaggedError("OpenClawRuntimeError")<{
   readonly detail: string;
 }> {
   override get message(): string {
-    return `MoltZap account ${this.accountId} runtime failed: ${this.reason}: ${this.detail}`;
+    return `Social Harness account ${this.accountId} runtime failed: ${this.reason}: ${this.detail}`;
   }
 }
 
@@ -268,7 +268,7 @@ const isMessageAddressInput = Schema.is(MessageAddressInput);
 const carriesTargets = Schema.is(Schema.NonEmptyArray(Schema.Unknown));
 
 /**
- * Returns the manifest schema for one MoltZap channel configuration.
+ * Returns the manifest schema for one Social Harness channel configuration.
  * @returns The JSON Schema embedded in the OpenClaw plugin manifest.
  * @internal
  */
@@ -277,7 +277,7 @@ export function makeChannelConfigJsonSchema() {
 }
 
 /**
- * Creates the MoltZap OpenClaw channel plugin.
+ * Creates the Social Harness OpenClaw channel plugin.
  *
  * OpenClaw supplies the account runtime to `startAccount`. The registered
  * plugin does not retain an account runtime or session.
@@ -285,7 +285,7 @@ export function makeChannelConfigJsonSchema() {
  * ```mermaid
  * sequenceDiagram
  *   participant Host as OpenClaw
- *   participant Plugin as MoltZap plugin
+ *   participant Plugin as Social Harness plugin
  *   participant Client as HarnessEndpoint
  *   Host->>Plugin: start account with its runtime
  *   Plugin->>Client: acquire endpoint
@@ -300,7 +300,7 @@ export function makeChannelConfigJsonSchema() {
  *   Plugin-->>Host: tool result with the operation id, or the error
  * ```
  * @param deps Optional process-local dependency overrides used by tests.
- * @returns The MoltZap channel plugin.
+ * @returns The Social Harness channel plugin.
  * @internal
  */
 export function createChannelPlugin(
@@ -334,12 +334,13 @@ export function createChannelPlugin(
 function createPluginMeta() {
   return {
     id: CHANNEL_ID,
-    label: "MoltZap",
-    selectionLabel: "MoltZap (agent messaging)",
+    label: "Social Harness",
+    selectionLabel: "Social Harness (agent messaging)",
     docsPath: "/channels/moltzap",
     docsLabel: "moltzap",
-    blurb: "Agent-to-agent messaging through the local MoltZap endpoint.",
-    detailLabel: "MoltZap",
+    blurb:
+      "Agent-to-agent messaging through the local Social Harness endpoint.",
+    detailLabel: "Social Harness",
     aliases: ["mz"],
     order: 200,
   };
@@ -375,7 +376,7 @@ function createConfigSection() {
       return account.enabled !== false && account.id.trim().length > 0;
     },
     unconfiguredReason(): string {
-      return "A nonempty MoltZap OpenClaw account id is required";
+      return "A nonempty Social Harness OpenClaw account id is required";
     },
     isEnabled(account: Account): boolean {
       return account.enabled !== false;
@@ -384,7 +385,7 @@ function createConfigSection() {
 }
 
 /**
- * The message tool's `send` and `reply` actions for MoltZap. OpenClaw routes
+ * The message tool's `send` and `reply` actions for Social Harness. OpenClaw routes
  * every model `send` and `reply` here because the adapter defines no prepared
  * payload or gateway execution mode. Both read the text with the Client's one
  * parser, so a message's text states its operation; a `reply` with no
@@ -657,7 +658,7 @@ function runAccountConnection(
     Effect.tapError((cause) =>
       Effect.sync(() => {
         ctx.log?.error?.(
-          `MoltZap: connection failed for ${ctx.accountId}: ${String(cause)}`,
+          `Social Harness: connection failed for ${ctx.accountId}: ${String(cause)}`,
         );
       }),
     ),
@@ -702,7 +703,7 @@ function reportConnected(
   ctx: ChannelGatewayContext<Account>,
 ): Effect.Effect<void> {
   return Effect.sync(() => {
-    ctx.log?.info?.(`MoltZap: connected for account ${ctx.accountId}`);
+    ctx.log?.info?.(`Social Harness: connected for account ${ctx.accountId}`);
     ctx.setStatus({
       ...ctx.getStatus(),
       accountId: ctx.accountId,
@@ -820,7 +821,7 @@ function logInbound(
 ): Effect.Effect<void> {
   return Effect.sync(() => {
     ctx.log?.info?.(
-      `MoltZap: inbound from ${turn.sender.id}: ${turn.body.slice(0, LOG_PREVIEW_CHARS)}`,
+      `Social Harness: inbound from ${turn.sender.id}: ${turn.body.slice(0, LOG_PREVIEW_CHARS)}`,
     );
     ctx.setStatus({
       ...ctx.getStatus(),
@@ -992,7 +993,7 @@ function quoteForAgent(value: unknown): string {
 }
 
 /**
- * Every MoltZap sender is another principal's agent or the collective layer,
+ * Every Social Harness sender is another principal's agent or the collective layer,
  * so the sender is marked as a bot. OpenClaw records that as the
  * participant's `senderKind` in session and transcript metadata; it does not
  * change routing, reply mode, or admit the sender's text as instructions.
@@ -1035,7 +1036,7 @@ function inboundGroupFacts(turn: HostTurn) {
 }
 
 /**
- * Final assistant text never becomes a MoltZap post. A launcher's OpenClaw
+ * Final assistant text never becomes a Social Harness post. A launcher's OpenClaw
  * configuration selects tool-only visible replies, and this callback withholds
  * anything that still reaches it, so the `message` tool with an explicit
  * target is the only send path. Non-empty text reaching here means OpenClaw
@@ -1049,7 +1050,7 @@ function withholdFinalText(
 ) {
   if (payload.text !== undefined && payload.text.length > 0) {
     ctx.log?.warn?.(
-      `MoltZap: withheld ${payload.text.length} chars of final text; visible replies use the message tool`,
+      `Social Harness: withheld ${payload.text.length} chars of final text; visible replies use the message tool`,
     );
   }
   return Promise.resolve({ visibleReplySent: false as const });
@@ -1143,7 +1144,7 @@ function outboundLogPrefix(
 ): string {
   const to =
     typeof params.to === "string" ? params.to.slice(0, LOG_PREVIEW_CHARS) : "-";
-  return `MoltZap: outbound via ${origin} to ${to} op=${operation}`;
+  return `Social Harness: outbound via ${origin} to ${to} op=${operation}`;
 }
 
 function textLength(params: TextSend): number {
@@ -1275,8 +1276,9 @@ const plugin: OpenClawPluginDefinition &
   Required<Pick<OpenClawPluginDefinition, "id" | "register">> =
   defineChannelPluginEntry({
     id: "openclaw-channel",
-    name: "MoltZap",
-    description: "Agent-to-agent messaging through the local MoltZap endpoint",
+    name: "Social Harness",
+    description:
+      "Agent-to-agent messaging through the local Social Harness endpoint",
     plugin: createChannelPlugin(),
   });
 
