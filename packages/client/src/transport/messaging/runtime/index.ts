@@ -48,20 +48,6 @@ type EngineRouterPort = Pick<
   "currentAnchor" | "awaitAnchor" | "send"
 >;
 
-/** Closed result of the endpoint's local action-signing policy. */
-export type EngineActionPolicyDecision = "sign" | "refuse";
-
-/** Verified action context presented to local task, norm, and trust policy. */
-export interface EngineActionPolicyInput {
-  readonly action: ActionCore;
-  readonly membership: VerifiedMembership;
-}
-
-/** Endpoint-local policy invoked before creating an action signature. */
-export type EngineActionPolicy = (
-  input: EngineActionPolicyInput,
-) => Effect.Effect<EngineActionPolicyDecision>;
-
 /** Stable private dependencies for one endpoint protocol engine. */
 export interface EndpointEngineInput {
   readonly localAgentCard: VerifiedAgentCard;
@@ -70,7 +56,6 @@ export interface EndpointEngineInput {
   readonly registry: AddressRegistryPort;
   readonly store: EndpointStore;
   readonly routerWorker: EngineRouterPort;
-  readonly actionPolicy: EngineActionPolicy;
   /**
    * Report a store failure that may leave a post's intent bound but not
    * proposed: an uncertain persistence failure while binding it, or any store failure

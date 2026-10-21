@@ -68,10 +68,10 @@ Before action signing, the endpoint verifies:
 - address-to-membership resolution;
 - immutable post identity and content bounds;
 - current anchor and gap-free predecessor;
-- first-candidate lock; and
-- the endpoint's structural action policy.
+- first-candidate lock.
 
-Signing is endpoint computation and policy, never Router or Registry policy.
+The transport signs an action that passes these checks; nothing outside it
+decides. Signing is never Router or Registry policy.
 Refusal is allowed and may halt progress. A model does not sign or send a
 confirmation on the protocol's behalf.
 

@@ -259,10 +259,6 @@ function decodeIngress(
   }).pipe(Effect.orDie);
 }
 
-function signEveryAction(): Effect.Effect<"sign"> {
-  return Effect.succeed("sign");
-}
-
 type WorkerAttachment = Pick<EngineRouterPort, "awaitAnchor" | "currentAnchor">;
 
 /** Replaces a worker's transmit, given the scripted Router forward. */
@@ -308,7 +304,6 @@ function restartMember(
     registrySignerPublicKey: harness.registrySignerPublicKey,
     registry: harness.registry,
     store,
-    actionPolicy: signEveryAction,
     reportStorageFault: () => Effect.void,
     routerWorker: scriptedRouterWorker(store, harness.outbound),
   });
@@ -398,7 +393,6 @@ interface HarnessOptions {
   readonly emittedVersions?: readonly string[];
   /** Members of the conversation; four when omitted. */
   readonly memberCount?: number;
-  readonly actionPolicy?: EndpointEngineInput["actionPolicy"];
   /** Present when the author's Router worker has not attached yet. */
   readonly attachment?: WorkerAttachment;
   /** Replaces the author's worker transmit. */
@@ -451,13 +445,11 @@ function makeProtocolHarness(
       lookup: (request) => Effect.succeed(lookupIdentity(identities, request)),
     };
     const authorPorts = {
-      actionPolicy: options.actionPolicy ?? signEveryAction,
       reportStorageFault: () => options.reportStorageFault ?? Effect.void,
       attachment: options.attachment,
       authorSend: options.authorSend,
     };
     const memberPorts = {
-      actionPolicy: signEveryAction,
       reportStorageFault: () => Effect.void,
       attachment: undefined,
       authorSend: undefined,
@@ -474,7 +466,6 @@ function makeProtocolHarness(
               registrySignerPublicKey,
               registry,
               store: options.wrapStore?.(store, identity, index) ?? store,
-              actionPolicy: ports.actionPolicy,
               reportStorageFault: ports.reportStorageFault,
               routerWorker: scriptedRouterWorker(
                 store,
@@ -2112,23 +2103,26 @@ function givesIdenticalHostInvocationsDistinctPostIds() {
 
 function retainsInterruptedDurableSend() {
   return Effect.gen(function* () {
-    const policyEntered = yield* Deferred.make<undefined>();
-    const releasePolicy = yield* Deferred.make<undefined>();
+    const queueEntered = yield* Deferred.make<undefined>();
+    const releaseQueue = yield* Deferred.make<undefined>();
     const harness = yield* makeProtocolHarness({
-      actionPolicy: () =>
-        Deferred.succeed(policyEntered, undefined).pipe(
-          Effect.zipRight(Deferred.await(releasePolicy)),
-          Effect.as("sign" as const),
-        ),
+      wrapStore: (store) => ({
+        ...store,
+        enqueueOutbound: (input) =>
+          Deferred.succeed(queueEntered, undefined).pipe(
+            Effect.zipRight(Deferred.await(releaseQueue)),
+            Effect.zipRight(store.enqueueOutbound(input)),
+          ),
+      }),
     });
     const author = yield* requireAt(harness.engines, 0, "endpoint engine");
     const sending = yield* Effect.fork(
       author.send(yield* sendInput(harness, "retained send")),
     );
-    yield* Deferred.await(policyEntered);
+    yield* Deferred.await(queueEntered);
     const interrupting = yield* Effect.fork(Fiber.interrupt(sending));
     yield* Effect.yieldNow();
-    yield* Deferred.succeed(releasePolicy, undefined);
+    yield* Deferred.succeed(releaseQueue, undefined);
     yield* Fiber.join(interrupting);
 
     yield* author.drainOutbound.pipe(Effect.orDie);
@@ -2740,7 +2734,6 @@ function coldStartWithPendingOutboundLeavesOutboundLoopAlive(): Effect.Effect<
       registrySignerPublicKey: harness.registrySignerPublicKey,
       registry: harness.registry,
       store,
-      actionPolicy: signEveryAction,
       reportStorageFault: () => Effect.void,
       routerWorker: scriptedRouterWorker(
         store,

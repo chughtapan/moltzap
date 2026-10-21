@@ -313,7 +313,7 @@ export const proposeIntent = (
     if (localIntent.proposedActionHash === actionHash) {
       return actionHash;
     }
-    yield* queueAuthorizedProposal(runtime, {
+    yield* queueLocalProposal(runtime, {
       conversation,
       localIntent,
       action,
@@ -322,7 +322,7 @@ export const proposeIntent = (
     return actionHash;
   }).pipe(Effect.withSpan("proposeIntent"));
 
-interface AuthorizedProposal {
+interface LocalProposal {
   readonly conversation: EngineConversation;
   readonly localIntent: EnginePostIntent;
   readonly action: ActionCore;
@@ -345,16 +345,15 @@ const proposalResendSchedule = catchUpRetrySchedule.pipe(
  * inside an uninterruptible region and a forked fiber inherits it, so the
  * resends run interruptibly and end with the engine.
  * @param runtime Engine that sends the proposal.
- * @param proposal Authorized proposal and the intent it proposes.
+ * @param proposal The local proposal and the intent it proposes.
  * @returns Completion once both envelopes are queued, the intent records the
  *     proposed action, and its resends are scheduled.
  */
-function queueAuthorizedProposal(
+function queueLocalProposal(
   runtime: EngineRuntime,
-  proposal: AuthorizedProposal,
+  proposal: LocalProposal,
 ): Effect.Effect<void, SendError> {
   return Effect.gen(function* () {
-    yield* authorizeAction(runtime, proposal);
     yield* Effect.uninterruptible(
       queueProposal(runtime, proposal).pipe(
         Effect.catchTags({
@@ -393,7 +392,7 @@ function queueAuthorizedProposal(
  */
 function resendOutcome(
   runtime: EngineRuntime,
-  proposal: AuthorizedProposal,
+  proposal: LocalProposal,
   exit: Exit.Exit<unknown>,
 ): RetryOutcome {
   const { action, actionHash } = proposal;
@@ -426,7 +425,7 @@ function resendOutcome(
  */
 function queueProposal(
   runtime: EngineRuntime,
-  proposal: AuthorizedProposal,
+  proposal: LocalProposal,
 ): Effect.Effect<void, EngineOutboxError> {
   const head = proposal.conversation.head;
   const queueHead =
@@ -459,7 +458,7 @@ function queueProposal(
  */
 function resendProposal(
   runtime: EngineRuntime,
-  proposal: AuthorizedProposal,
+  proposal: LocalProposal,
 ): Effect.Effect<boolean> {
   const { action } = proposal;
   return runtime.gate
@@ -512,7 +511,7 @@ function resendProposal(
  */
 function proposalIsOpen(
   runtime: EngineRuntime,
-  proposal: AuthorizedProposal,
+  proposal: LocalProposal,
   conversation: EngineConversation,
 ): boolean {
   const { action, actionHash, localIntent } = proposal;
@@ -523,33 +522,6 @@ function proposalIsOpen(
     runtime.actionFolds.get(actionHash)?.recordHash === undefined &&
     head === action.previousRecordHash
   );
-}
-
-function authorizeAction(
-  runtime: EngineRuntime,
-  proposal: AuthorizedProposal,
-): Effect.Effect<void, SendError> {
-  return runtime.input
-    .actionPolicy({
-      action: proposal.action,
-      membership: proposal.conversation.membership,
-    })
-    .pipe(
-      Effect.flatMap((policyDecision) => {
-        switch (policyDecision) {
-          case "sign":
-            return Effect.void;
-          case "refuse":
-            return Effect.fail(
-              new SendError({ reason: "certification-unavailable" }),
-            );
-          default: {
-            const exhaustive: never = policyDecision;
-            return exhaustive;
-          }
-        }
-      }),
-    );
 }
 
 const createConversation = (
