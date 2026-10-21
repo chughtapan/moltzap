@@ -1,4 +1,8 @@
-/** @file Published peers and the current daemon certify posts in both directions. */
+/**
+ * @file Published peers and the current daemon certify posts in both
+ * directions, through the current network and through the previous release's
+ * network.
+ */
 
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
@@ -10,6 +14,7 @@ import {
   acquireDaemonManagementClient,
   acquireDaemonProcess,
   acquireProcessInfrastructure,
+  acquireProcessInfrastructureFrom,
   type DaemonProcessFixture,
   makeDaemonProcessFixture,
   makeRegistrationRequest,
@@ -238,6 +243,17 @@ function selectReleases(
   });
 }
 
+/**
+ * The previous release's Registry and Router, which a daemon that upgrades
+ * before its network must still reach.
+ */
+function releaseNetwork(consumer: string) {
+  return {
+    registry: join(consumer, "node_modules/.bin/sharness-registry"),
+    router: join(consumer, "node_modules/.bin/sharness-router"),
+  };
+}
+
 function installCurrent(temporaryRoot: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -261,6 +277,7 @@ function installCurrent(temporaryRoot: string) {
   }).pipe(retryNpm);
 }
 
+/** One published daemon and one current daemon certify through `infrastructure`. */
 function certifyPair(
   infrastructure: Effect.Effect.Success<typeof acquireProcessInfrastructure>,
   version: string,
@@ -316,10 +333,19 @@ const mixedRelease = Effect.scoped(
       return RESET_SKIP_REASON;
     }
     const current = yield* installCurrent(temporaryRoot);
-    const infrastructure = yield* acquireProcessInfrastructure;
+    const currentNetwork = yield* acquireProcessInfrastructure;
     for (const version of releases) {
       const consumer = yield* installCandidate(temporaryRoot, version);
-      yield* certifyPair(infrastructure, version, consumer, current);
+      yield* certifyPair(currentNetwork, version, consumer, current);
+      if (version === releases[0]) {
+        yield* Effect.scoped(
+          acquireProcessInfrastructureFrom(releaseNetwork(consumer)).pipe(
+            Effect.flatMap((previousNetwork) =>
+              certifyPair(previousNetwork, version, consumer, current),
+            ),
+          ),
+        );
+      }
     }
     return undefined;
   }),
@@ -353,7 +379,7 @@ function runMixedRelease(context: TestContext) {
 }
 
 it(
-  "certifies with the previous and oldest in-window published releases",
+  "certifies with the previous and oldest in-window published releases and through the previous network",
   runMixedRelease,
   600_000,
 );

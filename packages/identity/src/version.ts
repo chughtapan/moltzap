@@ -7,11 +7,30 @@
  */
 export const WIRE_VERSION = "2026.1019.2";
 
-/** Versions accepted at outer-envelope and authenticated HTTP admission. */
-export const LIVE_WIRE_VERSIONS = [WIRE_VERSION] as const;
+/**
+ * The emitted version, then at most one adjacent version. Holding two lets
+ * adjacent releases interoperate across a bump in either direction: the
+ * release before a bump lists the successor it does not yet emit, and the
+ * bumping release lists the predecessor it no longer emits.
+ */
+type LiveWindow =
+  | readonly [emitted: typeof WIRE_VERSION]
+  | readonly [emitted: typeof WIRE_VERSION, adjacent: string];
+
+/**
+ * Versions accepted at outer-envelope and authenticated HTTP admission by the
+ * Registry, the Router, and the daemon.
+ */
+export const LIVE_WIRE_VERSIONS = [WIRE_VERSION] as const satisfies LiveWindow;
+
+/** Versions that left the live window since the last protocol reset. */
+const RETIRED_WIRE_VERSIONS = [] as const;
 
 /** Retained artifacts remain readable until the next protocol reset. */
-export const HISTORY_WIRE_VERSIONS = [WIRE_VERSION] as const;
+export const HISTORY_WIRE_VERSIONS = [
+  ...LIVE_WIRE_VERSIONS,
+  ...RETIRED_WIRE_VERSIONS,
+] as const;
 
 /** A version represented by retained protocol artifacts. */
 export type WireVersion = (typeof HISTORY_WIRE_VERSIONS)[number];

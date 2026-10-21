@@ -464,15 +464,35 @@ internal `WireVersions` context tag used by adjacent-release tests. The Identity
 forbidden in production source. Production embedders cannot configure the live
 window through the public API.
 
-Each release emits exactly `WIRE_VERSION`. A release first adds a successor
-version to `LIVE_WIRE_VERSIONS`; a later release may emit it. A version stays
-live for at least six months after the first release that emits its successor.
-It then remains in `HISTORY_WIRE_VERSIONS` until the next protocol reset.
-Endpoints that miss the live window require a reset.
+The wire envelope, the Registry HTTP API, and the host channel configuration
+are stable between resets; an incompatible change to any of them ships in a
+reset release. The live window exists so that a daemon that upgrades on its
+own schedule can cross a wire bump between resets.
+
+Each release emits exactly `WIRE_VERSION`. `LIVE_WIRE_VERSIONS` holds the
+emitted version and at most one adjacent version, and the Registry, the
+Router, and the daemon each admit every version in it. A bump spans two
+releases:
+
+1. The announcing release lists the successor in `LIVE_WIRE_VERSIONS` and
+   still emits the current version.
+2. The bumping release emits the successor and keeps its predecessor in
+   `LIVE_WIRE_VERSIONS`.
+
+Any two adjacent releases therefore admit each other's emitted version, so a
+daemon may upgrade before or after its Registry and Router. The predecessor
+stays live for at least six months after the bump; the next successor cannot
+be announced until it leaves. A version that leaves the live window remains
+in `HISTORY_WIRE_VERSIONS` until the next protocol reset. Endpoints that miss
+the live window require a reset.
 
 The mixed-release CI gate runs the previous published release and the oldest
 published release whose wire version remains live against the current build,
-using the current Registry and Router. Candidate selection reads the published
+using the current Registry and Router. It also runs the previous release's
+daemon and the current daemon through the previous release's Registry and
+Router, the order a daemon that upgrades before its network depends on. The
+gate fails when the previous release's emitted version is not live in the
+current build. Candidate selection reads the published
 Identity `moltzapWireVersion` npm metadata without installing candidates.
 `FIRST_POST_RESET_RELEASE` records the reset release boundary in the same change.
 Absent metadata denotes a pre-reset release only below that boundary. Missing metadata at or after that

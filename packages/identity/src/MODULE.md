@@ -263,12 +263,15 @@ export const Ed25519PublicKey = Schema.transform(
 
 Exact immutable Ed25519 public JWK.
 
-### [`HISTORY_WIRE_VERSIONS`](./version.ts#L14)
+### [`HISTORY_WIRE_VERSIONS`](./version.ts#L30)
 
 _Variable_
 
 ```ts
-export const HISTORY_WIRE_VERSIONS = [WIRE_VERSION] as const
+export const HISTORY_WIRE_VERSIONS = [
+  ...LIVE_WIRE_VERSIONS,
+  ...RETIRED_WIRE_VERSIONS,
+] as const
 ```
 
 Retained artifacts remain readable until the next protocol reset.
@@ -314,15 +317,16 @@ Returns only retired key names so startup diagnostics cannot expose values.
 
 **Returns:** Sorted legacy keys, including keys with empty values.
 
-### [`LIVE_WIRE_VERSIONS`](./version.ts#L11)
+### [`LIVE_WIRE_VERSIONS`](./version.ts#L24)
 
 _Variable_
 
 ```ts
-export const LIVE_WIRE_VERSIONS = [WIRE_VERSION] as const
+export const LIVE_WIRE_VERSIONS = [WIRE_VERSION] as const satisfies LiveWindow
 ```
 
-Versions accepted at outer-envelope and authenticated HTTP admission.
+Versions accepted at outer-envelope and authenticated HTTP admission by the
+Registry, the Router, and the daemon.
 
 ### [`LiveSignedMessage`](./signed-message.ts#L356)
 
@@ -642,7 +646,7 @@ Every newly signed artifact carries this reset wire value. The .2 value is
 distinct from the published pre-reset 2026.1019.1 package, whose wire is
 2026.1006.1; package publication never determines wire compatibility.
 
-### [`WireVersion`](./version.ts#L17)
+### [`WireVersion`](./version.ts#L36)
 
 _TypeAlias_
 
