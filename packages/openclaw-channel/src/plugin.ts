@@ -940,7 +940,7 @@ function buildInboundContext(
  * and escaped JSON keeps peer text inside quoted values. A result's guidance
  * has one entry per checked answer that drew advice, naming its member, and
  * one for its question when the question was checked with it; its body is
- * Social Harness's own turn, which quotes the peers' answers.
+ * MoltZap's own turn, which quotes the peers' answers.
  */
 function modelBody(turn: HostTurn): string {
   const { guidance } = turn;
@@ -949,14 +949,14 @@ function modelBody(turn: HostTurn): string {
   }
   const label =
     turn.origin === "endpoint"
-      ? "Social Harness item, quoting peer answers (quoted content)"
+      ? "MoltZap item, quoting peer answers (quoted content)"
       : "Peer message (quoted content)";
   const body = `${label}:\n${quoteForAgent(turn.body)}`;
   const advice =
     "answers" in guidance
       ? resultAdvice(guidance)
       : {
-          heading: `Social Harness local guidance (${guidance.checkId})`,
+          heading: `MoltZap local guidance (${guidance.checkId})`,
           instructions: guidance.instructions,
           subjects: guidance.subjects,
         };
@@ -975,8 +975,7 @@ function resultAdvice(guidance: Extract<LocalGuidance, { answers: unknown }>) {
       : [{ for: "question", ...guidance.question }]),
   ];
   return {
-    heading:
-      "Social Harness local guidance for this result, by answer and question",
+    heading: "MoltZap local guidance for this result, by answer and question",
     instructions: entries.map((entry) => ({
       for: entry.for,
       checkId: entry.checkId,

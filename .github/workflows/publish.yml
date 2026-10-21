@@ -149,14 +149,20 @@ jobs:
       - name: Build all packages
         run: pnpm build
 
-      # Recorded before the content hash, so the hash covers it. The value is
-      # written under both keys so mixed-release gates from before
-      # `sharnessWireVersion` still read it.
+      # Recorded before the content hash, so the hash covers it. The value
+      # goes under `sharnessWireVersion` and `moltzapWireVersion`, which
+      # mixed-release gates read. A resume writes only the keys the release
+      # commit's manifest already holds, so its content hash is unchanged.
       - name: Record emitted wire version in published Identity metadata
         working-directory: packages/identity
+        env:
+          MODE: ${{ steps.plan.outputs.mode }}
         run: |
           WIRE_VERSION=$(node --input-type=module -e 'import { WIRE_VERSION } from "@moltzap/identity"; console.log(WIRE_VERSION)')
-          jq --arg v "$WIRE_VERSION" '.sharnessWireVersion = $v | .moltzapWireVersion = $v' package.json > tmp.json
+          jq --arg v "$WIRE_VERSION" --arg mode "$MODE" '
+            .moltzapWireVersion = $v
+            | if $mode == "bump" or has("sharnessWireVersion")
+              then .sharnessWireVersion = $v else . end' package.json > tmp.json
           mv tmp.json package.json
 
       # A bump selects the changed packages and writes the version and content
