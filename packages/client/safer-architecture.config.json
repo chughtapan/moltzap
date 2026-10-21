@@ -193,9 +193,26 @@
         "src/service/index.ts"
       ],
       "reason": "The always-on process: configuration, registration, supervision, and wiring"
+    },
+    {
+      "name": "launcher",
+      "roots": [
+        "src/launcher"
+      ],
+      "entrypoints": [
+        "src/launcher/index.ts"
+      ],
+      "reason": "The daemon launcher: chooses, verifies and installs the release each start runs, then starts its sharnessd as a child process"
     }
   ],
   "layers": [
+    {
+      "name": "launcher",
+      "folders": [
+        "launcher"
+      ],
+      "reason": "The daemon launcher: chooses, verifies and installs the release each start runs, then starts its sharnessd as a child process"
+    },
     {
       "name": "service",
       "folders": [

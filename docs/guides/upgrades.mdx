@@ -65,6 +65,38 @@ The [daemon format rules](/spec/harness/daemon#current-formats)
 and [Registry persistence rules](/spec/identity#registry-persistence) specify
 version mismatch handling.
 
+## Upgrade daemons on restart
+
+`sharnessd-launcher` upgrades a daemon each time it starts, within the wire
+window, and never applies a reset release on its own. The
+[launcher rules](/spec/harness/daemon#launcher) specify what it accepts.
+
+1. Run the launcher in place of `sharnessd`, with the daemon's environment and
+   a directory on the agent's persistent volume:
+
+   ```bash
+   SHARNESS_LAUNCHER_DIRECTORY=/var/lib/sharness/alice/launcher \
+   SHARNESS_STATE_DIRECTORY=/var/lib/sharness/alice/state \
+   npx sharnessd-launcher
+   ```
+
+   Set `SHARNESS_LAUNCHER_PACKAGE=@moltzap/openclaw-channel` for an OpenClaw
+   host, so the daemon and the channel come from one release.
+
+2. Restart the launcher to upgrade. Its first stderr line names the release
+   it runs, such as
+   `sharnessd-launcher: moved from 2026.1021.0 to @moltzap/client@2026.1021.1`,
+   or why it kept the recorded one.
+
+3. For an OpenClaw host, run `sharnessd-launcher prepare` before the gateway
+   starts and restart the gateway when the printed JSON has
+   `"restartHost": true`. Load the channel from the `current` link in the
+   launcher directory.
+
+To roll out a reset release, apply the reset above, then set
+`SHARNESS_LAUNCHER_VERSION` to the reset release for the first start. To stop
+upgrades, set `SHARNESS_LAUNCHER_UPGRADE=off` or pin an exact version.
+
 ## Endpoint backups
 
 Restoring an endpoint state directory from a backup is unsafe. The backup can

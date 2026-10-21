@@ -277,6 +277,13 @@ const clientDomains: readonly ClientDomain[] = [
     reason:
       "The always-on process: configuration, registration, supervision, and wiring",
   },
+  {
+    name: "launcher",
+    root: "launcher",
+    entrypoints: ["index.ts"],
+    reason:
+      "The daemon launcher: chooses, verifies and installs the release each start runs, then starts its sharnessd as a child process",
+  },
 ];
 
 /**

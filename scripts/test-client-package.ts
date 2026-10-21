@@ -201,10 +201,10 @@ function verifyPackedManifest(
       archive,
       temporaryRoot,
     );
-    const daemonTarget = manifest.bin?.sharnessd;
     yield* requireCondition(
-      daemonTarget === FINAL_PACKAGES.client.bin.sharnessd,
-      "packed client does not expose the sharnessd executable",
+      JSON.stringify(manifest.bin) ===
+        JSON.stringify(FINAL_PACKAGES.client.bin),
+      "packed client must expose exactly the sharnessd and sharnessd-launcher executables",
     );
     const exportEntries = Object.entries(manifest.exports ?? {});
     yield* requireCondition(
@@ -214,7 +214,12 @@ function verifyPackedManifest(
     );
     yield* verifyExportTargets(extractedPackage, manifest, exportEntries);
     yield* verifyHostImportGraph(extractedPackage, String(manifest.main));
-    yield* verifyDaemon(join(extractedPackage, String(daemonTarget)));
+    yield* Effect.forEach(
+      Object.entries(FINAL_PACKAGES.client.bin),
+      ([name, target]) =>
+        verifyExecutable(join(extractedPackage, target), name),
+      { concurrency: 1, discard: true },
+    );
     return exportEntries.map(([subpath]) =>
       subpath === "." ? manifest.name : `${manifest.name}/${subpath.slice(2)}`,
     );
@@ -256,23 +261,24 @@ function verifyExportTargets(
   );
 }
 
-function verifyDaemon(
-  daemonPath: string,
+function verifyExecutable(
+  executablePath: string,
+  name: string,
 ): Effect.Effect<void, GateError, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const daemon = yield* readText(
-      daemonPath,
-      "packed sharnessd executable is missing",
+    const executable = yield* readText(
+      executablePath,
+      `packed ${name} executable is missing`,
     );
     yield* requireCondition(
-      daemon.startsWith("#!/usr/bin/env node\n"),
-      "packed sharnessd executable has no Node shebang",
+      executable.startsWith("#!/usr/bin/env node\n"),
+      `packed ${name} executable has no Node shebang`,
     );
-    const info = yield* fs.stat(daemonPath);
+    const info = yield* fs.stat(executablePath);
     yield* requireCondition(
       (info.mode & 0o111) !== 0,
-      "packed sharnessd executable is not executable",
+      `packed ${name} executable is not executable`,
     );
   });
 }

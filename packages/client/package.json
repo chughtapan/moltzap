@@ -36,7 +36,8 @@
     }
   },
   "bin": {
-    "sharnessd": "./bin/sharnessd"
+    "sharnessd": "./bin/sharnessd",
+    "sharnessd-launcher": "./bin/sharnessd-launcher"
   },
   "scripts": {
     "build": "nx run @moltzap/client:build",
@@ -125,8 +126,10 @@
     "@opentelemetry/sdk-trace-base": "catalog:",
     "@opentelemetry/sdk-trace-node": "catalog:",
     "@opentelemetry/semantic-conventions": "catalog:",
+    "@sigstore/bundle": "catalog:",
     "canonicalize": "catalog:",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "sigstore": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
