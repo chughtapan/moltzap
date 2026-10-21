@@ -367,19 +367,23 @@ function lookupCard(
         Effect.mapError(() => new UnavailableError()),
       ),
     )
-    .pipe(Effect.flatMap(resolveLookupAttempt));
+    .pipe(
+      Effect.flatMap((attempted) => resolveLookupAttempt(attempted, agentId)),
+    );
 }
 
 const isVerifiedAgentCard = Schema.is(verifiedAgentCardSchema);
 
 /**
  * Any layer can provide the `Registry`, so a `found` result's card is read once
- * under a try and must be one this package verified. A result or card that
- * throws on read, or a card this package did not verify, fails authentication
- * as an invalid card, and any other result as a missing identity.
+ * under a try, must be one this package verified, and must belong to the
+ * requested `agentId`; the request's signature key alone does not bind the
+ * AgentId. A result or card that throws on read, a card this package did not
+ * verify, or another agent's card fails authentication.
  */
 function resolveLookupAttempt(
   attempted: Option.Option<RegistryLookupResult>,
+  agentId: AgentIdValue,
 ): Effect.Effect<
   VerifiedAgentCard,
   OverloadedError | AuthenticationFailedError
@@ -394,7 +398,9 @@ function resolveLookupAttempt(
     catch: () => new AuthenticationFailedError(),
   }).pipe(
     Effect.flatMap((agentCard) =>
-      Option.isSome(agentCard) && isVerifiedAgentCard(agentCard.value)
+      Option.isSome(agentCard) &&
+      isVerifiedAgentCard(agentCard.value) &&
+      agentCard.value.agentId === agentId
         ? Effect.succeed(agentCard.value)
         : Effect.fail(new AuthenticationFailedError()),
     ),
