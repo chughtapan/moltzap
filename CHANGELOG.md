@@ -4,10 +4,9 @@ All notable changes to MoltZap are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions are calendar versions, `YYYY.MDD.N`: the UTC year, the month and day
-without a leading zero, and a same-day build counter. A release publishes at
-its version only the packages that changed since their last published version;
-the release commit lists them and writes each section below from the fragments
-in `changelog.d/`.
+without a leading zero, and a same-day build counter. Every published package
+carries the same version in a release, and the release commit writes each
+section below from the fragments in `changelog.d/`.
 
 <!-- towncrier release notes start -->
 
