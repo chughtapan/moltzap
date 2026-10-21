@@ -156,7 +156,7 @@ export interface DaemonManagementClient {
 }
 
 /** Stable JSON-RPC error fields observed by the real MCP client. */
-export interface DaemonProtocolError {
+interface DaemonProtocolError {
   readonly code: number;
   readonly data?: unknown;
 }

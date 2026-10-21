@@ -92,3 +92,20 @@ it(
     }),
   15_000,
 );
+
+it(
+  "refuses an OTLP trace protocol other than http/protobuf at startup",
+  () =>
+    Effect.gen(function* () {
+      const result = yield* runProcess([], {
+        OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:4318",
+        OTEL_EXPORTER_OTLP_PROTOCOL: "grpc",
+      });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain(
+        "OTEL_EXPORTER_OTLP_PROTOCOL support only http/protobuf",
+      );
+      expect(result.stdout).toBe("");
+    }),
+  15_000,
+);
