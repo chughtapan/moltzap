@@ -50,10 +50,9 @@ import { SendError } from "./errors.js";
 import { anchorHashAtHead } from "./history/index.js";
 import {
   catchUpRetrySchedule,
-  markRetries,
   pendingRecoveryFence,
-  type RetryOutcome,
 } from "./recovery/index.js";
+import { markRetries, type RetryOutcome } from "./retry-markers.js";
 
 /**
  * One post the engine certifies: its address and its complete content. The

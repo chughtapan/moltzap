@@ -1,7 +1,12 @@
 /** @file Local Dot callback conformance through Effect's HttpClient service. */
 
+import * as NodeSdk from "@effect/opentelemetry/NodeSdk";
 import { live as it } from "@effect/vitest";
 import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
+import {
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
 import { Clock, Context, Deferred, Duration, Effect, Fiber } from "effect";
 import { createHmac } from "node:crypto";
 import { describe, expect } from "vitest";
@@ -338,6 +343,67 @@ const retriesAcrossRestart = () => {
   }).pipe(onSteppedClock);
 };
 
+/** The `webhook` marker spans `exporter` finished, in order. */
+const webhookMarkers = (exporter: InMemorySpanExporter) =>
+  exporter
+    .getFinishedSpans()
+    .filter(
+      (span) =>
+        span.name.startsWith("retry.") && span.attributes.kind === "webhook",
+    )
+    .map((span) => ({ name: span.name, ...span.attributes }));
+
+/**
+ * A delivery waiting out its backoff after a failed callback reads busy: the
+ * daemon marks it pending, the daemon that retains it after a restart marks
+ * it again, and its receipt settles it as delivered.
+ * @returns The scenario.
+ */
+const marksADeliveryBusyUntilItsReceipt = () => {
+  const path = stateDirectory();
+  const exporter = new InMemorySpanExporter();
+  const id = eventIdOf(token(1));
+  const pending = { name: "retry.pending", kind: "webhook", id };
+  return Effect.gen(function* () {
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const store = yield* openEndpointStore(path, {
+          liveWireVersions: LIVE_WIRE_VERSIONS,
+        });
+        const test = scriptedWebhook(store);
+        const events = yield* test.acquire;
+        yield* enqueue(store, 1);
+        yield* events.subscribe(input, "runtime");
+        test.status(503);
+        yield* events.observe();
+      }),
+    );
+    expect(webhookMarkers(exporter)).toEqual([pending]);
+    yield* stepClock("3 seconds");
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const store = yield* openEndpointStore(path, {
+          liveWireVersions: LIVE_WIRE_VERSIONS,
+        });
+        const events = yield* scriptedWebhook(store).acquire;
+        yield* events.observe();
+      }),
+    );
+    expect(webhookMarkers(exporter)).toEqual([
+      pending,
+      pending,
+      { name: "retry.settled", kind: "webhook", id, outcome: "delivered" },
+    ]);
+  }).pipe(
+    onSteppedClock,
+    Effect.provide(
+      NodeSdk.layer(() => ({
+        spanProcessor: new SimpleSpanProcessor(exporter),
+      })),
+    ),
+  );
+};
+
 const resumesExhaustedCallbacks = () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -526,6 +592,10 @@ describe("local Dot webhook conformance", () => {
   it(
     "retries exact event bytes after database reopen and retires only on receipt",
     retriesAcrossRestart,
+  );
+  it(
+    "marks a delivery busy from its failed callback until its receipt, across a restart",
+    marksADeliveryBusyUntilItsReceipt,
   );
   it(
     "bounds complete envelopes, retains referenced payloads and drains beyond one page",

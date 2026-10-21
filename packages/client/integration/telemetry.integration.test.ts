@@ -99,15 +99,20 @@ function attributesOf(spans: readonly ExportedSpan[]) {
 
 /**
  * Every `retry.pending` span still unsettled. Each settled span settles one
- * pending span with its id: a re-proposed post starts a second schedule
- * under the same id.
+ * pending span with its kind and id, from the same daemon: a re-proposed post
+ * starts a second schedule under the same id, and every daemon's outbox
+ * drains under one id.
  */
 function unsettledRetries(spans: readonly ExportedSpan[]): ExportedSpan[] {
-  const settled = named(spans, "retry.settled").map(
-    (span) => span.attributes["id"],
-  );
+  const key = (span: ExportedSpan) =>
+    [
+      span.resource["sharness.agent"],
+      span.attributes["kind"],
+      span.attributes["id"],
+    ].join(" ");
+  const settled = named(spans, "retry.settled").map(key);
   return named(spans, "retry.pending").filter((span) => {
-    const match = settled.indexOf(span.attributes["id"]);
+    const match = settled.indexOf(key(span));
     if (match === -1) {
       return true;
     }
@@ -294,6 +299,16 @@ const markerBehavior = Effect.gen(function* () {
     "service.name": "otel-requester-service",
     "sharness.agent": "otel-requester",
   });
+  expect(
+    attributesOf(markers(completed, "retry.settled", "kind", "check")),
+  ).toContainEqual({
+    kind: "check",
+    id: expect.any(String),
+    outcome: "checked",
+  });
+  expect(
+    attributesOf(markers(completed, "retry.settled", "kind", "outbound")),
+  ).toContainEqual({ kind: "outbound", id: "outbox", outcome: "sent" });
 
   yield* proxy.hold;
   yield* Effect.addFinalizer(() => proxy.release);
@@ -303,10 +318,14 @@ const markerBehavior = Effect.gen(function* () {
       text: "sent while the member is held",
     }),
   );
-  const [pending] = unsettledRetries(
+  const unsettledProposals = (received: readonly ExportedSpan[]) =>
+    unsettledRetries(received).filter(
+      (span) => span.attributes["kind"] === "proposal",
+    );
+  const [pending] = unsettledProposals(
     yield* awaitSpans(
       receiver,
-      (received) => unsettledRetries(received).length > 0,
+      (received) => unsettledProposals(received).length > 0,
     ),
   );
   expect(pending?.attributes).toEqual({
@@ -370,6 +389,13 @@ const markerBehavior = Effect.gen(function* () {
     id: expect.any(String),
     outcome: "recovered",
   });
+  expect(
+    attributesOf(markers(caughtUp, "retry.settled", "kind", "reanchor")),
+  ).toContainEqual({
+    kind: "reanchor",
+    id: expect.any(String),
+    outcome: "recovered",
+  });
 }).pipe(Effect.scoped);
 
 it(
@@ -379,7 +405,7 @@ it(
 );
 
 it(
-  "marks collective operations open until they close, proposals pending until a held member returns, and catch-up pending until recovery",
+  "marks collective operations open until they close, checks and outbox drains until they end, proposals pending until a held member returns, and catch-up and re-anchor pending until recovery",
   processTrace(markerBehavior),
   TELEMETRY_TEST_TIMEOUT_MS,
 );

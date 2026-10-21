@@ -5,7 +5,7 @@
  */
 
 import { AgentCard, type VerifiedAgentCard } from "@moltzap/identity";
-import { Clock, Effect, Option, Schema } from "effect";
+import { Clock, Effect, Exit, Option, Schema } from "effect";
 import { createHash, randomBytes } from "node:crypto";
 import type {
   FirewallConfiguration,
@@ -48,6 +48,7 @@ import {
   renderOutcome,
 } from "../transport/collectives/render.js";
 import { renderGroupAddress } from "../transport/messaging/address.js";
+import { markRetries } from "../transport/messaging/index.js";
 import {
   type Content,
   MembershipDescriptor,
@@ -233,7 +234,8 @@ export const contextFrom = Effect.fn("firewallContext")(function* (
 /**
  * Run one check: capture its context, begin its audit attempt, run the
  * middleware chain, and project its guidance. Guidance mode admits whatever
- * the chain decides; enforcement admits only an allowed message.
+ * the chain decides; enforcement admits only an allowed message. The chain
+ * is marked as `check` work, since its stages export only as each ends.
  */
 export const assess = Effect.fn("assessMessage")(function* (
   liveEnvironment: FirewallEnvironment,
@@ -253,7 +255,14 @@ export const assess = Effect.fn("assessMessage")(function* (
       terminal: input.terminal,
     }),
   });
-  const assessed = yield* runAssessment(environment, input, context);
+  const assessed = yield* runAssessment(environment, input, context).pipe(
+    markRetries("check", checkId, (exit) => {
+      if (Exit.isSuccess(exit)) {
+        return "checked";
+      }
+      return Exit.isInterrupted(exit) ? "interrupted" : "failed";
+    }),
+  );
   const projection = yield* guidanceProjection(
     assessed,
     input,
