@@ -227,9 +227,6 @@ const superviseBackground = (
     Effect.asVoid,
   );
 
-const signStructurallyValidAction: EndpointEngineInput["actionPolicy"] = () =>
-  Effect.succeed("sign");
-
 const mapWorkerInitializationError = (
   error: RouterWorkerTransportError | RouterWorkerProtocolError,
 ): DaemonActivationError =>
@@ -317,7 +314,6 @@ const acquireProtocolEngine = (
       registry: environment.registry,
       store: environment.store,
       routerWorker: worker,
-      actionPolicy: signStructurallyValidAction,
       reportStorageFault: (error) => reportStorageFault(environment, error),
     })
     .pipe(

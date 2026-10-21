@@ -435,7 +435,7 @@ const queuedText =
 
 function keepsAnAnswersAdviceWhenItsBoundPostFailsActivation() {
   return Effect.gen(function* () {
-    const subject = yield* engineFixture(() => "refuse");
+    const subject = yield* engineFixture(() => true);
     yield* seedRequest(subject, Date.now() + 60_000, question);
     const runtime = yield* incomingFixture(subject, unsettled, {}, false);
     yield* admitPending(runtime);
@@ -460,7 +460,7 @@ function keepsAnAnswersAdviceWhenItsBoundPostFailsActivation() {
 
 function keepsAnAllGathersAdviceWhenItsBoundPostFailsActivation() {
   return Effect.gen(function* () {
-    const subject = yield* engineFixture(() => "refuse");
+    const subject = yield* engineFixture(() => true);
     const runtime = yield* incomingFixture(subject, unsettled);
 
     const completed = yield* runtime.delivery.operations.send({
@@ -486,10 +486,8 @@ function keepsAnAllGathersAdviceWhenItsBoundPostFailsActivation() {
  */
 function refusesAnAllGatherWhoseActivationFailsBehindAnotherPostsDrain() {
   return Effect.gen(function* () {
-    const decisions = { made: 0 };
-    const subject = yield* engineFixture(() =>
-      decisions.made++ === 0 ? "sign" : "refuse",
-    );
+    const writes = { made: 0 };
+    const subject = yield* engineFixture(() => writes.made++ > 0);
     const runtime = yield* incomingFixture(
       subject,
       policy(() => Effect.succeed(pass)),

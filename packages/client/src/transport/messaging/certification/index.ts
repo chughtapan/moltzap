@@ -293,11 +293,12 @@ const localActionEvidence = (
 
 /**
  * Select this endpoint's action signature for a fold: the one it holds, or a
- * new one its action policy allows. A fold that already holds its action
+ * new one. The fold's action passed verification when it arrived, so the
+ * endpoint signs it without consulting anything outside the transport. A fold that already holds its action
  * certificate gets no new signature: the action needs none, and this endpoint
  * may have taken that certificate over a lock it held on another action at
  * the same predecessor, which it signed.
- * @param runtime Engine whose identity and policy sign.
+ * @param runtime Engine whose identity signs.
  * @param fold Fold the signature names.
  * @returns The signature to send, or nothing when none is due.
  */
@@ -314,25 +315,7 @@ function selectLocalActionEvidence(
   if (hasActionThreshold(fold)) {
     return Effect.succeed(undefined);
   }
-  return runtime.input
-    .actionPolicy({
-      action: fold.action,
-      membership: fold.conversation.membership,
-    })
-    .pipe(
-      Effect.flatMap((policyDecision) => {
-        switch (policyDecision) {
-          case "sign":
-            return signLocalActionEvidence(runtime, fold);
-          case "refuse":
-            return Effect.succeed(undefined);
-          default: {
-            const exhaustive: never = policyDecision;
-            return exhaustive;
-          }
-        }
-      }),
-    );
+  return signLocalActionEvidence(runtime, fold);
 }
 
 function signLocalActionEvidence(

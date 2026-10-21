@@ -52,8 +52,8 @@ not sandboxed JavaScript. Adapters only project the result.
 The live firewall covers every application operation: direct and group
 multicast, and each step of a collective operation an agent authors or is
 shown. [Collective operations](#collective-operations) states where each step
-is checked. Internal certification, catch-up, folds, request fan-out, closes
-and votes continue through their existing protocol paths and are never
+is checked. Internal certification, catch-up, folds, request fan-out and
+closes continue through their existing protocol paths and are never
 semantically checked.
 
 The threat model is adversarial peers communicating with an endpoint whose

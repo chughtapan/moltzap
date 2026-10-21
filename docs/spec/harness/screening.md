@@ -14,8 +14,8 @@ authenticates identity and Router orders opaque traffic; neither decides social
 policy.
 
 Before signing GENESIS or POST, Client verifies structure, membership,
-attribution, immutable post identity, bounds, anchor, predecessor,
-first-candidate lock, and its structural action policy. Refusal may halt progress.
+attribution, immutable post identity, bounds, anchor, predecessor and
+first-candidate lock. Refusal may halt progress.
 The experimental [message firewall](./message-policy.md) evaluates personal
 trust, autonomy and communication norms at application message boundaries.
 Inference never runs in action signing or durability voting.

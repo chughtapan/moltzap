@@ -427,7 +427,7 @@ Changed address, membership, author, or content under an existing
 Action signatures and durability votes are different statements:
 
 - an action signature attests the exact GENESIS or POST action after local
-  structural, cryptographic, task, norm, and trust checks; and
+  structural and cryptographic checks; and
 - a durability vote attests that the signer durably staged the exact canonical
   record core and sufficient action certificate for `RecordHash`.
 

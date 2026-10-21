@@ -32,6 +32,7 @@ import {
   DeliveryToken,
   encodeRuntimeValue,
   type EndpointStore,
+  EndpointStoreError,
   openEndpointStore,
 } from "../store/index.js";
 import {
@@ -137,13 +138,13 @@ const identities = Effect.gen(function* () {
 });
 
 /**
- * Real storage and send preparation run with a suspended Router send. The
- * engine asks `decide` for each proposal: one it refuses fails its bound
- * post's activation.
- * @param decide The engine's answer to each proposal, signing by default.
+ * Real storage and send preparation run with a suspended Router send. Before
+ * each outbound write the engine asks `failWrite`: a write it fails fails the
+ * bound post's activation, and the storage fault it reports is ignored.
+ * @param failWrite Whether the next outbound write fails; none fails by default.
  * @returns The fixture's identities, storage, engine and Router barrier.
  */
-export const engineFixture = (decide?: () => "sign" | "refuse") =>
+export const engineFixture = (failWrite?: () => boolean) =>
   Effect.gen(function* () {
     const known = yield* identities;
     const { local, remote, third, store, signer } = known;
@@ -163,9 +164,17 @@ export const engineFixture = (decide?: () => "sign" | "refuse") =>
                 : remote.card,
           }),
       },
-      store,
-      actionPolicy: () => Effect.sync(() => decide?.() ?? "sign"),
-      reportStorageFault: () => Effect.dieMessage("unexpected store fault"),
+      store: {
+        ...store,
+        enqueueOutbound: (input) =>
+          failWrite?.() === true
+            ? Effect.fail(new EndpointStoreError({ reason: "persistence" }))
+            : store.enqueueOutbound(input),
+      },
+      reportStorageFault: () =>
+        failWrite === undefined
+          ? Effect.dieMessage("unexpected store fault")
+          : Effect.void,
       routerWorker: {
         currentAnchor: Effect.succeed(anchor),
         awaitAnchor: Effect.succeed(anchor),
