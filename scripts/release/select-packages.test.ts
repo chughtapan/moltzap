@@ -20,7 +20,10 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { contentHashOfDirectory, contentHashOfTarball } from "./content-hash.ts";
+import {
+  contentHashOfDirectory,
+  contentHashOfTarball,
+} from "./content-hash.ts";
 import { hostCodeHashOfDirectories } from "./host-code-hash.ts";
 import {
   classifyNpmView,

@@ -299,7 +299,9 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   const [first, second] = args;
   if (first === undefined || (first === "--tarball" && second === undefined)) {
-    console.error("usage: content-hash.ts DIR | content-hash.ts --tarball FILE");
+    console.error(
+      "usage: content-hash.ts DIR | content-hash.ts --tarball FILE",
+    );
     process.exit(2);
   }
   const hash =
