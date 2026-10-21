@@ -8,7 +8,6 @@ import {
 } from "@modelcontextprotocol/server";
 import {
   Cause,
-  type Context,
   Deferred,
   Effect,
   Exit,
@@ -16,6 +15,7 @@ import {
   JSONSchema,
   Option,
   Queue,
+  Runtime,
   Schema,
   Scope,
 } from "effect";
@@ -156,21 +156,22 @@ const notify = (
 /**
  * SDK transport closure can finish before request promises settle. The handler
  * scope owns each operation until its finalizers finish, including after the
- * request aborts. The captured context preserves composition services across the
- * SDK Promise boundary. Explicit interruptibility survives uninterruptible acquisition.
+ * request aborts. The captured runtime preserves composition services across the
+ * SDK Promise boundary, among them the tracer an opt-in span export installs.
+ * Explicit interruptibility survives uninterruptible acquisition.
  */
 export const runRequest = <Value, Failure>(
   operation: Effect.Effect<Value, Failure>,
   signal: AbortSignal,
   scope: Scope.CloseableScope,
-  context: Context.Context<never>,
+  services: Runtime.Runtime<never>,
 ) =>
-  Effect.runPromiseExit(
+  Runtime.runPromiseExit(services)(
     Effect.acquireUseRelease(
       Effect.forkIn(Effect.interruptible(operation), scope),
       Fiber.join,
       Fiber.interrupt,
-    ).pipe(Effect.provide(context)),
+    ),
     { signal },
   );
 
@@ -179,7 +180,7 @@ export const runRequest = <Value, Failure>(
  * @param operation Validated Events operation.
  * @param signal Cancellation owned by the MCP request.
  * @param requestScope The lifetime that joins request finalizers before closing.
- * @param context The trusted daemon services captured when the handler is acquired.
+ * @param services The trusted daemon services captured when the handler is acquired.
  * @returns The SDK result or a sanitized protocol exception.
  */
 // #ignore-sloppy-code-next-line[async-keyword]: MCP consumes this Promise-native protocol adapter.
@@ -187,9 +188,9 @@ export const runEventOperation = async <A, E>(
   operation: Effect.Effect<A, E>,
   signal: AbortSignal,
   requestScope: Scope.CloseableScope,
-  context: Context.Context<never>,
+  services: Runtime.Runtime<never>,
 ) => {
-  const outcome = await runRequest(operation, signal, requestScope, context);
+  const outcome = await runRequest(operation, signal, requestScope, services);
   if (Exit.isSuccess(outcome)) {
     return outcome.value;
   }
@@ -204,7 +205,7 @@ export const runEventOperation = async <A, E>(
 /* eslint-enable agent-code-guard/async-keyword -- Remaining operations use Effect. */
 
 interface EventsRuntime {
-  readonly context: Context.Context<never>;
+  readonly services: Runtime.Runtime<never>;
   readonly options: EventsOptions;
   readonly lifetime: Scope.CloseableScope;
   readonly wakeups: Queue.Queue<boolean>;
@@ -405,7 +406,7 @@ const installReadHandlers = (
         streamForPrincipal(runtime, input, context, principal),
         context.mcpReq.signal,
         runtime.lifetime,
-        runtime.context,
+        runtime.services,
       ),
   );
 };
@@ -485,7 +486,7 @@ const install = (
         subscribe(runtime, input, principal),
         context.mcpReq.signal,
         runtime.lifetime,
-        runtime.context,
+        runtime.services,
       ),
   );
   server.setRequestHandler(
@@ -496,7 +497,7 @@ const install = (
         unsubscribe(runtime, input, principal),
         context.mcpReq.signal,
         runtime.lifetime,
-        runtime.context,
+        runtime.services,
       ),
   );
 };
@@ -563,7 +564,7 @@ export const makeHarnessEvents = (
     const lifetime = yield* Scope.make();
     const wakeups = yield* Queue.sliding<boolean>(1);
     const runtime: EventsRuntime = {
-      context: yield* Effect.context<never>(),
+      services: yield* Effect.runtime(),
       options,
       lifetime,
       wakeups,

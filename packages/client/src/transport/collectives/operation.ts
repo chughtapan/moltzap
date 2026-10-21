@@ -81,11 +81,17 @@ import {
   Effect,
   Array as EffectArray,
   Either,
+  Exit,
   Fiber,
   Option,
   Schema,
 } from "effect";
 import type { InboundMessage } from "../messaging/message.js";
+import type {
+  AgentAddress,
+  MessageAddressInput,
+  RecordHash,
+} from "../wire/index.js";
 import type { CollectiveMemberOutcome, InboundItem } from "./inbound.js";
 import type {
   AdmittedGather,
@@ -102,11 +108,6 @@ import type {
 } from "./ports.js";
 import { canonicalMessageAddress } from "../messaging/address.js";
 import { SendError } from "../messaging/errors.js";
-import {
-  AgentAddress,
-  type MessageAddressInput,
-  type RecordHash,
-} from "../wire/index.js";
 import {
   type OperationRefusal,
   refusedAs,
@@ -144,12 +145,15 @@ import {
   requestUnavailable,
 } from "./received-request.js";
 import {
+  gatherAddress,
   isAddressRefusal,
   lookupRefusals,
+  operationTimes,
   postRefusal,
   type RequestRefusal,
   type RequestSend,
   requestsSoFar,
+  requestWait,
 } from "./request-sends.js";
 import {
   type CertifiedAnswer,
@@ -176,18 +180,6 @@ type CollectingValue = Extract<
 >;
 
 type CloseValue = Extract<CollectiveValue, { readonly kind: "close" }>;
-
-/**
- * How long a collecting operation's send waits for its request posts before
- * returning. A gather's request still uncertified then is left running: its
- * member answers or is reported as no-answer at the deadline. An all_gather's
- * one group post must be certified by then, or the all_gather cannot start:
- * a cold group's GENESIS needs every member. The bound stays under the MCP
- * SDK's request timeout so a waiting host receives the result rather than a
- * transport timeout. It runs from the send's start, so a firewall's check of
- * the operation comes out of it.
- */
-const REQUEST_SEND_WAIT = Duration.seconds(20);
 
 /**
  * The longest single sleep a deadline timer takes. A JavaScript timer longer
@@ -223,9 +215,12 @@ interface CollectiveState {
   readonly ports: CollectivePorts;
   readonly gathers: Map<CollectiveId, OpenGather>;
   readonly requests: Map<CollectiveId, ReceivedRequest>;
+  /**
+   * Operations that recorded `collective.opened` whose `collective.closed`
+   * neither completion nor abandonment has claimed yet.
+   */
+  readonly announced: Set<CollectiveId>;
 }
-
-const decodeAgentAddress = Schema.decodeUnknownOption(AgentAddress);
 
 const contentInvalid = () => new SendError({ reason: "content-invalid" });
 
@@ -244,6 +239,7 @@ export const makeCollectiveOperations = (
     ports,
     gathers: new Map(),
     requests: new Map(),
+    announced: new Set(),
   };
   return {
     send: (input, failureDelivery) =>
@@ -310,49 +306,6 @@ function multicast(
   );
 }
 
-/** A collecting operation's canonical address and the members it asks. */
-interface GatherAddress {
-  readonly to: MessageAddressInput;
-  readonly members: Members;
-}
-
-/**
- * The canonical address a collecting operation's result and failure name, by
- * the rule every send shares, and the members it asks: the one agent of an
- * `agent:` address, or every member of a group but the requester. An
- * all_gather asks a group in its conversation, so an `agent:` address is
- * refused as `membership-invalid`.
- */
-function gatherAddress(
-  to: MessageAddressInput,
-  self: AgentAddress,
-  op: CollectingOperation["op"],
-): Effect.Effect<GatherAddress, SendError> {
-  const selfName = self.slice("agent:".length);
-  const membershipInvalid = new SendError({
-    reason: "membership-invalid",
-    detail: "an all_gather asks a group of two or more other agents",
-  });
-  return canonicalMessageAddress(to, selfName).pipe(
-    Effect.flatMap((canonical): Effect.Effect<GatherAddress, SendError> => {
-      if (canonical.kind === "direct") {
-        return op === "gather"
-          ? Effect.succeed({
-              to: canonical.address,
-              members: [canonical.address],
-            })
-          : Effect.fail(membershipInvalid);
-      }
-      const [first, ...rest] = canonical.memberNames
-        .filter((name) => name !== selfName)
-        .flatMap((name) => Option.toArray(decodeAgentAddress(`agent:${name}`)));
-      return first === undefined
-        ? Effect.fail(membershipInvalid)
-        : Effect.succeed({ to: canonical.address, members: [first, ...rest] });
-    }),
-  );
-}
-
 /**
  * A validated gather ready to fan out: its state, the request content every
  * member receives, its absolute deadline, and the time its send stops
@@ -413,7 +366,7 @@ function prepareGather(
     yield* refuseAddressErrors(state, members).pipe(
       Effect.mapError((failure) => refused(collectiveFailure(id, failure))),
     );
-    const { deadlineAt, waitUntil } = yield* operationTimes(operation);
+    const { deadlineAt, waitUntil } = yield* operationTimes(operation.deadline);
     const content = yield* encodeCollectiveContent(
       {
         kind: "operation",
@@ -436,22 +389,6 @@ function prepareGather(
     };
     return { id, open, content, deadlineAt, waitUntil };
   });
-}
-
-/** An operation's absolute deadline, and when its send stops waiting for request posts. */
-function operationTimes(operation: CollectingOperation) {
-  return Clock.currentTimeMillis.pipe(
-    Effect.map((now) => {
-      const untilDeadline = Duration.toMillis(
-        Duration.seconds(operation.deadline),
-      );
-      return {
-        deadlineAt: now + untilDeadline,
-        waitUntil:
-          now + Math.min(Duration.toMillis(REQUEST_SEND_WAIT), untilDeadline),
-      };
-    }),
-  );
 }
 
 /**
@@ -586,7 +523,7 @@ function sendRequests(
       { concurrency: 1 },
     );
     yield* Fiber.awaitAll(sends).pipe(
-      Effect.timeoutOption(yield* requestWait(prepared)),
+      Effect.timeoutOption(yield* requestWait(prepared.waitUntil)),
     );
     const { posts, refused } = yield* requestsSoFar(sends);
     const [refusal, ...refusals] = refused;
@@ -664,7 +601,9 @@ function updateGather(
  * wait, and a refusal binds nothing and opens nothing. A group post succeeds
  * or fails as a whole, so the refusal names every member with the post's
  * reason and detail; members whose address resolution fails were refused
- * before the post.
+ * before the post. A bind that fails after giving its hold up closes the
+ * operation as refused; one that keeps the hold leaves the operation to its
+ * deadline.
  */
 function sendGroupRequest(
   state: CollectiveState,
@@ -672,13 +611,18 @@ function sendGroupRequest(
 ): Effect.Effect<CollectiveSendOutcome, OperationRefusal> {
   const { id, open } = prepared;
   const hold = openGather(state, prepared, true).pipe(
-    Effect.as(forgetGather(state, id)),
+    Effect.as(releaseGather(state, id)),
   );
   return bindAuthoredPost(
     state,
     { to: open.to, content: prepared.content },
     hold,
   ).pipe(
+    Effect.onExit((exit) =>
+      Exit.isSuccess(exit) || state.gathers.has(id)
+        ? Effect.void
+        : markRefused(state, id),
+    ),
     Effect.catchTag("SendError", (error) =>
       abandonGroupRequest(state, prepared, error),
     ),
@@ -702,7 +646,7 @@ function withinRequestWait(
   prepared: PreparedGather,
   certified: AdmittedPost["certified"],
 ) {
-  return requestWait(prepared).pipe(
+  return requestWait(prepared.waitUntil).pipe(
     Effect.flatMap((duration) =>
       Effect.timeoutFail(certified, {
         duration,
@@ -742,7 +686,12 @@ function abandonGroupRequest(
  * engine's uninterruptible bind hold, so the timer is made interruptible
  * explicitly: abandoning the operation must be able to stop it. An
  * operation whose deadline passed while a firewall checked it is refused as
- * `deadline-passed` instead: nothing posts, and no result follows.
+ * `deadline-passed` instead: nothing posts, and no result follows. The first
+ * opening records a short `collective.opened` span with the operation's id, op
+ * and absolute `deadlineAt`, so a trace reader can hold the operation open
+ * until its `collective.closed` span. A stale firewall check gives an
+ * all_gather's bind hold up and takes it again, which reopens the operation
+ * without a second span.
  */
 function openGather(
   state: CollectiveState,
@@ -761,27 +710,43 @@ function openGather(
       Effect.interruptible,
       Effect.forkIn(state.ports.scope),
     );
-    yield* Effect.sync(() => {
+    const firstOpening = yield* Effect.sync(() => {
       state.gathers.set(prepared.id, {
         ...prepared.open,
         timer,
         requestsSettled,
       });
+      const first = !state.announced.has(prepared.id);
+      state.announced.add(prepared.id);
+      return first;
+    });
+    if (!firstOpening) {
+      return;
+    }
+    yield* Effect.withSpan(Effect.void, "collective.opened", {
+      captureStackTrace: false,
+      attributes: {
+        operationId: prepared.id,
+        op: prepared.open.op,
+        deadlineAt: prepared.deadlineAt,
+      },
     });
   });
 }
 
-/** How long a send still waits for request posts: until its wait ends, never past the deadline. */
-function requestWait(
-  prepared: PreparedGather,
-): Effect.Effect<Duration.Duration> {
-  return Clock.currentTimeMillis.pipe(
-    Effect.map((now) => Duration.millis(Math.max(0, prepared.waitUntil - now))),
-  );
-}
-
 /** Drop an operation this endpoint abandons, and stop its deadline timer. */
 function forgetGather(
+  state: CollectiveState,
+  id: CollectiveId,
+): Effect.Effect<void> {
+  return releaseGather(state, id).pipe(Effect.zipRight(markRefused(state, id)));
+}
+
+/**
+ * Drop an operation and stop its deadline timer, leaving its spans open: a
+ * stale bind gives its hold up this way and takes it again.
+ */
+function releaseGather(
   state: CollectiveState,
   id: CollectiveId,
 ): Effect.Effect<void> {
@@ -792,12 +757,43 @@ function forgetGather(
   });
 }
 
+type ClosedOutcome = "completed" | "failed" | "refused";
+
+/**
+ * Record `collective.closed` as `refused` for an abandoned operation that
+ * recorded `collective.opened` and whose completion does not already own the
+ * span.
+ */
+function markRefused(
+  state: CollectiveState,
+  id: CollectiveId,
+): Effect.Effect<void> {
+  return Effect.suspend(() =>
+    state.announced.delete(id) ? closedSpan(id, "refused") : Effect.void,
+  );
+}
+
+/**
+ * The short `collective.closed` span: the operation's result was emitted
+ * (`completed`); its all_gather close was not certified, or its result or
+ * failure could not be kept (`failed`); or it was abandoned after opening
+ * (`refused`).
+ */
+function closedSpan(id: CollectiveId, outcome: ClosedOutcome) {
+  return Effect.withSpan(Effect.void, "collective.closed", {
+    captureStackTrace: false,
+    attributes: { operationId: id, outcome },
+  });
+}
+
 /**
  * Complete an operation this endpoint started. A gather emits its result
  * now; an all_gather first posts its close, off the calling fiber because
  * completion can run inside a publication pass that certification waits on.
  * An operation completes once; a later call does nothing. The deadline timer
- * calls it too, so it leaves the timer to its caller.
+ * calls it too, so it leaves the timer to its caller. Completion takes over
+ * the operation's `collective.closed` span, so an abandonment racing it
+ * cannot close the operation while its close post is still in flight.
  */
 function completeGather(
   state: CollectiveState,
@@ -809,6 +805,9 @@ function completeGather(
       return Effect.void;
     }
     state.gathers.delete(id);
+    const announced = state.announced.delete(id);
+    const close = (outcome: ClosedOutcome) =>
+      announced ? closedSpan(id, outcome) : Effect.void;
     const result: CollectiveResultItem = {
       kind: "collectiveResult",
       op: open.op,
@@ -819,9 +818,15 @@ function completeGather(
     };
     switch (open.op) {
       case "gather":
-        return state.ports.emit(result, countedProvenance(open));
+        return state.ports
+          .emit(result, countedProvenance(open))
+          .pipe(
+            Effect.onExit((exit) =>
+              close(Exit.isSuccess(exit) ? "completed" : "failed"),
+            ),
+          );
       case "all_gather":
-        return closeAllGather(state, open, result).pipe(
+        return closeAllGather(state, open, result, close).pipe(
           Effect.forkIn(state.ports.scope),
           Effect.asVoid,
         );
@@ -838,12 +843,14 @@ function completeGather(
  * its result counts, and emit the result once the close is certified. A close
  * that is not certified ends the operation at the asker as an
  * `operationFailed` item, whose text says when the close is still queued for
- * the members.
+ * the members. `close` records the operation's `collective.closed` span once
+ * the result or failure is emitted, or could not be.
  */
 function closeAllGather(
   state: CollectiveState,
   open: OpenGather,
   result: CollectiveResultItem,
+  close: (outcome: ClosedOutcome) => Effect.Effect<void>,
 ): Effect.Effect<void, CollectiveEmitError> {
   const included = open.members.flatMap((member) =>
     Option.toArray(Option.fromNullable(open.answerHashes.get(member))),
@@ -857,14 +864,23 @@ function closeAllGather(
     Effect.flatMap((content) => state.ports.sendPost({ to: open.to, content })),
     Effect.matchEffect({
       onFailure: (error) =>
-        state.ports.emit({
-          kind: "operationFailed",
-          id: result.id,
-          to: open.to,
-          error: closeFailureText(error),
-        }),
-      onSuccess: () => state.ports.emit(result, countedProvenance(open)),
+        state.ports
+          .emit({
+            kind: "operationFailed",
+            id: result.id,
+            to: open.to,
+            error: closeFailureText(error),
+          })
+          .pipe(Effect.as<ClosedOutcome>("failed")),
+      onSuccess: () =>
+        state.ports
+          .emit(result, countedProvenance(open))
+          .pipe(Effect.as<ClosedOutcome>("completed")),
     }),
+    Effect.onExit((exit) =>
+      close(Exit.isSuccess(exit) ? exit.value : "failed"),
+    ),
+    Effect.asVoid,
   );
 }
 

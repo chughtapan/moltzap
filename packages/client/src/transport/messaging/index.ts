@@ -74,6 +74,13 @@ export type { EngineSendInput, EngineSentPost } from "./send.js";
 export { type BindHold, untilFresh } from "./send.js";
 /** The prepared post a checked send hands its check, and the conversation an address resolves to. */
 export type { PreparedSend, ResolvedConversation } from "./send.js";
+/** The marker spans that bracket daemon work in flight, shared with the layers above. */
+export {
+  exitOutcome,
+  markRetries,
+  retryPending,
+  retrySettled,
+} from "./retry-markers.js";
 /**
  * The one verifier of a stored membership row, and the stored-history reader
  * the owner tools page through, shared with the daemon.

@@ -48,6 +48,7 @@ import {
   renderOutcome,
 } from "../transport/collectives/render.js";
 import { renderGroupAddress } from "../transport/messaging/address.js";
+import { exitOutcome, markRetries } from "../transport/messaging/index.js";
 import {
   type Content,
   MembershipDescriptor,
@@ -233,7 +234,9 @@ export const contextFrom = Effect.fn("firewallContext")(function* (
 /**
  * Run one check: capture its context, begin its audit attempt, run the
  * middleware chain, and project its guidance. Guidance mode admits whatever
- * the chain decides; enforcement admits only an allowed message.
+ * the chain decides; enforcement admits only an allowed message. The chain
+ * is marked as `firewall-check` work under its direction, since its stages
+ * export only as each ends and its bound is configurable.
  */
 export const assess = Effect.fn("assessMessage")(function* (
   liveEnvironment: FirewallEnvironment,
@@ -253,7 +256,11 @@ export const assess = Effect.fn("assessMessage")(function* (
       terminal: input.terminal,
     }),
   });
-  const assessed = yield* runAssessment(environment, input, context);
+  const assessed = yield* runAssessment(environment, input, context).pipe(
+    markRetries("firewall-check", input.direction, (exit) =>
+      exitOutcome(exit, "checked"),
+    ),
+  );
   const projection = yield* guidanceProjection(
     assessed,
     input,

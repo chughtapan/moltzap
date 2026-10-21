@@ -2,7 +2,7 @@
 
 import { HttpClient } from "@effect/platform";
 import { ProtocolError } from "@modelcontextprotocol/server";
-import { type Clock, Effect, Schema } from "effect";
+import { type Clock, Effect, Schema, type Scope } from "effect";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { eventIdOf, type EventStore } from "../../delivery/operations.js";
 import { localGuidanceSchema } from "../../firewall/runtime.js";
@@ -13,6 +13,7 @@ import {
   type InboxEntry,
 } from "../../store/index.js";
 import { InboundItem } from "../../transport/collectives/inbound.js";
+import { retryPending, retrySettled } from "../../transport/messaging/index.js";
 import {
   callbackReasons,
   type EventSubscribeInput,
@@ -121,21 +122,121 @@ interface WebhookRuntime {
   };
   generation: number;
   state: State;
+  /** The event id whose `webhook` marker is open, if any. */
+  retrying?: string;
 }
 const now = (runtime: WebhookRuntime) =>
   runtime.clock.unsafeCurrentTimeMillis();
 const active = (runtime: WebhookRuntime) =>
   runtime.state.registration !== null &&
   runtime.state.registration.expiresAt > now(runtime);
+/**
+ * Make a persisted registration current, keeping the `webhook` marker in
+ * step; every state change goes through here.
+ * @param runtime The webhook state to update.
+ * @param state The state just persisted.
+ * @returns Completion once the state and its marker are current.
+ */
+function adopt(runtime: WebhookRuntime, state: State): Effect.Effect<void> {
+  return Effect.sync(() => {
+    runtime.state = state;
+  }).pipe(Effect.zipRight(markWaitingDelivery(runtime)));
+}
+
+/**
+ * Settle an open `webhook` marker as `interrupted` when the events close, so
+ * the daemon that reopens it after a restart does not leave this one unpaired.
+ * @param runtime The webhook state whose marker may be open.
+ * @returns Completion once no marker is open.
+ */
+function settleOnClose(runtime: WebhookRuntime): Effect.Effect<void> {
+  return Effect.suspend(() => {
+    const marked = runtime.retrying;
+    delete runtime.retrying;
+    return marked === undefined
+      ? Effect.void
+      : retrySettled("webhook", marked, "interrupted");
+  });
+}
+
+/**
+ * The event id of a delivery waiting out its backoff after a failed callback,
+ * which the daemon retries on its own.
+ * @param runtime The webhook state and clock.
+ * @returns The event id, or `undefined` when no delivery waits.
+ */
+function waitingDelivery(runtime: WebhookRuntime): string | undefined {
+  const registration = runtime.state.registration;
+  if (registration === null || registration.stalled !== null) {
+    return undefined;
+  }
+  const occurrence = registration.outbox;
+  return active(runtime) && occurrence !== null && occurrence.attempts > 0
+    ? occurrence.id
+    : undefined;
+}
+
+/**
+ * How the delivery whose marker is open stopped waiting.
+ * @param registration The current subscription, or `null` once revoked.
+ * @param marked The event id the open marker carries.
+ * @returns `interrupted` for a revoked subscription, `gave-up` while the
+ *     delivery is still the subscription's outbox, else `delivered`.
+ */
+function waitOutcome(
+  registration: Registration | null,
+  marked: string,
+): "interrupted" | "gave-up" | "delivered" {
+  if (registration === null) {
+    return "interrupted";
+  }
+  return registration.outbox?.id === marked ? "gave-up" : "delivered";
+}
+
+/**
+ * Keep the `webhook` marker in step with the delivery state. A delivery that
+ * waits out its backoff is daemon work in flight: its next attempt can be
+ * minutes away and the callback client records no spans. The marker settles
+ * as `delivered` once the delivery leaves the outbox, `gave-up` when it
+ * stalls or its subscription lapses, and `interrupted` when the subscription
+ * is revoked. The bookkeeping and its spans change together, never split by
+ * an interruption.
+ * @param runtime The webhook state, clock and open marker.
+ * @returns Completion once the marker matches the state.
+ */
+function markWaitingDelivery(runtime: WebhookRuntime): Effect.Effect<void> {
+  return Effect.uninterruptible(
+    Effect.suspend(() => {
+      const marked = runtime.retrying;
+      const waiting = waitingDelivery(runtime);
+      if (marked === waiting) {
+        return Effect.void;
+      }
+      runtime.retrying = waiting;
+      return (
+        marked === undefined
+          ? Effect.void
+          : retrySettled(
+              "webhook",
+              marked,
+              waitOutcome(runtime.state.registration, marked),
+            )
+      ).pipe(
+        Effect.zipRight(
+          waiting === undefined
+            ? Effect.void
+            : retryPending("webhook", waiting),
+        ),
+      );
+    }),
+  );
+}
+
 const save = (runtime: WebhookRuntime, registration: Registration | null) =>
   encodeRuntimeValue({ registration }).pipe(
     Effect.flatMap(runtime.store.writeEventState),
     Effect.mapError(persistenceFailure),
-    Effect.tap(() =>
-      Effect.sync(() => {
-        runtime.state = { registration };
-      }),
-    ),
+    Effect.zipRight(adopt(runtime, { registration })),
     Effect.uninterruptible,
   );
 const retire = (runtime: WebhookRuntime) =>
@@ -359,9 +460,7 @@ const commitReceipt = (
       occurrence.deliveryToken,
       bytes,
     );
-    yield* Effect.sync(() => {
-      runtime.state = { registration: next };
-    });
+    yield* adopt(runtime, { registration: next });
     return true;
   }).pipe(Effect.mapError(persistenceFailure), Effect.uninterruptible);
 
@@ -474,7 +573,10 @@ const prepareOccurrence = (runtime: WebhookRuntime) =>
     }),
   );
 
-/** Drain immediately after receipts; the timer is only a retry and expiry wakeup. */
+/**
+ * Drain immediately after receipts; the timer is only a retry and expiry
+ * wakeup, so each drain also settles the marker of a lapsed subscription.
+ */
 const observe = (runtime: WebhookRuntime) =>
   runtime.deliveryGate.withPermits(1)(
     Effect.gen(function* () {
@@ -484,7 +586,7 @@ const observe = (runtime: WebhookRuntime) =>
           return;
         }
       }
-    }),
+    }).pipe(Effect.zipRight(markWaitingDelivery(runtime))),
   );
 
 const status = (runtime: WebhookRuntime): WebhookStatus => {
@@ -563,6 +665,8 @@ const webhookOperations = (runtime: WebhookRuntime): HarnessWebhookEvents => ({
 /**
  * Retain exact callback bytes across retries and retire inbox items on HTTP receipt.
  * State transitions share the push ownership gate; callback I/O runs outside it.
+ * A delivery retained mid-backoff reopens its `webhook` marker in this process,
+ * and closing the scope settles a marker still open.
  * @param store Daemon-owned registration and delivery persistence.
  * @param gate Serializes subscription state with native push ownership.
  * @returns Protocol operations using the current Effect HTTP client and clock.
@@ -570,7 +674,11 @@ const webhookOperations = (runtime: WebhookRuntime): HarnessWebhookEvents => ({
 export const makeWebhookEvents = (
   store: EventStore,
   gate: Effect.Semaphore,
-): Effect.Effect<HarnessWebhookEvents, ProtocolError, HttpClient.HttpClient> =>
+): Effect.Effect<
+  HarnessWebhookEvents,
+  ProtocolError,
+  HttpClient.HttpClient | Scope.Scope
+> =>
   Effect.gen(function* () {
     const client = (yield* HttpClient.HttpClient).pipe(
       HttpClient.withTracerDisabledWhen(() => true),
@@ -595,5 +703,7 @@ export const makeWebhookEvents = (
       deliveryGate,
       generation: 0,
     };
+    yield* Effect.addFinalizer(() => settleOnClose(runtime));
+    yield* markWaitingDelivery(runtime);
     return webhookOperations(runtime);
   }).pipe(Effect.withSpan("makeWebhookEvents"));

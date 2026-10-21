@@ -51,6 +51,13 @@ import {
   type ReanchorRun,
   startReanchorRun,
 } from "../reanchor/index.js";
+import {
+  exitOutcome,
+  markRetries,
+  type RetryOutcome,
+  retryPending,
+  retrySettled,
+} from "../retry-markers.js";
 import { type EngineRuntime, evidenceTarget } from "../runtime/index.js";
 import {
   completeRecoveryBarrier,
@@ -132,6 +139,12 @@ interface RecoveryRun {
    */
   readonly retainedOutbounds: Map<string, readonly string[]>;
   readonly completedConversations: Set<ConversationIdValue>;
+  /**
+   * Restarted conversations whose re-anchor `retry.pending` is open: their
+   * position is ready and they wait for a quorum to certify the re-anchor.
+   * Recovering the conversation, or closing the run's scope, settles each.
+   */
+  readonly reanchorWaits: Set<ConversationIdValue>;
   /**
    * The run's lifetime inside the engine's. Closing it ends every catch-up
    * retry the run started.
@@ -641,7 +654,10 @@ function armCatchUp(
  * quorum of answers settle a position that waited for every member. A
  * position a quorum already settles recovers on its own fiber in the run's
  * scope: recovering the conversation removes this retry fiber, which it could
- * not do from inside it.
+ * not do from inside it. That recovery is bracketed as catch-up of its own,
+ * opened before the retries' bracket closes, so a trace reader keeps the
+ * conversation busy until it recovers the conversation or hands it on to a
+ * re-anchor round.
  * @param run Recovery run that holds the conversation.
  * @param conversationId Conversation to catch up.
  * @returns The retries, ending once any settled position's recovery started.
@@ -657,17 +673,16 @@ function retryCatchUp(
     Effect.zipRight(
       Effect.sync(() => settleOnQuorum(run.catchUp, conversationId)),
     ),
-    Effect.flatMap((settled) =>
-      settled
-        ? run.catchUp.onPositionReady(conversationId).pipe(
-            Effect.catchAll(() =>
-              Effect.logWarning(
-                "Catch-up did not settle on a quorum: the endpoint store failed",
-              ),
-            ),
-            Effect.forkIn(run.scope),
-          )
-        : Effect.void,
+    Effect.tap((settled) =>
+      settled ? recoverOnQuorum(run, conversationId) : Effect.void,
+    ),
+    markRetries("catch-up", conversationId, (exit) =>
+      catchUpOutcome(
+        run,
+        conversationId,
+        exit,
+        Exit.isSuccess(exit) && exit.value ? "superseded" : "gave-up",
+      ),
     ),
     Effect.asVoid,
     Effect.catchAll(() =>
@@ -676,6 +691,68 @@ function retryCatchUp(
       ),
     ),
   );
+}
+
+/**
+ * Recover a position a quorum settled, on its own fiber in the run's scope.
+ * Its `retry.pending` is recorded here, before the fork and so before the
+ * retries it takes over from settle, so a trace reader never sees the
+ * conversation idle between them.
+ * @param run Recovery run that holds the conversation.
+ * @param conversationId Conversation whose position a quorum settled.
+ * @returns Completion once the recovery is forked.
+ */
+function recoverOnQuorum(
+  run: RecoveryRun,
+  conversationId: ConversationIdValue,
+): Effect.Effect<void> {
+  return Effect.uninterruptibleMask((restore) =>
+    retryPending("catch-up", conversationId).pipe(
+      Effect.zipRight(
+        restore(run.catchUp.onPositionReady(conversationId)).pipe(
+          Effect.onExit((exit) =>
+            retrySettled(
+              "catch-up",
+              conversationId,
+              catchUpOutcome(run, conversationId, exit, "superseded"),
+            ),
+          ),
+          Effect.catchAll(() =>
+            Effect.logWarning(
+              "Catch-up did not settle on a quorum: the endpoint store failed",
+            ),
+          ),
+          Effect.forkIn(run.scope),
+        ),
+      ),
+      Effect.asVoid,
+    ),
+  );
+}
+
+/**
+ * How a conversation's catch-up retries, or the quorum recovery that took
+ * over from them, ended.
+ * @param run Recovery run that held the conversation.
+ * @param conversationId Conversation being caught up.
+ * @param exit How the bracketed fiber ended.
+ * @param returned The outcome when it returned without recovering the
+ *     conversation: `gave-up` for retries that ran out, `superseded` for a
+ *     quorum recovery that handed the conversation to a re-anchor round.
+ * @returns `recovered` once the conversation recovered, which removes its
+ *     retries; `returned`; `failed` when a store read or defect ended it; or
+ *     `interrupted` when the run, or a fresh arm of the same conversation,
+ *     replaced it.
+ */
+function catchUpOutcome(
+  run: RecoveryRun,
+  conversationId: ConversationIdValue,
+  exit: Exit.Exit<unknown, unknown>,
+  returned: RetryOutcome,
+): RetryOutcome {
+  return run.completedConversations.has(conversationId)
+    ? "recovered"
+    : exitOutcome(exit, returned);
 }
 
 /**
@@ -802,12 +879,17 @@ function makeRecoveryRun(
     const retries = yield* FiberMap.make<ConversationIdValue>().pipe(
       Scope.extend(scope),
     );
+    const reanchorWaits = new Set<ConversationIdValue>();
+    yield* Effect.addFinalizer(() => settleReanchorWaits(reanchorWaits)).pipe(
+      Scope.extend(scope),
+    );
     const isActive = () => activeRuns.get(runtime)?.scope === scope;
     const run: RecoveryRun = {
       runtime,
       recovery,
       ...history,
       completedConversations: new Set(),
+      reanchorWaits,
       scope,
       retries,
       successor: successorPort(runtime, history),
@@ -826,6 +908,27 @@ function makeRecoveryRun(
     };
     return run;
   }).pipe(Effect.withSpan("makeRecoveryState"));
+}
+
+/**
+ * Settle every re-anchor wait still open as `interrupted`, when its run ends
+ * or the engine stops.
+ * @param waits The run's open re-anchor waits, emptied here.
+ * @returns Completion once each is settled.
+ */
+function settleReanchorWaits(
+  waits: Set<ConversationIdValue>,
+): Effect.Effect<void> {
+  return Effect.suspend(() => {
+    const open = [...waits];
+    waits.clear();
+    return Effect.forEach(
+      open,
+      (conversationId) =>
+        retrySettled("reanchor", conversationId, "interrupted"),
+      { concurrency: 1, discard: true },
+    );
+  });
 }
 
 /**
@@ -945,8 +1048,40 @@ function positionReady(
     return Effect.void;
   }
   return run.recovery.reason === "router_restarted"
-    ? reanchorPositionReady(run.reanchor, membership)
+    ? reanchorPositionReady(run.reanchor, membership).pipe(
+        Effect.zipRight(awaitReanchor(run, conversationId)),
+      )
     : markRecovered(run, conversationId);
+}
+
+/**
+ * Open a restarted conversation's re-anchor `retry.pending` once its
+ * position has proposed a re-anchor, or holds behind a staged successor,
+ * without recovering. The round has no timeout: it waits for a quorum of
+ * members, so the conversation reads busy until it recovers or the run ends.
+ * The wait is recorded and its span emitted together, so an interruption
+ * cannot leave the run's finalizer settling a wait that never opened.
+ * @param run Recovery run that holds the conversation.
+ * @param conversationId Conversation whose position is ready.
+ * @returns Completion once the wait is marked, or at once when nothing waits.
+ */
+function awaitReanchor(
+  run: RecoveryRun,
+  conversationId: ConversationIdValue,
+): Effect.Effect<void> {
+  return Effect.uninterruptible(
+    Effect.suspend(() => {
+      if (
+        !run.catchUp.isActive() ||
+        run.completedConversations.has(conversationId) ||
+        run.reanchorWaits.has(conversationId)
+      ) {
+        return Effect.void;
+      }
+      run.reanchorWaits.add(conversationId);
+      return retryPending("reanchor", conversationId);
+    }),
+  );
 }
 
 /**
@@ -972,7 +1107,11 @@ function markRecovered(
       return Effect.void;
     }
     run.completedConversations.add(conversationId);
+    const settleReanchor = run.reanchorWaits.delete(conversationId)
+      ? retrySettled("reanchor", conversationId, "recovered")
+      : Effect.void;
     return FiberMap.remove(run.retries, conversationId).pipe(
+      Effect.zipRight(settleReanchor),
       Effect.zipRight(resumeConversation(run, conversationId)),
       Effect.zipRight(releaseConversation(run.runtime, conversationId)),
       Effect.zipRight(endRunOnceRecovered(run)),
@@ -1055,7 +1194,9 @@ function endRunOnceRecovered(run: RecoveryRun): Effect.Effect<void> {
 }
 
 /**
- * Uninstall the engine's recovery run and end its catch-up retries.
+ * Uninstall the engine's recovery run and end its catch-up retries. The
+ * scope closes uninterruptibly: a close cut short leaves the scope closed
+ * with its retries running and its re-anchor waits never settled.
  * @param runtime Engine whose run ends.
  * @returns Completion once no run is installed.
  */
@@ -1066,7 +1207,7 @@ function endRun(runtime: EngineRuntime): Effect.Effect<void> {
       return Effect.void;
     }
     activeRuns.delete(runtime);
-    return Scope.close(run.scope, Exit.void);
+    return Effect.uninterruptible(Scope.close(run.scope, Exit.void));
   });
 }
 
