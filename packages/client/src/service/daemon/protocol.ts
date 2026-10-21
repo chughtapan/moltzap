@@ -254,11 +254,6 @@ const makeWorkerCallbacks = (
       Effect.flatMap((engine) => engine.acceptRouterIngress(ingress)),
       Effect.tap(() => publishPending),
     ),
-  acceptRecoveryPayload: (ingress) =>
-    awaitEngine.pipe(
-      Effect.flatMap((engine) => engine.acceptRecoveryIngress(ingress)),
-      Effect.tap(() => publishPending),
-    ),
   abandonVolatileFolds: (reason) =>
     awaitEngine.pipe(
       Effect.flatMap((engine) => engine.abandonVolatileFolds(reason)),

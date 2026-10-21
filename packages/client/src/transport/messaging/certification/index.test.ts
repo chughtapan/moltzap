@@ -1305,7 +1305,7 @@ function restartMember4(harness: ProtocolHarness) {
 /**
  * Members 1, 2 and 3 certify a post that member 4 misses. Member 4's acceptance
  * of member 1's whole CertifiedRecord is interrupted right after its store
- * commits the post, as the Router worker interrupts its recovery pump. The
+ * commits the post, as a Router worker that loses its generation does. The
  * acceptance still completes, so member 4 holds the post as its head: a later
  * action-certified copy of the post is ignored and draws no durability vote.
  * @returns Completion once member 4's answer to the copy is checked.

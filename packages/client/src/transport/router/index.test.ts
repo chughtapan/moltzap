@@ -85,7 +85,6 @@ type RouterClientFailure = Effect.Effect.Error<
 const callbacks = (input?: {
   readonly accepted?: Ref.Ref<string[]>;
   readonly acceptedRouterInstances?: Ref.Ref<string[]>;
-  readonly recoveryAccepted?: Ref.Ref<string[]>;
   readonly events?: Ref.Ref<string[]>;
   readonly invalidText?: string;
   readonly failAcceptText?: string;
@@ -118,13 +117,6 @@ const callbacks = (input?: {
           }
           return "accepted" as const;
         }),
-  acceptRecoveryPayload: ({ payload }) =>
-    input?.recoveryAccepted === undefined
-      ? Effect.succeed("ignored" as const)
-      : Ref.update(input.recoveryAccepted, (values) => [
-          ...values,
-          payload.text,
-        ]).pipe(Effect.as("accepted" as const)),
   abandonVolatileFolds: (reason) =>
     input?.events === undefined
       ? Effect.void
@@ -169,16 +161,13 @@ const makeInput = (
  * without spending the scenario's script or callbacks on that recovery. The
  * recovery's omitted-cursor tail probe consumes the first scripted poll.
  * Until the worker is active, the cold-start `abandonVolatileFolds` and
- * `recoverCertifiedHistory` callbacks do nothing, so they record no events,
- * and a cursor poll, which only the recovery pump issues then, never answers,
- * so it consumes no scripted result. Afterwards every callback and poll
- * passes through.
+ * `recoverCertifiedHistory` callbacks do nothing, so they record no events.
+ * Afterwards every callback passes through.
  * @param input Worker input whose callbacks the scenario observes.
  * @returns An active worker that has consumed exactly one scripted poll.
  */
 const makeActiveRouterWorker = (input: RouterWorkerInput<TestPayload>) =>
   Effect.gen(function* () {
-    const router = yield* Router;
     const activating = yield* Ref.make(true);
     const configured = input.callbacks;
     const worker = yield* makeRouterWorker({
@@ -194,19 +183,7 @@ const makeActiveRouterWorker = (input: RouterWorkerInput<TestPayload>) =>
             .recoverCertifiedHistory(recovery)
             .pipe(Effect.unlessEffect(Ref.get(activating)), Effect.asVoid),
       },
-    }).pipe(
-      Effect.provideService(Router, {
-        ...router,
-        poll: (request) =>
-          Ref.get(activating).pipe(
-            Effect.flatMap((stillActivating) =>
-              stillActivating && request.request.pollCursor !== undefined
-                ? Effect.never
-                : router.poll(request),
-            ),
-          ),
-      }),
-    );
+    });
     yield* worker.pollOnce;
     yield* Ref.set(activating, false);
     return worker;
@@ -711,7 +688,6 @@ const restartedSendRecoversBeforeReturning = () =>
       expect(yield* Ref.get(router.scripted.pollCalls)).toEqual([
         { hasCursor: false },
         { hasCursor: false },
-        { hasCursor: true },
       ]);
       expect(yield* worker.currentAnchor).toEqual({
         routerInstanceId: newInstance,
@@ -776,7 +752,6 @@ const restartOrdersTailBeforeRecovery = () =>
       { hasCursor: false },
       { hasCursor: true },
       { hasCursor: false },
-      { hasCursor: true },
     ]);
     yield* Deferred.succeed(releaseRecovery, undefined);
     yield* Fiber.join(polling);
@@ -818,7 +793,7 @@ const recoveryRetryPromotesChangedTailToRestart = () =>
               ).pipe(
                 Effect.flatMap((attempt) =>
                   attempt === 0
-                    ? Effect.never
+                    ? Effect.void
                     : Deferred.succeed(recoveryStarted, recovery).pipe(
                         Effect.zipRight(Deferred.await(releaseRecovery)),
                       ),
@@ -831,14 +806,13 @@ const recoveryRetryPromotesChangedTailToRestart = () =>
       fixture,
     );
 
-    const firstFailure = yield* provide(
-      worker.pollOnce.pipe(Effect.flip),
-      router.layer,
-      fixture,
-    );
-    expect(firstFailure).toStrictEqual(new RouterWorkerDiscontinuityError());
+    yield* provide(worker.pollOnce, router.layer, fixture);
+    expect(yield* worker.currentAnchor).toEqual({
+      routerInstanceId: oldInstance,
+      pollCursor: pollCursor(27),
+    });
 
-    const retry = yield* provide(
+    const restart = yield* provide(
       Effect.fork(worker.pollOnce),
       router.layer,
       fixture,
@@ -861,7 +835,7 @@ const recoveryRetryPromotesChangedTailToRestart = () =>
     ]);
 
     yield* Deferred.succeed(releaseRecovery, undefined);
-    yield* Fiber.join(retry);
+    yield* Fiber.join(restart);
     expect(yield* worker.currentAnchor).toEqual({
       routerInstanceId: newInstance,
       pollCursor: pollCursor(29),
@@ -934,18 +908,17 @@ const normalSendWaitsForRecovery = () =>
     }),
   );
 
-const recoveryPumpsIngressBeforeActivation = () =>
+const ingressHeldDuringRecoveryIsAcceptedOnceActive = () =>
   Effect.gen(function* () {
     const fixture = yield* makeFixture;
-    const recoveryMessage = yield* signMessage({
+    const heldMessage = yield* signMessage({
       card: fixture.localCard,
       authority: fixture.localAuthority,
       recipient: fixture.localCard.agentId,
       id: 70,
-      body: "recovery-vote",
+      body: "action-during-recovery",
     });
     const accepted = yield* Ref.make<string[]>([]);
-    const recoveryIngressAccepted = yield* Deferred.make<void>();
     const callbackStarted = yield* Deferred.make<void>();
     const recoveryDurable = yield* Deferred.make<void>();
     const oldInstance = routerInstanceId(70);
@@ -955,82 +928,19 @@ const recoveryPumpsIngressBeforeActivation = () =>
         emptyBatch(oldInstance, pollCursor(11)),
         { kind: "cursor_invalid" },
         emptyBatch(newInstance, pollCursor(12)),
-        batch(newInstance, pollCursor(13), [recoveryMessage]),
+        batch(newInstance, pollCursor(13), [heldMessage]),
       ],
       fallbackPoll: Effect.never,
-    });
-    const recording = callbacks({
-      recoveryAccepted: accepted,
-      recover: () =>
-        Deferred.succeed(callbackStarted, undefined).pipe(
-          Effect.zipRight(Deferred.await(recoveryDurable)),
-        ),
-    });
-    const worker = yield* provide(
-      makeActiveRouterWorker(
-        makeInput(fixture, {
-          ...recording,
-          acceptRecoveryPayload: (ingress) =>
-            recording
-              .acceptRecoveryPayload(ingress)
-              .pipe(
-                Effect.tap(() =>
-                  Deferred.succeed(recoveryIngressAccepted, undefined),
-                ),
-              ),
-        }),
-      ),
-      router.layer,
-      fixture,
-    );
-    const polling = yield* provide(
-      Effect.fork(worker.pollOnce),
-      router.layer,
-      fixture,
-    );
-    yield* Deferred.await(callbackStarted);
-    yield* Deferred.await(recoveryIngressAccepted).pipe(
-      Effect.timeout("1 second"),
-    );
-    expect(yield* Ref.get(accepted)).toEqual(["recovery-vote"]);
-    const unavailable = yield* worker.currentAnchor.pipe(Effect.flip);
-    expect(unavailable).toStrictEqual(new RouterWorkerUnavailableError());
-    yield* Deferred.succeed(recoveryDurable, undefined);
-    yield* Fiber.join(polling);
-    expect(yield* worker.currentAnchor).toEqual({
-      routerInstanceId: newInstance,
-      pollCursor: pollCursor(13),
-    });
-  });
-
-const recoveryPumpFailureInterruptsCallback = () =>
-  Effect.gen(function* () {
-    const fixture = yield* makeFixture;
-    const callbackStarted = yield* Deferred.make<void>();
-    const callbackInterrupted = yield* Deferred.make<void>();
-    const oldInstance = routerInstanceId(80);
-    const newInstance = routerInstanceId(81);
-    const router = yield* makeScriptedRouter({
-      polls: [
-        emptyBatch(oldInstance, pollCursor(14)),
-        { kind: "cursor_invalid" },
-        emptyBatch(newInstance, pollCursor(15)),
-        { kind: "feed_gap", routerInstanceId: newInstance },
-      ],
     });
     const worker = yield* provide(
       makeActiveRouterWorker(
         makeInput(
           fixture,
           callbacks({
+            accepted,
             recover: () =>
               Deferred.succeed(callbackStarted, undefined).pipe(
-                Effect.zipRight(Effect.never),
-                Effect.onInterrupt(() =>
-                  Deferred.succeed(callbackInterrupted, undefined).pipe(
-                    Effect.asVoid,
-                  ),
-                ),
+                Effect.zipRight(Deferred.await(recoveryDurable)),
               ),
           }),
         ),
@@ -1038,14 +948,27 @@ const recoveryPumpFailureInterruptsCallback = () =>
       router.layer,
       fixture,
     );
-    const failure = yield* provide(
-      worker.pollOnce.pipe(Effect.flip),
+    const recovering = yield* provide(
+      Effect.fork(worker.pollOnce),
       router.layer,
       fixture,
     );
     yield* Deferred.await(callbackStarted);
-    yield* Deferred.await(callbackInterrupted);
-    expect(failure).toStrictEqual(new RouterWorkerDiscontinuityError());
+    expect(yield* Ref.get(accepted)).toEqual([]);
+    const unavailable = yield* worker.currentAnchor.pipe(Effect.flip);
+    expect(unavailable).toStrictEqual(new RouterWorkerUnavailableError());
+    yield* Deferred.succeed(recoveryDurable, undefined);
+    yield* Fiber.join(recovering);
+    expect(yield* worker.currentAnchor).toEqual({
+      routerInstanceId: newInstance,
+      pollCursor: pollCursor(12),
+    });
+    yield* provide(worker.pollOnce, router.layer, fixture);
+    expect(yield* Ref.get(accepted)).toEqual(["action-during-recovery"]);
+    expect(yield* worker.currentAnchor).toEqual({
+      routerInstanceId: newInstance,
+      pollCursor: pollCursor(13),
+    });
   });
 
 const pinnedCardsSurviveRegistryOutage = () =>
@@ -1484,9 +1407,9 @@ const staleFailureKeepsNewGenerationAttached = () =>
   });
 
 /**
- * A Router lost after recovery started interrupts it: the loop stays up,
- * warns on each failed attempt and every minute, and completes recovery
- * once the Router answers, after which a held send goes out.
+ * A Router lost while a recovery runs does not interrupt it: the recovery
+ * completes, the next poll detaches the worker, the loop stays up and warns,
+ * and once the Router answers the worker reattaches and a held send goes out.
  */
 const outageDuringRecoveryRecovers = () =>
   Effect.gen(function* () {
@@ -1526,19 +1449,11 @@ const outageDuringRecoveryRecovers = () =>
           yield* Ref.set(reachable, false);
           yield* advanceClock("70 seconds");
           expect(yield* Fiber.poll(polling)).toEqual(Option.none());
+          expect(countLogged(lines, "recovery complete")).toBe(2);
           expect(lines).toEqual(
             expect.arrayContaining([
-              expect.stringContaining("recovery attempt failed"),
+              expect.stringContaining("Router unreachable"),
             ]),
-          );
-          expect(lines).toEqual(
-            expect.arrayContaining([
-              expect.stringContaining("recovery waiting for"),
-            ]),
-          );
-          expect(countLogged(lines, "recovery complete")).toBe(1);
-          expect(yield* worker.currentAnchor.pipe(Effect.flip)).toStrictEqual(
-            new RouterWorkerUnavailableError(),
           );
 
           yield* Ref.set(reachable, true);
@@ -1547,7 +1462,6 @@ const outageDuringRecoveryRecovers = () =>
             routerInstanceId: restarted,
             pollCursor: outageCursor,
           });
-          expect(countLogged(lines, "recovery complete")).toBe(2);
           yield* worker.send(outbound.messageId);
           expect((yield* store.recover()).outboundMessages).toEqual([]);
           yield* Fiber.interrupt(polling);
@@ -1771,7 +1685,7 @@ describe("private Router worker", () => {
     restartOrdersTailBeforeRecovery,
   );
   it(
-    "promotes a retry-time omitted-tail instance change before recovery",
+    "recovers again on the new instance when the next poll after a recovery names one",
     recoveryRetryPromotesChangedTailToRestart,
   );
   it(
@@ -1779,12 +1693,8 @@ describe("private Router worker", () => {
     normalSendWaitsForRecovery,
   );
   it(
-    "pumps recovery ingress before activating the recovered generation",
-    recoveryPumpsIngressBeforeActivation,
-  );
-  it(
-    "interrupts pending recovery when its ingress pump loses continuity",
-    recoveryPumpFailureInterruptsCallback,
+    "accepts traffic the Router held during recovery once the worker is active",
+    ingressHeldDuringRecoveryIsAcceptedOnceActive,
   );
   it(
     "authenticates pinned history senders while Registry is unavailable",
@@ -1800,7 +1710,7 @@ describe("private Router worker", () => {
     30_000,
   );
   it(
-    "stays up, warns, and completes a recovery the Router drops out of",
+    "stays up and warns when the Router drops out after a recovery",
     outageDuringRecoveryRecovers,
     30_000,
   );

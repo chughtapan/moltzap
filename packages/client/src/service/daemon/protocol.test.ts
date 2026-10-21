@@ -165,8 +165,6 @@ const recordingEngine = (
   acknowledgeMessage: () => Effect.dieMessage("nothing is delivered here"),
   acceptRouterIngress: (ingress) =>
     Queue.offer(accepted, ingress.payload).pipe(Effect.as("accepted" as const)),
-  acceptRecoveryIngress: (ingress) =>
-    Queue.offer(accepted, ingress.payload).pipe(Effect.as("accepted" as const)),
   recoverCertifiedHistory: () => Effect.void,
   drainOutbound: Effect.void,
   runOutbound: Effect.never,

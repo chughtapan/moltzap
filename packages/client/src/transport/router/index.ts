@@ -18,7 +18,6 @@ import {
 import {
   Effect,
   Encoding,
-  Fiber,
   Option,
   Ref,
   Schedule,
@@ -356,24 +355,6 @@ type AnchoredRecoveringState = RouterWorkerRecoveringState & {
   readonly anchor: NonNullable<RouterWorkerRecoveringState["anchor"]>;
 };
 
-interface RecoveryOperations {
-  readonly verifyBatch: (
-    messages: readonly LiveSignedMessage[],
-  ) => Effect.Effect<
-    readonly RouterWorkerVerifiedIngress[],
-    RouterWorkerAuthenticationError | RouterWorkerPersistenceError
-  >;
-  readonly acceptRecovery: (
-    ingress: RouterWorkerVerifiedIngress,
-    routerInstanceId: RouterInstanceId,
-  ) => Effect.Effect<void, RouterWorkerPersistenceError>;
-}
-
-interface RecoveryBatch {
-  readonly result: Extract<RouterPollResult, { readonly kind: "batch" }>;
-  readonly verified: readonly RouterWorkerVerifiedIngress[];
-}
-
 const matchesRecovery = (
   state: RouterWorkerState,
   generation: number,
@@ -383,125 +364,27 @@ const matchesRecovery = (
   state.generation === generation &&
   state.anchor?.routerInstanceId === routerInstanceId;
 
-const snapshotRecovery = <Payload>(
-  runtime: RouterWorkerRuntime<Payload>,
-  generation: number,
-): Effect.Effect<AnchoredRecoveringState, RouterWorkerDiscontinuityError> =>
-  Ref.get(runtime.state).pipe(
-    Effect.flatMap((state) =>
-      state.kind === "recovering" &&
-      state.generation === generation &&
-      state.anchor !== undefined
-        ? Effect.succeed({ ...state, anchor: state.anchor })
-        : Effect.fail(new RouterWorkerDiscontinuityError()),
-    ),
-  );
-
-const commitRecoveryBatch = <Payload>(
-  runtime: RouterWorkerRuntime<Payload>,
-  operations: RecoveryOperations,
-  snapshot: AnchoredRecoveringState,
-  batch: RecoveryBatch,
-): Effect.Effect<void, RouterWorkerPersistenceError> =>
-  runtime.stateGate.withPermits(1)(
-    Effect.gen(function* () {
-      const current = yield* Ref.get(runtime.state);
-      if (
-        !matchesRecovery(
-          current,
-          snapshot.generation,
-          batch.result.routerInstanceId,
-        )
-      ) {
-        return;
-      }
-      yield* Effect.forEach(
-        batch.verified,
-        (ingress) =>
-          operations.acceptRecovery(ingress, batch.result.routerInstanceId),
-        { concurrency: 1 },
-      );
-      yield* Ref.set(runtime.state, {
-        ...current,
-        anchor: { ...current.anchor, pollCursor: batch.result.pollCursor },
-      });
-    }),
-  );
-
-const pollRecoveringOnce = <Payload>(
-  runtime: RouterWorkerRuntime<Payload>,
-  operations: RecoveryOperations,
-  generation: number,
-): Effect.Effect<void, RouterWorkerPollError> =>
-  Effect.gen(function* () {
-    const snapshot = yield* snapshotRecovery(runtime, generation);
-    const result = yield* runtime.router
-      .poll({
-        request: { pollCursor: snapshot.anchor.pollCursor },
-        callerAgentId: runtime.input.callerAgentId,
-        signingAuthority: runtime.input.signingAuthority,
-      })
-      .pipe(Effect.mapError(mapRouterFailure));
-    switch (result.kind) {
-      case "batch": {
-        if (result.routerInstanceId !== snapshot.anchor.routerInstanceId) {
-          return yield* Effect.fail(new RouterWorkerDiscontinuityError());
-        }
-        const verified = yield* operations.verifyBatch(result.signedMessages);
-        yield* commitRecoveryBatch(runtime, operations, snapshot, {
-          result,
-          verified,
-        });
-        return;
-      }
-      case "feed_gap":
-      case "cursor_invalid":
-        return yield* Effect.fail(new RouterWorkerDiscontinuityError());
-      default:
-        return yield* Effect.fail(new RouterWorkerProtocolError());
-    }
-  }).pipe(Effect.interruptible);
-
-const pumpRecovery = <Payload>(
-  runtime: RouterWorkerRuntime<Payload>,
-  operations: RecoveryOperations,
-  recovering: RouterWorkerRecoveringState,
-): Effect.Effect<never, RouterWorkerPollError> =>
-  pollRecoveringOnce(runtime, operations, recovering.generation).pipe(
-    Effect.retry(pollBlipRetry),
-    Effect.forever,
-    Effect.interruptible,
-  );
-
 /**
- * Reconcile certified history while only recovery traffic advances the cursor.
+ * Anchor a restarted or rejoined Router and reconcile certified history, then
+ * go active. Recovery fences each conversation and asks for catch-up without
+ * waiting for answers, so the worker polls nothing until it is active, and
+ * every message the Router holds meanwhile reaches the active path.
  * @param runtime Worker runtime whose generation is being recovered.
- * @param operations Verification and persistence operations for recovery.
  * @param recovering Generation-scoped state to reconcile.
  * @returns An effect that completes after the worker becomes active.
  */
 const finishRouterRecovery = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
-  operations: RecoveryOperations,
   recovering: RouterWorkerRecoveringState,
 ): Effect.Effect<void, RouterWorkerPollError> =>
   Effect.gen(function* () {
     const anchor = yield* pollRouterTail(runtime, runtime.input);
     const anchored = yield* anchorRecovery(runtime, recovering, anchor);
     const prepared = yield* prepareRecovery(runtime, anchored);
-    yield* Effect.raceWith(
-      runtime.input.callbacks.recoverCertifiedHistory({
-        reason: prepared.reason,
-        anchor: prepared.anchor,
-      }),
-      pumpRecovery(runtime, operations, prepared),
-      {
-        onSelfDone: (exit, pump) =>
-          Fiber.interrupt(pump).pipe(Effect.zipRight(exit)),
-        onOtherDone: (exit, recover) =>
-          Fiber.interrupt(recover).pipe(Effect.zipRight(exit)),
-      },
-    );
+    yield* runtime.input.callbacks.recoverCertifiedHistory({
+      reason: prepared.reason,
+      anchor: prepared.anchor,
+    });
     yield* runtime.stateGate.withPermits(1)(
       Effect.gen(function* () {
         const current = yield* Ref.get(runtime.state);
@@ -617,21 +500,14 @@ const acceptVerified = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
   ingress: RouterWorkerVerifiedIngress,
   routerInstanceId: RouterInstanceId,
-  phase: "active" | "recovering" = "active",
 ): Effect.Effect<void, RouterWorkerPersistenceError> =>
   runtime.input.callbacks.decodePayload(ingress.message).pipe(
     Effect.flatMap((payload) =>
-      phase === "active"
-        ? runtime.input.callbacks.acceptPayload({
-            ...ingress,
-            payload,
-            routerInstanceId,
-          })
-        : runtime.input.callbacks.acceptRecoveryPayload({
-            ...ingress,
-            payload,
-            routerInstanceId,
-          }),
+      runtime.input.callbacks.acceptPayload({
+        ...ingress,
+        payload,
+        routerInstanceId,
+      }),
     ),
     Effect.asVoid,
     Effect.catchTag("RouterWorkerPayloadInvalidError", () => Effect.void),
@@ -741,20 +617,6 @@ function anchorRecovery<Payload>(
   );
 }
 
-const finishRecovery = <Payload>(
-  runtime: RouterWorkerRuntime<Payload>,
-  recovering: RouterWorkerRecoveringState,
-): Effect.Effect<void, RouterWorkerPollError> =>
-  finishRouterRecovery(
-    runtime,
-    {
-      verifyBatch: (messages) => verifyBatch(runtime, messages),
-      acceptRecovery: (ingress, routerInstanceId) =>
-        acceptVerified(runtime, ingress, routerInstanceId, "recovering"),
-    },
-    recovering,
-  );
-
 const triggerDiscontinuity = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
   reason: RouterDiscontinuityReason,
@@ -770,7 +632,7 @@ const triggerDiscontinuity = <Payload>(
         return;
       }
       if (current.kind === "recovering") {
-        return yield* finishRecovery(runtime, current);
+        return yield* finishRouterRecovery(runtime, current);
       }
       const recovering: RouterWorkerRecoveringState = {
         kind: "recovering",
@@ -786,7 +648,7 @@ const triggerDiscontinuity = <Payload>(
       if (current.kind === "detached") {
         yield* logRecoveryAfterLoss(recovering);
       }
-      return yield* finishRecovery(runtime, recovering);
+      return yield* finishRouterRecovery(runtime, recovering);
     }),
   );
 
@@ -879,7 +741,7 @@ const makePollOnce = <Payload>(
             return probeDetached(runtime, state);
           case "recovering":
             return runtime.recoveryGate.withPermits(1)(
-              finishRecovery(runtime, state),
+              finishRouterRecovery(runtime, state),
             );
           default: {
             const exhaustive: never = state;
