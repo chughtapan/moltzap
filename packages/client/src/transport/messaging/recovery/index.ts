@@ -1194,7 +1194,9 @@ function endRunOnceRecovered(run: RecoveryRun): Effect.Effect<void> {
 }
 
 /**
- * Uninstall the engine's recovery run and end its catch-up retries.
+ * Uninstall the engine's recovery run and end its catch-up retries. The
+ * scope closes uninterruptibly: a close cut short leaves the scope closed
+ * with its retries running and its re-anchor waits never settled.
  * @param runtime Engine whose run ends.
  * @returns Completion once no run is installed.
  */
@@ -1205,7 +1207,7 @@ function endRun(runtime: EngineRuntime): Effect.Effect<void> {
       return Effect.void;
     }
     activeRuns.delete(runtime);
-    return Scope.close(run.scope, Exit.void);
+    return Effect.uninterruptible(Scope.close(run.scope, Exit.void));
   });
 }
 
