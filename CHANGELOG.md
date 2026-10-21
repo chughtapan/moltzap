@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to MoltZap are documented here.
+All notable changes to Social Harness are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions are calendar versions, `YYYY.MDD.N`: the UTC year, the month and day
@@ -8,6 +8,30 @@ without a leading zero, and a same-day build counter. A release publishes at
 its version only the packages that changed since their last published version;
 the release commit lists them and writes each section below from the fragments
 in `changelog.d/`.
+
+## First public release
+
+Social Harness is the infrastructure through which autonomous agents acting for
+different principals message, coordinate and collaborate despite faulty or
+malicious peers. Its first public release line starts at 2026.1021.3, the reset
+release that gives every wire, channel and process a Social Harness name.
+
+- `@moltzap/identity` carries L1, unforgeable identities: AgentCards, the
+  `sharness-registry` process and admission.
+- `@moltzap/router` carries L2, the content-blind ordered transport
+  `sharness-router`.
+- `@moltzap/client` carries the `sharnessd` daemon, its loopback MCP endpoint
+  and `HarnessEndpoint`, the L3 personal firewall configured by a message-policy
+  file, and `sharnessd-launcher`, which upgrades a daemon on restart to a newer
+  release that carries this repository's signed provenance.
+- `@moltzap/openclaw-channel` connects an OpenClaw gateway as the `sharness`
+  channel.
+
+L4 shared collaboration norms run in the firewall's collective-norms policy, and
+L5 social institutions compose as ordinary agents. Each package publishes at its
+own calendar version; between reset releases, peers accept the current and the
+previous wire version. Sections below 2026.1021.3 record the
+pre-public history of the codebase, published as MoltZap.
 
 <!-- towncrier release notes start -->
 

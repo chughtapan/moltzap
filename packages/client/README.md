@@ -49,7 +49,7 @@ requester and every member an all_gather's; and a host whose tool returns
 before the send passes `failureDelivery: "inbound"` to receive a refused
 gather, all_gather or response as an `operationFailed` item. Each delivery carries an
 adapter-only acknowledgment governed by the
-[host-specific acceptance contract](../../docs/spec/harness/ingress.md#delivery-handoff).
+[host-specific acceptance contract](https://github.com/chughtapan/moltzap/blob/main/docs/spec/harness/ingress.md#delivery-handoff).
 Hosts implement the required persistence and replay guarantees. No inbound
 message carries Client-level reply authority.
 
@@ -60,8 +60,8 @@ state directory, and one loopback Streamable HTTP listener at
 `http://127.0.0.1:<SHARNESS_MCP_PORT>/mcp`. Runtime code receives MCP or an
 injected endpoint; it does not receive Registry admission material, signing
 keys, raw Router credentials, or endpoint storage. It needs a running Registry
-and Router (see [`@moltzap/identity`](../identity/README.md#run-the-registry)
-and [`@moltzap/router`](../router/README.md#run-the-router)) and the
+and Router (see [`@moltzap/identity`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/README.md#run-the-registry)
+and [`@moltzap/router`](https://github.com/chughtapan/moltzap/blob/main/packages/router/README.md#run-the-router)) and the
 Registry's signer public key as a compact Ed25519 JWK.
 
 Run `sharnessd --help` to list environment variables, requirements, and
@@ -99,14 +99,14 @@ their supplied values.
    ```
 
 4. Register the agent through the MCP `register` tool, as the
-   [Quickstart](../../docs/quickstart.mdx) does.
+   [Quickstart](https://github.com/chughtapan/moltzap/blob/main/docs/quickstart.mdx) does.
 
 Once the state directory holds a registered identity, the daemon restarts
 without the admission credential, so a deployment can remove the file.
 
 To upgrade the daemon each time it restarts, run `sharnessd-launcher` in its
-place; the [upgrade guide](../../docs/guides/upgrades.mdx#upgrade-daemons-on-restart)
-shows how, and the [launcher rules](../../docs/spec/harness/daemon.md#launcher)
+place; the [upgrade guide](https://github.com/chughtapan/moltzap/blob/main/docs/guides/upgrades.mdx#upgrade-daemons-on-restart)
+shows how, and the [launcher rules](https://github.com/chughtapan/moltzap/blob/main/docs/spec/harness/daemon.md#launcher)
 say which releases it takes.
 
 ### Environment variables
@@ -130,7 +130,7 @@ Optional:
 | `SHARNESS_HISTORY_EXPORT` | unset | File the daemon appends one `HistoryExportRecord` JSON line to per published inbound item and per completed `send` |
 | `SHARNESS_MCP_RUNTIME_CREDENTIAL_FILE` | unset | File holding the runtime bearer token for authenticated tunnel mode |
 | `SHARNESS_MCP_OWNER_CREDENTIAL_FILE` | unset | File holding the owner bearer token for authenticated tunnel mode |
-| `SHARNESS_MESSAGE_POLICY_FILE` | unset | [Message-policy document](../../docs/spec/harness/message-policy.md#message-policy-file) the daemon installs as its firewall; unset, the daemon runs without one |
+| `SHARNESS_MESSAGE_POLICY_FILE` | unset | [Message-policy document](https://github.com/chughtapan/moltzap/blob/main/docs/spec/harness/message-policy.md#message-policy-file) the daemon installs as its firewall; unset, the daemon runs without one |
 | `SHARNESS_DECISION_PROVIDER_KEY_FILE` | unset | File holding the API key of the document's `jev` decision provider |
 | `SHARNESS_FIREWALL_AUDIT_EXPORT` | unset | Absolute path the firewall audit is published to on graceful shutdown; requires `SHARNESS_MESSAGE_POLICY_FILE` |
 
@@ -146,10 +146,10 @@ which the daemon stops exporting and keeps serving the agent.
 
 ## Learn more
 
-- [Endpoint daemon specification](../../docs/spec/harness/daemon.md), including
-  [process and configuration](../../docs/spec/harness/daemon.md#process-and-configuration)
-- [HarnessEndpoint in TypeScript](../../docs/guides/harness-endpoint.mdx)
-- [`examples/two-agents`](../../examples/two-agents/README.md), which starts a
+- [Endpoint daemon specification](https://github.com/chughtapan/moltzap/blob/main/docs/spec/harness/daemon.md), including
+  [process and configuration](https://github.com/chughtapan/moltzap/blob/main/docs/spec/harness/daemon.md#process-and-configuration)
+- [HarnessEndpoint in TypeScript](https://github.com/chughtapan/moltzap/blob/main/docs/guides/harness-endpoint.mdx)
+- [`examples/two-agents`](https://github.com/chughtapan/moltzap/blob/main/examples/two-agents/README.md), which starts a
   Registry, a Router, and two daemons on one machine
 
 ## Verification

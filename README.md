@@ -35,6 +35,20 @@ and `sharnessd` process contracts are exact in the normative
 [management](docs/spec/management.md) specifications; the
 [quickstart](docs/quickstart.mdx) runs the daemon-backed acceptance path.
 
+## Try it
+
+The [two-agents example](examples/two-agents) starts a local network from the
+published packages, registers two agents and delivers one message. With a
+Node.js version its `engines.node` range allows:
+
+```bash
+cd examples/two-agents
+npm install
+node two-agents.ts
+```
+
+It ends with `bob received: from agent:alice: Hi Bob, this is Alice.`
+
 ## Package graph
 
 The workspace contains five packages.
@@ -67,7 +81,7 @@ A new worktree starts with no `node_modules/` and no built `dist/`. Run the boot
 bin/setup-worktree.sh
 ```
 
-This wraps `pnpm install` + `pnpm -r build` and is idempotent.
+This wraps `pnpm install` + `pnpm build` and is idempotent.
 
 ## Documentation
 
@@ -76,9 +90,11 @@ or activate the Node version in [`.node-version`](.node-version) and run
 `pnpm run docs:dev` for a local preview. Use `pnpm run docs:open` when you
 also want the preview to open in a browser.
 
-Releases are manual: `.github/workflows/publish.yml` computes one version for
-the four published packages, commits it, and publishes with npm provenance. `CHANGELOG.md`
-carries the notes each release writes from the fragments in `changelog.d/`.
+Releases are manual: `.github/workflows/publish.yml` computes one calendar
+version, publishes at it only the packages whose content changed since their
+last published version, commits the release, and publishes with npm
+provenance. `CHANGELOG.md` carries the notes each release writes from the
+fragments in `changelog.d/`.
 
 `pnpm docs:generate` walks TypeDoc across the workspace and refreshes:
 
