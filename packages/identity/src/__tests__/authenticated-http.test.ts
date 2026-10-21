@@ -988,6 +988,41 @@ it("propagates Registry lookup deadlines and releases resolver state", () =>
     }),
   ));
 
+const increment = (count: number) => count + 1;
+
+it("resolves a caller again after a Registry lookup throws synchronously", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const calls = yield* Ref.make(0);
+      const registry = registryWithLookup(() => {
+        const call = Effect.runSync(Ref.getAndUpdate(calls, increment));
+        if (call === 0) {
+          throw new Error("lookup threw before returning an Effect");
+        }
+        return Effect.succeed({ kind: "found", agentCard: fixture.agentCard });
+      });
+      const [first, second] = yield* Effect.all([
+        prepareRequest({ fixture }),
+        prepareRequest({ fixture }),
+      ]);
+      const outcome = yield* Effect.gen(function* () {
+        const refusal = yield* Effect.flip(verifyAgentRequest(first));
+        const verified = yield* verifyAgentRequest(second);
+        return { refusal, verified };
+      }).pipe(
+        Effect.provide(authenticatedHttpLayerWithRegistry(registry)),
+        Effect.timeoutFail({
+          duration: RESOLVER_REGRESSION_DEADLINE,
+          onTimeout: () => new Error("the caller's resolution never settled"),
+        }),
+      );
+
+      expect(outcome.refusal).toStrictEqual(new UnavailableError());
+      expect(outcome.verified.agentCard).toBe(fixture.agentCard);
+    }),
+  ));
+
 it("keeps a shared card lookup alive when its first waiter is interrupted", () =>
   Effect.runPromise(
     Effect.gen(function* () {
