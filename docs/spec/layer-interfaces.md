@@ -421,12 +421,20 @@ mismatches. Release notes mark each reset release with the phrase
   `v<version>` release tags. It publishes at that version only the packages
   whose packed content changed since the version their manifest names; the
   other packages keep their versions.
-- A package's content hash covers its packed files and its packed manifest
-  without `version`. Each published manifest records it as
-  `sharnessContentHash`, and the release selects a package when the hash
-  differs from the value npm recorded for its manifest's version, or when npm
-  recorded none. Two versions of a package with equal hashes carry the same
-  code.
+- A package's content hash covers its packed files with their executable
+  bits and its packed manifest without `version` or the recorded hashes. Each
+  published manifest records it as `sharnessContentHash`, and the release
+  selects a package when the hash differs from the value npm recorded for its
+  manifest's version, or when npm recorded none. Two versions of a package
+  with equal hashes carry the same code. The first release that records
+  hashes republishes all four packages.
+- The OpenClaw channel's published manifest also records
+  `sharnessHostCodeHash`: the hash of the code OpenClaw loads for the
+  channel, meaning every packed channel file plus each sibling module its
+  JavaScript reaches through the sibling's `exports` map, with manifests
+  hashed without versions, recorded hashes, or `@moltzap/*` pins. A change
+  confined to the Client's `./service` subpath or `sharnessd` leaves it
+  unchanged, so a launcher restarts OpenClaw only when this value differs.
 - `pnpm pack` pins each workspace sibling to the sibling's exact manifest
   version. A dependent of a selected package therefore packs a new pin and is
   selected too, so every published package pins its siblings to their newest
@@ -441,8 +449,9 @@ mismatches. Release notes mark each reset release with the phrase
   is private, when its `engines.node` differs from the root `package.json`
   range, when its version is not a calendar version, when a sibling edge is
   not an exact `workspace:*` pin, when the NanoClaw adapter is not private, or
-  when the release workflow's package list drifts from the published set. The client, OpenClaw, and NanoClaw `test:pack` gates pack
-  the four published packages and the NanoClaw adapter through
+  when the release workflow's package list drifts from the published set. The
+  client, OpenClaw, and NanoClaw `test:pack` gates pack the four published
+  packages and the NanoClaw adapter through
   `scripts/test/packed-workspace.ts` and prove each closure installs with
   exact sibling pins and every declared executable present. The NanoClaw gate
   proves the adapter compiles against the Client ABI in isolation;
@@ -485,10 +494,9 @@ Endpoints that miss the live window require a reset.
 The mixed-release CI gate runs the previous published Client release and the
 oldest published Client release whose wire version remains live against the
 current build, each installed with the exact Identity and Router versions it
-pins,
-using the current Registry and Router. Candidate selection reads each Client release's
-Identity pin and that Identity version's `moltzapWireVersion` npm metadata
-without installing candidates.
+pins, using the current Registry and Router. Candidate selection reads each
+Client release's Identity pin and that Identity version's
+`moltzapWireVersion` npm metadata without installing candidates.
 `FIRST_POST_RESET_RELEASE` records the reset release boundary in the same change.
 Absent metadata denotes a pre-reset release only below that boundary. Missing metadata at or after that
 release fails the gate; registry

@@ -1,18 +1,27 @@
 #!/usr/bin/env node
 /**
- * @file Tests for the release's package selection and content hash.
+ * @file Tests for the release's package selection, content hash, and
+ * host-code hash.
  *
  * Invoked via `pnpm test:select-packages`. The selection runs over an
  * in-memory workspace whose content hash includes each sibling pin, as a
- * packed manifest does; the hash runs over real temporary directories.
+ * packed manifest does; the hashes run over real temporary directories.
  */
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { contentHashOfDirectory } from "./content-hash.ts";
+import { hostCodeHashOfDirectories } from "./host-code-hash.ts";
 import {
+  classifyNpmView,
   type Manifest,
   type Recorded,
   selectPackages,
@@ -38,6 +47,22 @@ const MANIFEST = {
   dependencies: { "@moltzap/client": PREVIOUS },
 };
 const FILES = { "dist/index.js": "export {};\n", "openclaw.plugin.json": "{}" };
+
+const CHANNEL_MANIFEST = MANIFEST;
+const CLIENT_MANIFEST = {
+  name: "@moltzap/client",
+  version: PREVIOUS,
+  exports: {
+    ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
+    "./service": {
+      types: "./dist/service/index.d.ts",
+      import: "./dist/service/index.js",
+    },
+  },
+  bin: { sharnessd: "./bin/sharnessd" },
+};
+
+const UNAVAILABLE: Recorded["kind"] = "unavailable";
 
 /** Npm holds every PREVIOUS version with the hash it was published with. */
 const AS_PUBLISHED = (): Recorded | undefined => undefined;
@@ -144,6 +169,89 @@ await test("the content hash changes with any packed file or sibling pin", () =>
   );
 });
 
+await test("the content hash changes with a file's executable bit", () => {
+  const root = packedDirectory(MANIFEST, { ...FILES, "bin/tool": "" });
+  const before = contentHashOfDirectory(root);
+  chmodSync(path.join(root, "bin/tool"), 0o755);
+  const after = contentHashOfDirectory(root);
+  rmSync(root, { recursive: true, force: true });
+  assert.notEqual(after, before);
+});
+
+await test("npm's answers classify as a hash, absent, or unavailable", () => {
+  const subject = "@moltzap/client@2099.100.0";
+  assert.deepEqual(
+    classifyNpmView({ status: 0, stdout: '"sha256:a"\n', stderr: "" }, subject),
+    { kind: "hash", hash: "sha256:a" },
+  );
+  assert.deepEqual(
+    classifyNpmView({ status: 0, stdout: "", stderr: "" }, subject),
+    { kind: "absent" },
+  );
+  assert.deepEqual(
+    classifyNpmView(
+      {
+        status: 1,
+        stdout: JSON.stringify({ error: { code: "E404" } }),
+        stderr: "",
+      },
+      subject,
+    ),
+    { kind: "absent" },
+  );
+  for (const failure of [
+    { status: 1, stdout: JSON.stringify({ error: { code: "ECONNREFUSED" } }) },
+    { status: null, stdout: "" },
+  ]) {
+    assert.equal(
+      classifyNpmView({ ...failure, stderr: "connect failed" }, subject).kind,
+      UNAVAILABLE,
+    );
+  }
+});
+
+await test("the host-code hash ignores Client modules the channel cannot reach", () => {
+  const packages = hostPackages();
+  const base = hostHash(packages);
+  writeFileSync(
+    path.join(packages.client, "dist/service/index.js"),
+    "export const daemon = 2;\n",
+  );
+  writeFileSync(path.join(packages.client, "bin/sharnessd"), "changed\n");
+  assert.equal(hostHash(packages), base);
+  removePackages(packages);
+});
+
+await test("the host-code hash changes with any Client module the channel reaches", () => {
+  const packages = hostPackages();
+  const base = hostHash(packages);
+  writeFileSync(
+    path.join(packages.client, "dist/endpoint.js"),
+    "export const endpoint = 2;\n",
+  );
+  assert.notEqual(hostHash(packages), base);
+  removePackages(packages);
+});
+
+await test("the host-code hash ignores sibling versions and pins", () => {
+  const packages = hostPackages();
+  const base = hostHash(packages);
+  writeFileSync(
+    path.join(packages.channel, "package.json"),
+    JSON.stringify({
+      ...CHANNEL_MANIFEST,
+      version: RELEASE,
+      dependencies: { "@moltzap/client": RELEASE },
+    }),
+  );
+  writeFileSync(
+    path.join(packages.client, "package.json"),
+    JSON.stringify({ ...CLIENT_MANIFEST, version: RELEASE }),
+  );
+  assert.equal(hostHash(packages), base);
+  removePackages(packages);
+});
+
 /** An in-memory workspace and the manifest version of each package. */
 interface Fake {
   readonly workspace: Workspace;
@@ -217,6 +325,49 @@ function hashOf(
   const hash = contentHashOfDirectory(root);
   rmSync(root, { recursive: true, force: true });
   return hash;
+}
+
+/** Extracted channel and Client packages for the host-code hash. */
+interface HostPackages {
+  readonly channel: string;
+  readonly client: string;
+}
+
+/**
+ * A channel whose plugin imports the Client root entry, and a Client whose
+ * root reaches one endpoint module while `./service` and the binary sit
+ * outside that graph.
+ */
+function hostPackages(): HostPackages {
+  return {
+    channel: packedDirectory(CHANNEL_MANIFEST, {
+      "dist/plugin.js":
+        'import { acquireHarnessEndpoint } from "@moltzap/client";\nexport default acquireHarnessEndpoint;\n',
+      "openclaw.plugin.json": "{}",
+    }),
+    client: packedDirectory(CLIENT_MANIFEST, {
+      "dist/index.js":
+        'export { endpoint as acquireHarnessEndpoint } from "./endpoint.js";\n',
+      "dist/endpoint.js": "export const endpoint = 1;\n",
+      "dist/service/index.js": "export const daemon = 1;\n",
+      "bin/sharnessd": 'import "../dist/service/index.js";\n',
+    }),
+  };
+}
+
+function hostHash(packages: HostPackages): string {
+  return hostCodeHashOfDirectories(
+    CHANNEL_MANIFEST.name,
+    new Map([
+      [CHANNEL_MANIFEST.name, packages.channel],
+      [CLIENT_MANIFEST.name, packages.client],
+    ]),
+  );
+}
+
+function removePackages(packages: HostPackages): void {
+  rmSync(packages.channel, { recursive: true, force: true });
+  rmSync(packages.client, { recursive: true, force: true });
 }
 
 function packedDirectory(

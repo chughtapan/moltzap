@@ -30,6 +30,7 @@ import {
 
 /** One package manifest as the selection reads it. */
 export interface Manifest {
+  /** Production edges: `dependencies`, `optionalDependencies`, `peerDependencies`. */
   readonly name: string;
   readonly version: string;
   readonly dependencies: Readonly<Record<string, string>>;
@@ -47,6 +48,13 @@ export interface Workspace {
   readonly contentHash: (dir: string) => string | PackFailure;
   readonly recordedHash: (name: string, version: string) => Recorded;
   readonly select: (dir: string, version: string, hash: string) => void;
+}
+
+/** The exit status and output of one `npm view` run. */
+export interface NpmViewResult {
+  readonly status: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
 }
 
 /** A package listed before a workspace sibling it depends on. */
@@ -109,7 +117,11 @@ export function repositoryWorkspace(repo: string): Workspace {
       return {
         name: String(manifest.name),
         version: String(manifest.version),
-        dependencies: stringRecord(manifest.dependencies),
+        dependencies: {
+          ...stringRecord(manifest.dependencies),
+          ...stringRecord(manifest.optionalDependencies),
+          ...stringRecord(manifest.peerDependencies),
+        },
       };
     },
     contentHash: (dir) => contentHashOfPackage(repo, dir),
@@ -121,6 +133,34 @@ export function repositoryWorkspace(repo: string): Workspace {
         `${JSON.stringify({ ...manifest, version, [CONTENT_HASH_FIELD]: hash }, null, 2)}\n`,
       );
     },
+  };
+}
+
+/**
+ * Classify one `npm view NAME@VERSION sharnessContentHash --json` result. A
+ * 404 for the name or the version reads as absent, like a version published
+ * without a hash; any other failure is unavailable.
+ * @param result The command's exit status and output.
+ * @param subject The `name@version` the command asked about.
+ * @returns What npm recorded.
+ */
+export function classifyNpmView(
+  result: NpmViewResult,
+  subject: string,
+): Recorded {
+  const output = result.stdout.trim();
+  if (result.status === 0) {
+    const value: unknown = output === "" ? undefined : JSON.parse(output);
+    return typeof value === "string"
+      ? { kind: "hash", hash: value }
+      : { kind: "absent" };
+  }
+  if (isNotFound(output)) {
+    return { kind: "absent" };
+  }
+  return {
+    kind: "unavailable",
+    message: `npm view ${subject} failed without a 404: ${output || result.stderr}`,
   };
 }
 
@@ -169,10 +209,7 @@ function stringRecord(value: unknown): Readonly<Record<string, string>> {
   );
 }
 
-/**
- * The `sharnessContentHash` npm holds for `name@version`. A 404 for the name
- * or the version reads as absent, like a version published without one.
- */
+/** The `sharnessContentHash` npm holds for `name@version`. */
 function npmRecordedHash(name: string, version: string): Recorded {
   const result = spawnSync(
     // eslint-disable-next-line sonarjs/no-os-command-from-path -- Release tooling runs the npm the runner's toolchain put on PATH.
@@ -180,20 +217,7 @@ function npmRecordedHash(name: string, version: string): Recorded {
     ["view", `${name}@${version}`, CONTENT_HASH_FIELD, "--json"],
     { encoding: "utf8" },
   );
-  const output = result.stdout.trim();
-  if (result.status === 0) {
-    const value: unknown = output === "" ? undefined : JSON.parse(output);
-    return typeof value === "string"
-      ? { kind: "hash", hash: value }
-      : { kind: "absent" };
-  }
-  if (isNotFound(output)) {
-    return { kind: "absent" };
-  }
-  return {
-    kind: "unavailable",
-    message: `npm view ${name}@${version} failed without a 404: ${output || result.stderr}`,
-  };
+  return classifyNpmView(result, `${name}@${version}`);
 }
 
 /** Whether npm's JSON error output reports a 404. */

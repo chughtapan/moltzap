@@ -7,8 +7,9 @@ name: Publish to npm
 # version. A dependent of a selected package is selected too, because its
 # packed manifest pins the sibling's new version, so every published package
 # pins its siblings to their newest published versions. Each published
-# manifest records its own content hash, and the release commit records
-# every manifest. The trigger is manual: the first release proves the npm
+# manifest records its own content hash; the OpenClaw channel's also records
+# `sharnessHostCodeHash` (`scripts/release/host-code-hash.ts`), the hash of the
+# code OpenClaw loads for it. The release commit records every manifest. The trigger is manual: the first release proves the npm
 # trusted publishers and the release App before any push-triggered variant is
 # considered.
 #
@@ -189,6 +190,12 @@ jobs:
             exit 0
           fi
           echo "Releasing $VERSION for: $SELECTED"
+          if [[ " $SELECTED " == *" openclaw-channel "* ]]; then
+            HOST_CODE_HASH=$(node scripts/release/host-code-hash.ts openclaw-channel)
+            jq --arg h "$HOST_CODE_HASH" '.sharnessHostCodeHash = $h' \
+              packages/openclaw-channel/package.json > tmp.json
+            mv tmp.json packages/openclaw-channel/package.json
+          fi
           PINS='{}'
           for pkg in $RELEASE_PACKAGES; do
             PINS=$(jq --argjson pins "$PINS" '$pins + {(.name): .version}' "packages/$pkg/package.json")
@@ -238,6 +245,15 @@ jobs:
           HUSKY: "0"
         run: |
           pnpm docs:generate
+          # The CHANGELOG preamble predates per-package versions; this rewrite
+          # finds nothing to replace once a release commit has corrected it.
+          # shellcheck disable=SC2016 # The backticks are Markdown, not a substitution.
+          node -e '
+            const fs = require("node:fs");
+            const before = "Every published package\ncarries the same version in a release, and the release commit writes each\nsection below from the fragments in `changelog.d/`.";
+            const after = "A release publishes at\nits version only the packages that changed since their last published version;\nthe release commit lists them and writes each section below from the fragments\nin `changelog.d/`.";
+            fs.writeFileSync("CHANGELOG.md", fs.readFileSync("CHANGELOG.md", "utf8").replace(before, after));
+          '
           if ! grep -q "^## \[$VERSION\]" CHANGELOG.md; then
             grep -qxF '<!-- towncrier release notes start -->' CHANGELOG.md \
               || { echo "CHANGELOG.md lost its towncrier marker"; exit 1; }

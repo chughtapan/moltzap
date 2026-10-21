@@ -426,6 +426,16 @@ function testPublicationGuardsClean(): void {
     `expected exact-pin failure. exit=${loosePin.code}, stderr=${loosePin.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
+  plantFile("packages/openclaw-channel/package.json", (s) =>
+    s.replace(/"version": "[^"]+"/, '"version": "2026.101.0"'),
+  );
+  const ownVersion = runBoundaries();
+  test(
+    "accepts published packages at their own calendar versions",
+    ownVersion.code === 0,
+    `expected exit 0, got ${ownVersion.code}. stderr: ${ownVersion.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
 }
 
 function testPublicationGuardsPublicNanoClaw(): void {
