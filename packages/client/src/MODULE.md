@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CheckedGuidance`](./firewall/runtime.ts#L51)
+### [`CheckedGuidance`](./firewall/runtime.ts#L55)
 
 _TypeAlias_
 
@@ -221,7 +221,7 @@ export type DirectMessage = typeof directMessage.Type;
 
 One certified remote-authored direct message.
 
-### [`FirewallSendError`](./firewall/runtime.ts#L123)
+### [`FirewallSendError`](./firewall/runtime.ts#L125)
 
 _Class_
 
@@ -491,7 +491,7 @@ export class ListenError extends Data.TaggedError("ListenError")<{
 
 The endpoint's sole inbound subscription failed.
 
-### [`LocalGuidance`](./firewall/runtime.ts#L75)
+### [`LocalGuidance`](./firewall/runtime.ts#L79)
 
 _TypeAlias_
 

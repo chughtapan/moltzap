@@ -171,7 +171,8 @@ output schema, answers `outcome-unknown`. The daemon checks its own result
 exactly; a host reads results, refusal data and pending-delivery events
 additively, ignoring fields its release does not name, so a newer daemon can
 add an optional field without breaking a host on the previous release. The
-items inside them keep their own forms. It is
+items and firewall guidance inside them keep their own exact forms, so one
+guidance form is never read as another. It is
 not exposed as a second model messaging tool when the host already supplies
 native messaging.
 

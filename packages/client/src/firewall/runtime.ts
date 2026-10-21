@@ -2,6 +2,11 @@
 
 import { Data, Schema } from "effect";
 
+const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
+  Schema.Struct(fields).annotations({
+    parseOptions: { exact: true, onExcessProperty: "error" },
+  });
+
 /** An opaque local assessment reference conveys no approval or lookup authority. */
 const checkIdSchema = Schema.String.pipe(Schema.pattern(/^chk_[a-f0-9]{64}$/u));
 
@@ -14,7 +19,7 @@ const checkIdSchema = Schema.String.pipe(Schema.pattern(/^chk_[a-f0-9]{64}$/u));
 const checkedGuidance = {
   checkId: checkIdSchema,
   subjects: Schema.Array(
-    Schema.Struct({
+    exactStruct({
       id: Schema.NonEmptyTrimmedString,
       sender: Schema.NonEmptyTrimmedString,
       recipients: Schema.Array(Schema.NonEmptyTrimmedString),
@@ -23,17 +28,17 @@ const checkedGuidance = {
   ),
   instructions: Schema.Array(
     Schema.Union(
-      Schema.Struct({
+      exactStruct({
         middlewareId: Schema.NonEmptyTrimmedString,
         ruleId: Schema.NonEmptyTrimmedString,
         expectation: Schema.Literal("required", "permitted", "wait", "none"),
         subjects: Schema.Array(Schema.NonEmptyTrimmedString),
         instruction: Schema.NonEmptyString,
       }),
-      Schema.Struct({
+      exactStruct({
         middlewareId: Schema.NonEmptyTrimmedString,
         ruleId: Schema.NonEmptyTrimmedString,
-        uncertain: Schema.Struct({
+        uncertain: exactStruct({
           choice: Schema.NonEmptyTrimmedString,
           probability: Schema.Number.pipe(Schema.between(0, 1)),
         }),
@@ -43,9 +48,8 @@ const checkedGuidance = {
   ),
 };
 
-/** One check's guidance, wherever a host receives it. */
-// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- Send results and inbox items embed one check's guidance; each decodes it through its own boundary function.
-export const checkedGuidanceSchema = Schema.Struct(checkedGuidance);
+/** Exact decoding of one check's guidance, wherever a host receives it. */
+export const checkedGuidanceSchema = exactStruct(checkedGuidance);
 
 /** The guidance of one checked text: a message, a request, an answer, a question or a send. */
 export type CheckedGuidance = typeof checkedGuidanceSchema.Type;
@@ -55,10 +59,10 @@ export type CheckedGuidance = typeof checkedGuidanceSchema.Type;
  * keyed by the member's `agent:` address, and one for the question when the
  * question was checked with the result. Each entry carries its own check.
  */
-const resultGuidance = Schema.Struct({
+const resultGuidance = exactStruct({
   question: Schema.optionalWith(checkedGuidanceSchema, { exact: true }),
   answers: Schema.Array(
-    Schema.Struct({ member: Schema.NonEmptyTrimmedString, ...checkedGuidance }),
+    exactStruct({ member: Schema.NonEmptyTrimmedString, ...checkedGuidance }),
   ),
 });
 
@@ -88,20 +92,18 @@ const firewallRefusal = Schema.Literal(
  * answer or question: the check that withheld it and why. It is local
  * projection, not peer content.
  */
-// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- Collective results embed withheld text; InboundItem decodes it.
-export const withheldText = Schema.Struct({
+export const withheldText = exactStruct({
   kind: Schema.Literal("withheld"),
   checkId: checkIdSchema,
   reason: firewallRefusal,
 });
 
 /** Closed refusal data is retained verbatim for idempotent send retries. */
-// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- A refused send's error data embeds the refusal; decodeHarnessSendErrorData decodes it.
-export const firewallRefusalSchema = Schema.Struct({
+export const firewallRefusalSchema = exactStruct({
   checkId: checkIdSchema,
   refusal: firewallRefusal,
   feedback: Schema.Array(
-    Schema.Struct({
+    exactStruct({
       nextAction: Schema.Literal("revise", "wait", "stop", "seek-approval"),
       text: Schema.NonEmptyString,
     }),

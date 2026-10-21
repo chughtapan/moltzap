@@ -336,6 +336,9 @@ describe("Harness MCP results from a newer daemon", () => {
       ),
     ).toEqual({ reason: "network-unavailable", detail: "router closed" });
   });
+});
+
+describe("Harness MCP results keep what they name", () => {
   it.each([
     { case: "an inbox page without items", value: { nextCursor: "c1" } },
     {
@@ -344,6 +347,29 @@ describe("Harness MCP results from a newer daemon", () => {
     },
   ])("still refuses $case", ({ value }) => {
     expect(fails(decodeHarnessReadInboxResult(value))).toBe(true);
+  });
+  it("still refuses guidance that mixes or extends its forms", () => {
+    const checkId = `chk_${"a".repeat(64)}`;
+    expect(
+      fails(
+        decodeHarnessSendResult({
+          guidance: {
+            checkId,
+            subjects: [],
+            instructions: [
+              {
+                middlewareId: "m",
+                ruleId: "r",
+                instruction: "wait for the owner",
+                expectation: "invalid",
+                subjects: [],
+                uncertain: { choice: "approved", probability: 0.5 },
+              },
+            ],
+          },
+        }),
+      ),
+    ).toBe(true);
   });
   it("still refuses a pending-delivery event without its item", () => {
     expect(fails(decodeHarnessMessageReadyEvent({ deliveryToken }))).toBe(true);
