@@ -5,9 +5,16 @@ import { Ed25519PublicKey } from "@moltzap/identity";
 import { ConfigProvider, Effect, Layer, Redacted, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests create and remove exact temporary policy and key files around the configuration boundary.
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, expect } from "vitest";
 import type { DaemonProcessConfiguration } from "../bootstrap.js";
 import { Daemon } from "../index.js";
@@ -223,6 +230,21 @@ it("installs the document with its key, Client's default settings and the audit 
     expect(installed.auditExport).toBe(auditExport);
   }));
 
+it("installs the example policy the message firewall guide documents", () =>
+  Effect.gen(function* () {
+    const installed = yield* firewallInstallation(
+      configuration({
+        messagePolicyFile: file(guideExample()),
+        decisionProviderKeyFile: Redacted.make(file("key-value\n")),
+      }),
+    );
+    const options = yield* Effect.fromNullable(installed.options);
+    expect(options.mode).toBe("guidance");
+    expect(options.english?.fixedRules?.map((rule) => rule.id)).toEqual([
+      "owner.no-policy-changes",
+    ]);
+  }));
+
 it("installs English rules with an unavailable provider without reading a key file", () =>
   Effect.gen(function* () {
     const installed = yield* firewallInstallation(
@@ -327,6 +349,25 @@ it.each([
     expect(Daemon.help).toContain(name);
   }),
 );
+
+/** The JSON policy between the example markers of the message firewall guide. */
+function guideExample(): string {
+  const guide = readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../../../../docs/guides/message-firewall.mdx",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  );
+  const example =
+    /message-policy-example:start[\s\S]*?```json\n([\s\S]*?)```/u.exec(
+      guide,
+    )?.[1];
+  expect(example).toBeDefined();
+  return example ?? "";
+}
 
 /** A file holding `content`, JSON-encoded unless it is already text. */
 function file(content: unknown): string {
