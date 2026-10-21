@@ -479,12 +479,14 @@ releases:
 2. The bumping release emits the successor and keeps its predecessor in
    `LIVE_WIRE_VERSIONS`.
 
-Any two adjacent releases therefore admit each other's emitted version, so a
-daemon may upgrade before or after its Registry and Router. The predecessor
-stays live for at least six months after the bump; the next successor cannot
-be announced until it leaves. A version that leaves the live window remains
-in `HISTORY_WIRE_VERSIONS` until the next protocol reset. Endpoints that miss
-the live window require a reset.
+The predecessor stays live for exactly that one release: the release after
+the bump removes it from `LIVE_WIRE_VERSIONS`, and may announce the next
+successor in its place. Any two adjacent releases therefore admit each
+other's emitted version, so a daemon may upgrade before or after its Registry
+and Router, and a daemon more than one release behind its network after a
+bump is outside the window. A version that leaves the live window remains in
+`HISTORY_WIRE_VERSIONS` until the next protocol reset. Endpoints that miss the
+live window require a reset.
 
 The mixed-release CI gate runs the previous published release and the oldest
 published release whose wire version remains live against the current build,
