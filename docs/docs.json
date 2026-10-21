@@ -33,6 +33,7 @@
             "pages": [
               "guides/user-agent-communication",
               "guides/harness-endpoint",
+              "guides/message-firewall",
               "guides/upgrades"
             ]
           },
