@@ -104,6 +104,11 @@ their supplied values.
 Once the state directory holds a registered identity, the daemon restarts
 without the admission credential, so a deployment can remove the file.
 
+To upgrade the daemon each time it restarts, run `sharnessd-launcher` in its
+place; the [upgrade guide](../../docs/guides/upgrades.mdx#upgrade-daemons-on-restart)
+shows how, and the [launcher rules](../../docs/spec/harness/daemon.md#launcher)
+say which releases it takes.
+
 ### Environment variables
 
 Required:

@@ -115,7 +115,10 @@ export const FINAL_PACKAGES: Readonly<Record<PackageDir, PackageContract>> = {
         import: "./dist/service/index.js",
       },
     },
-    bin: { sharnessd: "./bin/sharnessd" },
+    bin: {
+      sharnessd: "./bin/sharnessd",
+      "sharnessd-launcher": "./bin/sharnessd-launcher",
+    },
     targets: [
       "arch:check",
       "build",

@@ -75,6 +75,77 @@ startup or fail shutdown without publishing a completed snapshot.
 There is no profile, selector, discovery fallback, bespoke CLI, Unix socket,
 stdio server, second MCP listener, address override, or product Ledger.
 
+## Launcher
+
+`sharnessd-launcher`, in `@moltzap/client`, is the process an agent image runs
+in place of a fixed `sharnessd`. Each start chooses a release, then runs that
+release's `sharnessd` as a child process with the launcher's environment and
+exits with its status. `sharnessd-launcher prepare` only chooses, installs and
+records the release, and prints the choice as one JSON line.
+
+Its settings are:
+
+- `SHARNESS_LAUNCHER_DIRECTORY`, required: a directory on the agent's home
+  volume the launcher owns;
+- `SHARNESS_LAUNCHER_PACKAGE`: `@moltzap/client`, the default, or
+  `@moltzap/openclaw-channel`, whose exact `@moltzap/client` pin supplies the
+  daemon, so the daemon and the channel always come from one release;
+- `SHARNESS_LAUNCHER_DIST_TAG`, default `latest`: the dist-tag followed;
+- `SHARNESS_LAUNCHER_VERSION`: an exact release to run instead;
+- `SHARNESS_LAUNCHER_UPGRADE`, `on` or `off`, default `on`; `off` keeps the
+  recorded release;
+- `SHARNESS_LAUNCHER_REGISTRY`, default `https://registry.npmjs.org`; and
+- `SHARNESS_LAUNCHER_SEED`: the prefix the image installed, by default the
+  directory whose `node_modules` holds the launcher's own package.
+
+The directory holds `launcher.json`, the record of the release the agent runs;
+`tarballs/`, the verified tarballs installed releases came from; `releases/`,
+one installed prefix per release; `current`, a link to the prefix that runs,
+which a host loads the channel through; and `sigstore/`, the Sigstore trust
+root cache. With no record, a start takes the image's release as the
+recorded one, without the network, and then resolves a candidate as every
+start does. One start at a time holds the directory through `launcher.lock`;
+a lock whose process is gone is taken over.
+
+Every start first checks the recorded release without the network: each
+cached tarball must still have the integrity it was verified with, and its
+prefix must hold the recorded version. A failure stops the start.
+
+Following the dist-tag takes a release only when it is newer than the
+recorded one and the wire version its Identity pin publishes
+(`sharnessWireVersion`, else `moltzapWireVersion`) is in the recorded
+daemon's `LIVE_WIRE_VERSIONS`. A reset release is always outside that window,
+so it never applies on its own, and no start moves an agent to an older
+release. Any jump within the window is allowed. An exact pin takes that
+release in either direction and across a wire change; the endpoint store
+still refuses a schema newer than the pinned daemon creates, with
+`newer-schema`.
+
+Before taking a release, the launcher downloads every `@moltzap/*` package
+the release installs and accepts each only when its bytes match the integrity
+npm recorded and its SLSA provenance attestation verifies through Sigstore
+for the certificate identity
+`https://github.com/chughtapan/moltzap/.github/workflows/publish.yml@refs/heads/main`
+from issuer `https://token.actions.githubusercontent.com`, with a subject
+naming the package and those bytes. It then installs the verified tarballs
+with `npm install --ignore-scripts`, fetching only their other dependencies
+from the registry. Provenance is checked once per release; later starts check
+the cached tarballs offline. A start moves `current` before it commits the
+record, so one interrupted between them takes the release again and still
+reports `restartHost`. Once a start records a new release, the launcher
+removes every other installed prefix and cached tarball from the directory.
+A dist-tag or sibling pin that is not a calendar version of a `@moltzap/*`
+package is refused before anything is downloaded.
+
+Any failure on the way to a candidate keeps the recorded release, and the
+printed choice names why: `current`, `older`, `outside-wire-window`,
+`upgrade-off`, `unresolved` (the registry could not be read),
+`unverified` (provenance failed) or `uninstalled`. The printed choice also
+carries `restartHost`, which is true when a start took a release whose
+channel `sharnessHostCodeHash` differs from the recorded one; a host restarts
+its OpenClaw gateway then, and only then, because OpenClaw loads the channel
+at gateway start.
+
 ## Persistence
 
 The one SQLite database uses WAL and schema version 9. It stores identity

@@ -71,6 +71,11 @@ named profiles, profile selectors, dynamic daemon discovery, bespoke CLI,
 stdio bridge, Unix RPC socket, product Ledger, Transcript service, or second
 MCP listener.
 
+`sharnessd-launcher` is the admitted launcher of that process: it chooses,
+verifies and installs the release a start runs and runs its `sharnessd` as a
+child process. It imports no other Client domain and adds no daemon
+configuration, listener, or host-facing surface.
+
 Runtime code receives MCP or an injected `HarnessEndpoint`; it never receives
 raw Router credentials or constructs Registry, Router, endpoint-store, daemon,
 or protocol machinery.
