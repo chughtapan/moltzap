@@ -17,7 +17,9 @@ const SPAN_POLL_INTERVAL = Duration.millis(100);
 
 /**
  * The fields of opentelemetry-proto's `ExportTraceServiceRequest` the tests
- * read, with their wire field numbers. Decoding skips every other field.
+ * read, with their wire field numbers. Decoding matches fields by number and
+ * skips every other field, so the names are this file's own: a `KeyValue`'s
+ * `key` is `name` here.
  */
 const exportTraceServiceRequest = protobuf.Root.fromJSON({
   nested: {
@@ -47,7 +49,7 @@ const exportTraceServiceRequest = protobuf.Root.fromJSON({
     },
     KeyValue: {
       fields: {
-        key: { type: "string", id: 1 },
+        name: { type: "string", id: 1 },
         value: { type: "AnyValue", id: 2 },
       },
     },
@@ -91,7 +93,7 @@ const AnyValue = Schema.Struct({
 });
 
 const KeyValue = Schema.Struct({
-  key: Schema.String,
+  name: Schema.String,
   value: Schema.optional(AnyValue),
 });
 
@@ -117,13 +119,13 @@ function attributeRecord(
   keyValues: readonly (typeof KeyValue.Type)[],
 ): Record<string, AttributeValue> {
   return Object.fromEntries(
-    keyValues.flatMap(({ key, value }) => {
+    keyValues.flatMap(({ name, value }) => {
       const scalar =
         value?.stringValue ??
         value?.intValue ??
         value?.doubleValue ??
         value?.boolValue;
-      return scalar === undefined ? [] : [[key, scalar]];
+      return scalar === undefined ? [] : [[name, scalar]];
     }),
   );
 }
