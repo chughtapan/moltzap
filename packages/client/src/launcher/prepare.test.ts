@@ -277,6 +277,36 @@ const refusesAChangedTarball = () =>
     expect(JSON.stringify(exit)).toContain('"reason":"integrity"');
   }).pipe(Effect.scoped, Effect.provide(NodeContext.layer));
 
+const followsANewImage = () =>
+  Effect.gen(function* () {
+    const { home, seed } = yield* volume;
+    yield* prepare(configuration(home, { kind: "off" }), seed).pipe(
+      Effect.provide(start({})),
+    );
+    const fs = yield* FileSystem.FileSystem;
+    yield* fs.writeFileString(
+      `${seed}/node_modules/${CHANNEL}/package.json`,
+      JSON.stringify({
+        name: CHANNEL,
+        version: "2026.1022.1",
+        sharnessHostCodeHash: "sha256:next-image",
+      }),
+    );
+    const prepared = yield* prepare(
+      configuration(home, { kind: "off" }),
+      seed,
+    ).pipe(Effect.provide(start({})));
+    expect(prepared).toMatchObject({
+      version: "2026.1022.1",
+      prefix: seed,
+      kept: "upgrade-off",
+    });
+    const record = yield* readRecord(home);
+    expect(Option.map(record, (value) => value.version)).toEqual(
+      Option.some("2026.1022.1"),
+    );
+  }).pipe(Effect.scoped, Effect.provide(NodeContext.layer));
+
 // @agent-code-guard/regression-only: Each start outcome is one closed launcher rule, pinned by its example.
 describe("a launcher start", () => {
   it("seeds the record from the image install and runs it", seedsTheRecord);
@@ -303,6 +333,10 @@ describe("a launcher start", () => {
   it(
     "refuses to start a recorded release whose cached tarball changed",
     refusesAChangedTarball,
+  );
+  it(
+    "records the image's new release when a new image installed one where the recorded one was",
+    followsANewImage,
   );
 });
 
