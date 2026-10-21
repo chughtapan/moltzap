@@ -1,11 +1,11 @@
 /** @file Emitted, live-admission, and retained-history wire compatibility sets. */
 
 /**
- * Every newly signed artifact carries this reset wire value. The .2 value is
- * distinct from the published pre-reset 2026.1019.1 package, whose wire is
- * 2026.1006.1; package publication never determines wire compatibility.
+ * Every newly signed artifact carries this wire value. Live admission accepts
+ * no other value, so a peer that emits a different one fails with
+ * `version-mismatch`; package publication never determines wire compatibility.
  */
-export const WIRE_VERSION = "2026.1019.2";
+export const WIRE_VERSION = "2026.1021.3";
 
 /**
  * The emitted version, then at most one adjacent version. Holding two lets

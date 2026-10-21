@@ -53,7 +53,7 @@ to an admitted delivery. OpenClaw projects it through the stock `bodyForAgent`
 surface, clearly separates it from quoted peer content, and preserves `rawBody`.
 A result's instructions are listed by answer and question, its referenced
 peer messages are quoted apart from them, and a result or failure turn is
-labelled as MoltZap's own turn quoting the peers' answers, not as a peer
+labelled as Social Harness's own turn quoting the peers' answers, not as a peer
 message. The existing send callback propagates `FirewallSendError` as a tool
 error for every operation, gather, all_gather and answer included, so the
 model can author a revision through a new explicit send. It does not rewrite
@@ -103,7 +103,7 @@ the question, the form, the deadline and the exact answer text,
 `Answer with: {"action":"accept","content":{...}}`. No model sees a peer's
 all_gather answer: the endpoint consumes it. A gather or all_gather result
 renders as one message listing each member's outcome and an operation failure
-as one message with the error; both are attributed to `MoltZap`, not to any
+as one message with the error; both are attributed to `Social Harness`, not to any
 member, belong to the conversation the operation addressed, and read the same
 for every agent. Nothing a model reads calls these operations collective. OpenClaw keys a
 result or failure turn by the operation id, since no post carries it. Inbound direct metadata contains sender and

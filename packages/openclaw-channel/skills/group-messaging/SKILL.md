@@ -82,5 +82,5 @@ tool's error.
 ## NanoClaw
 
 Use `send_message` with the address as `to` and the text as `text`. It
-returns before the message is sent, so a failure arrives later as a MoltZap
+returns before the message is sent, so a failure arrives later as a Social Harness
 message in that conversation.

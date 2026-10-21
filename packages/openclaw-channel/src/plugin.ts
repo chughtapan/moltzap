@@ -57,7 +57,7 @@ import {
   waitUntilAbort,
 } from "openclaw/plugin-sdk/channel-outbound";
 
-const CHANNEL_ID = "moltzap";
+const CHANNEL_ID = "sharness";
 const TARGET_HINT =
   'Use an explicit "agent:<name>" or "group:<member>,<member>,..." address';
 const LOG_PREVIEW_CHARS = 80;
@@ -122,7 +122,7 @@ const channelConfigSchema = Schema.Struct({
 });
 const openClawConfigSchema = Schema.Struct({
   channels: Schema.optional(
-    Schema.Struct({ moltzap: Schema.optional(channelConfigSchema) }),
+    Schema.Struct({ sharness: Schema.optional(channelConfigSchema) }),
   ),
 });
 
@@ -336,8 +336,8 @@ function createPluginMeta() {
     id: CHANNEL_ID,
     label: "Social Harness",
     selectionLabel: "Social Harness (agent messaging)",
-    docsPath: "/channels/moltzap",
-    docsLabel: "moltzap",
+    docsPath: "/channels/sharness",
+    docsLabel: "sharness",
     blurb:
       "Agent-to-agent messaging through the local Social Harness endpoint.",
     detailLabel: "Social Harness",
@@ -509,7 +509,7 @@ function resolveAccount(
 function resolveAccountList(cfg: OpenClawConfig): readonly Account[] {
   return Option.match(Schema.decodeUnknownOption(openClawConfigSchema)(cfg), {
     onNone: () => [],
-    onSome: (decoded) => decoded.channels?.moltzap?.accounts ?? [],
+    onSome: (decoded) => decoded.channels?.sharness?.accounts ?? [],
   });
 }
 
@@ -730,13 +730,13 @@ function handleInboundDelivery(
 }
 
 /** The sender OpenClaw records for a turn the endpoint itself emitted. */
-const ENDPOINT_SENDER_NAME = "MoltZap";
+const ENDPOINT_SENDER_NAME = "Social Harness";
 
 /**
  * Render one inbound item as the turn its kind defines. Each kind has one
  * fixed form, the same for every agent. A request belongs to the conversation
  * it arrived in: the requester's for a gather, the group's for an all_gather.
- * A result or a failure is attributed to MoltZap, not to any member, and
+ * A result or a failure is attributed to Social Harness, not to any member, and
  * belongs to the conversation its operation addressed.
  * @param item The item the endpoint delivered.
  * @returns The turn OpenClaw runs.
@@ -789,7 +789,7 @@ function endpointTurn(
     {
       id,
       origin: "endpoint",
-      sender: { id: `moltzap:${id}`, name: ENDPOINT_SENDER_NAME },
+      sender: { id: `sharness:${id}`, name: ENDPOINT_SENDER_NAME },
     },
     address,
     body,
@@ -940,7 +940,7 @@ function buildInboundContext(
  * and escaped JSON keeps peer text inside quoted values. A result's guidance
  * has one entry per checked answer that drew advice, naming its member, and
  * one for its question when the question was checked with it; its body is
- * MoltZap's own turn, which quotes the peers' answers.
+ * Social Harness's own turn, which quotes the peers' answers.
  */
 function modelBody(turn: HostTurn): string {
   const { guidance } = turn;
@@ -949,14 +949,14 @@ function modelBody(turn: HostTurn): string {
   }
   const label =
     turn.origin === "endpoint"
-      ? "MoltZap item, quoting peer answers (quoted content)"
+      ? "Social Harness item, quoting peer answers (quoted content)"
       : "Peer message (quoted content)";
   const body = `${label}:\n${quoteForAgent(turn.body)}`;
   const advice =
     "answers" in guidance
       ? resultAdvice(guidance)
       : {
-          heading: `MoltZap local guidance (${guidance.checkId})`,
+          heading: `Social Harness local guidance (${guidance.checkId})`,
           instructions: guidance.instructions,
           subjects: guidance.subjects,
         };
@@ -975,7 +975,8 @@ function resultAdvice(guidance: Extract<LocalGuidance, { answers: unknown }>) {
       : [{ for: "question", ...guidance.question }]),
   ];
   return {
-    heading: "MoltZap local guidance for this result, by answer and question",
+    heading:
+      "Social Harness local guidance for this result, by answer and question",
     instructions: entries.map((entry) => ({
       for: entry.for,
       checkId: entry.checkId,

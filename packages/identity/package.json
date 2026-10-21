@@ -152,7 +152,6 @@
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
-  "sharnessWireVersion": "2026.1019.2",
-  "moltzapWireVersion": "2026.1019.2",
+  "sharnessWireVersion": "2026.1021.3",
   "sharnessContentHash": "sha256:287c0d4c10e45239f3d12c4785e37e50a7f4ba536a06d0f84306c26c765c0095"
 }

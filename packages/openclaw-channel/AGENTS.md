@@ -2,7 +2,7 @@
 
 OpenClaw gateway channel plugin. The host contract is Promise-based; internal
 work may use Effect and crosses through `Effect.runPromise` only at the plugin
-surface. The channel id remains `"moltzap"`.
+surface. The channel id is `"sharness"`.
 
 ## Cutover boundary
 

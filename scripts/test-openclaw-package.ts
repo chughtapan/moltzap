@@ -5,7 +5,7 @@
  * It packs the channel's closure as a release does, installs the tarballs and
  * that OpenClaw into an isolated consumer, and checks three behaviours: the
  * package typechecks for a TypeScript consumer, OpenClaw loads it from its
- * install path and registers the `moltzap` channel, and OpenClaw serves the
+ * install path and registers the `sharness` channel, and OpenClaw serves the
  * packed group-messaging skill to the model. Every check goes through the
  * channel's public entry point or OpenClaw's CLI, so a new OpenClaw release
  * changes only the `openclaw` entry of the `pnpm-workspace.yaml` catalog.
@@ -194,7 +194,7 @@ function writeHostConfig(
     yield* fs.writeFileString(
       configPath,
       `${JSON.stringify({
-        channels: { moltzap: { accounts: [{ id: "packed-agent" }] } },
+        channels: { sharness: { accounts: [{ id: "packed-agent" }] } },
         plugins: {
           load: { paths: [pluginRoot] },
           entries: { "openclaw-channel": { enabled: true } },
@@ -216,8 +216,8 @@ function verifyPluginLoaded(
     yield* requireCondition(
       plugin?.enabled === true &&
         plugin.status === "loaded" &&
-        JSON.stringify(plugin.channelIds) === JSON.stringify(["moltzap"]),
-      `expected OpenClaw ${openclawVersion} to load the channel and register "moltzap", got ${JSON.stringify(plugin)}`,
+        JSON.stringify(plugin.channelIds) === JSON.stringify(["sharness"]),
+      `expected OpenClaw ${openclawVersion} to load the channel and register "sharness", got ${JSON.stringify(plugin)}`,
     );
   });
 }

@@ -145,8 +145,9 @@ Each page is exactly one type. Guides and quickstarts are how-tos.
 - Address the reader as "you"; use imperative actions and present-tense
   behavior with a named acting component. Use plain declarative explanations.
 - Put one idea in each sentence. Bold only UI labels and keyboard keys.
-- "Social Harness" is the project; `@moltzap/*` and the moltzap names are its
-  package, binary and wire names. The introduction page says so once; other
+- "Social Harness" is the project and its display name; `@moltzap/*` are its
+  npm package names; `sharness*` are its binary, environment, channel and wire
+  names. The introduction page says so once; other
   pages use each name for its own thing and never mix them.
 - Define unfamiliar terms on first use and keep one name per concept.
   Preserve exact product names, UI labels, commands, flags, field paths and

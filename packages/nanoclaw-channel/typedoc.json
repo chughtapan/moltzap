@@ -1,6 +1,6 @@
 {
   "$schema": "https://typedoc.org/schema.json",
-  "entryPoints": ["src/channels/moltzap.ts"],
+  "entryPoints": ["src/channels/sharness.ts"],
   "outputs": [
     { "name": "json", "path": "../../node_modules/.cache/typedoc-pkg.json" }
   ]

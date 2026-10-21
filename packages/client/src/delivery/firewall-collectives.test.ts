@@ -524,7 +524,7 @@ function leavesTheResultInLaterEvidence() {
       admission: "withheld",
     });
     expect(history.at(-1)).toMatchObject({
-      sender: "moltzap",
+      sender: "sharness",
       operation: { kind: "result", op: "gather", id: resultId },
       visibility: "runtime",
       admission: "admitted",

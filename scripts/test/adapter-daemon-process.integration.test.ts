@@ -251,7 +251,7 @@ function makeMessageTool(
   ) =>
     effectFromPromise(`OpenClaw message tool ${action}`, () =>
       channelPlugin.actions.handleAction({
-        channel: "moltzap",
+        channel: "sharness",
         action,
         cfg,
         accountId: OPENCLAW_ACCOUNT_ID,
@@ -279,7 +279,7 @@ function startReplyScenario(
       sessions,
       sendReply: () =>
         channelPlugin.actions.handleAction({
-          channel: "moltzap",
+          channel: "sharness",
           action: "send",
           cfg,
           accountId: OPENCLAW_ACCOUNT_ID,
@@ -362,7 +362,7 @@ function sendAllGather(context: AllGatherContext) {
     });
     expect(yield* nextTurn(turns)).toMatchObject({
       Body: `all_gather result for the question sent to ${group}: "${GATHER_QUESTION}"\n- ${callerAddress}: answered {"slot":"mon"}\n- ${peerAddress}: declined`,
-      SenderName: "MoltZap",
+      SenderName: "Social Harness",
     });
     const memberResult = yield* nextItem(caller.messages);
     expect(memberResult).toMatchObject({
@@ -413,7 +413,7 @@ function sendGather(
     const resultTurn = yield* nextTurn(turns);
     expect(resultTurn).toMatchObject({
       Body: `gather result for the question sent to ${callerAddress}: "${GATHER_QUESTION}"\n- ${callerAddress}: answered {"slot":"mon"}`,
-      SenderName: "MoltZap",
+      SenderName: "Social Harness",
     });
   });
 }
@@ -470,7 +470,7 @@ function assertReceivedAllGather(context: AllGatherContext, requestId: string) {
     expect(yield* nextTurn(turns)).toMatchObject({
       Body: `all_gather result for the question sent to ${group}: "${GATHER_QUESTION}"\n- ${peerAddress}: declined\n- ${targetAddress}: answered {"slot":"tue"}`,
       ChatType: "group",
-      SenderName: "MoltZap",
+      SenderName: "Social Harness",
     });
   });
 }

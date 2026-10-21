@@ -870,7 +870,7 @@ it(
         const infrastructure = yield* acquireProcessInfrastructure;
         for (const [name, filename, schema] of [
           ["legacy-file", "moltzapd.sqlite3", 8],
-          ["legacy-schema", "sharnessd.sqlite3", 8],
+          ["legacy-schema", "sharnessd.sqlite3", 9],
           ["unversioned-schema", "sharnessd.sqlite3", 0],
         ] as const) {
           const local = yield* makeDaemonProcessFixture(infrastructure, name);

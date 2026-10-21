@@ -392,24 +392,20 @@ const assertBootstrapVersionPrecedence = (origin: URL) =>
     });
   });
 
-const assertBothAdmissionSchemesRegister = (origin: URL) =>
-  Effect.forEach(
-    ["Sharness-Admission", "MoltZap-Admission"],
-    (scheme) =>
-      Effect.gen(function* () {
-        const prepared = yield* prepareAgent(
-          `scheme-${scheme.split("-")[0]?.toLowerCase() ?? "unknown"}`,
-        );
-        const request = yield* makeVersionedBootstrapRequest(
-          origin,
-          prepared,
-          WIRE_VERSION,
-          scheme,
-        );
-        expect((yield* executeRequest(request)).status).toBe(OK_STATUS);
-      }),
-    { concurrency: 1, discard: true },
-  );
+const assertRetiredAdmissionSchemeRejected = (origin: URL) =>
+  Effect.gen(function* () {
+    const prepared = yield* prepareAgent("retired-admission-scheme");
+    const request = yield* makeVersionedBootstrapRequest(
+      origin,
+      prepared,
+      WIRE_VERSION,
+      "MoltZap-Admission",
+    );
+    assertBoundaryResponse(yield* executeRequest(request), {
+      status: UNAUTHORIZED_STATUS,
+      body: AUTHENTICATION_FAILED_BODY,
+    });
+  });
 
 const makeIdentityPointForgery = (origin: URL) =>
   Effect.gen(function* () {
@@ -475,7 +471,10 @@ const assertPublicAuthenticationFraming = (origin: URL) =>
       "/v1/identities:lookup",
       "not-json",
     ).pipe(
-      HttpClientRequest.setHeader("authorization", "MoltZap-Admission ignored"),
+      HttpClientRequest.setHeader(
+        "authorization",
+        "Sharness-Admission ignored",
+      ),
       HttpClientRequest.setHeader("sharness-version", "incompatible"),
     );
     assertBoundaryResponse(yield* executeRequest(authenticationFraming), {
@@ -683,6 +682,7 @@ const exerciseFirstRun = (
     yield* assertWrongAdmission(runRegistry);
     yield* assertIdentityPointForgeryRejected(origin, runRegistry);
     yield* assertBootstrapVersionPrecedence(origin);
+    yield* assertRetiredAdmissionSchemeRejected(origin);
     const additional = yield* Effect.forEach(
       ["second-agent", "third-agent", "fourth-agent"],
       (name) => registerAgent(name, runRegistry),
@@ -690,7 +690,6 @@ const exerciseFirstRun = (
     );
     const agents = [first, ...additional] as const;
     yield* assertLookupAndPaging(agents, runRegistry);
-    yield* assertBothAdmissionSchemesRegister(origin);
     yield* assertPublicAuthenticationFraming(origin);
     yield* assertPublicRequestBoundaries(origin, first);
     yield* assertRejectedRepresentations(origin, first);
@@ -915,7 +914,7 @@ const registryBinaryBehavior = Effect.gen(function* () {
     environment: infrastructure.environment,
     wrongKeyPath: infrastructure.wrongKeyPath,
     addUnknownMigration: sql`
-      INSERT INTO sharness_registry_migrations (migration_id, name)
+      INSERT INTO sharness_registry_ledger (migration_id, name)
       VALUES (9999, 'future')
     `,
   });

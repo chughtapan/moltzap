@@ -83,7 +83,7 @@ export class RecordedSessionStore {
 
 interface OpenClawConfig {
   readonly channels: {
-    readonly moltzap: {
+    readonly sharness: {
       readonly accounts: readonly [
         {
           readonly id: string;
@@ -471,7 +471,7 @@ export function makeObservedOpenClawAccountRuntime(
           });
           return {
             agentId: "primary",
-            channel: "moltzap",
+            channel: "sharness",
             accountId: input.accountId ?? OPENCLAW_ACCOUNT_ID,
             sessionKey: OPENCLAW_MAIN_SESSION_KEY,
             mainSessionKey: OPENCLAW_MAIN_SESSION_KEY,
@@ -613,7 +613,7 @@ export function awaitSignal(
 export function openClawConfig(stateDirectory: string): OpenClawConfig {
   return {
     channels: {
-      moltzap: {
+      sharness: {
         accounts: [{ id: OPENCLAW_ACCOUNT_ID }],
       },
     },
@@ -643,7 +643,7 @@ export function makeTurnQueueRuntime(
       routing: {
         resolveAgentRoute: (input) => ({
           agentId: "primary",
-          channel: "moltzap",
+          channel: "sharness",
           accountId: input.accountId ?? OPENCLAW_ACCOUNT_ID,
           sessionKey: OPENCLAW_MAIN_SESSION_KEY,
           mainSessionKey: OPENCLAW_MAIN_SESSION_KEY,
@@ -848,7 +848,7 @@ function runObservedTurn(
     });
     expect(turn.record?.updateLastRoute).toEqual({
       sessionKey: OPENCLAW_MAIN_SESSION_KEY,
-      channel: "moltzap",
+      channel: "sharness",
       to: fixture.callerAddress,
       accountId: OPENCLAW_ACCOUNT_ID,
     });
