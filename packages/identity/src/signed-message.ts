@@ -215,6 +215,13 @@ interface SignedMessageState {
 
 const messageState = new WeakMap<object, SignedMessageState>();
 
+/**
+ * Whether this package parsed or signed `value`. The WeakMap lookup runs no
+ * Proxy trap, so callers test it before reading any member of a message.
+ */
+export const isParsedSignedMessage = (value: unknown): boolean =>
+  typeof value === "object" && value !== null && messageState.has(value);
+
 const hasSignedMessageState = (value: unknown): value is SignedMessage =>
   typeof value === "object" &&
   value !== null &&
