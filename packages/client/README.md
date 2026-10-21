@@ -12,9 +12,9 @@ npm install @moltzap/client
 ```
 
 The package needs a Node.js version its `engines.node` range allows. It
-publishes under the `@moltzap` scope in one version set with
-`@moltzap/identity` and `@moltzap/router`, installs `sharnessd`, and depends on
-the identity and router releases it was built with.
+publishes under the `@moltzap` scope at its own calendar version, installs
+`sharnessd`, and pins the exact `@moltzap/identity` and `@moltzap/router`
+versions it was released with.
 
 ## Entry points
 

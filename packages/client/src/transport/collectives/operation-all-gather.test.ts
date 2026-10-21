@@ -1,6 +1,11 @@
 /** @file Pins how the collective layer runs an all_gather at its requester and members. */
 
+import * as NodeSdk from "@effect/opentelemetry/NodeSdk";
 import { live as it, scoped as itOnTestClock } from "@effect/vitest";
+import {
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
 import {
   Deferred,
   Duration,
@@ -275,7 +280,7 @@ function namesEveryMemberWhenTheGroupPostIsNotCertifiedInTime() {
 
 /**
  * One second short of the all_gather request wait. It intentionally
- * duplicates the private `operation.ts → REQUEST_SEND_WAIT` instead of
+ * duplicates the private `request-sends.ts → REQUEST_SEND_WAIT` instead of
  * deriving from the `requestSendWait` mirror, so shortening the production
  * wait fails the test below even when the mirror is shortened with it.
  */
@@ -468,6 +473,12 @@ function ignoresAnAnswerThatArrivesAfterTheClose() {
 
 function reportsACloseThatCannotBeCertifiedAsAFailedOperation() {
   const observed = newObserved();
+  const exporter = new InMemorySpanExporter();
+  const closed = () =>
+    exporter
+      .getFinishedSpans()
+      .filter((span) => span.name === "collective.closed")
+      .map((span) => span.attributes);
 
   return Effect.gen(function* () {
     const emitted = yield* Deferred.make<undefined>();
@@ -491,7 +502,17 @@ function reportsACloseThatCannotBeCertifiedAsAFailedOperation() {
           "all_gather failed: the result could not be shared with the group: MoltZap is unavailable (network unavailable)",
       },
     ]);
-  });
+    yield* Effect.repeat(Effect.yieldNow(), {
+      until: () => closed().length > 0,
+    });
+    expect(closed()).toMatchObject([{ operationId: id, outcome: "failed" }]);
+  }).pipe(
+    Effect.provide(
+      NodeSdk.layer(() => ({
+        spanProcessor: new SimpleSpanProcessor(exporter),
+      })),
+    ),
+  );
 }
 
 /**

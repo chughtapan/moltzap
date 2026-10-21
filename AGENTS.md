@@ -35,7 +35,7 @@ keep the `@moltzap/*` npm names. Executables use `sharness*`, environment
 variables use `SHARNESS_*`, and protocol namespaces use `org.social-harness/*`.
 
 `main` is the only track. The five-layer harness lives in five packages under
-`packages/*`; four publish to npm as one calendar version set and
+`packages/*`; four publish to npm, each at its own calendar version, and
 `@moltzap/nanoclaw-channel` stays private, per
 `docs/spec/layer-interfaces.md` → Publication and versions.
 Releases run from `main` through `.github/workflows/publish.yml` on manual

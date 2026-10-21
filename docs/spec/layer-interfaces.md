@@ -400,8 +400,9 @@ topology and cross-address context.
 
 ## Publication and versions
 
-Four packages publish to npm as one version set: `@moltzap/identity`,
-`@moltzap/router`, `@moltzap/client`, and `@moltzap/openclaw-channel`.
+Four packages publish to npm, each at its own calendar version:
+`@moltzap/identity`, `@moltzap/router`, `@moltzap/client`, and
+`@moltzap/openclaw-channel`.
 `@moltzap/nanoclaw-channel` stays private. The simulator is not published.
 
 The reset release establishes fresh wire and storage baselines. Operators must start a fresh Registry
@@ -417,9 +418,28 @@ mismatches. Release notes mark each reset release with the phrase
 
 - One release computes one calendar version, `YYYY.MDD.N`, one past the
   highest counter in the union of the four packages' npm histories and the
-  `v<version>` release tags, and writes it into every published manifest.
-- `pnpm pack` pins each workspace sibling to that exact version, so an
-  installed closure resolves the packages one release built, never a mix.
+  `v<version>` release tags. It publishes at that version only the packages
+  whose packed content changed since the version their manifest names; the
+  other packages keep their versions.
+- A package's content hash covers its packed files with their executable
+  bits and its packed manifest without `version` or the recorded hashes. Each
+  published manifest records it as `sharnessContentHash`, and the release
+  selects a package when the hash differs from the value npm recorded for its
+  manifest's version, or when npm recorded none. Two versions of a package
+  with equal hashes carry the same code. The first release that records
+  hashes republishes all four packages.
+- The OpenClaw channel's published manifest also records
+  `sharnessHostCodeHash`: the hash of the code OpenClaw loads for the
+  channel, meaning every packed channel file plus each sibling module its
+  JavaScript reaches through the sibling's `exports` map, with manifests
+  hashed without versions, recorded hashes, or `@moltzap/*` pins. A change
+  confined to the Client's `./service` subpath or `sharnessd` leaves it
+  unchanged, so a launcher restarts OpenClaw only when this value differs.
+- `pnpm pack` pins each workspace sibling to the sibling's exact manifest
+  version. A dependent of a selected package therefore packs a new pin and is
+  selected too, so every published package pins its siblings to their newest
+  published versions and an installed closure resolves the versions one
+  release tested.
 - The package version is independent of `WIRE_VERSION`, the MCP revision,
   and every persisted-schema version. Advancing one never advances another.
 - Releases run from `main` through `.github/workflows/publish.yml` with npm
@@ -427,10 +447,11 @@ mismatches. Release notes mark each reset release with the phrase
   images are built and published outside this repository.
 - `scripts/architecture/check-boundaries.ts` fails when a published manifest
   is private, when its `engines.node` differs from the root `package.json`
-  range, when the four versions differ, when the NanoClaw adapter is not
-  private, or when the release workflow's package list drifts from the
-  published set. The client, OpenClaw, and NanoClaw `test:pack` gates pack
-  the four published packages and the NanoClaw adapter through
+  range, when its version is not a calendar version, when a sibling edge is
+  not an exact `workspace:*` pin, when the NanoClaw adapter is not private, or
+  when the release workflow's package list drifts from the published set. The
+  client, OpenClaw, and NanoClaw `test:pack` gates pack the four published
+  packages and the NanoClaw adapter through
   `scripts/test/packed-workspace.ts` and prove each closure installs with
   exact sibling pins and every declared executable present. The NanoClaw gate
   proves the adapter compiles against the Client ABI in isolation;
@@ -464,16 +485,48 @@ internal `WireVersions` context tag used by adjacent-release tests. The Identity
 forbidden in production source. Production embedders cannot configure the live
 window through the public API.
 
-Each release emits exactly `WIRE_VERSION`. A release first adds a successor
-version to `LIVE_WIRE_VERSIONS`; a later release may emit it. A version stays
-live for at least six months after the first release that emits its successor.
-It then remains in `HISTORY_WIRE_VERSIONS` until the next protocol reset.
-Endpoints that miss the live window require a reset.
+The wire envelope, the Registry HTTP API, and the host channel configuration
+are stable between resets; an incompatible change to any of them ships in a
+reset release. The live window exists so that a daemon that upgrades on its
+own schedule can cross a wire bump between resets.
 
-The mixed-release CI gate runs the previous published release and the oldest
-published release whose wire version remains live against the current build,
-using the current Registry and Router. Candidate selection reads the published
-Identity `moltzapWireVersion` npm metadata without installing candidates.
+Each release emits exactly `WIRE_VERSION`. `LIVE_WIRE_VERSIONS` holds the
+emitted version and at most one adjacent version, and the Registry, the
+Router, and the daemon each admit every version in it. A bump spans two
+releases:
+
+A bump changes only the version value. Every Identity, Router, and Client
+representation reads its type strings, headers, hash domains, and bounds from
+the single `WIRE_PROFILES` entry for `WIRE_VERSION`, so changing any profile
+value changes the stable wire envelope and ships in a reset release.
+
+1. The announcing release lists the successor in `LIVE_WIRE_VERSIONS` and
+   still emits the current version.
+2. The bumping release emits the successor and keeps its predecessor in
+   `LIVE_WIRE_VERSIONS`.
+
+The predecessor stays live for exactly that one release: the release after
+the bump removes it from `LIVE_WIRE_VERSIONS`, and may announce the next
+successor in its place. Any two adjacent releases therefore admit each
+other's emitted version, so a daemon may upgrade before or after its Registry
+and Router, and a daemon more than one release behind its network after a
+bump is outside the window. A version that leaves the live window remains in
+`HISTORY_WIRE_VERSIONS` until the next protocol reset. Endpoints that miss the
+live window require a reset.
+
+The mixed-release CI gate runs the previous published Client release and the
+oldest published Client release whose wire version remains live against the
+current build, each installed with the exact Identity and Router versions it
+pins, using the current Registry and Router. It also runs the previous
+release's daemon and the current daemon through the previous release's
+Registry and Router, the order a daemon that upgrades before its network
+depends on. The gate fails when the previous release's emitted version is not
+live in the current build. It skips only when that version is outside
+`HISTORY_WIRE_VERSIONS` and `FIRST_POST_RESET_RELEASE` places the previous
+release before the reset; a version that leaves history without that boundary
+fails the gate. Each failure names the leg it came from. Candidate selection
+reads each Client release's Identity pin and that Identity version's
+`moltzapWireVersion` npm metadata without installing candidates.
 `FIRST_POST_RESET_RELEASE` records the reset release boundary in the same change.
 Absent metadata denotes a pre-reset release only below that boundary. Missing metadata at or after that
 release fails the gate; registry

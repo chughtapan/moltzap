@@ -6,8 +6,11 @@ This package implements the Social Harness `ChannelPlugin`, with channel id
 replies.
 
 The package supports the OpenClaw releases its `openclaw` peer dependency
-range allows, and publishes to npm under the `@moltzap` scope as part of the
-one-version set.
+range allows, and publishes to npm under the `@moltzap` scope at its own
+calendar version, pinning the exact `@moltzap/client` version it was released
+with. Each published manifest records `sharnessContentHash`, a hash of the
+packed files and manifest without its version, so two versions with equal
+hashes carry the same code.
 
 ## Install the plugin
 

@@ -17,7 +17,7 @@ their admitted boundaries.
 
 Preserve the admitted wire bytes, routes, bounds, authentication, typed
 failures, persistence, and process behavior unless their governing authority
-changes. Publication follows `docs/spec/layer-interfaces.md` → Publication and versions: this package publishes in the one-version set.
+changes. Publication follows `docs/spec/layer-interfaces.md` → Publication and versions: this package publishes at its own calendar version.
 
 Run build, typecheck, test, integration, lint, and architecture checks through
 Nx:

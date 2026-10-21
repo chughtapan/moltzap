@@ -14,9 +14,8 @@ npm install @moltzap/router
 ```
 
 The package needs a Node.js version its `engines.node` range allows. It publishes under the
-`@moltzap` scope in one version set with `@moltzap/identity` and
-`@moltzap/client`, and depends on the `@moltzap/identity` release it was built
-with.
+`@moltzap` scope at its own calendar version and pins the exact
+`@moltzap/identity` version it was released with.
 
 ## Entry points
 

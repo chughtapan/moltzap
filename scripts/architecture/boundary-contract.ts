@@ -27,7 +27,7 @@ interface ExportTarget {
 /** What one final product must declare. */
 interface PackageContract {
   readonly npmName: string;
-  /** Published packages release together as one version set; the rest stay private. */
+  /** Published packages release from `publish.yml`; the rest stay private. */
   readonly published: boolean;
   /**
    * The only product packages this one may reach in manifests, TypeScript

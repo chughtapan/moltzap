@@ -649,11 +649,11 @@ as a norm judgment the decision provider left unsettled.
 
 ### `@moltzap/client/service`
 
-#### [`Daemon`](./service/index.ts#L93)
+#### [`Daemon`](./service/index.ts#L248)
 
 _Namespace_
 
-#### [`Daemon.StartupError`](./service/index.ts#L107)
+#### [`Daemon.StartupError`](./service/index.ts#L262)
 
 _Class_
 
@@ -690,7 +690,7 @@ _Class_
 
 Closed startup phase with sanitized configuration details.
 
-#### [`Daemon.FirewallOptions`](./service/index.ts#L98)
+#### [`Daemon.FirewallOptions`](./service/index.ts#L253)
 
 _TypeAlias_
 
@@ -706,7 +706,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-#### [`Daemon.help`](./service/index.ts#L95)
+#### [`Daemon.help`](./service/index.ts#L250)
 
 _Variable_
 
@@ -716,20 +716,20 @@ _Variable_
 
 Usage text listing the daemon process's environment variables.
 
-#### [`Daemon.layer`](./service/index.ts#L187)
+#### [`Daemon.layer`](./service/index.ts#L348)
 
 _Variable_
 
 ```ts
   export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
     runDaemon(),
-  )
+  ).pipe(Layer.provide(telemetry))
 ```
 
 Complete production process composition for `sharnessd`, with the
 firewall `SHARNESS_MESSAGE_POLICY_FILE` describes when it is set.
 
-#### [`Daemon.withFirewall`](./service/index.ts#L197)
+#### [`Daemon.withFirewall`](./service/index.ts#L358)
 
 _Function_
 
@@ -1531,6 +1531,7 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `transport/messaging/recovery/index.ts`
 - `transport/messaging/recovery/README.md`
 - `transport/messaging/recovery/successor.ts`
+- `transport/messaging/retry-markers.ts`
 - `transport/messaging/runtime/index.ts`
 - `transport/messaging/send.ts`
 - `transport/messaging/startup.ts`

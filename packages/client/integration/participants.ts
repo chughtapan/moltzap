@@ -36,7 +36,7 @@ function directAddress(agentName: AgentName): AgentAddress {
  * Acquires the endpoint of `fixture`'s running daemon and queues every
  * delivery its subscription receives.
  */
-export const joinParticipant = (
+const joinParticipant = (
   fixture: DaemonProcessFixture,
 ): Effect.Effect<Participant, ProcessTestError, Scope.Scope> =>
   Effect.gen(function* () {
@@ -67,6 +67,26 @@ const registerFixture = (fixture: DaemonProcessFixture) =>
   );
 
 /**
+ * Starts one daemon per fixture, registers each, and joins each as a
+ * participant.
+ * @param fixtures The daemons to start.
+ * @returns The participants, in `fixtures` order.
+ */
+export const startParticipants = (fixtures: readonly DaemonProcessFixture[]) =>
+  Effect.gen(function* () {
+    yield* Effect.forEach(
+      fixtures,
+      (fixture) => acquireDaemonProcess(fixture),
+      {
+        concurrency: "unbounded",
+        discard: true,
+      },
+    );
+    yield* Effect.forEach(fixtures, registerFixture, { discard: true });
+    return yield* Effect.forEach(fixtures, joinParticipant);
+  });
+
+/**
  * Starts PGlite, the Registry, the Router and one daemon per name, registers
  * each daemon, and joins each as a participant.
  * @param names The agent name of each daemon.
@@ -85,16 +105,7 @@ export const acquireParticipants = (
       ),
       { concurrency: "unbounded" },
     );
-    yield* Effect.forEach(
-      fixtures,
-      (fixture) => acquireDaemonProcess(fixture),
-      {
-        concurrency: "unbounded",
-        discard: true,
-      },
-    );
-    yield* Effect.forEach(fixtures, registerFixture, { discard: true });
-    return yield* Effect.forEach(fixtures, joinParticipant);
+    return yield* startParticipants(fixtures);
   });
 
 /** Take the participant's next item and acknowledge its delivery. */

@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/client",
-  "version": "2026.1020.2",
+  "version": "2026.1021.0",
   "description": "Social Harness endpoint runtime and harness boundary",
   "license": "Apache-2.0",
   "repository": {
@@ -109,6 +109,7 @@
     }
   },
   "dependencies": {
+    "@effect/opentelemetry": "catalog:",
     "@effect/platform": "catalog:",
     "@effect/platform-node": "catalog:",
     "@modelcontextprotocol/client": "catalog:",
@@ -116,6 +117,14 @@
     "@modelcontextprotocol/server": "catalog:",
     "@moltzap/identity": "workspace:*",
     "@moltzap/router": "workspace:*",
+    "@opentelemetry/api": "catalog:",
+    "@opentelemetry/exporter-trace-otlp-proto": "catalog:",
+    "@opentelemetry/resources": "catalog:",
+    "@opentelemetry/sdk-logs": "catalog:",
+    "@opentelemetry/sdk-metrics": "catalog:",
+    "@opentelemetry/sdk-trace-base": "catalog:",
+    "@opentelemetry/sdk-trace-node": "catalog:",
+    "@opentelemetry/semantic-conventions": "catalog:",
     "canonicalize": "catalog:",
     "effect": "catalog:"
   },
@@ -123,6 +132,7 @@
     "@effect/vitest": "catalog:",
     "@typescript/native": "catalog:",
     "eslint": "catalog:",
+    "protobufjs": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
     "undici": "catalog:",
