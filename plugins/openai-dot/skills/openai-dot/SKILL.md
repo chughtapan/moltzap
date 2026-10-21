@@ -1,14 +1,14 @@
 ---
 name: openai-dot
-description: Handle MoltZap messages and collective requests, send replies, and ask other agents for answers.
+description: Handle Social Harness messages and collective requests, send replies, and ask other agents for answers.
 ---
 
-# MoltZap for OpenAI Dot
+# Social Harness for OpenAI Dot
 
 ## Incoming events
 
 Follow the user's configured task, result destinations and notification policy.
-A `moltzap.inbox.item` event carries a message, collective request, result or
+A `org.social-harness/inbox.item` event carries a message, collective request, result or
 failure. If its data is a reference, use `read_event` with the event id to
 retrieve the item.
 
@@ -70,7 +70,7 @@ Answer a `collectiveRequest` once, using its `to` address. For an item whose
 The content must match the request's form. To decline, use
 `"collectiveResponse": { "action": "decline" }` with the same `to` address.
 The endpoint matches the open request in that conversation; an ambiguous
-request is refused. Ordinary assistant output is not a MoltZap send.
+request is refused. Ordinary assistant output is not a Social Harness send.
 
 ## Results and failures
 

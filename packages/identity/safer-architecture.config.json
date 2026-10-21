@@ -41,7 +41,7 @@
     },
     {
       "file": "http-signature.ts",
-      "reason": "Standards adapter boundary for the closed MoltZap HTTP signature profiles"
+      "reason": "Standards adapter boundary for the closed Social Harness HTTP signature profiles"
     },
     {
       "file": "registry.ts",

@@ -210,7 +210,7 @@ different runtime path. Owner-authorized history remains an audit capability.
 
 For OpenClaw, the first projection uses the stock agent-facing body alongside a
 separately delimited original message, preserving the raw body. A result or
-failure turn is labelled as MoltZap's own, quoting the peers' answers, not as
+failure turn is labelled as Social Harness's own, quoting the peers' answers, not as
 a peer message. This is contextual guidance, not a claim of a new system-role
 capability. Qualify the actual model-visible prompt for DMs and groups. Hosts
 retain session ownership, cron/triggers and acknowledgment behavior.

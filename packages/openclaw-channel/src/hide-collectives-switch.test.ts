@@ -108,7 +108,7 @@ function reachesAccount(message: string) {
       Effect.flip,
       Effect.tap((failure) => {
         // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- Only a send past the switch reaches the account lookup.
-        expect(failure.detail).toContain("not connected to MoltZap");
+        expect(failure.detail).toContain("not connected to Social Harness");
       }),
     ),
   );

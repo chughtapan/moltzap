@@ -39,8 +39,13 @@ const minimumRegistrationBody = Schema.Struct({
   }),
 });
 
+/**
+ * The bootstrap `Authorization` value. Both schemes carry the same token68
+ * credential: `Sharness-Admission` is the current name, and `MoltZap-Admission`
+ * stays accepted so clients from earlier releases keep registering.
+ */
 const admissionValue =
-  /^MoltZap-Admission ((?=.{8,512}$)[A-Za-z0-9\-._~+/]+=*)$/;
+  /^(?:Sharness|MoltZap)-Admission ((?=.{8,512}$)[A-Za-z0-9\-._~+/]+=*)$/;
 
 type BootstrapRegistrationInput = Readonly<{
   httpRequest: HttpServerRequest.HttpServerRequest;

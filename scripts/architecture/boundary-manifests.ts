@@ -50,7 +50,7 @@ const PRODUCTION_SECTIONS = [
 ];
 
 /**
- * Identity owns the one MoltZap wire compatibility value. Package release
+ * Identity owns the one Social Harness wire compatibility value. Package release
  * versions are independent of it: a release changes manifests without
  * touching this literal, and a wire hard cut changes this literal alone.
  * @param run Run collecting failures.
@@ -170,7 +170,7 @@ function readCompatibilityVersion(
 ): string | null {
   if (!existsSync(identityVersion)) {
     run.failures.push(
-      "packages/identity/src/version.ts: missing; it owns the MoltZap wire compatibility value",
+      "packages/identity/src/version.ts: missing; it owns the Social Harness wire compatibility value",
     );
     return null;
   }

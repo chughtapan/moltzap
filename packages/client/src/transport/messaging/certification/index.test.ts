@@ -435,7 +435,7 @@ function makeProtocolHarness(
       (index) =>
         fileSystem
           .makeTempDirectoryScoped({
-            prefix: `moltzap-engine-protocol-${index}-`,
+            prefix: `sharness-engine-protocol-${index}-`,
           })
           .pipe(
             Effect.flatMap((directory) =>

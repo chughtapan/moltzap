@@ -232,7 +232,7 @@ function checkPeerFloors(
 
 /**
  * The example installs from npm, so it copies each catalog range literally;
- * its MoltZap pins are the release version the release workflow writes.
+ * its Social Harness pins are the release version the release workflow writes.
  * @param examples Example manifests.
  * @param catalog Catalog name to range.
  */

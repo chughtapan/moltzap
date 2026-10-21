@@ -11,7 +11,7 @@ import { afterAll, vi } from "vitest";
 
 /** Temporary OpenClaw state directory shared by setup and test configuration. */
 export const openClawTestStateDirectory = mkdtempSync(
-  join(tmpdir(), "moltzap-openclaw-channel-test-"),
+  join(tmpdir(), "sharness-openclaw-channel-test-"),
 );
 
 vi.stubEnv("OPENCLAW_STATE_DIR", openClawTestStateDirectory);

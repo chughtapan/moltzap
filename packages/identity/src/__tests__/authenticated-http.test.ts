@@ -789,7 +789,7 @@ it("claims a valid wrong-version nonce before returning version mismatch", () =>
     }),
   ));
 
-it("returns version mismatch to a peer still on the prior MoltZap version", () =>
+it("returns version mismatch to a peer still on the prior Social Harness version", () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const fixture = yield* makeIdentityFixture;

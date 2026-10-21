@@ -157,7 +157,7 @@ if (!(startupError instanceof service.Daemon.StartupError) ||
 }
 `;
 
-runGate("moltzap-client-pack-", (temporaryRoot) =>
+runGate("sharness-client-pack-", (temporaryRoot) =>
   Effect.gen(function* () {
     const { archives, manifests } = yield* packProductClosure(
       workspaceRoot,
@@ -352,7 +352,7 @@ function verifyConsumerImports(
     const consumerRoot = yield* installPackedConsumer({
       temporaryRoot,
       workspaceRoot,
-      name: "moltzap-client-packed-consumer",
+      name: "sharness-client-packed-consumer",
       archives,
       dependencies: { effect: effectDependency },
     });

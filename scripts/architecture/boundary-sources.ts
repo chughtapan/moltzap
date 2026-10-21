@@ -229,7 +229,7 @@ function checkProductImport(
     (dir) => FINAL_PACKAGES[dir].npmName === root,
   );
   if (target === undefined) {
-    fail(run, site.file, line, `unknown MoltZap package import "${root}"`);
+    fail(run, site.file, line, `unknown workspace package import "${root}"`);
     return;
   }
   if (!mayImport(site.dir, root)) {

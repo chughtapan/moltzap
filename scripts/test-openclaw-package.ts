@@ -43,7 +43,7 @@ const pluginList = Schema.Struct({ plugins: Schema.Array(jsonObject) });
 
 const workspaceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
-runGate("moltzap-openclaw-pack-", (temporaryRoot) =>
+runGate("sharness-openclaw-pack-", (temporaryRoot) =>
   Effect.gen(function* () {
     const { archives } = yield* packProductClosure(
       workspaceRoot,
@@ -56,7 +56,7 @@ runGate("moltzap-openclaw-pack-", (temporaryRoot) =>
     const consumerRoot = yield* installPackedConsumer({
       temporaryRoot,
       workspaceRoot,
-      name: "moltzap-openclaw-packed-consumer",
+      name: "sharness-openclaw-packed-consumer",
       archives,
       dependencies: { effect: pins.effect, openclaw: openclawVersion },
       devDependencies: { typescript: pins.typescript },

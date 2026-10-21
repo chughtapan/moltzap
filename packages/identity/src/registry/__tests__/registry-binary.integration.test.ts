@@ -392,6 +392,25 @@ const assertBootstrapVersionPrecedence = (origin: URL) =>
     });
   });
 
+const assertBothAdmissionSchemesRegister = (origin: URL) =>
+  Effect.forEach(
+    ["Sharness-Admission", "MoltZap-Admission"],
+    (scheme) =>
+      Effect.gen(function* () {
+        const prepared = yield* prepareAgent(
+          `scheme-${scheme.split("-")[0]?.toLowerCase() ?? "unknown"}`,
+        );
+        const request = yield* makeVersionedBootstrapRequest(
+          origin,
+          prepared,
+          WIRE_VERSION,
+          scheme,
+        );
+        expect((yield* executeRequest(request)).status).toBe(OK_STATUS);
+      }),
+    { concurrency: 1, discard: true },
+  );
+
 const makeIdentityPointForgery = (origin: URL) =>
   Effect.gen(function* () {
     const prepared = yield* prepareAgent("identity-point-forgery");
@@ -671,6 +690,7 @@ const exerciseFirstRun = (
     );
     const agents = [first, ...additional] as const;
     yield* assertLookupAndPaging(agents, runRegistry);
+    yield* assertBothAdmissionSchemesRegister(origin);
     yield* assertPublicAuthenticationFraming(origin);
     yield* assertPublicRequestBoundaries(origin, first);
     yield* assertRejectedRepresentations(origin, first);
