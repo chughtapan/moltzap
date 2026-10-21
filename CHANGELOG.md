@@ -17,6 +17,21 @@ sections are the codebase's history as MoltZap.
 
 <!-- towncrier release notes start -->
 
+## [2026.1021.6] - 2026-10-21
+
+### Changed
+
+- `sharnessd-launcher` accepts releases whose provenance was built by the
+  release workflow of `social-harness/moltzap` as well as `chughtapan/moltzap`,
+  so launchers installed now keep upgrading after the repository moves to the
+  `social-harness` organization.
+
+### Fixed
+
+- `AuthenticatedHttp` refuses a request when the `Registry` answers its lookup
+  with a verified AgentCard for a different AgentId, so a faulty or custom
+  `Registry` layer can no longer let one agent authenticate as another (#1272).
+
 ## [2026.1021.5] - 2026-10-21
 
 ### Fixed

@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/identity",
-  "version": "2026.1021.3",
+  "version": "2026.1021.6",
   "description": "Identity contracts and representation, AuthenticatedHttp, Registry client and PostgreSQL server",
   "license": "Apache-2.0",
   "repository": {
@@ -153,5 +153,5 @@
     "vitest": "catalog:"
   },
   "sharnessWireVersion": "2026.1021.3",
-  "sharnessContentHash": "sha256:459fea4febf050275c1167d77c64aeb49b959367d4db49aca7fd82759f529de9"
+  "sharnessContentHash": "sha256:960469dc6c15576cb8ec93635d468813f9e12831bd0b5f8bdb0789050a09ed7a"
 }
