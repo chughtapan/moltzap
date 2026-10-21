@@ -42,7 +42,7 @@ Guidance mode records that hold and allows the original send without stale advic
 holds neither the SQLite transaction nor the engine/delivery lock.
 `FirewallSendError` returns a retained check reference and permitted feedback
 on the original send call, including when `failureDelivery` is `inbound`.
-Same-key retries replay this refusal; a revision requires a new invocation.
+Each retry or revision is a new invocation, checked again.
 Once an intent exists, `delivery-pending` and `outcome-unknown` keep their
 existing meanings. A policy result never retroactively calls that send unsent.
 

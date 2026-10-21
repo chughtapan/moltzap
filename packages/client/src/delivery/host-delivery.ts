@@ -18,12 +18,6 @@ import type {
   HistoryExportPort,
   HistoryExportRecord,
 } from "./history-export.js";
-import type {
-  DeliveryOperations,
-  EventStore,
-  HarnessMessageReadyEvent,
-  HarnessReadInboxRequest,
-} from "./operations.js";
 import {
   decodeRuntimeValue,
   type DeliveryToken,
@@ -45,6 +39,14 @@ import {
   readRuntimeInbox,
   recoverRuntimeInbox,
 } from "./inbox.js";
+import {
+  decodeHarnessSendRequest,
+  type DeliveryOperations,
+  type EventStore,
+  type HarnessMessageReadyEvent,
+  type HarnessReadInboxRequest,
+  type HarnessSendRequest,
+} from "./operations.js";
 import {
   type DeliveryState,
   exportOnce,
@@ -137,36 +139,48 @@ const exportSend = (
     ),
   );
 
+const sendDecoded = (input: DeliveryContext, request: HarnessSendRequest) =>
+  Effect.suspend(() => {
+    const collectives = input.collectives();
+    if (collectives === undefined) {
+      return Effect.fail(new SendError({ reason: "not-registered" }));
+    }
+    return collectives
+      .send(request.input, request.failureDelivery ?? "result")
+      .pipe(
+        Effect.tapBoth({
+          onFailure: (error) =>
+            exportSend(input.historyExport, request.input, {
+              kind: "failed",
+              error: error.message,
+            }),
+          onSuccess: ({ operationId, postIds }) =>
+            exportSend(input.historyExport, request.input, {
+              kind: "sent",
+              postIds,
+              ...(operationId === undefined ? {} : { operationId }),
+            }),
+        }),
+        Effect.map(({ operationId, guidance }) => ({
+          ...(operationId === undefined ? {} : { operationId }),
+          ...(guidance === undefined ? {} : { guidance }),
+        })),
+      );
+  });
+
+/**
+ * Run one validated send: input that fails its schema is `content-invalid`
+ * before anything is sent.
+ */
 const sendOperation =
   (input: DeliveryContext): DeliveryOperations["send"] =>
   (request) =>
-    Effect.suspend(() => {
-      const collectives = input.collectives();
-      if (collectives === undefined) {
-        return Effect.fail(new SendError({ reason: "not-registered" }));
-      }
-      return collectives
-        .send(request.input, request.failureDelivery ?? "result")
-        .pipe(
-          Effect.tapBoth({
-            onFailure: (error) =>
-              exportSend(input.historyExport, request.input, {
-                kind: "failed",
-                error: error.message,
-              }),
-            onSuccess: ({ operationId, postIds }) =>
-              exportSend(input.historyExport, request.input, {
-                kind: "sent",
-                postIds,
-                ...(operationId === undefined ? {} : { operationId }),
-              }),
-          }),
-          Effect.map(({ operationId, guidance }) => ({
-            ...(operationId === undefined ? {} : { operationId }),
-            ...(guidance === undefined ? {} : { guidance }),
-          })),
-        );
-    });
+    decodeHarnessSendRequest(request).pipe(
+      Effect.catchTag("ParseError", () =>
+        Effect.fail(new SendError({ reason: "content-invalid" })),
+      ),
+      Effect.flatMap((decoded) => sendDecoded(input, decoded)),
+    );
 
 /** Retire the durable inbox binding before dropping its process-local caches. */
 const acknowledgeDelivery =

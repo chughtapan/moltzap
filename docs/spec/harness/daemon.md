@@ -213,9 +213,8 @@ created. Registered stores do not need that admission credential to restart.
 Before normal classification, startup retires raw pending collective requests
 whose response state was lost. Each becomes a failure with a fresh token.
 
-Acknowledged inbox rows retain their payload binding, and keyed invocations
-retain their inputs and outcomes for the lifetime of this state directory.
-There is no automatic retention expiry or compaction. An index over unread rows
+Acknowledged inbox rows retain their payload binding for the lifetime of this
+state directory. There is no automatic retention expiry or compaction. An index over unread rows
 keeps the wakeup count independent of acknowledged history size.
 
 ## MCP compatibility
@@ -350,9 +349,7 @@ or any store failure while queueing its
 proposal, which fails the send as `delivery-pending`. A store refusal while
 binding rolls the bind back: the send fails as `persistence-failed` and the
 daemon keeps running. A raw persistence failure known to precede the bind's
-commit also fails as `persistence-failed` without stopping the daemon. A keyed
-send whose reservation fails before commit likewise returns `persistence-failed`;
-an uncertain commit or unreadable earlier reservation returns `outcome-unknown`.
+commit also fails as `persistence-failed` without stopping the daemon.
 Storage stops log the closed cause without message
 content, credentials, or SQLite diagnostics. Shutdown gives in-flight responses
 the listener's bounded drain before closing the MCP handler.

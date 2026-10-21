@@ -70,6 +70,10 @@ export const harnessSendArgumentsSchema = exactStruct({
       "One send to agent:<name> or group:<members>: text with an optional collective operation, or a collectiveResponse to an open request.",
   }),
 });
+const harnessSendRequestSchema = exactStruct({
+  ...harnessSendArgumentsSchema.fields,
+  ...harnessSendOptionsSchema.fields,
+});
 /**
  * A completed operation. A collecting operation names the id its answers and
  * result carry; a multicast has none. `guidance` is the local firewall's
@@ -152,6 +156,11 @@ export type HarnessReadInboxResult = typeof inboxResultSchema.Type;
 export const decodeHarnessReadInboxResult =
   Schema.decodeUnknown(inboxResultSchema);
 
+/** Validate one send's input and options before it runs. */
+export const decodeHarnessSendRequest = Schema.decodeUnknown(
+  harnessSendRequestSchema,
+);
+
 /** Decoded delivery acknowledgment arguments owned by the daemon. */
 export type HarnessAcknowledgeDeliveryRequest =
   typeof harnessAcknowledgeDeliveryRequestSchema.Type;
@@ -160,8 +169,7 @@ export type HarnessAcknowledgeDeliveryRequest =
 export type HarnessSendArguments = typeof harnessSendArgumentsSchema.Type;
 
 /** Validated semantic input and runtime options of one send. */
-export type HarnessSendRequest = HarnessSendArguments &
-  typeof harnessSendOptionsSchema.Type;
+export type HarnessSendRequest = typeof harnessSendRequestSchema.Type;
 
 /** Decoded error data of one refused `send_message` call. */
 export type HarnessSendErrorData =

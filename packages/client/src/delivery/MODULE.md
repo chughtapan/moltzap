@@ -8,7 +8,7 @@ One service's delivery, for the service to compose.
 
 ## Public surface
 
-### [`decodeHarnessMessageReadyEvent`](./operations.ts#L312)
+### [`decodeHarnessMessageReadyEvent`](./operations.ts#L247)
 
 _Function_
 
@@ -22,7 +22,7 @@ Decode one exact pending-delivery notification payload.
 
 **Returns:** The validated pending delivery.
 
-### [`decodeHarnessReadInboxResult`](./operations.ts#L218)
+### [`decodeHarnessReadInboxResult`](./operations.ts#L156)
 
 _Variable_
 
@@ -33,7 +33,7 @@ export const decodeHarnessReadInboxResult =
 
 Decode a bounded inbox page received through the MCP transport.
 
-### [`decodeHarnessSendErrorData`](./operations.ts#L323)
+### [`decodeHarnessSendErrorData`](./operations.ts#L258)
 
 _Function_
 
@@ -47,7 +47,7 @@ Decode the error data of one refused `send_message` call.
 
 **Returns:** The collective failure or send reason it carries.
 
-### [`decodeHarnessSendResult`](./operations.ts#L345)
+### [`decodeHarnessSendResult`](./operations.ts#L280)
 
 _Function_
 
