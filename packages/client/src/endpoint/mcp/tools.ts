@@ -28,8 +28,8 @@ import {
 import type { CollectiveError } from "../../transport/collectives/forms.js";
 import type { SendError } from "../../transport/messaging/errors.js";
 import {
+  checkHarnessSendResult,
   decodeHarnessReadSendRequest,
-  decodeHarnessSendResult,
   type DeliveryOperations,
   type EventStore,
   type HarnessAcknowledgeDeliveryRequest,
@@ -651,7 +651,7 @@ const handleSendToolCall = async (
     .send(decoded)
     .pipe(
       Effect.flatMap((result) =>
-        decodeHarnessSendResult(result).pipe(Effect.orDie),
+        checkHarnessSendResult(result).pipe(Effect.orDie),
       ),
     );
   return await validateToolOutput(

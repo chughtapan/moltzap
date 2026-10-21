@@ -8,7 +8,7 @@ Personal firewall composition for code and English policies.
 
 ## Public surface
 
-### [`CheckedGuidance`](./runtime.ts#L55)
+### [`CheckedGuidance`](./runtime.ts#L51)
 
 _TypeAlias_
 
@@ -192,7 +192,7 @@ export class FirewallPolicyError extends Data.TaggedError(
 
 A failed edit never replaces the active installation or retained editable document.
 
-### [`FirewallSendError`](./runtime.ts#L125)
+### [`FirewallSendError`](./runtime.ts#L123)
 
 _Class_
 
@@ -230,7 +230,7 @@ export class FirewallSettings extends Schema.Class<FirewallSettings>(
 
 Sequential execution is bounded per entry and across the whole attempt.
 
-### [`LocalGuidance`](./runtime.ts#L79)
+### [`LocalGuidance`](./runtime.ts#L75)
 
 _TypeAlias_
 

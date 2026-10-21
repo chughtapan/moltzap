@@ -39,7 +39,8 @@ export const readEventRequestSchema = exactStruct({
   }),
 });
 /** The original classified payload, including after its handoff. */
-export const readEventResultSchema = exactStruct({
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- The MCP catalog projects the event-read result to JSON Schema; hosts decode it through this file's boundary functions.
+export const readEventResultSchema = Schema.Struct({
   item: InboundItem,
   guidance: Schema.optionalWith(localGuidanceSchema, { exact: true }),
 });
@@ -94,11 +95,12 @@ const harnessSendRequestSchema = exactStruct({
  * result carry; a multicast has none. `guidance` is the local firewall's
  * advice on the admitted send, absent when it gave none.
  */
-export const harnessSendResultSchema = exactStruct({
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- The MCP catalog projects the send result to JSON Schema; hosts decode it through this file's boundary functions.
+export const harnessSendResultSchema = Schema.Struct({
   operationId: Schema.optionalWith(CollectiveId, { exact: true }),
   guidance: Schema.optionalWith(checkedGuidanceSchema, { exact: true }),
 });
-const harnessMessageReadyEventSchema = exactStruct({
+const harnessMessageReadyEventSchema = Schema.Struct({
   deliveryToken: DeliveryToken,
   item: InboundItem,
   guidance: Schema.optionalWith(localGuidanceSchema, { exact: true }),
@@ -115,7 +117,8 @@ export const inboxRequestSchema = exactStruct({
   ),
 });
 /** One page of classified deliveries and the cursor after it. */
-export const inboxResultSchema = exactStruct({
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- The MCP catalog projects the inbox page to JSON Schema; hosts decode it through this file's boundary functions.
+export const inboxResultSchema = Schema.Struct({
   items: Schema.Array(harnessMessageReadyEventSchema),
   nextCursor: Schema.optionalWith(Schema.String, { exact: true }),
 });
@@ -128,11 +131,11 @@ export const readSendRequestSchema = exactStruct({
 });
 
 /** Validation diagnostics remain decodable as a send refusal at the runtime edge. */
-const invocationValidationErrorSchema = exactStruct({
+const invocationValidationErrorSchema = Schema.Struct({
   reason: Schema.Literal("content-invalid"),
   detail: Schema.optionalWith(Schema.String, { exact: true }),
   issues: Schema.Array(
-    exactStruct({
+    Schema.Struct({
       path: Schema.Array(Schema.Union(Schema.String, Schema.Number)),
       message: Schema.String,
     }),
@@ -143,32 +146,38 @@ const invocationValidationErrorSchema = exactStruct({
  * The JSON-RPC error data of a refused `send_message`: a `SendError` reason
  * with the detail naming its specific cause, or a refused collective send with its id and the failure naming each
  * unreachable member or failing field, which `decodeCollectiveFailure`
- * validates.
+ * validates. Fields a newer daemon adds are ignored; a firewall or collective
+ * refusal that misses its own fields never decodes as a plain reason.
  */
 const harnessSendErrorDataSchema = Schema.Union(
   invocationValidationErrorSchema,
-  exactStruct({
+  Schema.Struct({
     reason: Schema.Literal("firewall-refused"),
     ...firewallRefusalSchema.fields,
   }),
-  exactStruct({
+  Schema.Struct({
     reason: Schema.Literal("collective-failed"),
     id: CollectiveId,
     failure: Schema.Unknown,
   }),
-  exactStruct({
-    reason: Schema.String,
+  Schema.Struct({
+    reason: Schema.String.pipe(
+      Schema.filter(
+        (reason) =>
+          reason !== "firewall-refused" && reason !== "collective-failed",
+      ),
+    ),
     detail: Schema.optionalWith(Schema.String, { exact: true }),
   }),
 );
 
-/** Exact retained result of one invocation; failure is not proof of no post. */
+/** Retained result of one invocation; failure is not proof of no post. */
 const harnessSendOutcomeSchema = Schema.Union(
-  exactStruct({
+  Schema.Struct({
     kind: Schema.Literal("success"),
     result: harnessSendResultSchema,
   }),
-  exactStruct({
+  Schema.Struct({
     kind: Schema.Literal("failure"),
     error: harnessSendErrorDataSchema,
   }),
@@ -177,12 +186,12 @@ const harnessSendOutcomeSchema = Schema.Union(
 /** Observed invocation evidence without a collective completion claim. */
 // eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- The MCP catalog projects the closed send-state union to JSON Schema.
 export const readSendResultSchema = Schema.Union(
-  exactStruct({ state: Schema.Literal("absent") }),
-  exactStruct({
+  Schema.Struct({ state: Schema.Literal("absent") }),
+  Schema.Struct({
     state: Schema.Literal("pending", "indeterminate"),
     input: SendInput,
   }),
-  exactStruct({
+  Schema.Struct({
     state: Schema.Literal("returned"),
     input: SendInput,
     outcome: harnessSendOutcomeSchema,
@@ -303,7 +312,7 @@ export function decodeHarnessAcknowledgeDeliveryRequest(
 export function decodeHarnessMessageReadyEvent(
   value: unknown,
 ): Effect.Effect<HarnessMessageReadyEvent, ParseResult.ParseError> {
-  return Schema.decodeUnknown(harnessMessageReadyEventSchema)(value, exact);
+  return Schema.decodeUnknown(harnessMessageReadyEventSchema)(value);
 }
 
 /**
@@ -314,7 +323,7 @@ export function decodeHarnessMessageReadyEvent(
 export function decodeHarnessSendErrorData(
   value: unknown,
 ): Effect.Effect<HarnessSendErrorData, ParseResult.ParseError> {
-  return Schema.decodeUnknown(harnessSendErrorDataSchema)(value, exact).pipe(
+  return Schema.decodeUnknown(harnessSendErrorDataSchema)(value).pipe(
     Effect.flatMap(
       (data): Effect.Effect<HarnessSendErrorData, ParseResult.ParseError> =>
         "failure" in data
@@ -327,12 +336,25 @@ export function decodeHarnessSendErrorData(
 }
 
 /**
- * Decode one `send_message` result.
+ * Decode one `send_message` result, ignoring fields this release does not
+ * name.
  * @param value Untrusted structured tool content.
  * @returns The operation id a gather names and the local firewall's guidance
  * on the admitted send, each if any.
  */
 export function decodeHarnessSendResult(
+  value: unknown,
+): Effect.Effect<HarnessSendResult, ParseResult.ParseError> {
+  return Schema.decodeUnknown(harnessSendResultSchema)(value);
+}
+
+/**
+ * Check one `send_message` result exactly before the daemon returns it, so a
+ * field this release does not name never leaves the daemon.
+ * @param value The operation's result.
+ * @returns The validated result.
+ */
+export function checkHarnessSendResult(
   value: unknown,
 ): Effect.Effect<HarnessSendResult, ParseResult.ParseError> {
   return Schema.decodeUnknown(harnessSendResultSchema)(value, exact);

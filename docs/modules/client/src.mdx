@@ -51,7 +51,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CheckedGuidance`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/runtime.ts#L55)
+### [`CheckedGuidance`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/runtime.ts#L51)
 
 _TypeAlias_
 
@@ -143,6 +143,61 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
+### [`decodeHarnessMessageReadyEvent`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/operations.ts#L312)
+
+_Function_
+
+```ts
+export function decodeHarnessMessageReadyEvent(
+  value: unknown,
+): Effect.Effect<HarnessMessageReadyEvent, ParseResult.ParseError>
+```
+
+Decode one exact pending-delivery notification payload.
+
+**Returns:** The validated pending delivery.
+
+### [`decodeHarnessReadInboxResult`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/operations.ts#L218)
+
+_Variable_
+
+```ts
+export const decodeHarnessReadInboxResult =
+  Schema.decodeUnknown(inboxResultSchema)
+```
+
+Decode a bounded inbox page received through the MCP transport.
+
+### [`decodeHarnessSendErrorData`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/operations.ts#L323)
+
+_Function_
+
+```ts
+export function decodeHarnessSendErrorData(
+  value: unknown,
+): Effect.Effect<HarnessSendErrorData, ParseResult.ParseError>
+```
+
+Decode the error data of one refused `send_message` call.
+
+**Returns:** The collective failure or send reason it carries.
+
+### [`decodeHarnessSendResult`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/operations.ts#L345)
+
+_Function_
+
+```ts
+export function decodeHarnessSendResult(
+  value: unknown,
+): Effect.Effect<HarnessSendResult, ParseResult.ParseError>
+```
+
+Decode one `send_message` result, ignoring fields this release does not
+name.
+
+**Returns:** The operation id a gather names and the local firewall's guidance
+on the admitted send, each if any.
+
 ### [`DeliveryAcknowledgeError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/transport/messaging/errors.ts#L98)
 
 _Class_
@@ -171,7 +226,7 @@ export type DirectMessage = typeof directMessage.Type;
 
 One certified remote-authored direct message.
 
-### [`FirewallSendError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/runtime.ts#L125)
+### [`FirewallSendError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/runtime.ts#L123)
 
 _Class_
 
@@ -441,7 +496,7 @@ export class ListenError extends Data.TaggedError("ListenError")<{
 
 The endpoint's sole inbound subscription failed.
 
-### [`LocalGuidance`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/runtime.ts#L79)
+### [`LocalGuidance`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/firewall/runtime.ts#L75)
 
 _TypeAlias_
 

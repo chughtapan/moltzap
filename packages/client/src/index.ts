@@ -12,6 +12,17 @@ export {
 /** Acquire the structural endpoint for one loopback daemon endpoint. */
 // safer-arch-ignore no-public-vendor-type-leak: URL is the platform-standard endpoint locator required by the public acquisition contract.
 export { acquireHarnessEndpoint } from "./endpoint/harness-endpoint/index.js";
+/**
+ * Decoders of the daemon's MCP tool results, refusal data and
+ * pending-delivery event. They ignore fields they do not name, so a newer
+ * daemon can add one without breaking a host on the previous release.
+ */
+export {
+  decodeHarnessMessageReadyEvent,
+  decodeHarnessReadInboxResult,
+  decodeHarnessSendErrorData,
+  decodeHarnessSendResult,
+} from "./delivery/operations.js";
 /** One line of the daemon's optional history export. */
 export { HistoryExportRecord } from "./delivery/history-export.js";
 /** Local message refusal and advice expose no private assessment evidence. */
