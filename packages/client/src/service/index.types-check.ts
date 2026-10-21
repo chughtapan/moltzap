@@ -3,8 +3,13 @@
  * keeping private daemon services outside the trusted composition boundary.
  */
 
-import type { Layer, Types } from "effect";
-import type { Daemon } from "./index.js";
+import type { Effect, Layer, Types } from "effect";
+import type {
+  CheckInputError,
+  Daemon,
+  MessagePolicy,
+  messagePolicyFirewall,
+} from "./index.js";
 
 type Expect<Value extends true> = Value;
 
@@ -37,6 +42,17 @@ type LayerIsExact = Expect<
 type AuditPathIsOptional = Expect<
   Types.Equals<Daemon.FirewallOptions["auditExport"], string | undefined>
 >;
+/** A document always names a firewall mode; a daemon without one has no firewall. */
+type PolicyModeIsExact = Expect<
+  Types.Equals<MessagePolicy["mode"], "guidance" | "enforcement">
+>;
+/** A decoded document installs through the same options as `withFirewall`. */
+type PolicyInstallsAsFirewall = Expect<
+  Types.Equals<
+    ReturnType<typeof messagePolicyFirewall>,
+    Effect.Effect<Omit<Daemon.FirewallOptions, "auditExport">, CheckInputError>
+  >
+>;
 
 /** Compile-time witnesses for the closed Client process boundary. */
 export type DaemonCanaries = [
@@ -48,4 +64,6 @@ export type DaemonCanaries = [
   HelpIsExact,
   LayerIsExact,
   AuditPathIsOptional,
+  PolicyModeIsExact,
+  PolicyInstallsAsFirewall,
 ];

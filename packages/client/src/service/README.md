@@ -13,8 +13,9 @@ configuration and bootstrap material from the environment into the types
 production process edges. It joins the owner tools in `management.ts` with the
 daemon's delivery operations into the MCP operations the loopback listener
 serves. `registration/` owns the durable identity and Registry registration,
-`daemon/` owns the running daemon and its protocol, and `errors.ts` holds the
-closed failures they share. None of these modules crosses the public Client
+`daemon/` owns the running daemon and its protocol, `message-policy/` builds
+the firewall a configured message-policy file describes, and `errors.ts`
+holds the closed failures they share. None of these modules crosses the public Client
 boundary.
 
 When trusted composition sets `auditExport`, lifecycle publishes an incomplete

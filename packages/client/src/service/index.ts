@@ -9,6 +9,7 @@ import { diag, DiagConsoleLogger, DiagLogLevel } from "@opentelemetry/api";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { Config, Data, Duration, Effect, Either, Layer, Option } from "effect";
+import type { FirewallPolicyError } from "../firewall/index.js";
 import {
   type FirewallOptions as InstalledFirewallOptions,
   installEditableFirewall,
@@ -30,6 +31,11 @@ import {
   processHelp,
 } from "./configuration.js";
 import { type DaemonRuntimeError, runDaemonRuntime } from "./lifecycle.js";
+import {
+  type FirewallInstallation,
+  firewallInstallation,
+  policyInstallationError,
+} from "./message-policy/index.js";
 import {
   type DaemonRegistrationPersistenceError,
   type DaemonRegistrationRepresentationError,
@@ -199,6 +205,18 @@ const spanExport: Layer.Layer<never, DaemonConfigurationError> =
 /** Trusted operators decode retained checks without reading private storage schemas. */
 export { FirewallAuditRecord } from "../delivery/index.js";
 
+/**
+ * Writers build a daemon's message-policy document with `MessagePolicy`;
+ * `messagePolicyFirewall` is the trusted-composition hook that installs a
+ * decoded document through `Daemon.withFirewall` with a decision provider of
+ * the composition's own.
+ */
+export {
+  decodeMessagePolicy,
+  MessagePolicy,
+  messagePolicyFirewall,
+} from "./message-policy/index.js";
+
 /** Checking factories have no daemon execution authority. */
 export {
   CheckInputError,
@@ -270,14 +288,15 @@ export namespace Daemon {
     }
   }
 
-  const runDaemon = (
-    firewallOptions?: InstalledFirewallOptions,
-    auditExport?: string,
-  ) =>
+  const runDaemon = (composed?: FirewallInstallation) =>
     Effect.gen(function* () {
       const configuration = yield* loadDaemonProcessConfiguration.pipe(
         Effect.mapError(configurationFailure),
       );
+      const installation = yield* firewallInstallation(
+        configuration,
+        composed,
+      ).pipe(Effect.mapError(configurationFailure));
       const bootstrap = yield* loadDaemonBootstrap(configuration).pipe(
         Effect.mapError(configurationFailure),
       );
@@ -291,10 +310,10 @@ export namespace Daemon {
         liveWireVersions: yield* liveWireVersions,
       }).pipe(Effect.mapError(storageFailure));
       const firewall =
-        firewallOptions === undefined
+        installation.options === undefined
           ? undefined
-          : yield* installEditableFirewall(firewallOptions, store).pipe(
-              Effect.mapError(configurationFailure),
+          : yield* installEditableFirewall(installation.options, store).pipe(
+              Effect.mapError((cause) => installFailure(installation, cause)),
             );
       const registration = yield* readDaemonRegistrationState({
         store,
@@ -308,8 +327,8 @@ export namespace Daemon {
         store,
         bootstrap,
         registration,
-        ...(firewall === undefined ? {} : { firewall }),
-        ...(auditExport === undefined ? {} : { auditExport }),
+        firewall,
+        auditExport: installation.auditExport,
       }).pipe(
         Effect.provide(networkContext),
         Effect.mapError(runtimeStartupFailure),
@@ -322,13 +341,17 @@ export namespace Daemon {
    */
   const telemetry = Layer.mapError(spanExport, configurationFailure);
 
-  /** Complete production process composition for `sharnessd`. */
+  /**
+   * Complete production process composition for `sharnessd`, with the
+   * firewall `SHARNESS_MESSAGE_POLICY_FILE` describes when it is set.
+   */
   export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
     runDaemon(),
   ).pipe(Layer.provide(telemetry));
 
   /**
    * Fixed middleware and persisted English rules are installed before the daemon accepts host calls.
+   * The environment must not also name a message-policy document.
    * @param options Fixed chains, provider settings and initial editable English documents.
    * @returns The complete daemon layer with both message boundaries checked.
    */
@@ -336,9 +359,9 @@ export namespace Daemon {
     options: FirewallOptions,
   ): Layer.Layer<never, StartupError> => {
     const { auditExport, ...policyOptions } = options;
-    return Layer.scopedDiscard(runDaemon(policyOptions, auditExport)).pipe(
-      Layer.provide(telemetry),
-    );
+    return Layer.scopedDiscard(
+      runDaemon({ options: policyOptions, auditExport }),
+    ).pipe(Layer.provide(telemetry));
   };
 
   /**
@@ -351,6 +374,23 @@ export namespace Daemon {
       phase: error.phase,
       ...(error.reason === undefined ? {} : { reason: error.reason }),
     });
+  }
+
+  /**
+   * A file-described firewall that fails to install names its setting.
+   * @param installation What the daemon was installing, and from where.
+   * @param cause The closed installation failure.
+   * @returns The configuration-phase startup failure.
+   */
+  function installFailure(
+    installation: FirewallInstallation,
+    cause: FirewallPolicyError,
+  ): StartupError {
+    return configurationFailure(
+      installation.fromPolicyFile === true
+        ? policyInstallationError(cause)
+        : cause,
+    );
   }
 
   function configurationFailure(cause: unknown): StartupError {

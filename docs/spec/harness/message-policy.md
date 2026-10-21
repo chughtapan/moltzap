@@ -17,13 +17,16 @@ message returns actionable send-call feedback. Owner-authority tools edit
 English rules and activate policy in process. Authenticated human approval
 channels remain deferred.
 
-`@moltzap/client/service` exposes the standalone evaluator and
-`Daemon.withFirewall(options)`, which installs it in the daemon's incoming
-and outgoing message paths. Code and English policies implement the same
+`sharnessd` installs the firewall a [message-policy file](#message-policy-file)
+describes in the daemon's incoming and outgoing message paths.
+`@moltzap/client/service` also exposes the standalone evaluator and
+`Daemon.withFirewall(options)`, which installs a trusted composition's own
+chains. Code and English policies implement the same
 `MessageMiddleware` interface. An installation captures fixed code and English rules, owner facts, settings
 and provider/model provenance before the listener opens. Editable English rules
 are restored from the daemon store.
-`Daemon.layer` remains the baseline composition without message checks.
+Without a message-policy file, `Daemon.layer`, which `sharnessd` runs, is the
+baseline composition without message checks.
 
 See [delivery/firewall.ts](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/firewall.ts) →
 `collectiveAdmission` and
@@ -388,7 +391,7 @@ each context carries the time it was captured.
 - A refusal is a typed send failure before any send intent binds.
 - A retry under the same invocation key replays the retained outcome.
 - Hosts carry messages, guidance and errors only.
-- `Daemon.layer`, which installs no firewall, runs none of these checks: a
+- A daemon with no firewall installed runs none of these checks: a
   received request opens at once, and every post binds as it is sent.
 
 ### Collective restart
@@ -433,6 +436,74 @@ editable document, never an existing document, including an empty one.
 conversation in both directions (default 256, range 1–1024).
 `codeDigest` is the operator's SHA-256 identifier for the experiment code; it is
 recorded, not independently attested. Approval evidence remains absent.
+
+### Message-policy file
+
+`SHARNESS_MESSAGE_POLICY_FILE` names a JSON document of at most 1 MiB that
+`sharnessd` decodes with `MessagePolicy` from `@moltzap/client/service` and
+installs through the same composition as `Daemon.withFirewall`. Writers build
+it with that schema. A trusted composition with its own decision provider
+installs a decoded document with `messagePolicyFirewall(policy, provider)`.
+
+```json
+{
+  "format": "org.social-harness/message-policy/v1",
+  "mode": "enforcement",
+  "incoming": [{ "use": "acknowledgements" }],
+  "outgoing": [{ "use": "credentials" }, { "use": "plain-language", "toolNames": ["policy_read"] }],
+  "english": { "fixedRules": [], "initialRules": [] },
+  "decisionProvider": { "kind": "jev", "model": "jev-1.13.0" },
+  "maximumConcurrentChecks": 2
+}
+```
+
+| Property | Required | Value |
+| --- | --- | --- |
+| `format` | yes | `org.social-harness/message-policy/v1` |
+| `mode` | yes | `guidance` or `enforcement`; a daemon without the file has no firewall |
+| `incoming`, `outgoing` | no, default `[]` | built-in code middleware in chain order, below |
+| `english` | no | `fixedRules` and `initialRules` as `EnglishRule` arrays, default `[]`; present, owner tools can edit English rules |
+| `decisionProvider` | with `english` or the collective norms | `{kind: "jev", model}`, or `{kind: "unavailable"}` |
+| `englishSettings` | no | `EnglishPolicySettings`; default probability 0.5, 384,000 request bytes, 15 s |
+| `settings` | no | `FirewallSettings`; default 150 s per check, 70 s per middleware, 512,000 input bytes, 2,000,000 result bytes |
+| `facts` | no, default `[]` | owner facts in every context |
+| `maximumHistoryRecords`, `maximumConcurrentChecks` | no | as for `Daemon.withFirewall` |
+
+The built-in middleware are trusted Client code; a document selects and
+parameterizes them and adds no code:
+
+| `use` | Direction | Middleware id | Rules |
+| --- | --- | --- | --- |
+| `acknowledgements` | incoming | `org.social-harness/acknowledgements` | `acknowledgement`: an exact empty acknowledgement, such as "Thanks", needs no response unless the agent's own later message asked its sender something |
+| `allowed-senders` | incoming | `org.social-harness/allowed-senders` | `allowed-sender` (safety): blocks any certified sender outside `agentIds`; an empty list admits none |
+| `credentials` | outgoing | `org.social-harness/credentials` | `credentials`: asks for revision of credential-shaped text or a labelled credential value other than a status word |
+| `plain-language` | outgoing | `org.social-harness/plain-language` | `plain-language`: asks for revision of a plain send that carries raw JSON, a name in `toolNames`, a name starting with one of `toolNamePrefixes`, or a name in `invocationToolNames` formatted or invoked as a tool |
+| `collective-norms` | both; outgoing names `facilitator` | `org.social-harness/collective-norms` | the collective norm bundle, below |
+
+The collective norm bundle registers one middleware per direction under one
+revision, the SHA-256 of its edition, both directions' English revisions and
+the decision provider's provenance; the edition names the Client release, so
+every release moves it. Its outgoing code rules are
+`facilitator-starts-collectives`, `one-open-request` and
+`no-acknowledgement-posts`; they run first, and the English rules
+`one-gather`, `announce-once` and `result-settles` are assessed only when no
+code rule refused the send. The incoming registration assesses those rules
+and `acknowledgement`. The facilitator role is recorded in the outgoing
+provenance, not the revision, so every member of a run registers the same
+revision. The daemon logs each registration's id and revision at startup.
+
+A `jev` provider reads its key from `SHARNESS_DECISION_PROVIDER_KEY_FILE`,
+ignoring surrounding whitespace, and retries an unreachable service, a rate
+limit or a server error twice within each stage's timeout. `unavailable`
+installs the English rules with no service, so every English check is
+unavailable: enforcement holds the message and guidance admits it. Without
+English rules or the collective norms, the provider and key are unused.
+
+`codeDigest` is the SHA-256 of the Client release and the decoded document.
+Decoding refuses any property the format does not name, so a misspelled or
+newer setting never silently weakens a policy: a writer adds a property only
+once every daemon that reads its documents accepts it, and a reader accepts
+every document an earlier release of this format accepted.
 
 ### Editable English policy
 
@@ -640,7 +711,8 @@ section and the history paragraph above.
 
 ### Operator audit snapshot
 
-Trusted composition can set `auditExport` on `Daemon.withFirewall` to
+Trusted composition can set `auditExport` on `Daemon.withFirewall`, and a
+daemon with a message-policy file `SHARNESS_FIREWALL_AUDIT_EXPORT`, to
 an absolute, dedicated NDJSON path. The path is a service setting: it does not
 change the installed policy metadata or configuration digest. Its existing
 parent directory must belong to the daemon's operating-system user and permit

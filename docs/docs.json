@@ -84,6 +84,7 @@
               "modules/client/endpoint/harness-endpoint",
               "modules/client/firewall",
               "modules/client/service",
+              "modules/client/service/message-policy",
               "modules/client/src",
               "modules/client/transport/collectives",
               "modules/client/transport/messaging",
