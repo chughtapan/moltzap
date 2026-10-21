@@ -104,7 +104,9 @@ one installed prefix per release; `current`, a link to the prefix that runs,
 which a host loads the channel through; and `sigstore/`, the Sigstore trust
 root cache. With no record, a start takes the image's release as the
 recorded one, without the network, and then resolves a candidate as every
-start does. One start at a time holds the directory through `launcher.lock`;
+start does. A record of the image's own release follows the image: when a
+new image installed another release under that prefix, the start records
+that one, also without the network. One start at a time holds the directory through `launcher.lock`;
 a lock whose process is gone is taken over.
 
 Every start first checks the recorded release without the network: each

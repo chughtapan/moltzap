@@ -124,6 +124,12 @@ export const prepare = Effect.fn("Launcher.prepare")(function* (
   return prepared;
 });
 
+/**
+ * The release the agent last ran. A record of the image's own install, which
+ * caches no tarball, follows the image: a new image installs another release
+ * under the same prefix, so the start records that one again instead of
+ * refusing the prefix it no longer matches.
+ */
 function recordedRelease(
   configuration: LauncherConfiguration,
   seed: string,
@@ -136,15 +142,19 @@ function recordedRelease(
     Effect.flatMap(
       Option.match({
         onNone: () => seedRecord(seed, configuration.releasePackage),
-        onSome: (record) =>
-          record.releasePackage === configuration.releasePackage
-            ? Effect.succeed(record)
-            : Effect.fail(
-                launcherError(
-                  "configuration",
-                  `the recorded release follows ${record.releasePackage}, not ${configuration.releasePackage}`,
-                ),
+        onSome: (record) => {
+          if (record.releasePackage !== configuration.releasePackage) {
+            return Effect.fail(
+              launcherError(
+                "configuration",
+                `the recorded release follows ${record.releasePackage}, not ${configuration.releasePackage}`,
               ),
+            );
+          }
+          return record.prefix === seed && record.packages.length === 0
+            ? seedRecord(seed, configuration.releasePackage)
+            : Effect.succeed(record);
+        },
       }),
     ),
   );
