@@ -47,7 +47,7 @@ const vocabularyCount = checkLayerVocabulary(run);
 const compatibilityVersion = checkCompatibilityVersion(run);
 checkWorkspaceRoots(run);
 const publishedVersions = checkProductManifests(run);
-const distinctVersions = checkReleaseSet(run, publishedVersions);
+checkReleaseSet(run, publishedVersions);
 const finalSourceCount = checkFinalImports(run);
 checkNxGraphArgument(run, process.argv.slice(2));
 
@@ -60,7 +60,7 @@ if (run.failures.length > 0) {
 }
 
 console.log(
-  `[check-architecture-boundaries] OK — ${sourceCount} package TypeScript sources, ${finalSourceCount} final-package code files, exact five-product static graph, ${publishedVersions.size} published manifests at ${[...distinctVersions].join(", ")}, and ${vocabularyCount} Identity/Router non-documentation files scanned at compatibility version ${String(compatibilityVersion)}`,
+  `[check-architecture-boundaries] OK — ${sourceCount} package TypeScript sources, ${finalSourceCount} final-package code files, exact five-product static graph, ${publishedVersions.size} published manifests at ${[...new Set(publishedVersions.values())].join(", ")}, and ${vocabularyCount} Identity/Router non-documentation files scanned at compatibility version ${String(compatibilityVersion)}`,
 );
 
 function packageDirectories(packagesRoot: string): readonly string[] {

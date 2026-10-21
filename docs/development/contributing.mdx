@@ -142,9 +142,9 @@ pages, and source-owned constants generate shared snippets. Run
 - `main` is the only long-lived branch; every change lands there by pull
   request.
 - Releases are manual runs of `.github/workflows/publish.yml`. One run
-  publishes the four public packages at one calendar version and commits the
-  version bump and any changelog section it writes from the fragments in
-  `changelog.d/`. The job runs in the `release` GitHub
+  computes one calendar version, publishes at it only the public packages that
+  changed since their last published version, and commits those version bumps
+  and any changelog section it writes from the fragments in `changelog.d/`. The job runs in the `release` GitHub
   environment, whose required reviewers gate every release. The release
   commit and tag are pushed with a GitHub App token: `RELEASE_APP_ID` is an
   Actions variable and `RELEASE_APP_PRIVATE_KEY` an Actions secret for an App

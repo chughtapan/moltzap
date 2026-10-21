@@ -13,8 +13,8 @@ npm install @moltzap/identity
 ```
 
 The package needs a Node.js version its `engines.node` range allows. It publishes under the
-`@moltzap` scope in one version set with `@moltzap/router` and
-`@moltzap/client`, so install versions from the same release.
+`@moltzap` scope at its own calendar version; install the version that
+`@moltzap/router` and `@moltzap/client` pin.
 
 ## Entry points
 

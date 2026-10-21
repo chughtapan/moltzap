@@ -1,18 +1,26 @@
 name: Publish to npm
 
-# One release publishes four packages at one calendar version and records
-# that version in one release commit. The trigger is manual: the first
-# release proves the npm trusted publishers and the release App before any
-# push-triggered variant is considered.
+# One release computes one calendar version and publishes, at that version,
+# only the packages whose packed content changed since the version their
+# manifest names: `scripts/release/select-packages.ts` compares each
+# package's content hash with the `sharnessContentHash` npm recorded for that
+# version. A dependent of a selected package is selected too, because its
+# packed manifest pins the sibling's new version, so every published package
+# pins its siblings to their newest published versions. Each published
+# manifest records its own content hash; the OpenClaw channel's also records
+# `sharnessHostCodeHash` (`scripts/release/host-code-hash.ts`), the hash of the
+# code OpenClaw loads for it. The release commit records every manifest. The trigger is manual: the first release proves the npm
+# trusted publishers and the release App before any push-triggered variant is
+# considered.
 #
 # A rerun after a partial failure converges rather than minting a second
 # release. Before the release commit exists, the version is recomputed from
 # npm and the release tags (unchanged while nothing is published at it and
 # the UTC day has not turned). Once the release commit is on main, any run
-# finds it, checks out its tree, and publishes whatever that version still
-# lacks on npm, however many commits landed since. A release that can never
-# complete is left behind by dispatching with `start_new_version`, which
-# mints the next version from the tip instead.
+# finds it, checks out its tree, and publishes whatever manifest version
+# there npm still lacks, however many commits landed since. A release that
+# can never complete is left behind by dispatching with `start_new_version`,
+# which mints the next version from the tip instead.
 on:
   workflow_dispatch:
     inputs:
@@ -42,6 +50,8 @@ defaults:
   run:
     shell: bash
 
+# Dependency order: each package comes after the siblings it depends on, which
+# the selection checks.
 env:
   RELEASE_PACKAGES: identity router client openclaw-channel
 
@@ -73,7 +83,7 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       # The last release commit on main decides whether this run resumes it:
-      # a version some package still lacks on npm is published from that
+      # a manifest version there that npm still lacks is published from that
       # commit's own tree. Otherwise the run releases the dispatched commit,
       # which must still be the tip of main so that the release commit and
       # npm's provenance describe one tree.
@@ -93,22 +103,28 @@ jobs:
             }
             MISSING=""
             for pkg in $RELEASE_PACKAGES; do
-              NAME=$(jq -r .name "packages/$pkg/package.json")
+              MANIFEST=$(git show "$RELEASE_COMMIT:packages/$pkg/package.json" 2>/dev/null) || continue
+              NAME=$(jq -r .name <<<"$MANIFEST")
+              VER=$(jq -r .version <<<"$MANIFEST")
               STATUS=0
-              scripts/release/npm-version-exists.sh "${NAME}@${VERSION}" || STATUS=$?
+              scripts/release/npm-version-exists.sh "${NAME}@${VER}" || STATUS=$?
               case $STATUS in
                 0) ;;
-                1) MISSING="$MISSING $NAME" ;;
+                1) MISSING="$MISSING $pkg" ;;
                 *) exit "$STATUS" ;;
               esac
             done
+            MISSING=${MISSING# }
             if [ -n "$MISSING" ] && [ "$START_NEW_VERSION" = "true" ]; then
-              echo "Abandoning release $VERSION from $RELEASE_COMMIT; not yet on npm:$MISSING"
+              echo "Abandoning release $VERSION from $RELEASE_COMMIT; not yet on npm: $MISSING"
             elif [ -n "$MISSING" ]; then
-              echo "Resuming release $VERSION from $RELEASE_COMMIT; not yet on npm:$MISSING"
+              echo "Resuming release $VERSION from $RELEASE_COMMIT; not yet on npm: $MISSING"
               git checkout --quiet "$RELEASE_COMMIT"
-              echo "mode=resume" >> "$GITHUB_OUTPUT"
-              echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+              {
+                echo "mode=resume"
+                echo "version=$VERSION"
+                echo "packages=$MISSING"
+              } >> "$GITHUB_OUTPUT"
               exit 0
             fi
           fi
@@ -128,32 +144,68 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # The example pins the MoltZap packages it installs from npm to the
-      # release, so a checkout of the release tag runs what that tag published.
-      - name: Write the version into every published manifest and the example
-        if: steps.plan.outputs.mode == 'bump'
-        env:
-          VERSION: ${{ steps.plan.outputs.version }}
-        run: |
-          for pkg in $RELEASE_PACKAGES; do
-            jq --arg v "$VERSION" '.version = $v' "packages/$pkg/package.json" > tmp.json
-            mv tmp.json "packages/$pkg/package.json"
-          done
-          jq --arg v "$VERSION" \
-            '.dependencies |= with_entries(if (.key | startswith("@moltzap/")) then .value = $v else . end)' \
-            examples/two-agents/package.json > tmp.json
-          mv tmp.json examples/two-agents/package.json
-          pnpm install --no-frozen-lockfile --ignore-scripts
-
+      # Package versions are never compiled into `dist`, so the build does not
+      # depend on which packages the selection later moves to the version.
       - name: Build all packages
         run: pnpm build
 
+      # Recorded before the content hash, so the hash covers it.
       - name: Record emitted wire version in published Identity metadata
         working-directory: packages/identity
         run: |
           WIRE_VERSION=$(node --input-type=module -e 'import { WIRE_VERSION } from "@moltzap/identity"; console.log(WIRE_VERSION)')
           jq --arg v "$WIRE_VERSION" '.moltzapWireVersion = $v' package.json > tmp.json
           mv tmp.json package.json
+
+      # A bump selects the changed packages and writes the version and content
+      # hash into their manifests. A resume rebuilt the release commit's tree,
+      # so each package it still owes must hash to the value that commit
+      # recorded; a mismatch means the rebuild would publish other code than
+      # the release commit describes. The example pins each MoltZap package
+      # it installs from npm to that package's manifest version, so a checkout
+      # of the release tag runs what that tag published.
+      - name: Choose the packages this run publishes
+        id: select
+        env:
+          MODE: ${{ steps.plan.outputs.mode }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          RESUME_PACKAGES: ${{ steps.plan.outputs.packages }}
+        run: |
+          if [ "$MODE" = "resume" ]; then
+            for pkg in $RESUME_PACKAGES; do
+              RECORDED=$(jq -r '.sharnessContentHash // ""' "packages/$pkg/package.json")
+              ACTUAL=$(node scripts/release/content-hash.ts "$pkg")
+              [ "$RECORDED" = "$ACTUAL" ] || {
+                echo "ERROR: packages/$pkg rebuilt to $ACTUAL, but the release commit recorded '$RECORDED'"
+                exit 1
+              }
+            done
+            echo "packages=$RESUME_PACKAGES" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          SELECTED=$(node scripts/release/select-packages.ts "$VERSION" $RELEASE_PACKAGES)
+          if [ -z "$SELECTED" ]; then
+            echo "No package changed since the version its manifest names; nothing to release."
+            echo "packages=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Releasing $VERSION for: $SELECTED"
+          if [[ " $SELECTED " == *" openclaw-channel "* ]]; then
+            HOST_CODE_HASH=$(node scripts/release/host-code-hash.ts openclaw-channel)
+            jq --arg h "$HOST_CODE_HASH" '.sharnessHostCodeHash = $h' \
+              packages/openclaw-channel/package.json > tmp.json
+            mv tmp.json packages/openclaw-channel/package.json
+          fi
+          PINS='{}'
+          for pkg in $RELEASE_PACKAGES; do
+            PINS=$(jq --argjson pins "$PINS" '$pins + {(.name): .version}' "packages/$pkg/package.json")
+          done
+          jq --argjson pins "$PINS" \
+            '.dependencies |= with_entries(if (.key | startswith("@moltzap/")) then .value = $pins[.key] else . end)' \
+            examples/two-agents/package.json > tmp.json
+          mv tmp.json examples/two-agents/package.json
+          pnpm install --no-frozen-lockfile --ignore-scripts
+          echo "packages=$SELECTED" >> "$GITHUB_OUTPUT"
 
       # The gates pack the four published packages and the NanoClaw adapter,
       # whose gate proves it still compiles against the Client ABI in isolation
@@ -162,12 +214,13 @@ jobs:
       # run-many cannot silently skip one; the gates spawn pnpm and the
       # OpenClaw host, so they run one at a time.
       - name: Verify the published closure installs from tarballs
+        if: steps.select.outputs.packages != ''
         run: pnpm nx run-many -t test:pack --parallel=1
 
       # The release App token is minted only now, scoped to contents, and
       # used for exactly one push.
       - uses: actions/create-github-app-token@v3
-        if: steps.plan.outputs.mode == 'bump'
+        if: steps.plan.outputs.mode == 'bump' && steps.select.outputs.packages != ''
         id: app-token
         with:
           app-id: ${{ vars.RELEASE_APP_ID }}
@@ -184,13 +237,23 @@ jobs:
       # token, so towncrier and its dependencies install only from hash-pinned
       # requirements.
       - name: Regenerate docs and commit the release
-        if: steps.plan.outputs.mode == 'bump'
+        if: steps.plan.outputs.mode == 'bump' && steps.select.outputs.packages != ''
         env:
           VERSION: ${{ steps.plan.outputs.version }}
+          PACKAGES: ${{ steps.select.outputs.packages }}
           RELEASE_TOKEN: ${{ steps.app-token.outputs.token }}
           HUSKY: "0"
         run: |
           pnpm docs:generate
+          # The CHANGELOG preamble predates per-package versions; this rewrite
+          # finds nothing to replace once a release commit has corrected it.
+          # shellcheck disable=SC2016 # The backticks are Markdown, not a substitution.
+          node -e '
+            const fs = require("node:fs");
+            const before = "Every published package\ncarries the same version in a release, and the release commit writes each\nsection below from the fragments in `changelog.d/`.";
+            const after = "A release publishes at\nits version only the packages that changed since their last published version;\nthe release commit lists them and writes each section below from the fragments\nin `changelog.d/`.";
+            fs.writeFileSync("CHANGELOG.md", fs.readFileSync("CHANGELOG.md", "utf8").replace(before, after));
+          '
           if ! grep -q "^## \[$VERSION\]" CHANGELOG.md; then
             grep -qxF '<!-- towncrier release notes start -->' CHANGELOG.md \
               || { echo "CHANGELOG.md lost its towncrier marker"; exit 1; }
@@ -206,27 +269,33 @@ jobs:
           git add packages/*/package.json examples/two-agents/package.json \
             pnpm-lock.yaml CHANGELOG.md changelog.d/ \
             docs/ 'packages/**/MODULE.md' README.md
-          git commit -m "chore(release): moltzap@$VERSION"
+          PUBLISHED=""
+          for pkg in $PACKAGES; do
+            PUBLISHED="$PUBLISHED$(jq -r '"- \(.name)@\(.version)"' "packages/$pkg/package.json")"$'\n'
+          done
+          git commit -m "chore(release): moltzap@$VERSION" -m "Publishes:"$'\n'"$PUBLISHED"
           git tag "v$VERSION"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$RELEASE_TOKEN" | base64 -w0)" \
             push --atomic origin HEAD:main "refs/tags/v$VERSION"
 
-      - name: Publish every package not yet on npm at this version
+      - name: Publish every selected package not yet on npm at this version
+        if: steps.select.outputs.packages != ''
         env:
           VERSION: ${{ steps.plan.outputs.version }}
+          PACKAGES: ${{ steps.select.outputs.packages }}
         run: |
           echo "npm version: $(npm --version)"
           test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" || {
             echo "ERROR: GitHub OIDC token request env is missing; check id-token: write permissions"
             exit 1
           }
-          # Every manifest is checked before the first publish, so a drifted
-          # one cannot leave the set half-published.
-          for pkg in $RELEASE_PACKAGES; do
+          # Every selected manifest is checked before the first publish, so a
+          # drifted one cannot leave the release half-published.
+          for pkg in $PACKAGES; do
             VER=$(jq -r .version "packages/$pkg/package.json")
             [ "$VER" = "$VERSION" ] || { echo "ERROR: packages/$pkg is at $VER, expected $VERSION"; exit 1; }
           done
-          for pkg in $RELEASE_PACKAGES; do
+          for pkg in $PACKAGES; do
             NAME=$(jq -r .name "packages/$pkg/package.json")
             VER=$VERSION
             STATUS=0

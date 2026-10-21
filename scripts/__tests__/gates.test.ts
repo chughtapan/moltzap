@@ -411,13 +411,29 @@ function testPublicationGuardsClean(): void {
     `expected exit 0, got ${clean.code}. stderr: ${clean.stderr.slice(0, 300)}`,
   );
   plantFile("packages/openclaw-channel/package.json", (s) =>
+    s.replace(
+      '"@moltzap/client": "workspace:*"',
+      '"@moltzap/client": "workspace:^"',
+    ),
+  );
+  const loosePin = runBoundaries();
+  test(
+    "flags a sibling dependency that pack would not pin exactly",
+    loosePin.code !== 0 &&
+      /final dependency "@moltzap\/client" must be declared as "workspace:\*"/.test(
+        loosePin.stderr,
+      ),
+    `expected exact-pin failure. exit=${loosePin.code}, stderr=${loosePin.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+  plantFile("packages/openclaw-channel/package.json", (s) =>
     s.replace(/"version": "[^"]+"/, '"version": "2026.101.0"'),
   );
-  const unequal = runBoundaries();
+  const ownVersion = runBoundaries();
   test(
-    "flags a published manifest whose version differs from its siblings",
-    unequal.code !== 0 && /must share one version/.test(unequal.stderr),
-    `expected one-version failure. exit=${unequal.code}, stderr=${unequal.stderr.slice(0, 300)}`,
+    "accepts published packages at their own calendar versions",
+    ownVersion.code === 0,
+    `expected exit 0, got ${ownVersion.code}. stderr: ${ownVersion.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
 }

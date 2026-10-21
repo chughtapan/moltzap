@@ -23,7 +23,7 @@ process composition that `sharnessd` runs; it is not such a facade.
 
 Further work may harden or validate the implementation without widening its
 public surface or relocating its admitted Identity and Router dependencies.
-Publication follows `docs/spec/layer-interfaces.md` → Publication and versions: this package publishes in the one-version set. Publication does not change this package boundary.
+Publication follows `docs/spec/layer-interfaces.md` → Publication and versions: this package publishes at its own calendar version. Publication does not change this package boundary.
 
 ## Stable Client law
 

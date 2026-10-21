@@ -84,17 +84,26 @@ function releaseWireVersion(
   view = npmView,
   firstPostResetRelease = FIRST_POST_RESET_RELEASE,
 ) {
-  return view([`@moltzap/identity@${version}`]).pipe(
-    Effect.flatMap(
-      Schema.decodeUnknown(
-        Schema.parseJson(
-          Schema.Struct({
-            moltzapWireVersion: Schema.optional(Schema.String),
-          }),
+  return releaseClosure(version, view).pipe(
+    Effect.map((closure) => closure["@moltzap/identity"]),
+    Effect.flatMap((identity) =>
+      view([`@moltzap/identity@${identity}`]).pipe(
+        Effect.flatMap(
+          Schema.decodeUnknown(
+            Schema.parseJson(
+              Schema.Struct({
+                moltzapWireVersion: Schema.optional(Schema.String),
+              }),
+            ),
+          ),
         ),
+        Effect.map(({ moltzapWireVersion }) => ({
+          identity,
+          moltzapWireVersion,
+        })),
       ),
     ),
-    Effect.flatMap(({ moltzapWireVersion }) => {
+    Effect.flatMap(({ identity, moltzapWireVersion }) => {
       if (moltzapWireVersion !== undefined) {
         return Effect.succeed(moltzapWireVersion);
       }
@@ -105,10 +114,31 @@ function releaseWireVersion(
         ? Effect.succeed(PRE_RESET_WIRE_VERSION)
         : Effect.fail(
             new ProcessTestError({
-              message: `@moltzap/identity@${version} is missing published moltzapWireVersion metadata`,
+              message: `@moltzap/identity@${identity}, pinned by @moltzap/client@${version}, is missing published moltzapWireVersion metadata`,
             }),
           );
     }),
+  );
+}
+
+/**
+ * The exact Identity and Router versions a published Client release pins.
+ * Packages publish at their own versions, so a Client release names its
+ * closure; a pin it lacks is a malformed release.
+ */
+function releaseClosure(version: string, view = npmView) {
+  return view([`@moltzap/client@${version}`, "dependencies"]).pipe(
+    Effect.flatMap(
+      Schema.decodeUnknown(
+        Schema.parseJson(
+          Schema.Struct({
+            "@moltzap/identity": Schema.String,
+            "@moltzap/router": Schema.String,
+          }),
+        ),
+      ),
+    ),
+    Effect.map((pins) => ({ ...pins, "@moltzap/client": version })),
   );
 }
 
@@ -202,9 +232,7 @@ function installCandidate(temporaryRoot: string, version: string) {
       workspaceRoot,
       name: "mixed-release-peer",
       archives: {},
-      dependencies: Object.fromEntries(
-        Object.keys(packages).map((name) => [name, version]),
-      ),
+      dependencies: yield* releaseClosure(version),
     });
   }).pipe(retryNpm);
 }
@@ -445,6 +473,57 @@ it(
   600_000,
 );
 
+/** The older Identity version every fake Client release pins. */
+const PINNED_IDENTITY = "2099.1.0";
+const PINNED_WIRE_VERSION = "2099.1.1";
+
+/**
+ * An npm view whose Client releases pin Identity and Router at their own,
+ * older versions, and whose Identity versions all report `identity`.
+ */
+function publishedMetadata(identity: string) {
+  return (args: readonly string[]) =>
+    Effect.succeed(
+      args[0]?.startsWith("@moltzap/client@") === true
+        ? JSON.stringify({
+            "@moltzap/identity": PINNED_IDENTITY,
+            "@moltzap/router": "2099.2.0",
+          })
+        : identity,
+    );
+}
+
+it("reads a Client release's wire version from the Identity version it pins", () =>
+  Effect.runPromise(
+    releaseWireVersion(
+      "2099.101.0",
+      (args) =>
+        Effect.succeed(
+          JSON.stringify(
+            args[0] === "@moltzap/client@2099.101.0"
+              ? {
+                  "@moltzap/identity": PINNED_IDENTITY,
+                  "@moltzap/router": "2099.2.0",
+                }
+              : {
+                  moltzapWireVersion:
+                    args[0] === `@moltzap/identity@${PINNED_IDENTITY}`
+                      ? PINNED_WIRE_VERSION
+                      : WIRE_VERSION,
+                },
+          ),
+        ),
+      Option.some("2099.101.0"),
+    ).pipe(
+      Effect.tap((wireVersion) =>
+        Effect.sync(() => {
+          expect(wireVersion).toBe(PINNED_WIRE_VERSION);
+        }),
+      ),
+      Effect.provide(NodeContext.layer),
+    ),
+  ));
+
 it("selects the oldest live peer rather than an older retained peer", () =>
   Effect.runPromise(
     selectReleases(
@@ -532,7 +611,7 @@ it.each(["2099.101.0", "2099.102.0"])(
     Effect.runPromise(
       releaseWireVersion(
         version,
-        () => Effect.succeed("{}"),
+        publishedMetadata("{}"),
         Option.some("2099.101.0"),
       ).pipe(
         Effect.flip,
@@ -540,7 +619,7 @@ it.each(["2099.101.0", "2099.102.0"])(
           Effect.sync(() => {
             expect(error).toMatchObject({
               _tag: "ProcessTestError",
-              message: `@moltzap/identity@${version} is missing published moltzapWireVersion metadata`,
+              message: `@moltzap/identity@${PINNED_IDENTITY}, pinned by @moltzap/client@${version}, is missing published moltzapWireVersion metadata`,
             });
           }),
         ),
@@ -558,7 +637,7 @@ it.each([
   "treats metadata-free %s as pre-reset before boundary %s",
   (version, boundary) =>
     Effect.runPromise(
-      releaseWireVersion(version, () => Effect.succeed("{}"), boundary).pipe(
+      releaseWireVersion(version, publishedMetadata("{}"), boundary).pipe(
         Effect.tap((wireVersion) =>
           Effect.sync(() => {
             expect(wireVersion).toBe(PRE_RESET_WIRE_VERSION);
@@ -574,8 +653,7 @@ it("reads published wire metadata at the reset boundary", () =>
   Effect.runPromise(
     releaseWireVersion(
       "2099.101.0",
-      () =>
-        Effect.succeed(JSON.stringify({ moltzapWireVersion: WIRE_VERSION })),
+      publishedMetadata(JSON.stringify({ moltzapWireVersion: WIRE_VERSION })),
       Option.some("2099.101.0"),
     ).pipe(
       Effect.tap((wireVersion) =>

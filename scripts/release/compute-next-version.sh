@@ -4,9 +4,9 @@
 # Usage: compute-next-version.sh <package-dir>...
 # Output: YYYY.MDD.N — today's UTC date (month without a leading zero) and one
 # past the highest build counter any of the named packages has published for
-# that day. The release writes that one string into every manifest, so the
-# counter is taken over the union of the packages' npm histories rather than
-# any single one. TAKEN_VERSIONS, whitespace-separated, adds versions npm has
+# that day. The release writes that one string into the manifest of every
+# package it selects, so the counter is taken over the union of the packages'
+# npm histories rather than any single one. TAKEN_VERSIONS, whitespace-separated, adds versions npm has
 # never seen but that are claimed anyway: the pushed release tags, so a
 # release whose commit landed but whose publish never completed keeps its
 # number.
