@@ -47,7 +47,7 @@ const packages = {
  * moves it above the release it drops, so the gate skips that release rather
  * than failing on it.
  */
-const FIRST_POST_RESET_RELEASE = Option.some("2026.1019.2");
+const FIRST_POST_RESET_RELEASE = Option.some("2026.1021.3");
 const PRE_RESET_WIRE_VERSION = "pre-reset";
 
 function preResetRelease(
@@ -93,20 +93,19 @@ function releaseWireVersion(
             Schema.parseJson(
               Schema.Struct({
                 sharnessWireVersion: Schema.optional(Schema.String),
-                moltzapWireVersion: Schema.optional(Schema.String),
               }),
             ),
           ),
         ),
-        Effect.map(({ sharnessWireVersion, moltzapWireVersion }) => ({
+        Effect.map(({ sharnessWireVersion }) => ({
           identity,
-          wireVersion: sharnessWireVersion ?? moltzapWireVersion,
+          sharnessWireVersion,
         })),
       ),
     ),
-    Effect.flatMap(({ identity, wireVersion }) => {
-      if (wireVersion !== undefined) {
-        return Effect.succeed(wireVersion);
+    Effect.flatMap(({ identity, sharnessWireVersion }) => {
+      if (sharnessWireVersion !== undefined) {
+        return Effect.succeed(sharnessWireVersion);
       }
       return preResetRelease(
         version,
@@ -650,36 +649,11 @@ it.each([
     ),
 );
 
-it.each(["sharnessWireVersion", "moltzapWireVersion"])(
-  "reads published %s metadata at the reset boundary",
-  (key) =>
-    Effect.runPromise(
-      releaseWireVersion(
-        "2099.101.0",
-        publishedMetadata(JSON.stringify({ [key]: WIRE_VERSION })),
-        Option.some("2099.101.0"),
-      ).pipe(
-        Effect.tap((wireVersion) =>
-          Effect.sync(() => {
-            expect(wireVersion).toBe(WIRE_VERSION);
-          }),
-        ),
-        Effect.provide(NodeContext.layer),
-        Effect.asVoid,
-      ),
-    ),
-);
-
-it("prefers sharnessWireVersion when a release publishes both keys", () =>
+it("reads published wire metadata at the reset boundary", () =>
   Effect.runPromise(
     releaseWireVersion(
       "2099.101.0",
-      publishedMetadata(
-        JSON.stringify({
-          sharnessWireVersion: WIRE_VERSION,
-          moltzapWireVersion: "2026.1006.1",
-        }),
-      ),
+      publishedMetadata(JSON.stringify({ sharnessWireVersion: WIRE_VERSION })),
       Option.some("2099.101.0"),
     ).pipe(
       Effect.tap((wireVersion) =>

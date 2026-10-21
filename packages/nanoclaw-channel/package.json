@@ -15,12 +15,12 @@
     "LICENSE",
     "NOTICE"
   ],
-  "main": "./dist/channels/moltzap.js",
-  "types": "./dist/channels/moltzap.d.ts",
+  "main": "./dist/channels/sharness.js",
+  "types": "./dist/channels/sharness.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/channels/moltzap.d.ts",
-      "import": "./dist/channels/moltzap.js"
+      "types": "./dist/channels/sharness.d.ts",
+      "import": "./dist/channels/sharness.js"
     }
   },
   "scripts": {

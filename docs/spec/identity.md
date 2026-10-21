@@ -288,7 +288,7 @@ Registry state.
 
 ## Wire versions
 
-Every new artifact emits `WIRE_VERSION`, currently `2026.1019.2`. `LIVE_WIRE_VERSIONS` admits outer
+Every new artifact emits `WIRE_VERSION`, currently `2026.1021.3`. `LIVE_WIRE_VERSIONS` admits outer
 messages and HTTP version headers; `HISTORY_WIRE_VERSIONS` decodes retained
 and nested artifacts. The live set holds the emitted version and at most one
 adjacent version, per the
@@ -887,8 +887,9 @@ under the ledger lock. An unknown applied id fails closed with
 their ledger entries commit transactionally; a failed migration rolls back.
 Operators run `pg_dump` before upgrading. Downgrades are unsupported.
 
-Startup refuses a legacy `moltzap_registry_migrations` ledger with `pre-reset`
-before creating its final `sharness_registry_migrations` ledger. Startup also
+Startup refuses a pre-reset `moltzap_registry_migrations` or
+`sharness_registry_migrations` ledger with `pre-reset` before creating its
+`sharness_registry_ledger` ledger. Startup also
 fails closed when the configured signer differs from the database metadata. A signer mismatch carries reason `signer-mismatch`.
 Other storage initialization failures carry reason `unavailable`.
 Registration serializes through the metadata row,

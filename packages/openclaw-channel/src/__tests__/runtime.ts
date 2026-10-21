@@ -92,7 +92,7 @@ export function testError(
 
 /** Private mode uses the route selected by the host for the canonical peer. */
 export function sessionKeyForPeer(kind: string, id: string): string {
-  return `agent:primary:moltzap:${kind}:${id}`;
+  return `agent:primary:sharness:${kind}:${id}`;
 }
 
 function observedOpenClawInboundRunner(
@@ -158,7 +158,7 @@ function makeRoutingRuntime(
       params.routePeers.push(input.peer ?? null);
       return {
         agentId: "primary",
-        channel: "moltzap",
+        channel: "sharness",
         accountId: input.accountId ?? ACCOUNT_ID,
         sessionKey:
           input.peer === undefined || input.peer === null

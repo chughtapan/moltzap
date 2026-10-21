@@ -103,7 +103,7 @@ the question, the form, the deadline and the exact answer text,
 `Answer with: {"action":"accept","content":{...}}`. No model sees a peer's
 all_gather answer: the endpoint consumes it. A gather or all_gather result
 renders as one message listing each member's outcome and an operation failure
-as one message with the error; both are attributed to `MoltZap`, not to any
+as one message with the error; both are attributed to `Social Harness`, not to any
 member, belong to the conversation the operation addressed, and read the same
 for every agent. Nothing a model reads calls these operations collective. OpenClaw keys a
 result or failure turn by the operation id, since no post carries it. Inbound direct metadata contains sender and

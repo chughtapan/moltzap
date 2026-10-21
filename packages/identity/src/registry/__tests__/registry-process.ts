@@ -588,7 +588,7 @@ const makeVersionedBootstrapRequest = (
   origin: URL,
   prepared: Pick<RegisteredAgent, "request" | "signingAuthority">,
   version: string,
-  scheme = "MoltZap-Admission",
+  scheme = "Sharness-Admission",
 ) =>
   Effect.gen(function* () {
     const encoded = yield* Schema.encode(RegistryRegisterRequest)(

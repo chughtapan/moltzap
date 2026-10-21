@@ -142,7 +142,7 @@ The payload is exactly:
 ```json
 {
   "kind": "agentCard",
-  "sharnessVersion": "2026.1019.2",
+  "sharnessVersion": "2026.1021.3",
   "agentId": "agt_<22-character-base64url>",
   "principalId": "prn_<22-character-base64url>",
   "agentName": "example-agent",
@@ -223,7 +223,7 @@ The payload is exactly:
 ```json
 {
   "kind": "signedMessage",
-  "sharnessVersion": "2026.1019.2",
+  "sharnessVersion": "2026.1021.3",
   "senderAgentId": "agt_<22-character-base64url>",
   "agentCardDigest": "acd_<43-character-base64url>",
   "recipientAgentIds": [
@@ -522,10 +522,9 @@ Registration has exactly one covered authorization field:
 Authorization: Sharness-Admission <token68>
 ```
 
-The Registry also accepts the scheme name `MoltZap-Admission` with the same
-credential, which the published Client sends. The credential is 8 to 512
-token68 characters. Leading or trailing whitespace, multiple credentials,
-parameters, and any other scheme are rejected. The configured and received credential remains redacted
+The credential is 8 to 512 token68 characters. Leading or trailing
+whitespace, multiple credentials, parameters, and a different scheme
+are rejected. The configured and received credential remains redacted
 in values, logs, traces, metrics, defects, and public errors.
 
 ## Registered-agent AuthenticatedHttp validation order

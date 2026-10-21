@@ -118,8 +118,8 @@ beforeEach(async () => {
   boundary.register.mockClear();
   boundary.acquire.mockReset();
   vi.stubEnv("SHARNESS_MCP_URL", "http://127.0.0.1:8321/mcp");
-  await import("./moltzap.js");
-  expect(boundary.register).toHaveBeenCalledWith("moltzap", expect.anything());
+  await import("./sharness.js");
+  expect(boundary.register).toHaveBeenCalledWith("sharness", expect.anything());
   const entry = boundary.register.mock.calls[0];
   expect(entry).toBeDefined();
   if (entry === undefined) {
@@ -296,7 +296,7 @@ it("projects direct metadata before routing and acknowledges only after host suc
     platformId: "local",
     threadId: null,
     replyTo: {
-      channelType: "moltzap",
+      channelType: "sharness",
       platformId: "agent:alice",
       threadId: null,
     },
@@ -421,7 +421,7 @@ it.each([
   },
 );
 
-it("attributes a result to MoltZap and lists every member outcome in the addressed conversation", async () => {
+it("attributes a result to Social Harness and lists every member outcome in the addressed conversation", async () => {
   const fake = makeEndpoint();
   const host = makeHost();
   const channel = await createAdapter();
@@ -453,11 +453,11 @@ it("attributes a result to MoltZap and lists every member outcome in the address
     throw new Error("Host did not receive a turn");
   }
   const content = eventContent(event);
-  expect(content).toMatchObject({ sender: "MoltZap", address: GROUP });
+  expect(content).toMatchObject({ sender: "Social Harness", address: GROUP });
   expect(content.text).toBe(renderCollectiveResult(item));
 });
 
-it("delivers an operation failure as a MoltZap turn and acknowledges host acceptance", async () => {
+it("delivers an operation failure as a Social Harness turn and acknowledges host acceptance", async () => {
   const fake = makeEndpoint();
   const host = makeHost();
   const channel = await createAdapter();
@@ -480,7 +480,7 @@ it("delivers an operation failure as a MoltZap turn and acknowledges host accept
     throw new Error("Host did not receive a turn");
   }
   expect(eventContent(event)).toMatchObject({
-    sender: "MoltZap",
+    sender: "Social Harness",
     address: "agent:alice",
     text: "reply failed: no question is open in this conversation",
   });
@@ -529,7 +529,7 @@ it("reports parser refusals to the model without sending or failing the delivery
     throw new Error("Host did not receive the refusal");
   }
   expect(eventContent(event)).toMatchObject({
-    sender: "MoltZap",
+    sender: "Social Harness",
     address: "agent:alice",
   });
   // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The parser refusal must identify the invalid input field; no public constant names JSON fields.
@@ -565,7 +565,7 @@ it.each([
       throw new Error("Host did not receive the refusal");
     }
     expect(eventContent(event)).toMatchObject({
-      sender: "MoltZap",
+      sender: "Social Harness",
       text: error.message,
     });
   },

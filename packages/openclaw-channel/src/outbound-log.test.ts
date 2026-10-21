@@ -21,7 +21,7 @@ import { createChannelPlugin } from "./plugin.js";
 
 const ACCOUNT_ID = "primary";
 const CONFIG: OpenClawConfig = {
-  channels: { moltzap: { accounts: [{ id: ACCOUNT_ID }] } },
+  channels: { sharness: { accounts: [{ id: ACCOUNT_ID }] } },
 };
 const GROUP = "group:alice,bob,carol";
 const SLOT_SCHEMA = {
@@ -246,7 +246,7 @@ function runMessageAction(
   return Effect.tryPromise({
     try: () =>
       handleAction({
-        channel: "moltzap",
+        channel: "sharness",
         action,
         cfg: CONFIG,
         accountId: ACCOUNT_ID,

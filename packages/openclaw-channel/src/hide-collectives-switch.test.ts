@@ -13,7 +13,7 @@ import { createChannelPlugin } from "./plugin.js";
 const HIDE_COLLECTIVES = "SHARNESS_EXPERIMENT_HIDE_COLLECTIVES";
 const REFUSAL = "gather, all_gather and answers are not available";
 const CONFIG: OpenClawConfig = {
-  channels: { moltzap: { accounts: [{ id: "primary" }] } },
+  channels: { sharness: { accounts: [{ id: "primary" }] } },
 };
 const SLOT_SCHEMA = {
   type: "object",
@@ -163,7 +163,7 @@ function messageAction(
   return Effect.tryPromise({
     try: () =>
       handleAction?.({
-        channel: "moltzap",
+        channel: "sharness",
         action,
         cfg: CONFIG,
         accountId: "primary",

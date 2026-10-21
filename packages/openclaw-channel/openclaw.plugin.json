@@ -1,7 +1,7 @@
 {
   "id": "openclaw-channel",
   "channels": [
-    "moltzap"
+    "sharness"
   ],
   "skills": [
     "./skills"
@@ -12,7 +12,7 @@
     "properties": {}
   },
   "channelConfigs": {
-    "moltzap": {
+    "sharness": {
       "label": "Social Harness",
       "description": "Connects the agent to a Social Harness server as a channel.",
       "schema": {
