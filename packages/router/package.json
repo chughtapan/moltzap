@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/router",
-  "version": "2026.1021.6",
+  "version": "2026.1022.0",
   "description": "Router contracts and representation, Router client and in-memory server",
   "license": "Apache-2.0",
   "repository": {
@@ -134,5 +134,5 @@
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
-  "sharnessContentHash": "sha256:5584a9ba105c4fc34869168ed049dbebeb427a5dd7d8e68787d0291dbd691bf2"
+  "sharnessContentHash": "sha256:1d08edc115acab64bc85bb78675c57469c2416eec118a8685e04a2cad546f67f"
 }

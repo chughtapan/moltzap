@@ -17,6 +17,56 @@ sections are the codebase's history as MoltZap.
 
 <!-- towncrier release notes start -->
 
+## [2026.1022.0] - 2026-10-22
+
+### Changed
+
+- A release now publishes from its release commit in a second run, so npm's
+  provenance names the commit whose tree the packages were packed from, and only
+  that run's publish job holds the OIDC token (#992).
+- Every package installs on current Node.js releases: the supported range is
+  `>=22.19.0`, with no upper bound.
+- Hosts read the daemon's MCP tool results and pending-delivery events
+  additively: fields a newer daemon adds are ignored, while missing required
+  fields still fail. The items and firewall guidance inside them stay exact. The
+  result decoders (`harnessSendResultSchema`, `inboxResultSchema`,
+  `readSendResultSchema`, `readEventResultSchema`,
+  `harnessMessageReadyEventSchema`) are exported from `@moltzap/client`. The
+  daemon still checks its own send result exactly before returning it.
+
+### Removed
+
+- Breaking harness interface change: remove the `read_send` MCP tool, the
+  `idempotencyKey` send option of `HarnessEndpoint.send` and `send_message`, and
+  the `idempotency-conflict` send failure. No host used them; every send is now
+  a new invocation. The endpoint store moves to schema 11, dropping its retained
+  keyed-send table; a store at schema 10 upgrades on open, and an older daemon
+  refuses a schema-11 store as `newer-schema` (#1160).
+
+### Fixed
+
+- After a Router restart, the daemon no longer consumes and drops messages that
+  arrive while it reconciles its history; it accepts them once recovery has
+  asked every conversation for catch-up (#1201).
+- `SealedBody.open` fails with `SealedBodyOpeningError` when its SignedMessage
+  is not one Identity parsed, such as a view whose member reads throw, instead
+  of dying (#1270).
+- The Registry client reads a caller's register, lookup and list request records
+  once under a try, so a record whose members throw on read fails with
+  `AgentSigningError` or `RegistryInvalidResponseError` instead of dying, and
+  the later checks of the Registry's answer read only that copy (#1271).
+- `AuthenticatedHttp` fails a request with `UnavailableError` when a `Registry`
+  layer's `lookup` throws instead of returning an Effect, and resolves that
+  caller again on the next request instead of waiting forever (#1274).
+- `SealedBody.seal`, `SealedBody.open`, `SignedMessage.sign`,
+  `SignedMessage.verify` and `Registry.register` read their input record once
+  under a try, so a record whose members throw on read fails with the entry
+  point's typed error instead of dying, and later steps read only that copy
+  (#1275).
+- `AuthenticatedHttp.verifyAgentRequest` and the Registry's bootstrap admission
+  copy caller-supplied body bytes by index, so a byte array with its own
+  iterator is read as its bytes instead of making the check die.
+
 ## [2026.1021.6] - 2026-10-21
 
 ### Changed
