@@ -157,6 +157,8 @@ interface AgentCardState {
   readonly wireVersion: string;
   readonly representation: AgentCardRepresentation;
   readonly protectedHeader: typeof protectedHeader.Type;
+  /** SHA-256 over the retained canonical JWS, fixed for the card's lifetime. */
+  readonly digest: AgentCardDigest;
 }
 
 const cardState = new WeakMap<object, AgentCardState>();
@@ -199,6 +201,22 @@ const snapshotRepresentation = (
     ] as const),
   });
 
+/** The refined SHA-256 digest of a card's retained canonical bytes. */
+const digestOf = (
+  bytes: Uint8Array,
+  issue: () => ParseResult.ParseIssue,
+): Effect.Effect<AgentCardDigest, ParseResult.ParseIssue> =>
+  Effect.try({
+    try: () => createHash("sha256").update(bytes).digest(),
+    catch: issue,
+  }).pipe(
+    Effect.flatMap((hash) =>
+      Schema.decodeUnknown(AgentCardDigest)(
+        `acd_${Encoding.encodeBase64Url(hash)}`,
+      ).pipe(Effect.mapError(issue)),
+    ),
+  );
+
 const decodeRepresentation = (
   representation: AgentCardRepresentation,
   ast: SchemaAST.Transformation,
@@ -232,13 +250,17 @@ const decodeRepresentation = (
       issuedAt: decodedPayload.issuedAt,
     });
     const retained = snapshotRepresentation(representation);
-    yield* encodeCanonicalJson(retained).pipe(
+    const retainedBytes = yield* encodeCanonicalJson(retained).pipe(
       Effect.mapError(() => parseIssue(ast, representation)),
+    );
+    const digest = yield* digestOf(retainedBytes, () =>
+      parseIssue(ast, representation),
     );
     cardState.set(card, {
       wireVersion: decodedPayload.sharnessVersion,
       representation: retained,
       protectedHeader: Object.freeze({ ...decodedHeader }),
+      digest,
     });
     return card;
   });
@@ -426,15 +448,11 @@ export const encodeAgentCard = (
 export const digestAgentCard = (
   agentCard: AgentCard,
 ): Effect.Effect<AgentCardDigest, AgentCardVerificationError> =>
-  Effect.gen(function* () {
-    const bytes = yield* encodeAgentCard(agentCard);
-    const digest = yield* Effect.try({
-      try: () => createHash("sha256").update(bytes).digest(),
-      catch: () => new AgentCardVerificationError(),
-    });
-    return yield* Schema.decodeUnknown(AgentCardDigest)(
-      `acd_${Encoding.encodeBase64Url(digest)}`,
-    ).pipe(Effect.mapError(verificationFailure));
+  Effect.suspend(() => {
+    const state = cardState.get(agentCard);
+    return state === undefined
+      ? Effect.fail(new AgentCardVerificationError())
+      : Effect.succeed(state.digest);
   }).pipe(Effect.withSpan("digestAgentCard"));
 
 /* eslint-disable @typescript-eslint/no-redeclare, @typescript-eslint/naming-convention, agent-code-guard/require-assertion-rationale --

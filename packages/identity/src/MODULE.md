@@ -27,7 +27,7 @@ export interface AgentCard {
 
 Immutable public identity fields carried by an AgentCard.
 
-### [`AgentCard (value)`](./agent-card.ts#L448)
+### [`AgentCard (value)`](./agent-card.ts#L466)
 
 _Variable_
 
@@ -68,7 +68,7 @@ export const AgentCardDigest = canonicalIdentifier(
 
 Digest binding a message to one complete immutable AgentCard.
 
-### [`AgentCardVerificationError`](./agent-card.ts#L289)
+### [`AgentCardVerificationError`](./agent-card.ts#L311)
 
 _Class_
 
@@ -581,7 +581,7 @@ export class UnsupportedMediaTypeError extends Schema.TaggedError<UnsupportedMed
 
 The selected route cannot consume the request content framing.
 
-### [`VerifiedAgentCard`](./agent-card.ts#L274)
+### [`VerifiedAgentCard`](./agent-card.ts#L296)
 
 _TypeAlias_
 
