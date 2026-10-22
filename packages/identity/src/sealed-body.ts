@@ -271,16 +271,39 @@ const snapshotRecipients = (
  * to seal.
  * @returns The canonical JSON bytes of the General JWE.
  */
+/**
+ * Reads the caller's SealInput once under a try, copying the plaintext, so an
+ * input whose members throw fails as a sealing error and later steps read only
+ * this copy.
+ */
+const snapshotSealInput = (
+  input: SealInput,
+): Effect.Effect<SealInput, SealedBodySealingError> =>
+  Effect.try({
+    try: () => {
+      const { recipientAgentCards, senderAgentId, messageId, plaintext } =
+        input;
+      return {
+        recipientAgentCards,
+        senderAgentId,
+        messageId,
+        plaintext: new Uint8Array(plaintext),
+      };
+    },
+    catch: sealingFailure,
+  });
+
 const seal = (
   input: SealInput,
 ): Effect.Effect<Uint8Array, SealedBodySealingError> =>
   Effect.gen(function* () {
-    const recipients = yield* snapshotRecipients(input.recipientAgentCards);
+    const sealing = yield* snapshotSealInput(input);
+    const recipients = yield* snapshotRecipients(sealing.recipientAgentCards);
     const saltedPlaintext = yield* Effect.try({
       try: () => {
-        const bytes = new Uint8Array(SALT_BYTES + input.plaintext.byteLength);
+        const bytes = new Uint8Array(SALT_BYTES + sealing.plaintext.byteLength);
         bytes.set(crypto.getRandomValues(new Uint8Array(SALT_BYTES)));
-        bytes.set(input.plaintext, SALT_BYTES);
+        bytes.set(sealing.plaintext, SALT_BYTES);
         return bytes;
       },
       catch: sealingFailure,
@@ -292,7 +315,11 @@ const seal = (
       { concurrency: 1 },
     ).pipe(Effect.mapError(sealingFailure));
     const encryption = new GeneralEncrypt(saltedPlaintext).setProtectedHeader(
-      protectedHeaderMembers(commitment, input.messageId, input.senderAgentId),
+      protectedHeaderMembers(
+        commitment,
+        sealing.messageId,
+        sealing.senderAgentId,
+      ),
     );
     for (const recipientKey of recipientKeys) {
       encryption.addRecipient(recipientKey);
@@ -427,6 +454,21 @@ const authorityCard = (
   });
 
 /**
+ * Reads the caller's OpenInput once under a try, so an input whose members
+ * throw fails as an opening error and later steps read only this copy.
+ */
+const snapshotOpenInput = (
+  input: OpenInput,
+): Effect.Effect<OpenInput, SealedBodyOpeningError> =>
+  Effect.try({
+    try: () => {
+      const { agentCard, signingAuthority, signedMessage } = input;
+      return { agentCard, signingAuthority, signedMessage };
+    },
+    catch: openingFailure,
+  });
+
+/**
  * Decrypts a verified SignedMessage body sealed to the local agent.
  *
  * It first refuses a SignedMessage this package did not parse, so a view whose
@@ -453,24 +495,25 @@ const open = (
   input: OpenInput,
 ): Effect.Effect<Uint8Array, SealedBodyOpeningError> =>
   Effect.gen(function* () {
-    if (!isParsedSignedMessage(input.signedMessage)) {
+    const opening = yield* snapshotOpenInput(input);
+    if (!isParsedSignedMessage(opening.signedMessage)) {
       return yield* new SealedBodyOpeningError();
     }
-    const card = yield* authorityCard(input);
+    const card = yield* authorityCard(opening);
     const representation = yield* decodeCanonicalJson(
       sealedBodyRepresentation,
-      input.signedMessage.body,
+      opening.signedMessage.body,
     ).pipe(Effect.mapError(openingFailure));
     const header = yield* decodeProtectedHeader(representation.protected);
     const entry = yield* localRecipientEntry(
       representation,
       header,
-      input.signedMessage.recipientAgentIds,
+      opening.signedMessage.recipientAgentIds,
       card.agentId,
     );
     if (
-      header[SENDER_HEADER] !== input.signedMessage.senderAgentId ||
-      header[MESSAGE_ID_HEADER] !== input.signedMessage.messageId
+      header[SENDER_HEADER] !== opening.signedMessage.senderAgentId ||
+      header[MESSAGE_ID_HEADER] !== opening.signedMessage.messageId
     ) {
       return yield* new SealedBodyOpeningError();
     }
@@ -478,7 +521,7 @@ const open = (
       try: () =>
         generalDecrypt(
           { ...representation, recipients: [entry] },
-          agentOpeningPrivateKey(input.signingAuthority),
+          agentOpeningPrivateKey(opening.signingAuthority),
           {
             keyManagementAlgorithms: [SEALED_BODY_KEY_MANAGEMENT_ALGORITHM],
             contentEncryptionAlgorithms: [CONTENT_ENCRYPTION_ALGORITHM],

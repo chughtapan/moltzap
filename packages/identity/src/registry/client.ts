@@ -445,8 +445,15 @@ function makeRegister(
   | RegistryInvalidResponseError
   | AgentSigningError
 > {
-  return (call) =>
+  return (candidate) =>
     Effect.gen(function* () {
+      const call = yield* Effect.try({
+        try: (): RegistryRegisterCall => {
+          const { request, signingAuthority, admissionCredential } = candidate;
+          return { request, signingAuthority, admissionCredential };
+        },
+        catch: () => new AgentSigningError(),
+      });
       const registerRequest = yield* snapshotRequest(
         RegistryRegisterRequest,
         () => call.request,
