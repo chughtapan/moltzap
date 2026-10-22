@@ -37,7 +37,7 @@ const SCALAR_ORDER = Uint8Array.from([
 ]);
 
 const bytesFromHex = (value: string): Uint8Array =>
-  Uint8Array.from(Buffer.from(value, "hex"));
+  new Uint8Array(Buffer.from(value, "hex"));
 
 const SMALL_ORDER_POINTS = Object.freeze([
   bytesFromHex("00".repeat(32)),
@@ -77,7 +77,7 @@ const hasCanonicalPointEncoding = (value: Uint8Array): boolean => {
   if (value.byteLength !== PUBLIC_KEY_BYTE_LENGTH) {
     return false;
   }
-  const coordinate = Uint8Array.from(value);
+  const coordinate = new Uint8Array(value);
   const finalByte = coordinate[PUBLIC_KEY_BYTE_LENGTH - 1];
   if (finalByte === undefined) {
     return false;

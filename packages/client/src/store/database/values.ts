@@ -148,7 +148,7 @@ export function readBytes(
  * @returns A detached copy suitable for SQLite or a caller.
  */
 export function copyBytes(value: Uint8Array): Uint8Array {
-  return Uint8Array.from(value);
+  return new Uint8Array(value);
 }
 
 /**

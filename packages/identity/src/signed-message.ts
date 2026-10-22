@@ -267,14 +267,14 @@ const makeView = (
   body: Uint8Array,
 ): SignedMessage => {
   const recipients = Object.freeze([...decodedPayload.recipientAgentIds]);
-  const bodySnapshot = Uint8Array.from(body);
+  const bodySnapshot = new Uint8Array(body);
   const view: SignedMessage = {
     senderAgentId: decodedPayload.senderAgentId,
     agentCardDigest: decodedPayload.agentCardDigest,
     recipientAgentIds: recipients,
     messageId: decodedPayload.messageId,
     get body() {
-      return Uint8Array.from(bodySnapshot);
+      return new Uint8Array(bodySnapshot);
     },
   };
   return Object.freeze(view);
@@ -311,7 +311,7 @@ const decodeRepresentation = (
       wireVersion: decodedPayload.sharnessVersion,
       representation: retained,
       protectedHeader: Object.freeze({ ...decodedHeader }),
-      body: Uint8Array.from(body),
+      body: new Uint8Array(body),
       encodedByteLength: encoded.byteLength,
     });
     return view;

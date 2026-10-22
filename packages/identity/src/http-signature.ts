@@ -89,7 +89,7 @@ const signBytes = (
   bytes: Buffer,
   // #ignore-sloppy-code-next-line[promise-type]: The HTTP Message Signatures adapter requires a Promise-returning signing callback.
 ): Promise<Buffer> => {
-  const copiedBytes = Uint8Array.from(bytes);
+  const copiedBytes = new Uint8Array(bytes);
   return webcrypto.subtle
     .sign("Ed25519", agentSigningPrivateKey(authority), copiedBytes)
     .then((signature) => Buffer.from(signature)); // #ignore-sloppy-code[then-chain]: WebCrypto exposes its signature result as a Promise at this adapter boundary.
@@ -459,8 +459,8 @@ const makeVerifyingKey = (
   id: keyid,
   algs: ["ed25519"],
   verify: (bytes, candidate) => {
-    const copiedSignature = Uint8Array.from(candidate);
-    const copiedBytes = Uint8Array.from(bytes);
+    const copiedSignature = new Uint8Array(candidate);
+    const copiedBytes = new Uint8Array(bytes);
     return webcrypto.subtle.verify(
       "Ed25519",
       publicKey,
