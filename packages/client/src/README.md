@@ -23,7 +23,7 @@ entrypoints are `mcp/index.ts`, `harness-endpoint/index.ts`, and
   recovery.
 - `transport/collectives/`: gather and all_gather carried in posts, and the
   inbound items the endpoint delivers.
-- `delivery/`: the host inbox, send invocations, the delivery pass, the
+- `delivery/`: the host inbox, sends, the delivery pass, the
   history export, and the operations hosts call on them.
 - `endpoint/`: the loopback MCP, owner tools, and `HarnessEndpoint`.
 - `service/`: the always-on daemon process that composes the rest;

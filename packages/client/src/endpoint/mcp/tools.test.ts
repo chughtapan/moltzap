@@ -28,7 +28,6 @@ const operations: HarnessMcpOperations = {
   readConversation: unused,
   readEvent: unused,
   readInbox: unused,
-  readSend: unused,
   send: unused,
   acknowledgeDelivery: unused,
 };
@@ -110,11 +109,6 @@ const invalidCalls = [
 ];
 const invalidInvocationCalls = [
   {
-    name: "read_send",
-    arguments: { idempotencyKey: "" },
-    path: ["idempotencyKey"],
-  },
-  {
     name: "send_message",
     arguments: { input: { to: "agent:bob", text: 123 } },
     path: ["input", "text"],
@@ -132,8 +126,8 @@ const invalidInvocationCalls = [
   {
     name: "send_message",
     arguments: { input: { to: "agent:bob", text: "hello" } },
-    metadata: { [HARNESS_SEND_META_KEY]: { idempotencyKey: "" } },
-    path: [HARNESS_SEND_META_KEY, "idempotencyKey"],
+    metadata: { [HARNESS_SEND_META_KEY]: { failureDelivery: "other" } },
+    path: [HARNESS_SEND_META_KEY, "failureDelivery"],
   },
 ];
 const invalidRegistrations = [
@@ -221,14 +215,14 @@ function checksInvocationPrivacy() {
         name: "send_message",
         arguments: { input: { to: "agent:bob", text: sentinel } },
       },
-      { [HARNESS_SEND_META_KEY]: { idempotencyKey: `${sentinel}\u0000` } },
+      { [HARNESS_SEND_META_KEY]: { failureDelivery: `${sentinel}\u0000` } },
     );
     expect(malformedToken.error).toMatchObject({
       code: ProtocolErrorCode.InvalidParams,
     });
     yield* checkDiagnostic(malformedToken.error?.data, [
       HARNESS_SEND_META_KEY,
-      "idempotencyKey",
+      "failureDelivery",
     ]);
     expect(JSON.stringify(malformedToken.error)).not.toContain(sentinel);
   });
@@ -430,13 +424,6 @@ describe("MCP tool discoverability", () => {
         registration.principalId?.description.trim().length,
       ).toBeGreaterThan(0);
       expect(registration.agentName?.description.trim().length).toBeGreaterThan(
-        0,
-      );
-      const lookup = yield* Schema.decodeUnknown(fieldDescriptionsSchema)(
-        after.tools.find((tool) => tool.name === "read_send")?.inputSchema
-          .properties,
-      );
-      expect(lookup.idempotencyKey?.description.trim().length).toBeGreaterThan(
         0,
       );
     }));

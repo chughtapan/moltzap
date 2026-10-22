@@ -170,7 +170,6 @@ interface HarnessEndpoint {
     input: SendInput,
     options?: {
       readonly failureDelivery?: "result" | "inbound"
-      readonly idempotencyKey?: string
     },
   ) => Effect.Effect<SendResult, SendError | CollectiveError | FirewallSendError>
   readonly messages: Stream.Stream<InboundDelivery, ListenError>
@@ -186,11 +185,7 @@ declare function parseMessageText(
 ): Either.Either<SendInput, MessageTextError>
 ```
 
-An optional `idempotencyKey` identifies one daemon-local send invocation. Reuse
-it only with the same validated input and failure routing. A keyless call is
-a new invocation. The [output contract](./output.md)
-defines retained outcomes, input conflicts and restart uncertainty.
-Runtime send options cross MCP in request metadata, outside model-generated
+Every call is a new invocation. Runtime send options cross MCP in request metadata, outside model-generated
 arguments. Callers supply semantic `input` and optional runtime `options`
 through the `send` signature above.
 
@@ -372,10 +367,8 @@ Registry, and returns the canonical complete group spelling internally.
 Every post a `send` invocation creates is new: a multicast or response creates
 one, a gather one per member, an all_gather one to the group. Client mints each opaque `PostId` before durably
 binding the immutable intent and reuses that identity only while recovering or
-completing that invocation. A later keyless call receives a different `PostId`,
-even when destination and text are identical. A qualified runtime can identify
-retries with an invocation key and recover the retained outcome under the
-[send contract](./output.md#semantic-send). The host owns that retry choice. A multicast or response succeeds only after local complete action
+completing that invocation. A later call receives a different `PostId`, even
+when destination and text are identical. The host owns that retry choice. A multicast or response succeeds only after local complete action
 and durability certification; a gather or all_gather succeeds as described
 under [operations](#operations) and returns its `operationId`.
 
@@ -476,16 +469,15 @@ the tool error.
 - `certification-unavailable`;
 - `persistence-failed`;
 - `network-unavailable`;
-- `delivery-pending`;
-- `idempotency-conflict`; or
+- `delivery-pending`; or
 - `outcome-unknown`.
 
 A `SendError` or collective refusal message is the failed action, then its
 cause: `send failed: agent:dana is not a known agent`, or `reply failed: the
 question's deadline has passed`. It names the specific input when the failing
 step knows it and states no remedy. A failed send was not sent, except
-`outcome-unknown` and `delivery-pending`, and a keyless resend of either can
-create a second post:
+`outcome-unknown` and `delivery-pending`, and a resend of either can create a
+second post:
 
 - `outcome-unknown` says the message may have been sent. The send ended
   without a typed failure, interrupted or by a defect, the store failed while
@@ -540,9 +532,8 @@ methods and cannot create a delivery or authorize output.
 - Public type canaries pin exactly the service and values above.
 - Address order, self insertion, duplicates, unknown names, and 2/3/32/33
   member boundaries are tested.
-- Distinct keyless calls with identical input mint distinct posts. Same-key
-  retries retain one invocation outcome, and restart recovery retains the
-  persisted post identity for one unfinished intent.
+- Distinct calls with identical input mint distinct posts, and restart
+  recovery retains the persisted post identity for one unfinished intent.
 - A send without `collective` and a send with `{op: "multicast"}` certify the
   same content: the text part, then the explicit multicast part.
 - `parseMessageText` reads every operation shape, sends plain text and

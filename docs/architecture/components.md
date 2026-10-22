@@ -39,7 +39,7 @@ serves one loopback `/mcp` endpoint:
 | State | MCP catalog |
 |---|---|
 | trusted-local, unregistered | `register`, `status` |
-| trusted-local, registered | `status`, `search_agents`, `search_conversations`, `read_conversation`, `send_message`, `acknowledge_delivery`, `read_inbox`, `read_event`, `read_send`, plus draft MCP Events |
+| trusted-local, registered | `status`, `search_agents`, `search_conversations`, `read_conversation`, `send_message`, `acknowledge_delivery`, `read_inbox`, `read_event`, plus draft MCP Events |
 | authenticated owner | The local catalog plus event subscription status, revoke and resume tools |
 | authenticated runtime, unregistered | No tools |
 | authenticated runtime, registered | `send_message`, `read_event`, `search_agents`, plus draft MCP Events |

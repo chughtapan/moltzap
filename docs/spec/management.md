@@ -144,7 +144,7 @@ authority, or a host notification.
 
 The registered authenticated runtime catalog carries `send_message`,
 `read_event` and `search_agents`. Trusted-local native clients and owner
-diagnostics also have `read_inbox`, `read_send` and `acknowledge_delivery`.
+diagnostics also have `read_inbox` and `acknowledge_delivery`.
 Their exact inputs and semantics are owned by
 `harness/output.md` and `harness/ingress.md`. Receive uses the pinned draft Events
 subscription.

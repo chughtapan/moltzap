@@ -121,28 +121,4 @@ it("reports no commit when transaction acquisition fails", () =>
     expect(yield* store.readIdentity()).toBeUndefined();
   }));
 
-it("reports a rolled-back reservation failure without executing or retaining the invocation", () =>
-  Effect.gen(function* () {
-    const directory = stateDirectory();
-    yield* Effect.scoped(
-      openEndpointStore(directory, { liveWireVersions: LIVE_WIRE_VERSIONS }),
-    );
-    const database = new DatabaseSync(databasePath(directory));
-    database.exec(`CREATE TRIGGER refuse_reservation BEFORE INSERT ON runtime_sends
-      BEGIN SELECT RAISE(ROLLBACK, 'secret SQLite diagnostic'); END`);
-    database.close();
-    const store = yield* openEndpointStore(directory, {
-      liveWireVersions: LIVE_WIRE_VERSIONS,
-    });
-    const failure = yield* store
-      .beginSendAttempt("key", bytes("secret input"))
-      .pipe(Effect.flip);
-    expect(failure).toMatchObject({
-      reason: "persistence",
-      commitOutcome: "not-committed",
-    });
-    expect(JSON.stringify(failure)).not.toContain("secret");
-    expect(yield* store.readSendAttempt("key")).toBeUndefined();
-  }));
-
 /* eslint-enable agent-code-guard/no-hardcoded-assertion-literals -- Restore repository defaults. */

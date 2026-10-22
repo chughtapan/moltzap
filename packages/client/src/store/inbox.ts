@@ -1,4 +1,4 @@
-/** @file Durable host projection, invocation identity and event transport state. */
+/** @file Durable host projection and event transport state. */
 
 import type { DatabaseSync } from "node:sqlite";
 import { Schema } from "effect";
@@ -10,7 +10,6 @@ import {
   requireBytes,
   requireSameBytes,
   requireSameOptionalBytes,
-  requireText,
   StoreSignal,
   transaction,
 } from "./database/index.js";
@@ -20,7 +19,6 @@ import {
   type InboxPage,
   type InboxSummary,
   MAXIMUM_RUNTIME_ITEM_BYTES,
-  type StoredSendAttempt,
   type StoreMutation,
 } from "./types.js";
 
@@ -258,90 +256,6 @@ export function replaceInboxItem(
       retain();
     }
   });
-}
-
-/**
- * Reserve an invocation before any protocol side effect can occur.
- * Only a fresh insert carries transaction-outcome evidence: a failed read
- * cannot exclude execution by an earlier invocation under the same key.
- * @param database Exclusively owned endpoint database.
- * @param key Caller-selected invocation identity.
- * @param canonicalInput Exact validated input and failure-routing policy.
- * @returns Whether this invocation is new or already retained.
- */
-export function beginSendAttempt(
-  database: DatabaseSync,
-  key: string,
-  canonicalInput: Uint8Array,
-): StoreMutation {
-  requireText(key);
-  requireBytes(canonicalInput);
-  const retained = readSendAttempt(database, key);
-  if (retained !== undefined) {
-    requireSameBytes(retained.canonicalInput, canonicalInput);
-    return "existing";
-  }
-  return transaction(database, () => {
-    database
-      .prepare(
-        "INSERT INTO runtime_sends (invocation_key, canonical_input) VALUES (?, ?)",
-      )
-      .run(key, canonicalInput);
-    return "inserted";
-  });
-}
-
-/**
- * Retain the invocation's observed tool outcome without inferring certification.
- * @param database Exclusively owned endpoint database.
- * @param key Previously reserved invocation identity.
- * @param canonicalOutcome Exact success or typed failure returned by the send.
- */
-export function finishSendAttempt(
-  database: DatabaseSync,
-  key: string,
-  canonicalOutcome: Uint8Array,
-): void {
-  requireBytes(canonicalOutcome);
-  const retained = readSendAttempt(database, key);
-  if (retained === undefined) {
-    throw new StoreSignal("not-found");
-  }
-  if (retained.canonicalOutcome !== undefined) {
-    requireSameBytes(retained.canonicalOutcome, canonicalOutcome);
-    return;
-  }
-  database
-    .prepare(
-      "UPDATE runtime_sends SET canonical_outcome = ? WHERE invocation_key = ?",
-    )
-    .run(canonicalOutcome, key);
-}
-
-/**
- * Read retained invocation evidence; no outcome means execution is uncertain.
- * @param database Exclusively owned endpoint database.
- * @param key Caller-selected invocation identity.
- * @returns The exact reservation and its outcome when one was retained.
- */
-export function readSendAttempt(
-  database: DatabaseSync,
-  key: string,
-): StoredSendAttempt | undefined {
-  requireText(key);
-  const row = database
-    .prepare(
-      "SELECT canonical_input, canonical_outcome FROM runtime_sends WHERE invocation_key = ?",
-    )
-    .get(key);
-  if (row === undefined) {
-    return undefined;
-  }
-  const outcome = readOptionalBytes(row, "canonical_outcome");
-  return {
-    canonicalInput: readBytes(row, "canonical_input"),
-    ...(outcome === undefined ? {} : { canonicalOutcome: outcome }),
-  };
 }
 
 /**

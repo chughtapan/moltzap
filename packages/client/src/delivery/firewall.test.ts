@@ -26,7 +26,6 @@ import {
   waitAction,
 } from "../__tests__/firewall-runtime-fixtures.js";
 import { makeEnglishPolicy } from "../firewall/index.js";
-import { FirewallSendError } from "../firewall/runtime.js";
 import {
   type DecisionProvider,
   type DecisionRequest,
@@ -332,58 +331,6 @@ function shadowIncoming() {
       { kind: "multicast", message: runtime.candidate.message },
     ]);
     expect(runtime.published[0]?.guidance).toBeUndefined();
-  });
-}
-
-it(
-  "retains revision feedback under the invocation key without creating an intent",
-  retainedRefusal,
-);
-
-function retainedRefusal() {
-  return Effect.gen(function* () {
-    const subject = yield* fixture;
-    let calls = 0;
-    const delivery = yield* outgoingFixture(
-      subject,
-      policy(() =>
-        Effect.sync(() => {
-          calls += 1;
-          return revise;
-        }),
-      ),
-    );
-    const request = {
-      input: { to: destination, text: "Tuesday works." },
-      idempotencyKey: "draft-1",
-    };
-    const first = yield* Effect.flip(delivery.operations.send(request));
-    expect(first).toBeInstanceOf(FirewallSendError);
-    expect(first.message).toContain(rule.feedback.text);
-    expect(yield* Effect.flip(delivery.operations.send(request))).toEqual(
-      first,
-    );
-    expect(calls).toBe(1);
-    expect((yield* subject.store.recover()).postIntents).toEqual([]);
-    expect(
-      yield* delivery.operations.readSend({
-        idempotencyKey: request.idempotencyKey,
-      }),
-    ).toMatchObject({
-      state: "returned",
-      outcome: {
-        kind: "failure",
-        error: { reason: "firewall-refused", refusal: "norm-violation" },
-      },
-    });
-    expect(
-      yield* Effect.flip(
-        delivery.operations.send({
-          ...request,
-          input: { ...request.input, text: "Revised draft" },
-        }),
-      ),
-    ).toMatchObject({ reason: "idempotency-conflict" });
   });
 }
 

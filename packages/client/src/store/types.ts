@@ -60,12 +60,6 @@ export interface InboxSummary {
   readonly newestSequence: number;
 }
 
-/** One retained invocation; an absent outcome does not authorize re-execution. */
-export interface StoredSendAttempt {
-  readonly canonicalInput: Uint8Array;
-  readonly canonicalOutcome?: Uint8Array;
-}
-
 /**
  * A certified evidence row retains its original bytes and local visibility.
  * `answer` says whether an admitted result showed this answer record to the
@@ -520,17 +514,6 @@ export interface EndpointStore {
     replacement: Omit<InboxEntry, "sequence">,
     pendingConversation?: string,
   ) => Effect.Effect<void, EndpointStoreError>;
-  readonly beginSendAttempt: (
-    key: string,
-    canonicalInput: Uint8Array,
-  ) => Effect.Effect<StoreMutation, EndpointStoreError>;
-  readonly finishSendAttempt: (
-    key: string,
-    canonicalOutcome: Uint8Array,
-  ) => Effect.Effect<void, EndpointStoreError>;
-  readonly readSendAttempt: (
-    key: string,
-  ) => Effect.Effect<StoredSendAttempt | undefined, EndpointStoreError>;
   readonly readEventState: () => Effect.Effect<
     Uint8Array | undefined,
     EndpointStoreError

@@ -46,15 +46,12 @@ import {
 } from "./firewall.js";
 import {
   acknowledgeInboxItem,
-  beginSendAttempt,
   completeWebhookDelivery,
-  finishSendAttempt,
   putInboxItem,
   readEventState,
   readInbox,
   readInboxItem,
   readInboxSummary,
-  readSendAttempt,
   replaceInboxItem,
   writeEventState,
 } from "./inbox.js";
@@ -221,13 +218,6 @@ function makeEndpointStore(state: StoreState): EndpointStore {
               },
         );
       }),
-    beginSendAttempt: (key, input) =>
-      run(() => beginSendAttempt(state.database, key, input)),
-    finishSendAttempt: (key, outcome) =>
-      run(() => {
-        finishSendAttempt(state.database, key, outcome);
-      }),
-    readSendAttempt: (key) => run(() => readSendAttempt(state.database, key)),
     readEventState: () => run(() => readEventState(state.database)),
     writeEventState: (value) =>
       run(() => {

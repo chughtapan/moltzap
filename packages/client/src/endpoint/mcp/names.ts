@@ -20,6 +20,3 @@ export const HARNESS_ACKNOWLEDGE_DELIVERY_TOOL = "acknowledge_delivery";
 
 /** Runtime read of classified deliveries whose host acceptance is pending. */
 export const HARNESS_READ_INBOX_TOOL = "read_inbox";
-
-/** Lookup of a retained invocation, distinct from collective completion. */
-export const HARNESS_READ_SEND_TOOL = "read_send";

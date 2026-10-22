@@ -247,12 +247,47 @@ const releasesTheGateWhenAPassFails = () =>
     expect(page.items).toEqual([]);
   });
 
+/**
+ * A send whose input fails its schema is refused as `content-invalid` before
+ * it reaches the collective layer or the history export.
+ */
+const refusesInvalidSendInput = () =>
+  Effect.gen(function* () {
+    const { delivery, records, slot } = yield* deliveryFixture;
+    let sent = 0;
+    slot.collectives = {
+      send: () =>
+        Effect.sync(() => {
+          sent += 1;
+          return { operationId, postIds: [postId] };
+        }),
+    };
+    const malformed = Schema.decodeUnknownSync(Schema.Unknown)({
+      input: { to: "agent:bob", text: "hi", collective: { op: "broadcast" } },
+    });
+    const refused = yield* Effect.exit(
+      delivery.operations.send(
+        // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- The operation's argument type admits only valid input; this probe passes what an untyped caller could.
+        malformed as Parameters<typeof delivery.operations.send>[0],
+      ),
+    );
+    expect(refused).toEqual(
+      Exit.fail(new SendError({ reason: "content-invalid" })),
+    );
+    expect(sent).toBe(0);
+    expect(records).toEqual([]);
+  });
+
 describe("host delivery", () => {
   it(
     "refuses host operations until a collective layer is active",
     refusesUntilRegistered,
   );
   it("records each completed send in the history export", exportsEachSend);
+  it(
+    "refuses a send whose input fails its schema as content-invalid",
+    refusesInvalidSendInput,
+  );
   it(
     "exports a queued local item once and forgets it on acknowledgment",
     exportsLocalItemOnceAndForgetsIt,

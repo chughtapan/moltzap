@@ -53,28 +53,12 @@ export const harnessAcknowledgeDeliveryRequestSchema = exactStruct({
   }),
 });
 
-const utf8 = new TextEncoder();
-const invocationKey = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(128),
-  Schema.filter(
-    (value) =>
-      !value.includes("\u0000") && utf8.encode(value).byteLength <= 128,
-  ),
-);
 /**
- * Runtime identity and routing of a refused gather or response.
- * `inbound` is for a host whose tool returns before the
- * send: the call completes and the error arrives as an `operationFailed`
- * item. The default returns it as the tool error.
+ * Routing of a refused gather or response. `inbound` is for a host whose
+ * tool returns before the send: the call completes and the error arrives as
+ * an `operationFailed` item. The default returns it as the tool error.
  */
 export const harnessSendOptionsSchema = exactStruct({
-  idempotencyKey: Schema.optionalWith(invocationKey, {
-    exact: true,
-  }).annotations({
-    description:
-      "Runtime-owned send idempotency key: 1 to 128 UTF-8 bytes without NUL; reuse the exact key for retries and lookup.",
-  }),
   failureDelivery: Schema.optionalWith(Schema.Literal("result", "inbound"), {
     exact: true,
   }),
@@ -122,14 +106,6 @@ export const inboxResultSchema = Schema.Struct({
   items: Schema.Array(harnessMessageReadyEventSchema),
   nextCursor: Schema.optionalWith(Schema.String, { exact: true }),
 });
-/** Caller-selected identity of one previously attempted send. */
-export const readSendRequestSchema = exactStruct({
-  idempotencyKey: Schema.propertySignature(invocationKey).annotations({
-    description:
-      "Runtime-owned send idempotency key: 1 to 128 UTF-8 bytes without NUL; reuse the exact key for retries and lookup.",
-  }),
-});
-
 /** Validation diagnostics remain decodable as a send refusal at the runtime edge. */
 const invocationValidationErrorSchema = Schema.Struct({
   reason: Schema.Literal("content-invalid"),
@@ -171,57 +147,16 @@ const harnessSendErrorDataSchema = Schema.Union(
   }),
 );
 
-/** Retained result of one invocation; failure is not proof of no post. */
-const harnessSendOutcomeSchema = Schema.Union(
-  Schema.Struct({
-    kind: Schema.Literal("success"),
-    result: harnessSendResultSchema,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("failure"),
-    error: harnessSendErrorDataSchema,
-  }),
-);
-
-/** Observed invocation evidence without a collective completion claim. */
-// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- The MCP catalog projects the closed send-state union to JSON Schema.
-export const readSendResultSchema = Schema.Union(
-  Schema.Struct({ state: Schema.Literal("absent") }),
-  Schema.Struct({
-    state: Schema.Literal("pending", "indeterminate"),
-    input: SendInput,
-  }),
-  Schema.Struct({
-    state: Schema.Literal("returned"),
-    input: SendInput,
-    outcome: harnessSendOutcomeSchema,
-  }),
-);
-
-/** Validate the persisted wire outcome before reconstructing a typed send result. */
-export const decodeHarnessSendOutcome = Schema.decodeUnknown(
-  harnessSendOutcomeSchema,
-);
-
 /** Decoded pagination request for the current classified inbox. */
 export type HarnessReadInboxRequest = typeof inboxRequestSchema.Type;
 /** Classified deliveries, bounded by the daemon's snapshot pagination. */
 export type HarnessReadInboxResult = typeof inboxResultSchema.Type;
-/** Caller-selected identity of one previously attempted send. */
-export type HarnessReadSendRequest = typeof readSendRequestSchema.Type;
-/** Observed invocation evidence without a collective completion claim. */
-export type HarnessReadSendResult = typeof readSendResultSchema.Type;
-/** Retained tool outcome for a keyed invocation. */
-export type HarnessSendOutcome = typeof harnessSendOutcomeSchema.Type;
 
 /** Decode a bounded inbox page received through the MCP transport. */
 export const decodeHarnessReadInboxResult =
   Schema.decodeUnknown(inboxResultSchema);
-/** Validate the keyed lookup at the tool boundary, including its UTF-8 bound. */
-export const decodeHarnessReadSendRequest = Schema.decodeUnknown(
-  readSendRequestSchema,
-);
-/** Validate a daemon invocation before binding its input in the durable store. */
+
+/** Validate one send's input and options before it runs. */
 export const decodeHarnessSendRequest = Schema.decodeUnknown(
   harnessSendRequestSchema,
 );
@@ -233,7 +168,7 @@ export type HarnessAcknowledgeDeliveryRequest =
 /** Semantic arguments advertised to the host's model tool projection. */
 export type HarnessSendArguments = typeof harnessSendArgumentsSchema.Type;
 
-/** Validated semantic input and runtime options of one daemon invocation. */
+/** Validated semantic input and runtime options of one send. */
 export type HarnessSendRequest = typeof harnessSendRequestSchema.Type;
 
 /** Decoded error data of one refused `send_message` call. */
@@ -252,10 +187,10 @@ export type HarnessSendErrorData =
     }>;
 
 /**
- * The error data a refused send carries across the daemon boundary and into
- * its durable invocation record: a collective failure keeps its id and the
- * members or fields it names, and a send failure keeps the detail naming its
- * cause, so the receiving side rebuilds the same typed error and message.
+ * The error data a refused send carries across the daemon boundary: a
+ * collective failure keeps its id and the members or fields it names, and a
+ * send failure keeps the detail naming its cause, so the receiving side
+ * rebuilds the same typed error and message.
  * @param error The refused send's typed error.
  * @returns The JSON error data.
  */
@@ -389,9 +324,6 @@ export interface DeliveryOperations {
   readonly readInbox: (
     input: HarnessReadInboxRequest,
   ) => Effect.Effect<HarnessReadInboxResult, ClosedOperationError>;
-  readonly readSend: (
-    input: HarnessReadSendRequest,
-  ) => Effect.Effect<HarnessReadSendResult, ClosedOperationError>;
   readonly send: (
     request: HarnessSendRequest,
   ) => Effect.Effect<

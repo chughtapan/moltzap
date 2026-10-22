@@ -220,23 +220,16 @@ function keepsARequestOpenAfterARefusedAnswer() {
       false,
     );
     yield* admitPending(runtime);
-    const refused = {
-      input: answerBob({ slot: "mon", note: marker }),
-      idempotencyKey: "answer-1",
-    };
+    const refused = { input: answerBob({ slot: "mon", note: marker }) };
     const allowed = { kind: "answered", content: { slot: "tue" } } as const;
 
     const first = yield* Effect.flip(runtime.delivery.operations.send(refused));
-    const replayed = yield* Effect.flip(
-      runtime.delivery.operations.send(refused),
-    );
     const answering = yield* runtime.delivery.operations
       .send({ input: answerBob(allowed.content) })
       .pipe(Effect.forkScoped);
     yield* Deferred.await(subject.outbound);
 
     expect(first).toBeInstanceOf(FirewallSendError);
-    expect(replayed).toEqual(first);
     expect(
       seen
         .filter((input) => input.event.direction === "outgoing")
@@ -439,20 +432,17 @@ function keepsAnAnswersAdviceWhenItsBoundPostFailsActivation() {
     yield* seedRequest(subject, Date.now() + 60_000, question);
     const runtime = yield* incomingFixture(subject, unsettled, {}, false);
     yield* admitPending(runtime);
-    const keyed = {
+    const answer = {
       input: answerBob({ slot: "mon" }),
-      idempotencyKey: "answer-1",
       failureDelivery: "inbound",
     } as const;
 
-    const completed = yield* runtime.delivery.operations.send(keyed);
-    const replayed = yield* runtime.delivery.operations.send(keyed);
+    const completed = yield* runtime.delivery.operations.send(answer);
 
     const failures = runtime.emitted.flatMap((item) =>
       item.kind === "operationFailed" ? [item.error] : [],
     );
     expect(completed).toMatchObject({ guidance: unsettledAdvice });
-    expect(replayed).toEqual(completed);
     expect(failures).toHaveLength(1);
     expect(failures[0]).toContain(queuedText);
   });
@@ -547,7 +537,7 @@ describe("collective sends under a firewall", () => {
     checksAnAllGatherAsItsQuestion,
   );
   it(
-    "keeps a request open after its answer is refused, and replays the refusal under its key",
+    "keeps a request open after its answer is refused",
     keepsARequestOpenAfterARefusedAnswer,
   );
   it(
@@ -574,7 +564,7 @@ describe("collective sends under a firewall", () => {
 
 describe("collective sends whose bound post fails activation", () => {
   it(
-    "keeps an admitted answer's advice, and replays it under its key",
+    "keeps an admitted answer's advice",
     keepsAnAnswersAdviceWhenItsBoundPostFailsActivation,
   );
   it(

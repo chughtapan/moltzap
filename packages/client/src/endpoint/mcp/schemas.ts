@@ -17,8 +17,6 @@ import {
   harnessSendResultSchema,
   inboxRequestSchema,
   inboxResultSchema,
-  readSendRequestSchema,
-  readSendResultSchema,
 } from "../../delivery/operations.js";
 import { HARNESS_SEND_META_KEY } from "./names.js";
 
@@ -50,23 +48,13 @@ export const harnessReadInboxResultJsonSchema = JSONSchema.make(
   inboxResultSchema,
   { target: "jsonSchema2020-12" },
 );
-/** JSON Schema for keyed send lookup. */
-export const harnessReadSendRequestJsonSchema = JSONSchema.make(
-  readSendRequestSchema,
-  { target: "jsonSchema2020-12" },
-);
-/** JSON Schema for observed send state. */
-export const harnessReadSendResultJsonSchema = JSONSchema.make(
-  readSendResultSchema,
-  { target: "jsonSchema2020-12" },
-);
 
 /**
  * Validate semantic arguments separately from runtime-owned send options.
  * Unrelated SDK metadata belongs to the transport and is not interpreted here.
  * @param toolArguments Model-visible arguments.
  * @param metadata The SDK request metadata, if supplied.
- * @returns One validated invocation for the daemon's existing store.
+ * @returns One validated send request.
  */
 export function decodeHarnessSendCall(
   toolArguments: unknown,

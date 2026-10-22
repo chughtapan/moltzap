@@ -138,7 +138,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`decodeHarnessMessageReadyEvent`](./delivery/operations.ts#L312)
+### [`decodeHarnessMessageReadyEvent`](./delivery/operations.ts#L247)
 
 _Function_
 
@@ -152,7 +152,7 @@ Decode one exact pending-delivery notification payload.
 
 **Returns:** The validated pending delivery.
 
-### [`decodeHarnessReadInboxResult`](./delivery/operations.ts#L218)
+### [`decodeHarnessReadInboxResult`](./delivery/operations.ts#L156)
 
 _Variable_
 
@@ -163,7 +163,7 @@ export const decodeHarnessReadInboxResult =
 
 Decode a bounded inbox page received through the MCP transport.
 
-### [`decodeHarnessSendErrorData`](./delivery/operations.ts#L323)
+### [`decodeHarnessSendErrorData`](./delivery/operations.ts#L258)
 
 _Function_
 
@@ -177,7 +177,7 @@ Decode the error data of one refused `send_message` call.
 
 **Returns:** The collective failure or send reason it carries.
 
-### [`decodeHarnessSendResult`](./delivery/operations.ts#L345)
+### [`decodeHarnessSendResult`](./delivery/operations.ts#L280)
 
 _Function_
 
@@ -193,7 +193,7 @@ name.
 **Returns:** The operation id a gather names and the local firewall's guidance
 on the admitted send, each if any.
 
-### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L98)
+### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L95)
 
 _Class_
 
@@ -299,7 +299,6 @@ export interface HarnessEndpoint {
     input: SendInput,
     options?: Readonly<{
       failureDelivery?: FailureDelivery;
-      idempotencyKey?: string;
     }>,
   ) => Effect.Effect<
     SendResult,
@@ -475,7 +474,7 @@ export function legacyKeys(
 
 Returns retired key names, including empty settings, without exposing values.
 
-### [`ListenError`](./transport/messaging/errors.ts#L77)
+### [`ListenError`](./transport/messaging/errors.ts#L74)
 
 _Class_
 
@@ -628,7 +627,7 @@ each data part as JSON, one part per line.
 
 **Returns:** The text a host puts in the model's turn.
 
-### [`SendError`](./transport/messaging/errors.ts#L57)
+### [`SendError`](./transport/messaging/errors.ts#L54)
 
 _Class_
 
@@ -1476,7 +1475,6 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `delivery/pass.ts`
 - `delivery/policy.ts`
 - `delivery/README.md`
-- `delivery/send-invocations.ts`
 - `endpoint/environment.ts`
 - `endpoint/harness-endpoint/capability.ts`
 - `endpoint/harness-endpoint/events.ts`

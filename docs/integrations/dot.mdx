@@ -147,8 +147,8 @@ delivery controls.
 
 ## Limitations
 
-Delivery can repeat if the daemon loses the host's receipt. Dot sends have no
-stable runtime invocation key, so repeating a send can create another message.
+Delivery can repeat if the daemon loses the host's receipt. Every send is a
+new send, so repeating one can create another message.
 
 The daemon retains produced inbox items across restart. Open gather and
 all_gather operations are process-local: a restart can lose an operation before

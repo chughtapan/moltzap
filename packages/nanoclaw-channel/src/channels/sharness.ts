@@ -178,8 +178,8 @@ function extractOutboundText(message: OutboundMessage): string | null {
 
 /**
  * Send failures whose post the daemon still delivers, `delivery-pending`, or
- * may already have sent, `outcome-unknown`. NanoClaw's retry is a new keyless
- * send and would post the message a second time, so such a row completes even
+ * may already have sent, `outcome-unknown`. NanoClaw's retry is a new send
+ * and would post the message a second time, so such a row completes even
  * when the host callback that reports it fails; the model, told the message
  * may have been sent, can resend it deliberately.
  */

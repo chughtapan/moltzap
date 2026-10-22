@@ -133,7 +133,6 @@ const inboxOperations = (inbox: MemoryInbox): HarnessMcpOperations => ({
   searchConversations: unreachable,
   readConversation: unreachable,
   send: unreachable,
-  readSend: unreachable,
   readEvent: unreachable,
   readInbox: () => Effect.sync(() => ({ items: [...inbox.unread] })),
   readInboxSummary: () =>

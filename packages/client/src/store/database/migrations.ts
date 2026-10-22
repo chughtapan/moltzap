@@ -20,8 +20,15 @@ export type MigrationSteps = Readonly<
   Record<number, (database: DatabaseSync) => void>
 >;
 
-/** Forward steps available to the production binary. */
-export const migrations: MigrationSteps = Object.freeze({});
+/**
+ * Forward steps available to the production binary. Schema 11 drops
+ * `runtime_sends`, the retained keyed-send invocations no harness reads.
+ */
+export const migrations: MigrationSteps = Object.freeze({
+  11: (database: DatabaseSync) => {
+    database.exec("DROP TABLE IF EXISTS runtime_sends");
+  },
+});
 
 /**
  * Publishes a fresh backup before committing each numbered step independently.

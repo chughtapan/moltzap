@@ -24,28 +24,7 @@ Address parsing and canonicalization follow `conversation-history.md`. Every
 new invocation creates new posts with fresh Client-minted opaque `PostId`s: one for a
 multicast or a response, one per member for a gather, one to the group for an
 all_gather. A host decides whether
-and when to call again. A keyless call is always a new invocation. An optional
-`idempotencyKey` in send options identifies retries of one whole invocation,
-including a collective response. Keys bind exact validated input and failure
-routing, and contain 1 through 128 UTF-8 bytes without NUL. A changed input
-under the same key fails with `idempotency-conflict`.
-
-The daemon reserves a keyed invocation before execution. Concurrent retries
-join it, and completed retries return its retained result or typed failure,
-including its original operation id. Caller cancellation does not cancel the
-daemon-owned keyed invocation. A reservation interrupted by daemon restart
-stays indeterminate and returns `outcome-unknown`; it is never executed again
-under that key. So does a key whose outcome the store could not retain, though
-the call that ran it returns the send's own outcome. A retained outcome the
-store cannot decode, an earlier attempt it cannot read, and a reservation it
-fails after it may have read the key also return `outcome-unknown`; only a
-reservation refused before any read returns `persistence-failed`. For a key
-whose outcome was not retained or cannot be decoded, `read_send` returns
-`indeterminate`.
-`read_send({idempotencyKey})` returns `absent`, `pending`,
-`indeterminate`, or `returned` with the stored input and observed outcome.
-These are invocation states, not collective completion. A returned failure
-also does not prove that an underlying post cannot certify later.
+and when to call again; every call is a new invocation.
 
 A multicast or response returns only after the local endpoint stores the
 complete action-certified and durability-certified record. A gather and an
@@ -63,7 +42,7 @@ Guidance mode records that hold and allows the original send without stale advic
 holds neither the SQLite transaction nor the engine/delivery lock.
 `FirewallSendError` returns a retained check reference and permitted feedback
 on the original send call, including when `failureDelivery` is `inbound`.
-Same-key retries replay this refusal; a revision requires a new invocation.
+Each retry or revision is a new invocation, checked again.
 Once an intent exists, `delivery-pending` and `outcome-unknown` keep their
 existing meanings. A policy result never retroactively calls that send unsent.
 
@@ -102,7 +81,7 @@ model as a Social Harness message in that conversation. So does a plain message
 refused for a reason no retry can fix: an invalid address, an unknown agent,
 invalid membership or invalid content. So does any send whose call fails as
 `delivery-pending` or `outcome-unknown`, a gather, all_gather or answer
-included, since a keyless retry would send the message a second time: the daemon
+included, since a retry would send the message a second time: the daemon
 still delivers a `delivery-pending` post, and an `outcome-unknown` one may
 already have gone out. The model reads that the message is pending and will
 still be delivered, or that it may have been sent, and can resend it
@@ -126,7 +105,6 @@ interface SendMessageRequest {
 
 interface RuntimeSendOptions {
   readonly failureDelivery?: "result" | "inbound"
-  readonly idempotencyKey?: string
 }
 
 interface SendMessageResult {
@@ -144,18 +122,13 @@ admitted send uncertain.
 `RuntimeSendOptions` travels in request metadata at
 `_meta["org.social-harness/send"]`, outside the tool's argument schema. The MCP-backed
 `HarnessEndpoint` supplies it from send options. The daemon validates the
-semantic arguments and runtime options separately before reserving an
-invocation. Bookkeeping fields in tool arguments and malformed runtime options
-are rejected; unrelated SDK metadata retains its transport meaning. An
-omitted options entry denotes a keyless invocation with ordinary result
-delivery. There is no alternate argument format.
+semantic arguments and runtime options separately before sending. Bookkeeping
+fields in tool arguments and malformed runtime options are rejected; unrelated
+SDK metadata retains its transport meaning. An omitted options entry denotes
+ordinary result delivery. There is no alternate argument format.
 
-A host that supplies an invocation identity must keep it stable across retries
-and reconnects and distinct for intentional repeats. A transport request id,
-an arbitrary queue id or message text does not establish this contract.
-Runtime code owns recovery lookup and retry policy; the model chooses semantic
-actions. Hosts without a qualified identity use ordinary keyless sends.
-Retrying a keyless send can create another post.
+Runtime code owns retry policy; the model chooses semantic actions. Retrying a
+send can create another post.
 
 It returns its structured result once the send completes. A multicast has no
 operation id, so its result is `{}`; a gather's or all_gather's result names its id,
@@ -184,8 +157,7 @@ Adapters preserve host failure distinction without exposing private Client
 causes.
 
 Acceptance proves explicit target-grammar validation, distinct identity for
-distinct keyless calls, retained outcomes for same-key retries, internal
-recovery of one persisted intent, first-send group creation/reuse, and the
+distinct calls, internal recovery of one persisted intent, first-send group creation/reuse, and the
 operation-specific completion boundaries described above. Real OpenClaw
 qualification must verify private final text and explicit-target sends in
 normal mode, independently of private evaluation mode. NanoClaw

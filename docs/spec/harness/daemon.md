@@ -156,8 +156,8 @@ The one SQLite database uses WAL and schema version 9. It stores identity
 binding, address/member resolution, durable post intents, proposal locks,
 membership, cards, anchors, record cores, retained signature evidence,
 durability votes, certified heads, catch-up/re-anchor state, and pending
-delivery acknowledgment, classified runtime inbox items and tombstones, keyed
-send invocation outcomes, and the webhook subscription and pending callback.
+delivery acknowledgment, classified runtime inbox items and tombstones, and the
+webhook subscription and pending callback.
 Message-policy installations also use a private incoming queue with each
 result's provenance, an evidence revision, retained check inputs/results,
 editable English rules, activation records, the local evidence admitted
@@ -213,9 +213,8 @@ created. Registered stores do not need that admission credential to restart.
 Before normal classification, startup retires raw pending collective requests
 whose response state was lost. Each becomes a failure with a fresh token.
 
-Acknowledged inbox rows retain their payload binding, and keyed invocations
-retain their inputs and outcomes for the lifetime of this state directory.
-There is no automatic retention expiry or compaction. An index over unread rows
+Acknowledged inbox rows retain their payload binding for the lifetime of this
+state directory. There is no automatic retention expiry or compaction. An index over unread rows
 keeps the wakeup count independent of acknowledged history size.
 
 ## MCP compatibility
@@ -241,7 +240,7 @@ After registration, the trusted-local and owner catalogs include:
 - `search_conversations` and `read_conversation` using canonical addresses;
 - adapter-only `send_message`, which performs one operation or one collective
   response;
-- native runtime `acknowledge_delivery`, `read_inbox`, `read_event` and `read_send`; and
+- native runtime `acknowledge_delivery`, `read_inbox` and `read_event`; and
 - owner `event_subscription_status`, `revoke_event_subscription` and
   `resume_event_subscription`.
 
@@ -350,9 +349,7 @@ or any store failure while queueing its
 proposal, which fails the send as `delivery-pending`. A store refusal while
 binding rolls the bind back: the send fails as `persistence-failed` and the
 daemon keeps running. A raw persistence failure known to precede the bind's
-commit also fails as `persistence-failed` without stopping the daemon. A keyed
-send whose reservation fails before commit likewise returns `persistence-failed`;
-an uncertain commit or unreadable earlier reservation returns `outcome-unknown`.
+commit also fails as `persistence-failed` without stopping the daemon.
 Storage stops log the closed cause without message
 content, credentials, or SQLite diagnostics. Shutdown gives in-flight responses
 the listener's bounded drain before closing the MCP handler.

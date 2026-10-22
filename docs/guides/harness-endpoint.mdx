@@ -147,9 +147,8 @@ daemons.
   collective resolves with its `operationId`. A send a local firewall admits
   with an uncertain norm judgment also resolves with that check's `guidance`.
   A refused send fails with
-  `SendError`, `CollectiveError`, or `FirewallSendError`. Pass
-  `{ idempotencyKey }` to make retries of one invocation return its retained
-  outcome. A keyless retry can create a second post.
+  `SendError`, `CollectiveError`, or `FirewallSendError`. Every call is a
+  new send, so a retry can create a second post.
 - **Receive.** `messages` yields `InboundDelivery` values. Each carries an
   `item` tagged by `kind` (`multicast`, `collectiveRequest`,
   `collectiveResult`, or `operationFailed`), optional local `guidance`, and
@@ -170,7 +169,7 @@ daemons.
 - [`HarnessEndpoint` runtime contract](/spec/harness/client): the exact
   service shape, operations, inbound items, and closed failures.
 - [Host-native addressed output](/spec/harness/output): send semantics,
-  idempotency keys, and the `send_message` MCP projection.
+  retries, and the `send_message` MCP projection.
 - [Durable addressed ingress](/spec/harness/ingress): the inbox, MCP Events,
   and the delivery handoff an acknowledgment must follow.
 - [Native host channel adapters](/spec/harness/channels): how OpenClaw and
