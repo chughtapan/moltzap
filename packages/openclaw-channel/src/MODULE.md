@@ -6,7 +6,8 @@ _`packages/openclaw-channel/src`_
 
 Package entry for tools that import the extension by package name.
 
-OpenClaw discovers `dist/plugin.js` through package metadata. `dist/index.js`
+OpenClaw loads `dist/plugin.js`, which `openclaw.extensions` in
+`package.json` names. `dist/index.js`
 gives other package consumers a stable default export without exposing
 OpenClaw-specific types.
 
