@@ -616,6 +616,21 @@ const assertWrongKeyRegistration = (fixture: ClientFixture) =>
     expect(outcomeName(outcome)).toBe(INVALID_RESPONSE_TAG);
   });
 
+/** A Registry client whose HTTP client dies if any request is sent. */
+const unsentRegistryLayer = (signingAuthority: AgentSigningAuthority) =>
+  Registry.layer({
+    origin: CLIENT_ORIGIN,
+    registrySignerPublicKey: AgentSigningAuthority.publicKey(signingAuthority),
+    requestTimeout: CLIENT_TIMEOUT,
+  }).pipe(
+    Layer.provide(
+      Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make(() => Effect.dieMessage("no request is sent")),
+      ),
+    ),
+  );
+
 /** A request whose key throws on read fails as a signing error, not a defect. */
 const assertUnreadableKeyRegistration = Effect.gen(function* () {
   const signingAuthority = yield* AgentSigningAuthority.fromPkcs8(
@@ -629,18 +644,7 @@ const assertUnreadableKeyRegistration = Effect.gen(function* () {
       },
     },
   );
-  const registryLayer = Registry.layer({
-    origin: CLIENT_ORIGIN,
-    registrySignerPublicKey: AgentSigningAuthority.publicKey(signingAuthority),
-    requestTimeout: CLIENT_TIMEOUT,
-  }).pipe(
-    Layer.provide(
-      Layer.succeed(
-        HttpClient.HttpClient,
-        HttpClient.make(() => Effect.dieMessage("no request is sent")),
-      ),
-    ),
-  );
+  const registryLayer = unsentRegistryLayer(signingAuthority);
 
   const outcome = yield* Registry.register({
     request: { ...makeRequest("unreadable-key"), publicKey },
@@ -651,12 +655,78 @@ const assertUnreadableKeyRegistration = Effect.gen(function* () {
   expect(outcomeName(outcome)).toBe(SIGNING_ERROR_TAG);
 });
 
+/** A view of `value` whose `member` throws on read. */
+const throwingOn = <Value extends object>(
+  value: Value,
+  member: string,
+): Value =>
+  new Proxy(value, {
+    get: (target, key): unknown => {
+      if (key === member) {
+        throw new Error(`unreadable ${member}`);
+      }
+      return Reflect.get(target, key);
+    },
+  });
+
+/**
+ * Request records whose members throw on read fail with each entry point's
+ * typed error instead of dying, and send nothing.
+ */
+const assertUnreadableRequestRecords = Effect.gen(function* () {
+  const signingAuthority = yield* AgentSigningAuthority.fromPkcs8(
+    Redacted.make(makePrivateKeyPem()),
+  );
+  const registryLayer = unsentRegistryLayer(signingAuthority);
+  const request = makeRequest("unreadable-request");
+  const [registered, lookedUp, listed] = yield* Effect.all(
+    [
+      Registry.register({
+        request: throwingOn(
+          {
+            ...request,
+            publicKey: AgentSigningAuthority.publicKey(signingAuthority),
+          },
+          "principalId",
+        ),
+        admissionCredential: Redacted.make("admission-token="),
+        signingAuthority,
+      }).pipe(Effect.either),
+      Registry.lookup(
+        throwingOn({ agentName: request.agentName }, "agentName"),
+      ).pipe(Effect.either),
+      Registry.list(
+        throwingOn(
+          {
+            afterAgentId: Schema.decodeUnknownSync(AgentId)(
+              "agt_AAAAAAAAAAAAAAAAAAAAAA",
+            ),
+          },
+          "afterAgentId",
+        ),
+      ).pipe(Effect.either),
+    ],
+    { concurrency: 1 },
+  ).pipe(Effect.provide(registryLayer));
+
+  expect([
+    outcomeName(registered),
+    outcomeName(lookedUp),
+    outcomeName(listed),
+  ]).toStrictEqual([
+    SIGNING_ERROR_TAG,
+    INVALID_RESPONSE_TAG,
+    INVALID_RESPONSE_TAG,
+  ]);
+});
+
 const clientBehavior = Effect.gen(function* () {
   const fixture = yield* makeClientFixture;
   yield* assertLookupScenarios(fixture);
   yield* assertRegistrationClientBehavior(fixture);
   yield* assertWrongKeyRegistration(fixture);
   yield* assertUnreadableKeyRegistration;
+  yield* assertUnreadableRequestRecords;
 });
 
 describe("Registry private contracts", () => {

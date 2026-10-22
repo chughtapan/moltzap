@@ -5,7 +5,15 @@ import {
   HttpClientRequest,
   type HttpClientResponse,
 } from "@effect/platform";
-import { Duration, Effect, Either, Encoding, Redacted, Schema } from "effect";
+import {
+  Duration,
+  Effect,
+  Either,
+  Encoding,
+  ParseResult,
+  Redacted,
+  Schema,
+} from "effect";
 import type { AgentId } from "../identifiers.js";
 import { AgentCard, type VerifiedAgentCard } from "../agent-card.js";
 import {
@@ -46,6 +54,7 @@ import {
   type RegistryLookupResult,
   type RegistryPublicReadError,
   type RegistryRegisterCall,
+  RegistryRegisterRequest,
   type RegistryRegisterResult,
   RegistryRequestTimeoutError,
 } from "./contract.js";
@@ -278,6 +287,25 @@ const encodeRequest = <A, I>(
     Effect.mapError(invalidResponse),
   );
 
+/**
+ * One decoded copy of a caller's request record. Schema encoding reads members
+ * directly and does not catch a throwing getter, so the record is read once
+ * here under a try, and every later step reads only the copy. A record the
+ * Schema refuses fails as `RegistryInvalidResponseError`, as an unencodable
+ * request always has; a record whose members throw fails as `unreadable`.
+ */
+const snapshotRequest = <A, I, E>(
+  schema: Schema.Schema<A, I>,
+  read: () => A,
+  unreadable: () => E,
+): Effect.Effect<A, E | RegistryInvalidResponseError> =>
+  Effect.try({
+    try: () =>
+      Schema.decodeUnknownSync(schema)(Schema.encodeSync(schema)(read())),
+    catch: (cause) =>
+      ParseResult.isParseError(cause) ? invalidResponse() : unreadable(),
+  });
+
 const verifyCard = (
   agentCard: AgentCard,
   registrySignerPublicKey: Ed25519PublicKey,
@@ -330,11 +358,12 @@ const makePost = (
 const makeSignedRegistrationRequest = (
   input: RegistryClientInput,
   call: RegistryRegisterCall,
+  registerRequest: typeof RegistryRegisterRequest.Type,
 ) =>
   Effect.gen(function* () {
     const sameKey = yield* sameEd25519PublicKey(
       () => AgentSigningAuthority.publicKey(call.signingAuthority),
-      () => call.request.publicKey,
+      () => registerRequest.publicKey,
     ).pipe(
       Effect.catchTag("Ed25519PublicKeyOperationError", () =>
         Effect.fail(new AgentSigningError()),
@@ -344,7 +373,7 @@ const makeSignedRegistrationRequest = (
       return yield* new AgentSigningError();
     }
     const bodyBytes = yield* encodeRequest(registrationBody, {
-      request: call.request,
+      request: registerRequest,
     });
     const httpRequest = makePost(
       input.origin,
@@ -373,15 +402,17 @@ const makeSignedRegistrationRequest = (
 const registrationMatchesCall = (
   agentCard: VerifiedAgentCard,
   call: RegistryRegisterCall,
+  registerRequest: typeof RegistryRegisterRequest.Type,
 ): boolean =>
-  agentCard.principalId === call.request.principalId &&
-  agentCard.agentName === call.request.agentName &&
+  agentCard.principalId === registerRequest.principalId &&
+  agentCard.agentName === registerRequest.agentName &&
   agentCard.publicKey.x ===
     AgentSigningAuthority.publicKey(call.signingAuthority).x;
 
 const decodeRegistrationResult = (
   input: RegistryClientInput,
   call: RegistryRegisterCall,
+  registerRequest: typeof RegistryRegisterRequest.Type,
   responseBytes: Uint8Array,
 ): Effect.Effect<RegistryRegisterResult, RegistryInvalidResponseError> =>
   Effect.gen(function* () {
@@ -396,7 +427,7 @@ const decodeRegistrationResult = (
       result.agentCard,
       input.registrySignerPublicKey,
     );
-    if (!registrationMatchesCall(agentCard, call)) {
+    if (!registrationMatchesCall(agentCard, call, registerRequest)) {
       return yield* invalidResponse();
     }
     return Object.freeze({ kind: "registered", agentCard });
@@ -416,14 +447,28 @@ function makeRegister(
 > {
   return (call) =>
     Effect.gen(function* () {
-      const request = yield* makeSignedRegistrationRequest(input, call);
+      const registerRequest = yield* snapshotRequest(
+        RegistryRegisterRequest,
+        () => call.request,
+        () => new AgentSigningError(),
+      );
+      const request = yield* makeSignedRegistrationRequest(
+        input,
+        call,
+        registerRequest,
+      );
       const [response, responseBytes] = yield* execute({
         client: input.client,
         request,
         operation: "register",
       });
       yield* requireJsonSuccess(response);
-      return yield* decodeRegistrationResult(input, call, responseBytes);
+      return yield* decodeRegistrationResult(
+        input,
+        call,
+        registerRequest,
+        responseBytes,
+      );
     }).pipe((effect) => withDeadline(effect, input.requestTimeout));
 }
 
@@ -438,8 +483,13 @@ function makeLookup(
   | RegistryRequestTimeoutError
   | RegistryInvalidResponseError
 > {
-  return (call) =>
+  return (candidate) =>
     Effect.gen(function* () {
+      const call = yield* snapshotRequest(
+        RegistryLookupRequest,
+        () => candidate,
+        invalidResponse,
+      );
       const bodyBytes = yield* encodeRequest(RegistryLookupRequest, call);
       const [response, responseBytes] = yield* executePublicRead({
         client: input.client,
@@ -484,8 +534,13 @@ function makeList(
   | RegistryRequestTimeoutError
   | RegistryInvalidResponseError
 > {
-  return (call) =>
+  return (candidate) =>
     Effect.gen(function* () {
+      const call = yield* snapshotRequest(
+        RegistryListRequest,
+        () => candidate,
+        invalidResponse,
+      );
       const bodyBytes = yield* encodeRequest(RegistryListRequest, call);
       const [response, responseBytes] = yield* executePublicRead({
         client: input.client,
