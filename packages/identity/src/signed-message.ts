@@ -21,6 +21,7 @@ import {
   AgentSigningAuthority,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
   agentSigningPrivateKey,
+  type Ed25519PublicKey,
   ed25519PublicKeyThumbprintUri,
   ed25519VerificationKey,
   hasCanonicalEd25519SignatureEncoding,
@@ -404,7 +405,7 @@ const snapshotRecipients = (recipientAgentIds: ReadonlySet<AgentIdValue>) =>
 const snapshotBody = (candidate: Uint8Array) =>
   Effect.gen(function* () {
     const body = yield* Effect.try({
-      try: () => Uint8Array.from(candidate),
+      try: () => new Uint8Array(candidate),
       catch: signingFailure,
     });
     if (body.byteLength > MAXIMUM_BODY_BYTES) {
@@ -417,11 +418,47 @@ const snapshotBody = (candidate: Uint8Array) =>
  * `digestAgentCard` admits only a card this package parsed, which is frozen
  * data, so the card reads after it cannot throw.
  */
-const prepareSigningMaterial = (input: SignInput) =>
+/** A SignInput read once, with the card members signing uses. */
+interface SigningRecord extends SignInput {
+  readonly senderAgentId: AgentIdValue;
+  readonly publicKey: Ed25519PublicKey;
+}
+
+/**
+ * Reads the caller's SignInput, and the card members signing uses, once under
+ * a try, so an input whose members throw fails as a signing error and later
+ * steps read only this copy.
+ */
+const snapshotSignInput = (
+  input: SignInput,
+): Effect.Effect<SigningRecord, SignedMessageSigningError> =>
+  Effect.try({
+    try: () => {
+      const {
+        agentCard,
+        signingAuthority,
+        recipientAgentIds,
+        messageId,
+        body,
+      } = input;
+      return {
+        agentCard,
+        signingAuthority,
+        recipientAgentIds,
+        messageId,
+        body,
+        senderAgentId: agentCard.agentId,
+        publicKey: agentCard.publicKey,
+      };
+    },
+    catch: signingFailure,
+  });
+
+const prepareSigningMaterial = (input: SigningRecord) =>
   Effect.gen(function* () {
     const sameKey = yield* sameEd25519PublicKey(
       () => AgentSigningAuthority.publicKey(input.signingAuthority),
-      () => input.agentCard.publicKey,
+      () => input.publicKey,
     ).pipe(Effect.mapError(signingFailure));
     if (!sameKey) {
       return yield* new SignedMessageSigningError();
@@ -431,13 +468,13 @@ const prepareSigningMaterial = (input: SignInput) =>
     const agentCardDigest = yield* digestAgentCard(input.agentCard).pipe(
       Effect.mapError(signingFailure),
     );
-    const kid = yield* ed25519PublicKeyThumbprintUri(
-      input.agentCard.publicKey,
-    ).pipe(Effect.mapError(signingFailure));
+    const kid = yield* ed25519PublicKeyThumbprintUri(input.publicKey).pipe(
+      Effect.mapError(signingFailure),
+    );
     const payloadBytes = yield* encodeCanonicalJson({
       kind: "signedMessage",
       sharnessVersion: yield* WireVersions.emitted,
-      senderAgentId: input.agentCard.agentId,
+      senderAgentId: input.senderAgentId,
       agentCardDigest,
       recipientAgentIds: recipients,
       messageId: input.messageId,
@@ -453,11 +490,12 @@ const sign = (
   SignedMessageSigningError
 > =>
   Effect.gen(function* () {
-    const { kid, payloadBytes } = yield* prepareSigningMaterial(input);
+    const signing = yield* snapshotSignInput(input);
+    const { kid, payloadBytes } = yield* prepareSigningMaterial(signing);
     const representation = yield* Effect.tryPromise({
       try: () =>
         new GeneralSign(payloadBytes)
-          .addSignature(agentSigningPrivateKey(input.signingAuthority))
+          .addSignature(agentSigningPrivateKey(signing.signingAuthority))
           .setProtectedHeader({
             alg: "Ed25519",
             kid,
@@ -477,40 +515,13 @@ interface VerifyInput {
   readonly agentCard: VerifiedAgentCard;
 }
 
-function verify(
-  input: VerifyInput & { readonly signedMessage: LiveSignedMessage },
-): Effect.Effect<
-  LiveSignedMessage & VerifiedSignedMessage,
-  SignedMessageVerificationError
->;
-function verify(
-  input: VerifyInput,
-): Effect.Effect<VerifiedSignedMessage, SignedMessageVerificationError>;
-function verify(
-  input: VerifyInput,
-): Effect.Effect<VerifiedSignedMessage, SignedMessageVerificationError> {
-  return Effect.gen(function* () {
-    const state = messageState.get(input.signedMessage);
-    if (state === undefined) {
-      return yield* new SignedMessageVerificationError();
-    }
-    const expectedDigest = yield* digestAgentCard(input.agentCard).pipe(
-      Effect.mapError(verificationFailure),
-    );
-    const expectedKid = yield* ed25519PublicKeyThumbprintUri(
-      input.agentCard.publicKey,
-    ).pipe(Effect.mapError(verificationFailure));
-    const messageMatches =
-      input.signedMessage.senderAgentId === input.agentCard.agentId &&
-      input.signedMessage.agentCardDigest === expectedDigest;
-    const headerMatches =
-      state.protectedHeader.kid === expectedKid &&
-      state.protectedHeader.alg === "Ed25519" &&
-      state.protectedHeader.typ === SIGNED_MESSAGE_TYPE;
-    if (!messageMatches || !headerMatches) {
-      return yield* new SignedMessageVerificationError();
-    }
-    const key = yield* ed25519VerificationKey(input.agentCard.publicKey).pipe(
+/** Checks the message's one Ed25519 signature against `publicKey`. */
+const verifySignature = (
+  state: SignedMessageState,
+  publicKey: Ed25519PublicKey,
+): Effect.Effect<void, SignedMessageVerificationError> =>
+  Effect.gen(function* () {
+    const key = yield* ed25519VerificationKey(publicKey).pipe(
       Effect.mapError(verificationFailure),
     );
     yield* Effect.tryPromise({
@@ -532,7 +543,64 @@ function verify(
       },
       catch: verificationFailure,
     });
-    return brandVerifiedSignedMessage(input.signedMessage);
+  });
+
+/**
+ * Reads the caller's VerifyInput, and the card members verification uses,
+ * once under a try, so an input whose members throw fails as a verification
+ * error and later steps read only this copy.
+ */
+const snapshotVerifyInput = (input: VerifyInput) =>
+  Effect.try({
+    try: () => {
+      const { signedMessage, agentCard } = input;
+      return {
+        signedMessage,
+        agentCard,
+        senderAgentId: agentCard.agentId,
+        publicKey: agentCard.publicKey,
+      };
+    },
+    catch: verificationFailure,
+  });
+
+function verify(
+  input: VerifyInput & { readonly signedMessage: LiveSignedMessage },
+): Effect.Effect<
+  LiveSignedMessage & VerifiedSignedMessage,
+  SignedMessageVerificationError
+>;
+function verify(
+  input: VerifyInput,
+): Effect.Effect<VerifiedSignedMessage, SignedMessageVerificationError>;
+function verify(
+  input: VerifyInput,
+): Effect.Effect<VerifiedSignedMessage, SignedMessageVerificationError> {
+  return Effect.gen(function* () {
+    const { signedMessage, agentCard, senderAgentId, publicKey } =
+      yield* snapshotVerifyInput(input);
+    const state = messageState.get(signedMessage);
+    if (state === undefined) {
+      return yield* new SignedMessageVerificationError();
+    }
+    const expectedDigest = yield* digestAgentCard(agentCard).pipe(
+      Effect.mapError(verificationFailure),
+    );
+    const expectedKid = yield* ed25519PublicKeyThumbprintUri(publicKey).pipe(
+      Effect.mapError(verificationFailure),
+    );
+    const messageMatches =
+      signedMessage.senderAgentId === senderAgentId &&
+      signedMessage.agentCardDigest === expectedDigest;
+    const headerMatches =
+      state.protectedHeader.kid === expectedKid &&
+      state.protectedHeader.alg === "Ed25519" &&
+      state.protectedHeader.typ === SIGNED_MESSAGE_TYPE;
+    if (!messageMatches || !headerMatches) {
+      return yield* new SignedMessageVerificationError();
+    }
+    yield* verifySignature(state, publicKey);
+    return brandVerifiedSignedMessage(signedMessage);
   });
 }
 

@@ -328,7 +328,7 @@ export const LIVE_WIRE_VERSIONS: DistinctWindow<typeof liveWindow> = liveWindow
 Versions accepted at outer-envelope and authenticated HTTP admission by the
 Registry, the Router, and the daemon.
 
-### [`LiveSignedMessage`](./signed-message.ts#L363)
+### [`LiveSignedMessage`](./signed-message.ts#L364)
 
 _TypeAlias_
 
@@ -352,7 +352,7 @@ export class MalformedRequestError extends Schema.TaggedError<MalformedRequestEr
 
 The request representation is not valid for the selected operation.
 
-### [`MessageId (type)`](./signed-message.ts#L44)
+### [`MessageId (type)`](./signed-message.ts#L45)
 
 _TypeAlias_
 
@@ -362,7 +362,7 @@ export type MessageId = typeof MessageId.Type;
 
 Validated nominal value decoded by MessageId.
 
-### [`MessageId (value)`](./signed-message.ts#L41)
+### [`MessageId (value)`](./signed-message.ts#L42)
 
 _Variable_
 
@@ -448,7 +448,7 @@ export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()
 
 No exact HTTP route owns the request target.
 
-### [`SealedBody`](./sealed-body.ts#L571)
+### [`SealedBody`](./sealed-body.ts#L614)
 
 _Variable_
 
@@ -489,7 +489,7 @@ export class SealedBodySealingError extends Data.TaggedError(
 
 A body cannot be sealed from the supplied sender to the supplied recipients.
 
-### [`SignedMessage (type)`](./signed-message.ts#L200)
+### [`SignedMessage (type)`](./signed-message.ts#L201)
 
 _Interface_
 
@@ -505,7 +505,7 @@ export interface SignedMessage {
 
 Immutable attributed-message fields exposed to Router consumers.
 
-### [`SignedMessage (value)`](./signed-message.ts#L546)
+### [`SignedMessage (value)`](./signed-message.ts#L614)
 
 _Variable_
 
@@ -531,7 +531,7 @@ export const SignedMessage = Object.assign(signedMessageSchema, {
 
 Opaque attributed message operations and exact representation Schema.
 
-### [`SignedMessageSigningError`](./signed-message.ts#L353)
+### [`SignedMessageSigningError`](./signed-message.ts#L354)
 
 _Class_
 
@@ -543,7 +543,7 @@ export class SignedMessageSigningError extends Data.TaggedError(
 
 A message cannot be signed under the supplied immutable identity.
 
-### [`SignedMessageVerificationError`](./signed-message.ts#L358)
+### [`SignedMessageVerificationError`](./signed-message.ts#L359)
 
 _Class_
 
@@ -606,7 +606,7 @@ export type VerifiedAgentRequest = Readonly<{
 
 Request body and caller identity established by AuthenticatedHttp.
 
-### [`VerifiedSignedMessage`](./signed-message.ts#L347)
+### [`VerifiedSignedMessage`](./signed-message.ts#L348)
 
 _TypeAlias_
 
