@@ -787,6 +787,38 @@ it("authenticates when the Registry's result carries members beyond its type", (
     }),
   ));
 
+it("authenticates a body whose bytes carry their own iterator", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const prepared = yield* prepareRequest({ fixture });
+      const bodyBytes = new Uint8Array(prepared.bodyBytes);
+      Object.defineProperty(bodyBytes, Symbol.iterator, {
+        value: () => {
+          throw new Error("iterator read");
+        },
+      });
+      const verified = yield* verifyAgentRequest({
+        ...prepared,
+        bodyBytes,
+      }).pipe(
+        Effect.provide(
+          authenticatedHttpLayerWithRegistry(
+            registryWithLookup(() =>
+              Effect.succeed({
+                kind: "found",
+                agentCard: fixture.agentCard,
+                etag: "1",
+              }),
+            ),
+          ),
+        ),
+      );
+
+      expect(verified.agentCard).toBe(fixture.agentCard);
+    }),
+  ));
+
 it("retains a replay claim when concurrent verification completes at expiry", () =>
   Effect.runPromise(
     Effect.gen(function* () {

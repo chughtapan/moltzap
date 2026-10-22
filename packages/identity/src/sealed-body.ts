@@ -185,8 +185,7 @@ const RECIPIENT_ENTRY_BYTES = sealedRepresentationSizes.recipient;
  */
 const commitmentOf = <E>(saltedPlaintext: Uint8Array, failure: () => E) =>
   Effect.tryPromise({
-    try: () =>
-      crypto.subtle.digest("SHA-256", Uint8Array.from(saltedPlaintext)),
+    try: () => crypto.subtle.digest("SHA-256", new Uint8Array(saltedPlaintext)),
     catch: failure,
   }).pipe(
     Effect.map((digest) => Encoding.encodeBase64Url(new Uint8Array(digest))),

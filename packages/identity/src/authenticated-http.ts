@@ -162,7 +162,7 @@ function verifyRequest(
   return Effect.gen(function* () {
     const body = yield* decodeCanonicalJson(
       registeredAgentBody,
-      Uint8Array.from(input.bodyBytes),
+      new Uint8Array(input.bodyBytes),
     ).pipe(
       Effect.catchTag("CanonicalJsonError", () =>
         Effect.fail(new MalformedRequestError()),

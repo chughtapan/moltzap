@@ -27,7 +27,7 @@ export interface AgentCard {
 
 Immutable public identity fields carried by an AgentCard.
 
-### [`AgentCard (value)`](./agent-card.ts#L448)
+### [`AgentCard (value)`](./agent-card.ts#L466)
 
 _Variable_
 
@@ -68,7 +68,7 @@ export const AgentCardDigest = canonicalIdentifier(
 
 Digest binding a message to one complete immutable AgentCard.
 
-### [`AgentCardVerificationError`](./agent-card.ts#L289)
+### [`AgentCardVerificationError`](./agent-card.ts#L311)
 
 _Class_
 
@@ -448,7 +448,7 @@ export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()
 
 No exact HTTP route owns the request target.
 
-### [`SealedBody`](./sealed-body.ts#L614)
+### [`SealedBody`](./sealed-body.ts#L613)
 
 _Variable_
 
@@ -465,7 +465,7 @@ Seals a SignedMessage body to its recipients, opens a verified sealed body,
 and reports sealed sizes. `SignedMessage.sign` never seals; the caller
 chooses which bodies to seal and signs the sealed bytes.
 
-### [`SealedBodyOpeningError`](./sealed-body.ts#L201)
+### [`SealedBodyOpeningError`](./sealed-body.ts#L200)
 
 _Class_
 
@@ -477,7 +477,7 @@ export class SealedBodyOpeningError extends Data.TaggedError(
 
 A verified SignedMessage body does not open as a sealed body for this agent.
 
-### [`SealedBodySealingError`](./sealed-body.ts#L196)
+### [`SealedBodySealingError`](./sealed-body.ts#L195)
 
 _Class_
 
@@ -581,7 +581,7 @@ export class UnsupportedMediaTypeError extends Schema.TaggedError<UnsupportedMed
 
 The selected route cannot consume the request content framing.
 
-### [`VerifiedAgentCard`](./agent-card.ts#L274)
+### [`VerifiedAgentCard`](./agent-card.ts#L296)
 
 _TypeAlias_
 

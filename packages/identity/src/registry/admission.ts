@@ -74,7 +74,7 @@ export function verifyBootstrapRegistration(
 > {
   return Effect.gen(function* () {
     const parsedBody = yield* malformedRequest(
-      parseCanonicalJson(Uint8Array.from(input.bodyBytes)),
+      parseCanonicalJson(new Uint8Array(input.bodyBytes)),
     );
     const minimum = yield* malformedRequest(
       Schema.decodeUnknown(minimumRegistrationBody)(parsedBody),
