@@ -3,6 +3,7 @@ import { type AgentId, AgentId as AgentIdSchema } from "@moltzap/identity";
 import canonicalize from "canonicalize";
 import { Data, Effect, Encoding, Schema } from "effect";
 import { compactDecrypt, CompactEncrypt } from "jose";
+import { createSecretKey } from "node:crypto";
 import {
   encodedPollCursorProtectedHeader,
   PollCursor,
@@ -38,7 +39,9 @@ export interface PollCursorCodec {
 }
 
 /**
- * Creates the current-instance authenticated client-held cursor codec.
+ * Creates the current-instance authenticated client-held cursor codec. The
+ * key is imported once as a non-extractable AES-GCM `CryptoKey`, so no
+ * encrypt or decrypt imports raw key bytes.
  *
  * @param input Process-local key and instance identity.
  * @param input.key Process-local direct encryption key.
@@ -49,7 +52,11 @@ export const makePollCursorCodec = (input: {
   readonly key: Uint8Array;
   readonly routerInstanceId: RouterInstanceIdValue;
 }): PollCursorCodec => {
-  const key = Uint8Array.from(input.key);
+  const key = createSecretKey(new Uint8Array(input.key)).toCryptoKey(
+    { name: "AES-GCM" },
+    false,
+    ["encrypt", "decrypt"],
+  );
   const routerInstanceId = input.routerInstanceId;
   return Object.freeze({
     encrypt: ({
@@ -133,7 +140,7 @@ const headerIsExact = (header: Readonly<Record<string, unknown>>): boolean => {
 };
 
 function encodePollCursor(
-  key: Uint8Array,
+  key: CryptoKey,
   routerInstanceId: RouterInstanceIdValue,
   agentId: AgentId,
   lastScannedOrder: bigint,
@@ -195,7 +202,7 @@ const decodeCursorPlaintext = (
   }).pipe(Effect.catchTag("ParseError", () => Effect.fail(invalidCursor())));
 
 function decodePollCursor(
-  key: Uint8Array,
+  key: CryptoKey,
   routerInstanceId: RouterInstanceIdValue,
   cursor: PollCursorValue,
   callerAgentId: AgentId,
