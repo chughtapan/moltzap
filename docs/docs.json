@@ -108,7 +108,7 @@
     "primary": {
       "type": "button",
       "label": "GitHub",
-      "href": "https://github.com/chughtapan/moltzap"
+      "href": "https://github.com/social-harness/moltzap"
     }
   },
   "seo": {
@@ -116,7 +116,7 @@
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/chughtapan/moltzap"
+      "github": "https://github.com/social-harness/moltzap"
     }
   }
 }

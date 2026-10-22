@@ -13,11 +13,11 @@ Production composition for one explicitly configured endpoint daemon.
 
 ## Public surface
 
-### [`Daemon`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L248)
+### [`Daemon`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/service/index.ts#L248)
 
 _Namespace_
 
-### [`FirewallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L253)
+### [`FirewallOptions`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/service/index.ts#L253)
 
 _TypeAlias_
 
@@ -33,7 +33,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-### [`help`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L250)
+### [`help`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/service/index.ts#L250)
 
 _Variable_
 
@@ -43,7 +43,7 @@ _Variable_
 
 Usage text listing the daemon process's environment variables.
 
-### [`layer`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L348)
+### [`layer`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/service/index.ts#L348)
 
 _Variable_
 
@@ -56,7 +56,7 @@ _Variable_
 Complete production process composition for `sharnessd`, with the
 firewall `SHARNESS_MESSAGE_POLICY_FILE` describes when it is set.
 
-### [`StartupError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L262)
+### [`StartupError`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/service/index.ts#L262)
 
 _Class_
 
@@ -81,10 +81,10 @@ _Class_
       let remedy = "";
       if (this.reason === "pre-reset") {
         remedy =
-          ". Start with a fresh state directory and register again; see https://github.com/chughtapan/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release.";
+          ". Start with a fresh state directory and register again; see https://github.com/social-harness/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release.";
       } else if (this.reason === "outbox-too-old") {
         remedy =
-          ". Drain the outbox on the previous release before upgrading, or apply a reset release; see https://github.com/chughtapan/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release.";
+          ". Drain the outbox on the previous release before upgrading, or apply a reset release; see https://github.com/social-harness/moltzap/blob/main/docs/guides/upgrades.mdx#apply-a-reset-release.";
       }
       return `sharnessd startup failed in phase ${this.phase}${reason}${detail}${remedy}`;
     }
@@ -93,7 +93,7 @@ _Class_
 
 Closed startup phase with sanitized configuration details.
 
-### [`withFirewall`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/index.ts#L358)
+### [`withFirewall`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/service/index.ts#L358)
 
 _Function_
 

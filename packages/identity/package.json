@@ -5,12 +5,12 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/chughtapan/moltzap.git",
+    "url": "git+https://github.com/social-harness/moltzap.git",
     "directory": "packages/identity"
   },
-  "homepage": "https://github.com/chughtapan/moltzap/tree/main/packages/identity#readme",
+  "homepage": "https://github.com/social-harness/moltzap/tree/main/packages/identity#readme",
   "bugs": {
-    "url": "https://github.com/chughtapan/moltzap/issues"
+    "url": "https://github.com/social-harness/moltzap/issues"
   },
   "type": "module",
   "engines": {

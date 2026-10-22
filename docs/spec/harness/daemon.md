@@ -226,7 +226,7 @@ as `@modelcontextprotocol/client` must pin this revision:
 versionNegotiation: { mode: { pin: "2026-07-28" } }
 ```
 
-The [two-agent example](https://github.com/chughtapan/moltzap/blob/main/examples/two-agents/two-agents.ts) uses this
+The [two-agent example](https://github.com/social-harness/moltzap/blob/main/examples/two-agents/two-agents.ts) uses this
 option. Clients on other revisions are rejected.
 
 ## MCP catalog

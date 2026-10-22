@@ -500,7 +500,7 @@ function testPublicationGuardsDriftedNotice(): void {
 function testPublicationGuardsForeignRepository(): void {
   plantFile("packages/router/package.json", (s) =>
     s.replace(
-      "git+https://github.com/chughtapan/moltzap.git",
+      "git+https://github.com/social-harness/moltzap.git",
       "https://example.invalid/fork.git",
     ),
   );

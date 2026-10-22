@@ -22,7 +22,7 @@ import {
 } from "../modules.ts";
 import { folderOf, loadTypeDoc, type TypeDocCache } from "../typedoc-load.ts";
 
-const GITHUB_SOURCE = "https://github.com/chughtapan/moltzap/blob/main";
+const GITHUB_SOURCE = "https://github.com/social-harness/moltzap/blob/main";
 
 let sandbox = "";
 let rendered: readonly ModuleRenderResult[] = [];

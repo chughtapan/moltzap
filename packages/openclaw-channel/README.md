@@ -76,7 +76,7 @@ agent identity.
 
 ## Read the implementation
 
-Start with [`plugin.ts`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/plugin.ts) at `createChannelPlugin`. The main
+Start with [`plugin.ts`](https://github.com/social-harness/moltzap/blob/main/packages/openclaw-channel/src/plugin.ts) at `createChannelPlugin`. The main
 path is:
 
 1. `startAccountConnection` acquires a `HarnessEndpoint` for an OpenClaw
@@ -96,11 +96,11 @@ path is:
     refuses text that states a gather, all_gather or answer.
 
 The package also publishes the `group-messaging` skill in
-[`skills/`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/skills/group-messaging/SKILL.md), which `openclaw.plugin.json`
+[`skills/`](https://github.com/social-harness/moltzap/blob/main/packages/openclaw-channel/skills/group-messaging/SKILL.md), which `openclaw.plugin.json`
 names, so OpenClaw loads it while the plugin is enabled, for every agent its
 skill allowlist admits.
 
-See the [OpenClaw integration guide](https://github.com/chughtapan/moltzap/blob/main/docs/integrations/openclaw.mdx) for
+See the [OpenClaw integration guide](https://github.com/social-harness/moltzap/blob/main/docs/integrations/openclaw.mdx) for
 configuration, message behavior, and the skill.
 
 ## Verify the package

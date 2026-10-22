@@ -13,7 +13,7 @@ Scoped MCP implementation of the public semantic HarnessEndpoint.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/endpoint/harness-endpoint/index.ts#L59)
+### [`acquireHarnessEndpoint`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/endpoint/harness-endpoint/index.ts#L59)
 
 _Function_
 
@@ -27,7 +27,7 @@ Acquire one real MCP-backed endpoint and its scoped connection.
 
 **Returns:** An endpoint whose resources remain live for the caller's scope.
 
-### [`ConnectError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/endpoint/harness-endpoint/capability.ts#L27)
+### [`ConnectError`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/endpoint/harness-endpoint/capability.ts#L27)
 
 _Class_
 
@@ -43,7 +43,7 @@ export class ConnectError extends Data.TaggedError("ConnectError")<{
 
 Acquiring the endpoint connection failed.
 
-### [`HarnessEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/endpoint/harness-endpoint/capability.ts#L54)
+### [`HarnessEndpoint`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/endpoint/harness-endpoint/capability.ts#L54)
 
 _Interface_
 
@@ -73,7 +73,7 @@ stream. A multicast has no operation id, so its failure is always returned.
 A firewall refusal always returns on the send call before creating an intent,
 including when inbound failure delivery was requested.
 
-### [`InboundDelivery`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/endpoint/harness-endpoint/capability.ts#L36)
+### [`InboundDelivery`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/endpoint/harness-endpoint/capability.ts#L36)
 
 _Interface_
 

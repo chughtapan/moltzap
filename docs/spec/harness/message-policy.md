@@ -28,11 +28,11 @@ are restored from the daemon store.
 Without a message-policy file, `Daemon.layer`, which `sharnessd` runs, is the
 baseline composition without message checks.
 
-See [delivery/firewall.ts](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/firewall.ts) →
+See [delivery/firewall.ts](https://github.com/social-harness/moltzap/blob/main/packages/client/src/delivery/firewall.ts) →
 `collectiveAdmission` and
-[delivery/host-delivery.ts](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/host-delivery.ts) →
+[delivery/host-delivery.ts](https://github.com/social-harness/moltzap/blob/main/packages/client/src/delivery/host-delivery.ts) →
 `makeHostDelivery` with
-[delivery/admission.ts](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/admission.ts) →
+[delivery/admission.ts](https://github.com/social-harness/moltzap/blob/main/packages/client/src/delivery/admission.ts) →
 `runAdmission` for the outgoing and incoming flows. The standalone runner
 remains usable by offline experiments without acquiring a daemon or store.
 
