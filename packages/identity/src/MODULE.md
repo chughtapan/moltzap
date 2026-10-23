@@ -11,7 +11,7 @@ package.
 
 ## Public surface
 
-### [`AgentCard (type)`](./agent-card.ts#L148)
+### [`AgentCard (type)`](./agent-card.ts#L111)
 
 _Interface_
 
@@ -27,7 +27,7 @@ export interface AgentCard {
 
 Immutable public identity fields carried by an AgentCard.
 
-### [`AgentCard (value)`](./agent-card.ts#L466)
+### [`AgentCard (value)`](./agent-card.ts#L416)
 
 _Variable_
 
@@ -44,7 +44,7 @@ export const AgentCard = Object.assign(agentCardSchema, {
 
 Verifies immutable Registry attestation without exposing JOSE mechanics.
 
-### [`AgentCardDigest (type)`](./agent-card.ts#L65)
+### [`AgentCardDigest (type)`](./agent-card.ts#L64)
 
 _TypeAlias_
 
@@ -54,7 +54,7 @@ export type AgentCardDigest = typeof AgentCardDigest.Type;
 
 Validated nominal value decoded by AgentCardDigest.
 
-### [`AgentCardDigest (value)`](./agent-card.ts#L58)
+### [`AgentCardDigest (value)`](./agent-card.ts#L57)
 
 _Variable_
 
@@ -68,7 +68,7 @@ export const AgentCardDigest = canonicalIdentifier(
 
 Digest binding a message to one complete immutable AgentCard.
 
-### [`AgentCardVerificationError`](./agent-card.ts#L311)
+### [`AgentCardVerificationError`](./agent-card.ts#L261)
 
 _Class_
 
@@ -328,7 +328,7 @@ export const LIVE_WIRE_VERSIONS: DistinctWindow<typeof liveWindow> = liveWindow
 Versions accepted at outer-envelope and authenticated HTTP admission by the
 Registry, the Router, and the daemon.
 
-### [`LiveSignedMessage`](./signed-message.ts#L364)
+### [`LiveSignedMessage`](./signed-message.ts#L328)
 
 _TypeAlias_
 
@@ -352,7 +352,7 @@ export class MalformedRequestError extends Schema.TaggedError<MalformedRequestEr
 
 The request representation is not valid for the selected operation.
 
-### [`MessageId (type)`](./signed-message.ts#L45)
+### [`MessageId (type)`](./signed-message.ts#L46)
 
 _TypeAlias_
 
@@ -362,7 +362,7 @@ export type MessageId = typeof MessageId.Type;
 
 Validated nominal value decoded by MessageId.
 
-### [`MessageId (value)`](./signed-message.ts#L42)
+### [`MessageId (value)`](./signed-message.ts#L43)
 
 _Variable_
 
@@ -489,7 +489,7 @@ export class SealedBodySealingError extends Data.TaggedError(
 
 A body cannot be sealed from the supplied sender to the supplied recipients.
 
-### [`SignedMessage (type)`](./signed-message.ts#L201)
+### [`SignedMessage (type)`](./signed-message.ts#L180)
 
 _Interface_
 
@@ -505,7 +505,7 @@ export interface SignedMessage {
 
 Immutable attributed-message fields exposed to Router consumers.
 
-### [`SignedMessage (value)`](./signed-message.ts#L614)
+### [`SignedMessage (value)`](./signed-message.ts#L578)
 
 _Variable_
 
@@ -531,7 +531,7 @@ export const SignedMessage = Object.assign(signedMessageSchema, {
 
 Opaque attributed message operations and exact representation Schema.
 
-### [`SignedMessageSigningError`](./signed-message.ts#L354)
+### [`SignedMessageSigningError`](./signed-message.ts#L318)
 
 _Class_
 
@@ -543,7 +543,7 @@ export class SignedMessageSigningError extends Data.TaggedError(
 
 A message cannot be signed under the supplied immutable identity.
 
-### [`SignedMessageVerificationError`](./signed-message.ts#L359)
+### [`SignedMessageVerificationError`](./signed-message.ts#L323)
 
 _Class_
 
@@ -581,7 +581,7 @@ export class UnsupportedMediaTypeError extends Schema.TaggedError<UnsupportedMed
 
 The selected route cannot consume the request content framing.
 
-### [`VerifiedAgentCard`](./agent-card.ts#L296)
+### [`VerifiedAgentCard`](./agent-card.ts#L246)
 
 _TypeAlias_
 
@@ -606,7 +606,7 @@ export type VerifiedAgentRequest = Readonly<{
 
 Request body and caller identity established by AuthenticatedHttp.
 
-### [`VerifiedSignedMessage`](./signed-message.ts#L348)
+### [`VerifiedSignedMessage`](./signed-message.ts#L312)
 
 _TypeAlias_
 

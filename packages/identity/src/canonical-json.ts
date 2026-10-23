@@ -452,7 +452,8 @@ const canonicalBytes = (
 // eslint-disable-next-line @typescript-eslint/unbound-method -- Capturing the intrinsic prevents candidate arrays from replacing the comparison method.
 const everyByte = Uint8Array.prototype.every;
 
-const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => {
+/** Compares complete byte sequences, rejecting detached or exotic typed arrays. */
+export const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => {
   try {
     return (
       everyByte.call(left, (byte, index) => byte === right[index]) &&

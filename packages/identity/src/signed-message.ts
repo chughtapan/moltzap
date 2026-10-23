@@ -24,8 +24,9 @@ import {
   type Ed25519PublicKey,
   ed25519PublicKeyThumbprintUri,
   ed25519VerificationKey,
-  hasCanonicalEd25519SignatureEncoding,
+  generalJwsRepresentation,
   sameEd25519PublicKey,
+  snapshotRepresentation,
 } from "./agent-key.js";
 import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
 import {
@@ -99,28 +100,6 @@ const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
       onExcessProperty: "error",
     },
   });
-
-const canonicalBase64Url = Schema.String.pipe(
-  Schema.filter((value) => decodeCanonicalBase64Url(value) !== undefined),
-);
-
-const signatureRepresentation = exactStruct({
-  protected: canonicalBase64Url,
-  signature: Schema.String.pipe(
-    Schema.filter((value) => {
-      const bytes = decodeCanonicalBase64Url(value);
-      return (
-        bytes?.byteLength === ED25519_SIGNATURE_BYTES &&
-        hasCanonicalEd25519SignatureEncoding(bytes)
-      );
-    }),
-  ),
-});
-
-const generalJwsRepresentation = exactStruct({
-  payload: canonicalBase64Url,
-  signatures: Schema.Tuple(signatureRepresentation),
-});
 
 type SignedMessageRepresentation = typeof generalJwsRepresentation.Type;
 
@@ -210,7 +189,6 @@ interface SignedMessageState {
   readonly wireVersion: string;
   readonly representation: SignedMessageRepresentation;
   readonly protectedHeader: typeof protectedHeader.Type;
-  readonly body: Uint8Array;
   readonly encodedByteLength: number;
 }
 
@@ -248,19 +226,6 @@ const decodeBase64Url = (
     ? Effect.fail(parseIssue(ast, value))
     : Effect.succeed(bytes);
 };
-
-const snapshotRepresentation = (
-  representation: SignedMessageRepresentation,
-): SignedMessageRepresentation =>
-  Object.freeze({
-    payload: representation.payload,
-    signatures: Object.freeze([
-      Object.freeze({
-        protected: representation.signatures[0].protected,
-        signature: representation.signatures[0].signature,
-      }),
-    ] as const),
-  });
 
 const makeView = (
   decodedPayload: typeof payload.Type,
@@ -311,7 +276,6 @@ const decodeRepresentation = (
       wireVersion: decodedPayload.sharnessVersion,
       representation: retained,
       protectedHeader: Object.freeze({ ...decodedHeader }),
-      body: new Uint8Array(body),
       encodedByteLength: encoded.byteLength,
     });
     return view;

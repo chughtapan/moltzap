@@ -4,7 +4,6 @@ import {
   Brand,
   Data,
   Effect,
-  Either,
   Encoding,
   ParseResult,
   Schema,
@@ -19,7 +18,8 @@ import {
   ed25519PublicKeyThumbprintUri,
   type Ed25519PublicKey as Ed25519PublicKeyValue,
   ed25519VerificationKey,
-  hasCanonicalEd25519SignatureEncoding,
+  generalJwsRepresentation,
+  snapshotRepresentation,
 } from "./agent-key.js";
 import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
 import {
@@ -39,7 +39,6 @@ const DIGEST_BYTE_LENGTH = 32;
 const WHOLE_SECOND_UTC =
   /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\dZ$/;
 const AGENT_CARD_TYPE = WIRE_PROFILES[WIRE_VERSION].agentCardType;
-const ED25519_SIGNATURE_BYTES = 64;
 
 const isWholeSecondUtc = (value: string): boolean => {
   if (typeof value !== "string") {
@@ -82,22 +81,6 @@ export const AgentCardIssuedAt = Schema.String.pipe(
 // eslint-disable-next-line @typescript-eslint/no-redeclare -- The same-named Schema and type form one package boundary model.
 export type AgentCardIssuedAt = typeof AgentCardIssuedAt.Type;
 
-const hasCanonicalBase64UrlByteLength = (
-  value: string,
-  expectedByteLength?: number,
-): boolean =>
-  Either.match(Encoding.decodeBase64Url(value), {
-    onLeft: () => false,
-    onRight: (bytes) =>
-      Encoding.encodeBase64Url(bytes) === value &&
-      (expectedByteLength === undefined ||
-        bytes.byteLength === expectedByteLength),
-  });
-
-const canonicalBase64Url = Schema.String.pipe(
-  Schema.filter((value) => hasCanonicalBase64UrlByteLength(value)),
-);
-
 const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
   Schema.Struct(fields).annotations({
     parseOptions: {
@@ -105,26 +88,6 @@ const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
       onExcessProperty: "error",
     },
   });
-
-const jwsSignatureRepresentation = exactStruct({
-  protected: canonicalBase64Url,
-  signature: Schema.String.pipe(
-    Schema.filter((value) =>
-      Either.match(Encoding.decodeBase64Url(value), {
-        onLeft: () => false,
-        onRight: (bytes) =>
-          Encoding.encodeBase64Url(bytes) === value &&
-          bytes.byteLength === ED25519_SIGNATURE_BYTES &&
-          hasCanonicalEd25519SignatureEncoding(bytes),
-      }),
-    ),
-  ),
-});
-
-const generalJwsRepresentation = exactStruct({
-  payload: canonicalBase64Url,
-  signatures: Schema.Tuple(jwsSignatureRepresentation),
-});
 
 type AgentCardRepresentation = typeof generalJwsRepresentation.Type;
 
@@ -187,19 +150,6 @@ const decodeBase64Url = (
   Encoding.decodeBase64Url(value).pipe(
     Effect.mapError(() => parseIssue(ast, value)),
   );
-
-const snapshotRepresentation = (
-  representation: AgentCardRepresentation,
-): AgentCardRepresentation =>
-  Object.freeze({
-    payload: representation.payload,
-    signatures: Object.freeze([
-      Object.freeze({
-        protected: representation.signatures[0].protected,
-        signature: representation.signatures[0].signature,
-      }),
-    ] as const),
-  });
 
 /** The refined SHA-256 digest of a card's retained canonical bytes. */
 const digestOf = (

@@ -5,15 +5,7 @@ import {
   HttpClientRequest,
   type HttpClientResponse,
 } from "@effect/platform";
-import {
-  Duration,
-  Effect,
-  Either,
-  Encoding,
-  ParseResult,
-  Redacted,
-  Schema,
-} from "effect";
+import { Duration, Effect, ParseResult, Redacted, Schema } from "effect";
 import type { AgentId } from "../identifiers.js";
 import { AgentCard, type VerifiedAgentCard } from "../agent-card.js";
 import {
@@ -36,6 +28,7 @@ import {
   VersionMismatchError,
 } from "../http-errors.js";
 import { AgentSigningError, signHttpRequest } from "../http-signature.js";
+import { compareAgentIds } from "../signed-message.js";
 import { WireVersions } from "../wire-versions.js";
 import {
   LIST_PATH,
@@ -313,25 +306,6 @@ const verifyCard = (
   AgentCard.verify({ agentCard, registrySignerPublicKey }).pipe(
     Effect.mapError(invalidResponse),
   );
-
-const decodeAgentIdBytes = (agentId: AgentId): Uint8Array =>
-  Either.match(Encoding.decodeBase64Url(agentId.slice(4)), {
-    // The AgentId type already proves this branch unreachable.
-    onLeft: () => new Uint8Array(),
-    onRight: (bytes) => bytes,
-  });
-
-const compareAgentIds = (left: AgentId, right: AgentId): number => {
-  const leftBytes = decodeAgentIdBytes(left);
-  const rightBytes = decodeAgentIdBytes(right);
-  for (let index = 0; index < leftBytes.byteLength; index += 1) {
-    const difference = (leftBytes[index] ?? 0) - (rightBytes[index] ?? 0);
-    if (difference !== 0) {
-      return difference;
-    }
-  }
-  return 0;
-};
 
 const withDeadline = <A, E>(
   effect: Effect.Effect<A, E>,

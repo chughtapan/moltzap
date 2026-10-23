@@ -17,7 +17,11 @@ import {
   type Ed25519PublicKey,
   ed25519PublicKeyThumbprintUri,
 } from "../agent-key.js";
-import { decodeCanonicalJson, encodeCanonicalJson } from "../canonical-json.js";
+import {
+  decodeCanonicalJson,
+  encodeCanonicalJson,
+  sameBytes,
+} from "../canonical-json.js";
 import { InternalServerError, UnavailableError } from "../http-errors.js";
 import { AgentId, type AgentId as AgentIdValue } from "../identifiers.js";
 import {
@@ -236,10 +240,6 @@ const decodeResult = (
       return Object.freeze({ kind: "registered", agentCard });
     }),
   );
-
-const sameBytes = (left: Uint8Array, right: Uint8Array): boolean =>
-  left.byteLength === right.byteLength &&
-  left.every((value, index) => value === right[index]);
 
 const mintAgentId = (): Effect.Effect<AgentIdValue, InternalServerError> =>
   internalFailure(

@@ -1,4 +1,4 @@
-/** @file Exact Ed25519 public keys and opaque private signing authority. */
+/** @file Exact Ed25519 public keys, opaque private signing authority, and the single-signature General JWS that AgentCard and SignedMessage carry. */
 
 import type { LazyArg } from "effect/Function";
 import { ed25519 } from "@noble/curves/ed25519.js";
@@ -639,3 +639,60 @@ export const AgentSigningAuthority = Object.freeze({
   fromPkcs8,
   publicKey,
 });
+
+const ED25519_SIGNATURE_BYTES = 64;
+
+const hasCanonicalBase64UrlByteLength = (value: string): boolean =>
+  Either.match(Encoding.decodeBase64Url(value), {
+    onLeft: () => false,
+    onRight: (bytes) => Encoding.encodeBase64Url(bytes) === value,
+  });
+
+const canonicalBase64Url = Schema.String.pipe(
+  Schema.filter((value) => hasCanonicalBase64UrlByteLength(value)),
+);
+
+const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
+  Schema.Struct(fields).annotations({
+    parseOptions: {
+      exact: true,
+      onExcessProperty: "error",
+    },
+  });
+
+const jwsSignatureRepresentation = exactStruct({
+  protected: canonicalBase64Url,
+  signature: Schema.String.pipe(
+    Schema.filter((value) =>
+      Either.match(Encoding.decodeBase64Url(value), {
+        onLeft: () => false,
+        onRight: (bytes) =>
+          Encoding.encodeBase64Url(bytes) === value &&
+          bytes.byteLength === ED25519_SIGNATURE_BYTES &&
+          hasCanonicalEd25519SignatureEncoding(bytes),
+      }),
+    ),
+  ),
+});
+
+/** Exact General JWS with one canonical Ed25519 signature and no extra members. */
+export const generalJwsRepresentation = exactStruct({
+  payload: canonicalBase64Url,
+  signatures: Schema.Tuple(jwsSignatureRepresentation),
+});
+
+type SingleSignatureJwsRepresentation = typeof generalJwsRepresentation.Type;
+
+/** Retains immutable copies of every admitted JWS member. */
+export const snapshotRepresentation = (
+  representation: SingleSignatureJwsRepresentation,
+): SingleSignatureJwsRepresentation =>
+  Object.freeze({
+    payload: representation.payload,
+    signatures: Object.freeze([
+      Object.freeze({
+        protected: representation.signatures[0].protected,
+        signature: representation.signatures[0].signature,
+      }),
+    ] as const),
+  });

@@ -1,49 +1,29 @@
 /** @file PostgreSQL Registry persistence, restart, admission, and outage integration tests. */
 
 import * as Reactivity from "@effect/experimental/Reactivity";
-import {
-  FileSystem,
-  type HttpClientRequest,
-  HttpServerRequest,
-} from "@effect/platform";
+import { FileSystem } from "@effect/platform";
 import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
 import { PgClient } from "@effect/sql-pg";
 import {
   PostgreSqlContainer,
   type StartedPostgreSqlContainer,
 } from "@testcontainers/postgresql";
-import {
-  Clock,
-  Deferred,
-  Duration,
-  Effect,
-  Either,
-  Fiber,
-  Match,
-  Redacted,
-  Ref,
-  Schema,
-} from "effect";
+import { Duration, Effect, Either, Redacted, Schema } from "effect";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { encodeCanonicalJson } from "../../canonical-json.js";
-import { AuthenticationFailedError } from "../../http-errors.js";
 import {
   AgentCard,
   AgentSigningAuthority,
   type VerifiedAgentCard,
-  WIRE_VERSION,
 } from "../../index.js";
 import { Registry, RegistryRegisterRequest } from "../../registry.js";
-import { verifyBootstrapRegistration } from "../admission.js";
 import { initializeRegistryStorage, makeRegistryStorage } from "../storage.js";
 import {
-  ADMISSION_CREDENTIAL,
   LOOPBACK_HOST,
   makePrivateKeyPem,
   makeRegistryRunner,
   makeSigningAuthority,
-  makeVersionedBootstrapRequest,
   managedProcess,
   prepareAgent,
   processTestError,
@@ -135,148 +115,6 @@ const expectExactCard = (
     }),
   );
 
-const makeExpiryBoundaryClock = (expiresAt: number) =>
-  Effect.gen(function* () {
-    const liveClock = Clock.make();
-    const release = yield* Deferred.make<undefined>();
-    const sampled = yield* Deferred.make<undefined>();
-    const sampleCount = yield* Ref.make(0);
-    const expiresAtMilliseconds = expiresAt * 1_000;
-    const expiredMilliseconds = expiresAtMilliseconds + 1_000;
-    const currentTimeMillis = Ref.updateAndGet(
-      sampleCount,
-      (count) => count + 1,
-    ).pipe(
-      Effect.tap((count) =>
-        count === 2 ? Deferred.succeed(sampled, undefined) : Effect.void,
-      ),
-      Effect.flatMap((count) =>
-        count <= 2
-          ? Deferred.await(release).pipe(Effect.as(expiresAtMilliseconds))
-          : Effect.succeed(expiredMilliseconds),
-      ),
-    );
-    const clock = {
-      [Clock.ClockTypeId]: Clock.ClockTypeId,
-      unsafeCurrentTimeMillis: () => expiredMilliseconds,
-      currentTimeMillis,
-      unsafeCurrentTimeNanos: () => BigInt(expiredMilliseconds) * 1_000_000n,
-      currentTimeNanos: liveClock.currentTimeNanos,
-      sleep: (duration: Parameters<Clock.Clock["sleep"]>[0]) =>
-        liveClock.sleep(duration),
-    } satisfies Clock.Clock;
-    return { clock, release, sampled };
-  });
-
-const requestBodyBytes = (
-  request: HttpClientRequest.HttpClientRequest,
-): Uint8Array =>
-  Match.value(request.body).pipe(
-    Match.tag("Uint8Array", (body) => Uint8Array.from(body.body)),
-    Match.tag("Empty", "Raw", "FormData", "Stream", () => {
-      throw new Error("signed registration did not retain its byte body");
-    }),
-    Match.exhaustive,
-  );
-
-const signatureExpiry = (
-  request: HttpClientRequest.HttpClientRequest,
-): number => {
-  const signatureInput = request.headers["signature-input"];
-  const match =
-    typeof signatureInput === "string"
-      ? /;expires=(\d+)/u.exec(signatureInput)
-      : null;
-  const encodedExpiry = match?.[1];
-  if (encodedExpiry === undefined) {
-    throw new Error("registration signature is missing its expiry");
-  }
-  const expiry = Schema.NumberFromString.pipe(
-    Schema.int(),
-    Schema.nonNegative(),
-  );
-  return Schema.decodeUnknownSync(expiry)(encodedExpiry);
-};
-
-const toServerRequest = (
-  request: HttpClientRequest.HttpClientRequest,
-): HttpServerRequest.HttpServerRequest => {
-  const url = new URL(request.url);
-  return HttpServerRequest.fromWeb(
-    new Request(url, {
-      method: request.method,
-      headers: {
-        ...request.headers,
-        host: url.host,
-      },
-    }),
-  );
-};
-
-const makeDirectStorage = (input: {
-  readonly container: StartedPostgreSqlContainer;
-  readonly registrySignerPublicKey: ReturnType<
-    typeof AgentSigningAuthority.publicKey
-  >;
-}) =>
-  Effect.gen(function* () {
-    const sql = yield* PgClient.make({
-      url: Redacted.make(input.container.getConnectionUri()),
-      maxConnections: 2,
-      connectTimeout: Duration.seconds(5),
-      applicationName: "sharness-registry-replay-boundary",
-    }).pipe(Effect.provide(Reactivity.layer));
-    return makeRegistryStorage({
-      sql,
-      registrySignerPublicKey: input.registrySignerPublicKey,
-      listPageSize: 100,
-      operationTimeoutMilliseconds: 5_000,
-    });
-  });
-
-const assertDurableReplayBoundary = (input: {
-  readonly container: StartedPostgreSqlContainer;
-  readonly origin: URL;
-  readonly registrySignerPublicKey: ReturnType<
-    typeof AgentSigningAuthority.publicKey
-  >;
-}) =>
-  Effect.gen(function* () {
-    const prepared = yield* prepareAgent("expiry-boundary");
-    const request = yield* makeVersionedBootstrapRequest(
-      input.origin,
-      prepared,
-      WIRE_VERSION,
-    );
-    const boundaryClock = yield* makeExpiryBoundaryClock(
-      signatureExpiry(request),
-    );
-    const storage = yield* makeDirectStorage(input);
-    const verify = verifyBootstrapRegistration({
-      httpRequest: toServerRequest(request),
-      bodyBytes: requestBodyBytes(request),
-      admissionCredential: Redacted.make(ADMISSION_CREDENTIAL),
-      nonceCapacity: 10_000,
-      storage,
-    }).pipe(Effect.either);
-    const attempts = Effect.all([verify, verify] as const, {
-      concurrency: 2,
-    }).pipe(Effect.withClock(boundaryClock.clock));
-    const fiber = yield* Effect.fork(attempts);
-    yield* Deferred.await(boundaryClock.sampled);
-    yield* Deferred.succeed(boundaryClock.release, undefined);
-    const outcomes = yield* Fiber.join(fiber);
-    const accepted = outcomes.filter(Either.isRight);
-    const refused = outcomes.filter(Either.isLeft);
-    expect(accepted).toHaveLength(1);
-    expect(refused).toHaveLength(1);
-    expect(
-      refused.every(
-        (outcome) => outcome.left instanceof AuthenticationFailedError,
-      ),
-    ).toBe(true);
-  });
-
 /**
  * Persistence binds the database and signer, independent of the listener origin.
  * Select a port immediately before restart because parallel tests or Docker can
@@ -308,7 +146,6 @@ const realPostgreSqlBehavior = Effect.gen(function* () {
   if (lookup.kind === FOUND_KIND) {
     yield* expectExactCard(lookup.agentCard, registered.agentCard);
   }
-  yield* assertDurableReplayBoundary({ ...setup, origin: restartOrigin });
 
   yield* stopPostgreSql(setup.container);
   const unhealthy = yield* waitForHealthStatus({

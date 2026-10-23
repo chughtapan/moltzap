@@ -201,7 +201,6 @@ function verifyRequest(
 
 type CardCache = Readonly<{
   readonly cards: ReadonlyMap<AgentIdValue, VerifiedAgentCard>;
-  readonly recency: readonly AgentIdValue[];
   readonly pending: ReadonlyMap<
     AgentIdValue,
     Deferred.Deferred<VerifiedAgentCard, CardResolutionError>
@@ -261,7 +260,6 @@ function makeCardResolver(
   return Effect.gen(function* () {
     const cache = yield* Ref.make<CardCache>({
       cards: new Map(),
-      recency: Object.freeze([]),
       pending: new Map(),
     });
     const lookupPermits = yield* Effect.makeSemaphore(
@@ -314,7 +312,6 @@ function resolveCacheAccess(
   access: CacheAccess,
   restoreInterruptibility: RestoreInterruptibility,
 ): Effect.Effect<VerifiedAgentCard, CardResolutionError> {
-  // CacheAccess is a closed discriminated union.
   // eslint-disable-next-line default-case -- the switch is exhaustive
   switch (access.kind) {
     case "cached":
@@ -424,15 +421,12 @@ function beginCardResolution(
   return Ref.modify(cache, (current): readonly [CacheAccess, CardCache] => {
     const card = current.cards.get(agentId);
     if (card !== undefined) {
+      const cards = new Map(current.cards);
+      cards.delete(agentId);
+      cards.set(agentId, card);
       return [
         { kind: "cached", card },
-        {
-          ...current,
-          recency: Object.freeze([
-            ...current.recency.filter((value) => value !== agentId),
-            agentId,
-          ]),
-        },
+        { ...current, cards },
       ] as const;
     }
     const pending = current.pending.get(agentId);
@@ -469,25 +463,16 @@ function retainResolvedCard(
   },
 ): Effect.Effect<void> {
   return Ref.update(cache, (current) => {
-    const pending = new Map(current.pending);
-    pending.delete(input.agentId);
     const cards = new Map(current.cards);
-    const recency = [
-      ...current.recency.filter((value) => value !== input.agentId),
-      input.agentId,
-    ];
+    cards.delete(input.agentId);
     cards.set(input.agentId, input.card);
-    while (recency.length > input.capacity) {
-      const evicted = recency.shift();
-      if (evicted !== undefined) {
-        cards.delete(evicted);
+    for (const agentId of cards.keys()) {
+      if (cards.size <= input.capacity) {
+        break;
       }
+      cards.delete(agentId);
     }
-    return {
-      cards,
-      recency: Object.freeze(recency),
-      pending,
-    };
+    return { ...current, cards };
   });
 }
 
