@@ -289,13 +289,15 @@ Registry status.
 Before a domain result, Router uses the exact AuthenticatedHttp order
 and mapping:
 
+`supported` lists the server's live wire versions.
+
 | Status | Exact body |
 |---:|---|
 | 400 | `{"error":"malformed"}` |
 | 401 | `{"error":"authentication_failed"}` |
 | 404 | `{"error":"not_found"}` |
 | 405 | `{"error":"method_not_allowed"}` |
-| 412 | `{"error":"version_mismatch"}` |
+| 412 | `{"error":"version_mismatch","supported":[...]}` |
 | 413 | `{"error":"payload_too_large"}` |
 | 415 | `{"error":"unsupported_media_type"}` |
 | 429 | `{"error":"overloaded"}` |

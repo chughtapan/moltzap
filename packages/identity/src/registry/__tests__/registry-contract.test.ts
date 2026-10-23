@@ -437,19 +437,102 @@ const lookupScenarios: readonly LookupScenario[] = [
     expected: INVALID_RESPONSE_TAG,
   },
   {
-    name: "legacy version mismatch without supported versions",
+    name: "version mismatch without supported versions",
     client: fixedResponse(() => '{"error":"version_mismatch"}', 412),
     request: matchingLookup,
-    expected: "VersionMismatchError",
+    expected: INVALID_RESPONSE_TAG,
   },
   {
-    name: "version mismatch with supported versions",
+    name: "reordered version mismatch",
     client: fixedResponse(
-      () => '{"error":"version_mismatch","supported":["2099.101.0"]}',
+      () => '{"supported":["2099.101.0"],"error":"version_mismatch"}',
       412,
     ),
     request: matchingLookup,
-    expected: "VersionMismatchError",
+    expected: INVALID_RESPONSE_TAG,
+  },
+  {
+    name: "whitespace in version mismatch",
+    client: fixedResponse(
+      () => '{ "error":"version_mismatch","supported":["2099.101.0"]}',
+      412,
+    ),
+    request: matchingLookup,
+    expected: INVALID_RESPONSE_TAG,
+  },
+  {
+    name: "duplicate version mismatch key",
+    client: fixedResponse(
+      () =>
+        '{"error":"version_mismatch","error":"version_mismatch","supported":["2099.101.0"]}',
+      412,
+    ),
+    request: matchingLookup,
+    expected: INVALID_RESPONSE_TAG,
+  },
+  {
+    name: "escaped version mismatch",
+    client: fixedResponse(
+      () => '{"error":"version\\u005fmismatch","supported":["2099.101.0"]}',
+      412,
+    ),
+    request: matchingLookup,
+    expected: INVALID_RESPONSE_TAG,
+  },
+  {
+    name: "excess version mismatch member",
+    client: fixedResponse(
+      () =>
+        '{"error":"version_mismatch","extra":true,"supported":["2099.101.0"]}',
+      412,
+    ),
+    request: matchingLookup,
+    expected: INVALID_RESPONSE_TAG,
+  },
+  {
+    name: "invalid supported versions",
+    client: fixedResponse(
+      () => '{"error":"version_mismatch","supported":[1]}',
+      412,
+    ),
+    request: matchingLookup,
+    expected: INVALID_RESPONSE_TAG,
+  },
+  {
+    name: "empty supported versions",
+    client: fixedResponse(
+      () => '{"error":"version_mismatch","supported":[]}',
+      412,
+    ),
+    request: matchingLookup,
+    expected: INVALID_RESPONSE_TAG,
+  },
+  {
+    name: "invalid wire version",
+    client: fixedResponse(
+      () => '{"error":"version_mismatch","supported":["invalid"]}',
+      412,
+    ),
+    request: matchingLookup,
+    expected: INVALID_RESPONSE_TAG,
+  },
+  {
+    name: "lone surrogate supported version",
+    client: fixedResponse(
+      () => '{"error":"version_mismatch","supported":["\\ud800"]}',
+      412,
+    ),
+    request: matchingLookup,
+    expected: INVALID_RESPONSE_TAG,
+  },
+  {
+    name: "BOM-prefixed version mismatch",
+    client: fixedResponse(
+      () => '\ufeff{"error":"version_mismatch","supported":["2099.101.0"]}',
+      412,
+    ),
+    request: matchingLookup,
+    expected: INVALID_RESPONSE_TAG,
   },
   {
     name: "declared server envelope",
@@ -745,3 +828,23 @@ describe("Registry private contracts", () => {
     return Effect.runPromise(clientBehavior);
   });
 });
+
+it("preserves supported versions from a canonical Registry 412", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeClientFixture;
+      const supported = ["2099.101.0"];
+      const outcome = yield* runLookup(
+        responseClient(
+          '{"error":"version_mismatch","supported":["2099.101.0"]}',
+          412,
+        ),
+        fixture.registrySignerPublicKey,
+        matchingLookup(fixture),
+      );
+      expect(outcome).toMatchObject({
+        _tag: "Left",
+        left: { _tag: "VersionMismatchError", supported },
+      });
+    }),
+  ));
