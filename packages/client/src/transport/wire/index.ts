@@ -65,6 +65,7 @@ export {
 export {
   AgentAddress,
   compareAgentIds,
+  compareAscii,
   Content,
   ContentPart,
   exactStruct,

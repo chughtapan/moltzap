@@ -2,6 +2,10 @@
 
 import { Data } from "effect";
 import { randomBytes } from "node:crypto";
+import { sameBytes } from "../../transport/wire/index.js";
+
+/** Canonical equality shared by storage checks and wire verification. */
+export { sameBytes };
 
 /** Closed storage failures that never expose SQLite diagnostics. */
 export type EndpointStoreFailure =
@@ -92,13 +96,15 @@ export function mintContinuation(retained: ReadonlySet<string>): string {
 /**
  * Mints one collision-checked durable delivery token.
  *
- * @param retained Existing durable token keys.
+ * @param isRetained Whether a durable token already exists.
  * @returns One fresh `dlv_` token over 32 random bytes.
  */
-export function mintDeliveryToken(retained: ReadonlySet<string>): string {
+export function mintDeliveryToken(
+  isRetained: (token: string) => boolean,
+): string {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const deliveryToken = `dlv_${randomBytes(32).toString("base64url")}`;
-    if (!retained.has(deliveryToken)) {
+    if (!isRetained(deliveryToken)) {
       return deliveryToken;
     }
   }
@@ -234,20 +240,6 @@ export function requireSameBytes(left: Uint8Array, right: Uint8Array): void {
   if (!sameBytes(left, right)) {
     throw new StoreSignal("conflict");
   }
-}
-
-/**
- * Whether two byte strings are identical.
- *
- * @param left One byte string.
- * @param right The other.
- * @returns True when both have the same length and bytes.
- */
-export function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
-  return (
-    left.byteLength === right.byteLength &&
-    left.every((value, index) => value === right[index])
-  );
 }
 
 /**
