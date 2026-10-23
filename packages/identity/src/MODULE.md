@@ -276,7 +276,7 @@ export const HISTORY_WIRE_VERSIONS = [
 
 Retained artifacts remain readable until the next protocol reset.
 
-### [`InternalServerError`](./http-errors.ts#L65)
+### [`InternalServerError`](./http-errors.ts#L70)
 
 _Class_
 
@@ -385,7 +385,7 @@ export class MethodNotAllowedError extends Schema.TaggedError<MethodNotAllowedEr
 
 The selected route does not accept the request method.
 
-### [`OverloadedError`](./http-errors.ts#L53)
+### [`OverloadedError`](./http-errors.ts#L58)
 
 _Class_
 
@@ -398,7 +398,7 @@ export class OverloadedError extends Schema.TaggedError<OverloadedError>()(
 
 A finite immediate resource permit is unavailable.
 
-### [`PayloadTooLargeError`](./http-errors.ts#L41)
+### [`PayloadTooLargeError`](./http-errors.ts#L46)
 
 _Class_
 
@@ -555,7 +555,19 @@ export class SignedMessageVerificationError extends Data.TaggedError(
 
 A SignedMessage does not bind to the supplied verified AgentCard.
 
-### [`UnavailableError`](./http-errors.ts#L59)
+### [`supportedWireVersionsSchema`](./http-errors.ts#L31)
+
+_Variable_
+
+```ts
+export const supportedWireVersionsSchema = Schema.NonEmptyArray(
+  Schema.String.pipe(Schema.pattern(/^\d{4}\.\d{3,4}\.\d+$/)),
+)
+```
+
+A mismatch response advertises at least one calendar wire version.
+
+### [`UnavailableError`](./http-errors.ts#L64)
 
 _Class_
 
@@ -568,7 +580,7 @@ export class UnavailableError extends Schema.TaggedError<UnavailableError>()(
 
 A required service or durable operation cannot currently complete.
 
-### [`UnsupportedMediaTypeError`](./http-errors.ts#L47)
+### [`UnsupportedMediaTypeError`](./http-errors.ts#L52)
 
 _Class_
 
@@ -617,7 +629,7 @@ export type VerifiedSignedMessage = SignedMessage &
 
 SignedMessage whose sender attribution and signature are verified.
 
-### [`VersionMismatchError`](./http-errors.ts#L31)
+### [`VersionMismatchError`](./http-errors.ts#L36)
 
 _Class_
 

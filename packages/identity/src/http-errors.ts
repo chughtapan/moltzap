@@ -27,6 +27,11 @@ export class MethodNotAllowedError extends Schema.TaggedError<MethodNotAllowedEr
   {},
 ) {}
 
+/** A mismatch response advertises at least one calendar wire version. */
+export const supportedWireVersionsSchema = Schema.NonEmptyArray(
+  Schema.String.pipe(Schema.pattern(/^\d{4}\.\d{3,4}\.\d+$/)),
+);
+
 /** The request carries a different wire compatibility value. */
 export class VersionMismatchError extends Schema.TaggedError<VersionMismatchError>()(
   "VersionMismatchError",

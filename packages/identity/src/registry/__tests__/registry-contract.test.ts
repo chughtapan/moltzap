@@ -812,6 +812,7 @@ const clientBehavior = Effect.gen(function* () {
   yield* assertUnreadableRequestRecords;
 });
 
+// @agent-code-guard/regression-only: These cases cover configuration, admission, and client response classification regressions.
 describe("Registry private contracts", () => {
   it("loads exact refined redacted configuration from an isolated provider", () => {
     expect.hasAssertions();
@@ -827,24 +828,24 @@ describe("Registry private contracts", () => {
     expect.hasAssertions();
     return Effect.runPromise(clientBehavior);
   });
-});
 
-it("preserves supported versions from a canonical Registry 412", () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeClientFixture;
-      const supported = ["2099.101.0"];
-      const outcome = yield* runLookup(
-        responseClient(
-          '{"error":"version_mismatch","supported":["2099.101.0"]}',
-          412,
-        ),
-        fixture.registrySignerPublicKey,
-        matchingLookup(fixture),
-      );
-      expect(outcome).toMatchObject({
-        _tag: "Left",
-        left: { _tag: "VersionMismatchError", supported },
-      });
-    }),
-  ));
+  it("preserves supported versions from a canonical Registry 412", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const fixture = yield* makeClientFixture;
+        const supported = ["2099.101.0"];
+        const outcome = yield* runLookup(
+          responseClient(
+            '{"error":"version_mismatch","supported":["2099.101.0"]}',
+            412,
+          ),
+          fixture.registrySignerPublicKey,
+          matchingLookup(fixture),
+        );
+        expect(outcome).toMatchObject({
+          _tag: "Left",
+          left: { _tag: "VersionMismatchError", supported },
+        });
+      }),
+    ));
+});

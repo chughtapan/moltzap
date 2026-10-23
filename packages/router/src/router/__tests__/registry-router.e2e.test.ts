@@ -30,7 +30,7 @@ import {
   Redacted,
   Schema,
 } from "effect";
-import { type ChildProcess, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { createConnection, createServer } from "node:net";
 import { dirname, join } from "node:path";
@@ -43,10 +43,7 @@ import {
   type RouterSendRequest,
   type RouterSendResult,
 } from "../../index.js";
-import {
-  makeRouterRunner,
-  testVersionMismatchRoundTrips,
-} from "./client-version-roundtrip.js";
+import { testVersionMismatchRoundTrips } from "./integration/client-version-roundtrip.js";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const ADMISSION_CREDENTIAL = "registry-router-e2e-admission";
@@ -89,10 +86,7 @@ const ROUTER_BINARY = join(
   "packages/router/bin/sharness-router",
 );
 
-interface RunningProcess {
-  readonly child: ChildProcess;
-  readonly logs: () => string;
-}
+type RunningProcess = ReturnType<typeof startProcess>;
 
 interface RegisteredAgent {
   readonly signingAuthority: AgentSigningAuthorityValue;
@@ -106,15 +100,7 @@ interface RegisteredAgents {
   readonly nonRecipient: RegisteredAgent;
 }
 
-interface Infrastructure {
-  readonly registryOrigin: URL;
-  readonly registryProcess: RunningProcess;
-  readonly routerOrigin: URL;
-  readonly routerPort: number;
-  readonly registrySignerPublicKey: ReturnType<
-    typeof AgentSigningAuthority.publicKey
-  >;
-}
+type Infrastructure = Effect.Effect.Success<typeof startInfrastructure>;
 
 type BatchResult = Extract<RouterPollResult, { readonly kind: "batch" }>;
 type AcceptedResult = Extract<RouterSendResult, { readonly kind: "accepted" }>;
@@ -137,11 +123,7 @@ interface SentMessage {
   readonly firstRecipientDelivery: BatchResult;
 }
 
-interface HttpObservation {
-  readonly status: number;
-  readonly contentType: string;
-  readonly body: string;
-}
+type HttpResult = Effect.Effect.Success<ReturnType<typeof observeHttpRequest>>;
 
 class ProcessTestError extends Data.TaggedError("ProcessTestError")<{
   readonly message: string;
@@ -188,7 +170,7 @@ const startProcess = (
   executable: string,
   processArguments: readonly string[],
   environment: Readonly<Record<string, string>> = {},
-): RunningProcess => {
+) => {
   const child = spawn(executable, processArguments, {
     cwd: WORKSPACE_ROOT,
     env: {
@@ -389,6 +371,15 @@ const makeRegistryRunner = (
   return (effect) => effect.pipe(Effect.provide(registryLayer));
 };
 
+const makeRouterRunner = (origin: URL): RouterRunner => {
+  const routerLayer = Router.layer({
+    origin,
+    sendTimeout: Duration.seconds(5),
+    pollTimeout: Duration.seconds(35),
+  }).pipe(Layer.provide(NodeHttpClient.layer));
+  return (effect) => effect.pipe(Effect.provide(routerLayer));
+};
+
 const signAuthenticatedRequest = (
   origin: URL,
   path: string,
@@ -411,11 +402,11 @@ const observeHttpRequest = (request: HttpClientRequest.HttpClientRequest) =>
       status: response.status,
       contentType: response.headers["content-type"] ?? "",
       body,
-    } satisfies HttpObservation;
+    };
   });
 
 const expectHttpObservation = (
-  observation: HttpObservation,
+  observation: HttpResult,
   status: number,
   body: string,
 ): void => {
@@ -495,12 +486,12 @@ const makeRegistryIdentity = Effect.gen(function* () {
   return { registryPrivateKeyPath, registrySignerPublicKey };
 });
 
-const startInfrastructure = Effect.gen(function* () {
+const startRegistryInfrastructure = Effect.gen(function* () {
   const { registryPrivateKeyPath, registrySignerPublicKey } =
     yield* makeRegistryIdentity;
-  const [postgresqlPort, registryPort, routerPort] = yield* Effect.all(
-    [reservePort, reservePort, reservePort] as const,
-    { concurrency: 3 },
+  const [postgresqlPort, registryPort] = yield* Effect.all(
+    [reservePort, reservePort] as const,
+    { concurrency: 2 },
   );
   const registryOrigin = new URL(`http://${LOOPBACK_HOST}:${registryPort}`);
   const postgresql = yield* managedProcess(PGLITE_BINARY, [
@@ -521,10 +512,18 @@ const startInfrastructure = Effect.gen(function* () {
   return {
     registryOrigin,
     registryProcess: registry,
+    registrySignerPublicKey,
+  };
+});
+
+const startInfrastructure = Effect.gen(function* () {
+  const registry = yield* startRegistryInfrastructure;
+  const routerPort = yield* reservePort;
+  return {
+    ...registry,
     routerOrigin: new URL(`http://${LOOPBACK_HOST}:${routerPort}`),
     routerPort,
-    registrySignerPublicKey,
-  } satisfies Infrastructure;
+  };
 });
 
 const startRouterAt = (
@@ -1112,5 +1111,9 @@ it("registers identities and preserves opaque multicast behavior across Router r
 }, 120_000);
 
 testVersionMismatchRoundTrips(
-  startInfrastructure.pipe(Effect.tap(startRouter)),
+  {
+    registry: startRegistryInfrastructure,
+    router: startInfrastructure.pipe(Effect.tap(startRouter)),
+  },
+  Redacted.make(ADMISSION_CREDENTIAL),
 );

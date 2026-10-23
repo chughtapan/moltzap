@@ -60,6 +60,7 @@ export {
   OverloadedError,
   PayloadTooLargeError,
   RouteNotFoundError,
+  supportedWireVersionsSchema,
   UnavailableError,
   UnsupportedMediaTypeError,
   VersionMismatchError,

@@ -7,6 +7,10 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
+  HISTORY_WIRE_VERSIONS,
+  LIVE_WIRE_VERSIONS,
+} from "../../packages/identity/src/version.ts";
+import {
   CALENDAR_VERSION,
   dependencyNames,
   FINAL_PACKAGE_DIRS,
@@ -50,18 +54,20 @@ const PRODUCTION_SECTIONS = [
 ];
 
 /**
- * Identity owns the one Social Harness wire compatibility value. Package release
- * versions are independent of it: a release changes manifests without
- * touching this literal, and a wire hard cut changes this literal alone.
+ * Identity owns emission and the live and retained wire sets. Every entry must
+ * be a calendar version so servers advertise values that clients can decode;
+ * package release versions remain independent.
  * @param run Run collecting failures.
  * @returns The literal when it is a calendar version, otherwise null.
  */
 export function checkCompatibilityVersion(run: BoundaryRun): string | null {
   const identitySource = path.join(run.packagesRoot, "identity", "src");
-  const compatibilityVersion = readCompatibilityVersion(
-    run,
-    path.join(identitySource, "version.ts"),
-  );
+  const versionPath = path.join(identitySource, "version.ts");
+  const compatibilityVersion = readCompatibilityVersion(run, versionPath);
+  checkWireVersionSets(run, {
+    live: LIVE_WIRE_VERSIONS,
+    history: HISTORY_WIRE_VERSIONS,
+  });
   const identityIndex = path.join(identitySource, "index.ts");
   if (!existsSync(identityIndex)) {
     run.failures.push(
@@ -77,6 +83,28 @@ export function checkCompatibilityVersion(run: BoundaryRun): string | null {
     );
   }
   return compatibilityVersion;
+}
+
+/**
+ * Release admission checks every advertised and retained version against the
+ * same calendar shape as the emitted literal.
+ */
+export function checkWireVersionSets(
+  run: BoundaryRun,
+  sets: {
+    readonly live: readonly string[];
+    readonly history: readonly string[];
+  },
+): void {
+  for (const [name, values] of Object.entries(sets)) {
+    for (const version of values.filter(
+      (value) => !CALENDAR_VERSION.test(value),
+    )) {
+      run.failures.push(
+        `packages/identity/src/version.ts: ${name === "live" ? "LIVE_WIRE_VERSIONS" : "HISTORY_WIRE_VERSIONS"} entry "${version}" is not a YYYY.MDD.N CalVer`,
+      );
+    }
+  }
 }
 
 /**

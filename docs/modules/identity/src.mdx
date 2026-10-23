@@ -282,7 +282,7 @@ export const HISTORY_WIRE_VERSIONS = [
 
 Retained artifacts remain readable until the next protocol reset.
 
-### [`InternalServerError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/http-errors.ts#L65)
+### [`InternalServerError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/http-errors.ts#L70)
 
 _Class_
 
@@ -391,7 +391,7 @@ export class MethodNotAllowedError extends Schema.TaggedError<MethodNotAllowedEr
 
 The selected route does not accept the request method.
 
-### [`OverloadedError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/http-errors.ts#L53)
+### [`OverloadedError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/http-errors.ts#L58)
 
 _Class_
 
@@ -404,7 +404,7 @@ export class OverloadedError extends Schema.TaggedError<OverloadedError>()(
 
 A finite immediate resource permit is unavailable.
 
-### [`PayloadTooLargeError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/http-errors.ts#L41)
+### [`PayloadTooLargeError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/http-errors.ts#L46)
 
 _Class_
 
@@ -561,7 +561,19 @@ export class SignedMessageVerificationError extends Data.TaggedError(
 
 A SignedMessage does not bind to the supplied verified AgentCard.
 
-### [`UnavailableError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/http-errors.ts#L59)
+### [`supportedWireVersionsSchema`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/http-errors.ts#L31)
+
+_Variable_
+
+```ts
+export const supportedWireVersionsSchema = Schema.NonEmptyArray(
+  Schema.String.pipe(Schema.pattern(/^\d{4}\.\d{3,4}\.\d+$/)),
+)
+```
+
+A mismatch response advertises at least one calendar wire version.
+
+### [`UnavailableError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/http-errors.ts#L64)
 
 _Class_
 
@@ -574,7 +586,7 @@ export class UnavailableError extends Schema.TaggedError<UnavailableError>()(
 
 A required service or durable operation cannot currently complete.
 
-### [`UnsupportedMediaTypeError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/http-errors.ts#L47)
+### [`UnsupportedMediaTypeError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/http-errors.ts#L52)
 
 _Class_
 
@@ -623,7 +635,7 @@ export type VerifiedSignedMessage = SignedMessage &
 
 SignedMessage whose sender attribution and signature are verified.
 
-### [`VersionMismatchError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/http-errors.ts#L31)
+### [`VersionMismatchError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/http-errors.ts#L36)
 
 _Class_
 

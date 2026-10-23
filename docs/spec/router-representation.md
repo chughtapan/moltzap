@@ -287,9 +287,7 @@ Registry status.
 ## Envelope failure mapping
 
 Before a domain result, Router uses the exact AuthenticatedHttp order
-and mapping:
-
-`supported` lists the server's live wire versions.
+and mapping; `supported` lists the server's live wire versions:
 
 | Status | Exact body |
 |---:|---|

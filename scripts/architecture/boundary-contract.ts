@@ -48,7 +48,7 @@ interface PackageContract {
 export const REPOSITORY_URL =
   "git+https://github.com/social-harness/moltzap.git";
 
-/** The `YYYY.MDD.N` calendar version shape of releases and the wire literal. */
+/** The `YYYY.MDD.N` calendar version shape of releases and all wire versions. */
 export const CALENDAR_VERSION = /^\d{4}\.\d{3,4}\.\d+$/;
 
 const ROOT_EXPORT: ExportTarget = {
