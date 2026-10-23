@@ -9,7 +9,10 @@ import type {
   EngineOutbox,
   EngineOutboxError,
 } from "./runtime/index.js";
-import { encodeCanonical } from "../../encoding/canonical-json.js";
+import {
+  type ClientRepresentationError,
+  encodeCanonical,
+} from "../../encoding/canonical-json.js";
 import {
   describeRouterWorkerFailure,
   isTransientRouterWorkerError,
@@ -17,7 +20,6 @@ import {
   type RouterWorkerSendError,
 } from "../router/index.js";
 import {
-  type ClientRepresentationError,
   type ConversationId,
   type DecodedOuterBody,
   signOuterEvidence,

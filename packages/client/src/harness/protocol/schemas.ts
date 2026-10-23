@@ -9,6 +9,7 @@ import {
   Schema,
   SchemaAST,
 } from "effect";
+import { exactParseOptions } from "../../encoding/exact.js";
 import { HARNESS_SEND_META_KEY } from "./names.js";
 import {
   harnessAcknowledgeDeliveryRequestSchema,
@@ -20,15 +21,10 @@ import {
   inboxResultSchema,
 } from "./operations.js";
 
-const exact: SchemaAST.ParseOptions = {
-  exact: true,
-  onExcessProperty: "error",
-};
-
 const exactEmptyObject = Schema.Record({
   key: Schema.String,
   value: Schema.Never,
-}).annotations({ parseOptions: exact });
+}).annotations({ parseOptions: exactParseOptions });
 
 const harnessEmptyResultSchema = exactEmptyObject;
 

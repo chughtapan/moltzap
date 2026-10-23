@@ -22,8 +22,8 @@ import {
   representationFailure,
 } from "../../../encoding/canonical-json.js";
 import {
-  compareAgentIds,
   decodeCanonicalBase64Url,
+  isStrictlyAscending,
 } from "../../../encoding/identifier.js";
 import {
   ActionCore,
@@ -52,7 +52,12 @@ import {
   RecordHash,
   type RecordHash as RecordHashValue,
 } from "../schemas.js";
-import { PostId, type PostId as PostIdValue, wireProfiles } from "../values.js";
+import {
+  compareAgentIds,
+  PostId,
+  type PostId as PostIdValue,
+  wireProfiles,
+} from "../values.js";
 
 /* eslint-disable jsdoc/require-jsdoc -- The package-private representation facade documents this closed protocol vocabulary. */
 
@@ -86,18 +91,7 @@ const domainHash = <A, I, R, Hash>(input: {
   );
 
 const sortedDistinctAgentIds = (agentIds: readonly AgentId[]): boolean => {
-  for (let index = 1; index < agentIds.length; index += 1) {
-    const previous = agentIds[index - 1];
-    const current = agentIds[index];
-    if (
-      previous === undefined ||
-      current === undefined ||
-      compareAgentIds(previous, current) >= 0
-    ) {
-      return false;
-    }
-  }
-  return true;
+  return isStrictlyAscending(agentIds, compareAgentIds);
 };
 
 const decodeAgentIdBytes = (

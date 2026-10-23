@@ -2,7 +2,8 @@
 
 import { Schema } from "effect";
 
-const exactOptions = {
+/** Reject omitted exact fields and unknown properties at closed boundaries. */
+export const exactParseOptions = {
   exact: true,
   onExcessProperty: "error" as const,
 };
@@ -13,4 +14,4 @@ const exactOptions = {
  */
 export const exactStruct = <Fields extends Schema.Struct.Fields>(
   fields: Fields,
-) => Schema.Struct(fields).annotations({ parseOptions: exactOptions });
+) => Schema.Struct(fields).annotations({ parseOptions: exactParseOptions });

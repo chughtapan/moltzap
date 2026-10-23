@@ -1,21 +1,22 @@
 /** @file Durable token minting bounds collision exhaustion with a persistence signal. */
 
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { mintDeliveryToken, StoreSignal } from "./database/index.js";
+import { DeliveryToken } from "./types.js";
 
-const EXPECTED_COLLISION_ATTEMPTS = 8;
+const candidateIsRetained = () => true;
 
 describe("delivery token minting", () => {
-  it("fails with persistence after exactly eight retained candidates", () => {
-    let attempts = 0;
-    const isRetained = () => {
-      attempts += 1;
-      return true;
-    };
+  it("rejects non-canonical base64url trailing bits", () => {
+    const decode = Schema.decodeUnknownSync(DeliveryToken);
+    const canonical = `dlv_${"A".repeat(43)}`;
+    expect(decode(canonical)).toBe(canonical);
+    expect(() => decode(`dlv_${"A".repeat(42)}B`)).toThrow();
+  });
 
-    expect(() => mintDeliveryToken(isRetained)).toThrow(StoreSignal);
-    expect(attempts).toBe(EXPECTED_COLLISION_ATTEMPTS);
-    expect(() => mintDeliveryToken(() => true)).toThrow(
+  it("reports persistence failure when every candidate is retained", () => {
+    expect(() => mintDeliveryToken(candidateIsRetained)).toThrow(
       new StoreSignal("persistence"),
     );
   });

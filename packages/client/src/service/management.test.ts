@@ -45,6 +45,7 @@ import {
 } from "../__tests__/certified-history-fixtures.js";
 import { routerInstanceId } from "../__tests__/router-worker-fixtures.js";
 import { unusedEndpointStore } from "../__tests__/unused-endpoint-store.js";
+import { encodeCanonical } from "../encoding/canonical-json.js";
 import {
   managementReadConversationRequestSchema,
   managementRegisterRequestSchema,
@@ -58,12 +59,11 @@ import {
 } from "../store/index.js";
 import { verifyStoredMembership } from "../transport/messaging/index.js";
 import {
-  compareAgentIds,
   deriveConversationId,
-  encodeCanonical,
   hashMembershipDescriptor,
   MembershipDescriptor,
 } from "../transport/wire/index.js";
+import { compareAgentIds } from "../transport/wire/values.js";
 import {
   type DaemonManagementOperations,
   makeDaemonManagementOperations,

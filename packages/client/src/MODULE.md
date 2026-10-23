@@ -22,7 +22,7 @@ Acquire one real MCP-backed endpoint and its scoped connection.
 
 **Returns:** An endpoint whose resources remain live for the caller's scope.
 
-### [`AgentAddress (type)`](./transport/wire/values.ts#L199)
+### [`AgentAddress (type)`](./transport/wire/values.ts#L195)
 
 _TypeAlias_
 
@@ -32,7 +32,7 @@ export type AgentAddress = typeof AgentAddress.Type;
 
 A validated direct destination.
 
-### [`AgentAddress (value)`](./transport/wire/values.ts#L193)
+### [`AgentAddress (value)`](./transport/wire/values.ts#L189)
 
 _Variable_
 
@@ -92,7 +92,7 @@ export class ConnectError extends Data.TaggedError("ConnectError")<{
 
 Acquiring the endpoint connection failed.
 
-### [`Content (type)`](./transport/wire/values.ts#L98)
+### [`Content (type)`](./transport/wire/values.ts#L94)
 
 _TypeAlias_
 
@@ -102,7 +102,7 @@ export type Content = typeof Content.Type;
 
 Validated nonempty semantic content.
 
-### [`Content (value)`](./transport/wire/values.ts#L93)
+### [`Content (value)`](./transport/wire/values.ts#L89)
 
 _Variable_
 
@@ -115,7 +115,7 @@ export const Content = contentStructure.pipe(
 
 Nonempty semantic content whose canonical JSON is at most 32,768 bytes.
 
-### [`ContentPart (type)`](./transport/wire/values.ts#L88)
+### [`ContentPart (type)`](./transport/wire/values.ts#L84)
 
 _TypeAlias_
 
@@ -125,7 +125,7 @@ export type ContentPart = typeof ContentPart.Type;
 
 A validated semantic message part.
 
-### [`ContentPart (value)`](./transport/wire/values.ts#L83)
+### [`ContentPart (value)`](./transport/wire/values.ts#L79)
 
 _Variable_
 
@@ -138,7 +138,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`decodeHarnessMessageReadyEvent`](./harness/protocol/operations.ts#L247)
+### [`decodeHarnessMessageReadyEvent`](./harness/protocol/operations.ts#L242)
 
 _Function_
 
@@ -152,7 +152,7 @@ Decode one exact pending-delivery notification payload.
 
 **Returns:** The validated pending delivery.
 
-### [`decodeHarnessReadInboxResult`](./harness/protocol/operations.ts#L156)
+### [`decodeHarnessReadInboxResult`](./harness/protocol/operations.ts#L151)
 
 _Variable_
 
@@ -163,7 +163,7 @@ export const decodeHarnessReadInboxResult =
 
 Decode a bounded inbox page received through the MCP transport.
 
-### [`decodeHarnessSendErrorData`](./harness/protocol/operations.ts#L258)
+### [`decodeHarnessSendErrorData`](./harness/protocol/operations.ts#L253)
 
 _Function_
 
@@ -177,7 +177,7 @@ Decode the error data of one refused `send_message` call.
 
 **Returns:** The collective failure or send reason it carries.
 
-### [`decodeHarnessSendResult`](./harness/protocol/operations.ts#L280)
+### [`decodeHarnessSendResult`](./harness/protocol/operations.ts#L275)
 
 _Function_
 
@@ -242,7 +242,7 @@ export class FirewallSendError extends Data.TaggedError("FirewallSendError")<
 A refusal is returned only before an application invocation creates any intent.
 Its opaque check reference survives hosts that retain only the error message.
 
-### [`GroupAddress (type)`](./transport/wire/values.ts#L208)
+### [`GroupAddress (type)`](./transport/wire/values.ts#L204)
 
 _TypeAlias_
 
@@ -252,7 +252,7 @@ export type GroupAddress = typeof GroupAddress.Type;
 
 A validated canonical complete group destination.
 
-### [`GroupAddress (value)`](./transport/wire/values.ts#L202)
+### [`GroupAddress (value)`](./transport/wire/values.ts#L198)
 
 _Variable_
 
@@ -427,7 +427,7 @@ export const InboundMessage = Schema.Union(
 
 One certified remote-authored post, direct or to a fixed group.
 
-### [`JsonValue (type)`](./transport/wire/values.ts#L61)
+### [`JsonValue (type)`](./transport/wire/values.ts#L57)
 
 _TypeAlias_
 
@@ -443,7 +443,7 @@ export type JsonValue =
 
 A value accepted by the closed semantic content boundary.
 
-### [`JsonValue (value)`](./transport/wire/values.ts#L71)
+### [`JsonValue (value)`](./transport/wire/values.ts#L67)
 
 _Variable_
 
@@ -500,7 +500,7 @@ export type LocalGuidance = typeof localGuidanceSchema.Type;
 
 Local advice accompanies the envelope and never changes a certified item.
 
-### [`MessageAddressInput (type)`](./transport/wire/values.ts#L213)
+### [`MessageAddressInput (type)`](./transport/wire/values.ts#L209)
 
 _TypeAlias_
 
@@ -510,7 +510,7 @@ export type MessageAddressInput = typeof MessageAddressInput.Type;
 
 A validated explicit destination input.
 
-### [`MessageAddressInput (value)`](./transport/wire/values.ts#L211)
+### [`MessageAddressInput (value)`](./transport/wire/values.ts#L207)
 
 _Variable_
 
@@ -556,7 +556,7 @@ Read one message text as the send it states.
 **Returns:** The send input, or an error naming each field a stated operation
   gets wrong.
 
-### [`PostId (type)`](./transport/wire/values.ts#L50)
+### [`PostId (type)`](./transport/wire/values.ts#L46)
 
 _TypeAlias_
 
@@ -566,7 +566,7 @@ export type PostId = typeof PostId.Type;
 
 A validated author-scoped post identity.
 
-### [`PostId (value)`](./transport/wire/values.ts#L41)
+### [`PostId (value)`](./transport/wire/values.ts#L37)
 
 _Variable_
 

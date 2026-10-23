@@ -5,9 +5,9 @@ import {
   type SignedMessageVerificationError,
 } from "@moltzap/identity";
 import { Effect, type ParseResult, Schema } from "effect";
+import type { ClientRepresentationError } from "../encoding/canonical-json.js";
 import type { SigningIdentity } from "./certified-history-fixtures.js";
 import {
-  type ClientRepresentationError,
   type DecodedOuterBody,
   decodeOuterBody,
 } from "../transport/wire/index.js";

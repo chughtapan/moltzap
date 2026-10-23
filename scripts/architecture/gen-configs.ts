@@ -155,8 +155,7 @@ const clientDomains: readonly ClientDomain[] = [
         reason: "Canonical identifiers and ordering used by host-loaded values",
       },
     ],
-    reason:
-      "Leaf codecs depending only on Effect, canonicalize and Node built-ins",
+    reason: "Leaf codecs depending only on Effect and canonicalize",
   },
   {
     name: "release",
@@ -180,7 +179,7 @@ const clientDomains: readonly ClientDomain[] = [
     root: "firewall/evaluator",
     entrypoints: ["index.ts"],
     reason:
-      "Isolated code and English evaluation depends only on runtime-safe outcomes and packages",
+      "Isolated code and English evaluation depends on encoding, runtime-safe outcomes and packages",
   },
   {
     name: "identity",
@@ -422,6 +421,11 @@ const packageDefinitions: Readonly<Record<string, PackageDefinition>> = {
       folderReadmeFileNames: ["README.md", "../README.md"],
       facadeFiles: [
         ...clientEntrypointFacades,
+        {
+          file: "transport/wire/schemas.ts",
+          reason:
+            "Closed Client wire grammar shared by encoding and verification within the wire domain",
+        },
         {
           file: "store/database/values.ts",
           reason:

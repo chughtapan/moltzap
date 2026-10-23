@@ -12,7 +12,10 @@ import type {
   EngineConversation,
   EngineRuntime,
 } from "../runtime/index.js";
-import { decodeCanonical } from "../../../encoding/canonical-json.js";
+import {
+  type ClientRepresentationError,
+  decodeCanonical,
+} from "../../../encoding/canonical-json.js";
 import {
   type EndpointRecovery,
   OutboxTooOldError,
@@ -29,7 +32,6 @@ import {
 import {
   type AnchorHash as AnchorHashValue,
   type CertifiedRecord,
-  type ClientRepresentationError,
   CompletedReanchor,
   type CompletedReanchor as CompletedReanchorValue,
   ConversationId,

@@ -17,6 +17,7 @@ import type {
   StoredAnchor,
   CertifiedRecord as StoredCertifiedRecord,
 } from "../store/index.js";
+import { encodeCanonical } from "../encoding/canonical-json.js";
 import {
   inboundDelivery,
   protocolEvidence,
@@ -26,7 +27,6 @@ import {
   ActionCore,
   type ActionHash,
   type CertifiedRecord,
-  encodeCanonical,
   type EvidenceStatement,
   type GenesisActionCore,
   type GenesisAnchorBody,

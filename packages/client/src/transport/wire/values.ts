@@ -1,23 +1,19 @@
 /** @file Message values every layer above the wire encodes: addresses, post ids, content, and member limits and order. */
 
-import { AgentName, WIRE_VERSION } from "@moltzap/identity";
+import { type AgentId, AgentName, WIRE_VERSION } from "@moltzap/identity";
+import canonicalize from "canonicalize";
 import { Either, Schema } from "effect";
-import { canonicalJson } from "../../encoding/canonical-json.js";
 import { exactStruct } from "../../encoding/exact.js";
 import {
+  compareAgentIds as compareAgentIdBytes,
   compareAscii,
   isCanonicalIdentifier,
+  isStrictlyAscending,
 } from "../../encoding/identifier.js";
 
-/** Closed struct decoding shared with wire schemas. */
-export { exactStruct } from "../../encoding/exact.js";
-/** Canonical identifier text and ordering shared with wire consumers. */
-export {
-  compareAgentIds,
-  compareAscii,
-  decodeCanonicalBase64Url,
-  isCanonicalIdentifier,
-} from "../../encoding/identifier.js";
+/** Order validated agent identities by their decoded key bytes. */
+export const compareAgentIds: (left: AgentId, right: AgentId) => number =
+  compareAgentIdBytes;
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Effect Schemas share their domain names with the nominal values they decode. */
 
@@ -126,7 +122,7 @@ function contentFits(
   content: readonly [ContentPart, ...ContentPart[]],
 ): boolean {
   return Either.match(
-    Either.try(() => canonicalJson(content)),
+    Either.try(() => canonicalize(content)),
     {
       onLeft: () => false,
       onRight: (canonical) =>
@@ -221,18 +217,7 @@ function isCanonicalGroupAddress(value: string): boolean {
   ) {
     return false;
   }
-  for (let index = 1; index < names.length; index += 1) {
-    const previous = names[index - 1];
-    const current = names[index];
-    if (
-      previous === undefined ||
-      current === undefined ||
-      compareAscii(previous, current) >= 0
-    ) {
-      return false;
-    }
-  }
-  return true;
+  return isStrictlyAscending(names, compareAscii);
 }
 
 /* eslint-enable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Restore the package naming rules after the Schema/type pairs. */

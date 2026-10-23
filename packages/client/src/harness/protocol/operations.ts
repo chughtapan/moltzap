@@ -1,8 +1,8 @@
 /** @file The values harness operations take, return and persist: sends, inbox pages, events and acknowledgments. */
 
-import { Effect, type ParseResult, Schema, type SchemaAST } from "effect";
+import { Effect, type ParseResult, Schema } from "effect";
 import type { SendError } from "../../transport/messaging/errors.js";
-import { exactStruct } from "../../encoding/exact.js";
+import { exactParseOptions, exactStruct } from "../../encoding/exact.js";
 import {
   checkedGuidanceSchema,
   firewallRefusalSchema,
@@ -21,11 +21,6 @@ import {
   SendInput,
 } from "../../transport/collectives/forms.js";
 import { InboundItem } from "../../transport/collectives/inbound.js";
-
-const exact: SchemaAST.ParseOptions = {
-  exact: true,
-  onExcessProperty: "error",
-};
 
 /** Canonical event identities reuse the immutable inbox binding's random bytes. */
 export const eventIdSchema = Schema.String.pipe(
@@ -235,7 +230,7 @@ export function decodeHarnessAcknowledgeDeliveryRequest(
 ): Effect.Effect<HarnessAcknowledgeDeliveryRequest, ParseResult.ParseError> {
   return Schema.decodeUnknown(harnessAcknowledgeDeliveryRequestSchema)(
     value,
-    exact,
+    exactParseOptions,
   );
 }
 
@@ -292,7 +287,10 @@ export function decodeHarnessSendResult(
 export function checkHarnessSendResult(
   value: unknown,
 ): Effect.Effect<HarnessSendResult, ParseResult.ParseError> {
-  return Schema.decodeUnknown(harnessSendResultSchema)(value, exact);
+  return Schema.decodeUnknown(harnessSendResultSchema)(
+    value,
+    exactParseOptions,
+  );
 }
 
 /** The existing endpoint store owns both callback progress and immutable inbox items. */

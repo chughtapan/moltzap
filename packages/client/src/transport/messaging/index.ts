@@ -26,11 +26,11 @@ import type {
   EngineRuntime,
 } from "./runtime/index.js";
 import {
+  type ClientRepresentationError,
   decodeCanonical,
   encodeCanonical,
 } from "../../encoding/canonical-json.js";
 import {
-  type ClientRepresentationError,
   type DecodedOuterBody,
   type MessageAddressInput,
   PostIntent,

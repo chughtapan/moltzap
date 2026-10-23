@@ -10,6 +10,7 @@ import {
   type VerifiedAgentCard,
   WIRE_VERSION,
 } from "@moltzap/identity";
+import canonicalize from "canonicalize";
 import { Effect, Encoding, Redacted, Schema } from "effect";
 import {
   createHash,
@@ -17,7 +18,6 @@ import {
   type KeyObject,
   sign as signBytes,
 } from "node:crypto";
-import { canonicalJson as canonicalize } from "../encoding/canonical-json.js";
 
 /** A Registry signing key pair, as `generateKeyPairSync("ed25519")` returns. */
 export interface RegistryKeyPair {

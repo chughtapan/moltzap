@@ -7,7 +7,10 @@ import { type AgentId, SignedMessage } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import type { EndpointRecovery, StagedRecord } from "../../../store/index.js";
 import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
-import { decodeCanonical } from "../../../encoding/canonical-json.js";
+import {
+  type ClientRepresentationError,
+  decodeCanonical,
+} from "../../../encoding/canonical-json.js";
 import {
   type RouterIngressDisposition,
   type RouterWorkerIngress,
@@ -22,7 +25,6 @@ import {
   CatchUpRequest,
   type CatchUpRequest as CatchUpRequestValue,
   type CertifiedRecord,
-  type ClientRepresentationError,
   type CompletedReanchor as CompletedReanchorValue,
   type ConversationId as ConversationIdValue,
   type DecodedOuterBody,

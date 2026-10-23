@@ -2,16 +2,10 @@
 
 import canonicalize from "canonicalize";
 import { Data, Effect, Schema } from "effect";
-
-/** JCS text for values whose callers handle encoding failures at their boundary. */
-export const canonicalJson = canonicalize;
+import { exactParseOptions } from "./exact.js";
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 const utf8Encoder = new TextEncoder();
-const exactOptions = {
-  exact: true,
-  onExcessProperty: "error" as const,
-};
 
 /** A Client-owned representation, hash, or verification check failed. */
 export class ClientRepresentationError extends Data.TaggedError(
@@ -40,7 +34,7 @@ export const canonicalBytes = (
   value: unknown,
 ): Effect.Effect<Uint8Array, ClientRepresentationError> =>
   Effect.try({
-    try: () => canonicalJson(value),
+    try: () => canonicalize(value),
     catch: representationFailure,
   }).pipe(
     Effect.flatMap((text) =>
@@ -72,7 +66,7 @@ export const decodeCanonical = <A, I, R>(
     });
     const decoded = yield* Schema.decodeUnknown(Schema.parseJson(schema))(
       text,
-      exactOptions,
+      exactParseOptions,
     ).pipe(Effect.mapError(representationFailure));
     const canonical = yield* encodeCanonical(schema, decoded);
     if (!sameBytes(bytes, canonical)) {

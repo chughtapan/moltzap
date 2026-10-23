@@ -10,6 +10,7 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect, Redacted, Schema } from "effect";
 import { fileURLToPath } from "node:url";
+import { encodeCanonical } from "../packages/client/dist/encoding/canonical-json.js";
 import {
   ActionCertifiedRecord,
   ActionCore,
@@ -17,7 +18,6 @@ import {
   CompletedReanchor,
   deriveConversationId,
   DirectPacket,
-  encodeCanonical,
   type EvidenceStatement,
   GenesisAnchorBody,
   hashAction,

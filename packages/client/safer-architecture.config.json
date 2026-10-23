@@ -73,6 +73,10 @@
       "reason": "History export values hosts decode without loading inbox state or SQLite"
     },
     {
+      "file": "transport/wire/schemas.ts",
+      "reason": "Closed Client wire grammar shared by encoding and verification within the wire domain"
+    },
+    {
       "file": "store/database/values.ts",
       "reason": "Closed store errors and row-value checks shared by database implementation modules"
     },
@@ -110,7 +114,7 @@
         "src/encoding/canonical-json.ts",
         "src/encoding/identifier.ts"
       ],
-      "reason": "Leaf codecs depending only on Effect, canonicalize and Node built-ins"
+      "reason": "Leaf codecs depending only on Effect and canonicalize"
     },
     {
       "name": "release",
@@ -140,7 +144,7 @@
       "entrypoints": [
         "src/firewall/evaluator/index.ts"
       ],
-      "reason": "Isolated code and English evaluation depends only on runtime-safe outcomes and packages"
+      "reason": "Isolated code and English evaluation depends on encoding, runtime-safe outcomes and packages"
     },
     {
       "name": "identity",
@@ -382,7 +386,7 @@
       "folders": [
         "firewall/evaluator"
       ],
-      "reason": "Isolated code and English evaluation depends only on runtime-safe outcomes and packages"
+      "reason": "Isolated code and English evaluation depends on encoding, runtime-safe outcomes and packages"
     },
     {
       "name": "firewall-outcome",
@@ -403,7 +407,7 @@
       "folders": [
         "encoding"
       ],
-      "reason": "Leaf codecs depending only on Effect, canonicalize and Node built-ins"
+      "reason": "Leaf codecs depending only on Effect and canonicalize"
     }
   ],
   "publicTypePackages": [

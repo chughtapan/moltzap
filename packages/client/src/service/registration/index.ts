@@ -13,6 +13,7 @@ import type {
   DaemonBootstrap,
   DaemonConfigurationError,
 } from "../bootstrap.js";
+import { exactParseOptions } from "../../encoding/exact.js";
 import {
   bindCard,
   DaemonRegistrationPersistenceError,
@@ -41,11 +42,6 @@ export class DaemonRegistrationUpstreamError extends Data.TaggedError(
 ) {}
 
 type RegistrationRequest = Parameters<HarnessMcpOperations["register"]>[0];
-
-const exactOptions = {
-  exact: true,
-  onExcessProperty: "error" as const,
-};
 
 const upstreamFailure = (): DaemonRegistrationUpstreamError =>
   new DaemonRegistrationUpstreamError();
@@ -96,7 +92,7 @@ const makeRegistryRequest = (input: {
       agentName: input.request.agentName,
       publicKey: input.bootstrap.agentPublicKey,
     },
-    exactOptions,
+    exactParseOptions,
   ).pipe(Effect.mapError(representationFailure));
 
 const registrationMatches = (

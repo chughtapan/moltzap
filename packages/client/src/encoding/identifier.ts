@@ -74,3 +74,22 @@ export const compareAscii = (left: string, right: string): number => {
   }
   return left.length - right.length;
 };
+
+/** Require each adjacent pair to increase strictly, rejecting duplicates and missing entries. */
+export function isStrictlyAscending<Value>(
+  values: readonly Value[],
+  compare: (left: Value, right: Value) => number,
+): boolean {
+  for (let index = 1; index < values.length; index += 1) {
+    const previous = values[index - 1];
+    const current = values[index];
+    if (
+      previous === undefined ||
+      current === undefined ||
+      compare(previous, current) >= 0
+    ) {
+      return false;
+    }
+  }
+  return true;
+}

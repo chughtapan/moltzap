@@ -11,6 +11,8 @@ entrypoints: usually its `index.ts`, plus schema files that hosts can load
 without the domain's runtime. `harness/` groups the protocol, host endpoint,
 inbox and daemon MCP server; each has its own declared entrypoints.
 
+- `encoding/`: exact struct decoding, canonical JSON and byte equality, canonical
+  identifiers and ordering; depends only on Effect and canonicalize.
 - `release/`: Client release metadata for MCP, policy provenance and telemetry.
 - `firewall/outcome/`: runtime-safe refusal and guidance values.
 - `firewall/evaluator/`: isolated code and English policy evaluation.
