@@ -2,6 +2,7 @@
 
 import { Effect, type ParseResult, Schema, type SchemaAST } from "effect";
 import type { SendError } from "../../transport/messaging/errors.js";
+import { exactStruct } from "../../encoding/exact.js";
 import {
   checkedGuidanceSchema,
   firewallRefusalSchema,
@@ -20,7 +21,6 @@ import {
   SendInput,
 } from "../../transport/collectives/forms.js";
 import { InboundItem } from "../../transport/collectives/inbound.js";
-import { exactStruct } from "../../transport/wire/values.js";
 
 const exact: SchemaAST.ParseOptions = {
   exact: true,

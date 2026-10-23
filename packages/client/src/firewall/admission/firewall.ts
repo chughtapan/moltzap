@@ -4,6 +4,7 @@ import type { AgentCard, VerifiedAgentCard } from "@moltzap/identity";
 import { Effect, Option, Schema } from "effect";
 import { createHash } from "node:crypto";
 import type { FirewallSendError } from "../outcome/index.js";
+import { encodeCanonical } from "../../encoding/canonical-json.js";
 import {
   decodeRuntimeValue,
   encodeRuntimeValue,
@@ -30,7 +31,7 @@ import {
   type ResolvedConversation,
   untilFresh,
 } from "../../transport/messaging/index.js";
-import { Content, encodeCanonical } from "../../transport/wire/index.js";
+import { Content } from "../../transport/wire/index.js";
 import { PostId } from "../../transport/wire/values.js";
 import {
   CheckInputError,

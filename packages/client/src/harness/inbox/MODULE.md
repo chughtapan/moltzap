@@ -8,7 +8,7 @@ One service's delivery, for the service to compose.
 
 ## Public surface
 
-### [`HistoryExportRecord`](./history-export.ts#L50)
+### [`HistoryExportRecord`](./history-export.ts#L51)
 
 _TypeAlias_
 
@@ -18,7 +18,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord`](./history-export.ts#L31)
+### [`HistoryExportRecord`](./history-export.ts#L32)
 
 _Variable_
 

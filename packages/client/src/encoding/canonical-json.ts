@@ -3,7 +3,8 @@
 import canonicalize from "canonicalize";
 import { Data, Effect, Schema } from "effect";
 
-/* eslint-disable jsdoc/require-jsdoc -- This package-private codec is named and documented at its representation facade. */
+/** JCS text for values whose callers handle encoding failures at their boundary. */
+export const canonicalJson = canonicalize;
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 const utf8Encoder = new TextEncoder();
@@ -17,9 +18,11 @@ export class ClientRepresentationError extends Data.TaggedError(
   "ClientRepresentationError",
 ) {}
 
+/** Discard decoder and encoder diagnostics at the representation boundary. */
 export const representationFailure = (): ClientRepresentationError =>
   new ClientRepresentationError();
 
+/** Compare exact lengths and bytes without coercing either representation. */
 export const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => {
   if (left.byteLength !== right.byteLength) {
     return false;
@@ -32,11 +35,12 @@ export const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => {
   return true;
 };
 
-const canonicalBytes = (
+/** Encode JSON as canonical UTF-8, rejecting values with no JSON representation. */
+export const canonicalBytes = (
   value: unknown,
 ): Effect.Effect<Uint8Array, ClientRepresentationError> =>
   Effect.try({
-    try: () => canonicalize(value),
+    try: () => canonicalJson(value),
     catch: representationFailure,
   }).pipe(
     Effect.flatMap((text) =>
@@ -89,5 +93,3 @@ export const equalCanonical = <A, I, R>(
   ]).pipe(
     Effect.map(([leftBytes, rightBytes]) => sameBytes(leftBytes, rightBytes)),
   );
-
-/* eslint-enable jsdoc/require-jsdoc -- Restore package documentation rules. */

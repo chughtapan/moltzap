@@ -15,6 +15,7 @@ import type {
   ProtocolEvidence,
   StoredOutboundMessage,
 } from "../../store/index.js";
+import { decodeCanonical } from "../../encoding/canonical-json.js";
 import { RouterWorkerPersistenceError } from "../router/index.js";
 import {
   ActionCore,
@@ -25,7 +26,6 @@ import {
   type CertifiedRecord,
   ConversationId,
   type ConversationId as ConversationIdValue,
-  decodeCanonical,
   type RecordCore,
   RecordCore as RecordCoreSchema,
   RecordHash,

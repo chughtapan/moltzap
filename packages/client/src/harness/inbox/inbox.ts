@@ -2,6 +2,7 @@
 
 import { Effect, Encoding, Schema } from "effect";
 import { randomBytes } from "node:crypto";
+import { exactStruct } from "../../encoding/exact.js";
 import { localGuidanceSchema } from "../../firewall/outcome/index.js";
 import {
   decodeRuntimeValue,
@@ -69,10 +70,10 @@ export function decodeInboxEntry(
   }).pipe(Effect.withSpan("decodeInboxEntry"));
 }
 
-const cursorSchema = Schema.Struct({
+const cursorSchema = exactStruct({
   after: Schema.NonNegativeInt,
   through: Schema.NonNegativeInt,
-}).annotations({ parseOptions: { exact: true, onExcessProperty: "error" } });
+});
 
 /**
  * Persist a classified item before any host can observe its delivery identity.

@@ -1,10 +1,29 @@
 {
   "maxFolderCycles": 1,
+  "folderChildCountOverrides": [
+    {
+      "folder": ".",
+      "maxChildren": 11,
+      "reason": "Client keeps leaf encoding alongside its runtime domains, environment values and package facade"
+    }
+  ],
   "folderReadmeFileNames": [
     "README.md",
     "../README.md"
   ],
   "facadeFiles": [
+    {
+      "file": "encoding/exact.ts",
+      "reason": "Closed struct decoding shared by host-loaded value schemas"
+    },
+    {
+      "file": "encoding/canonical-json.ts",
+      "reason": "Canonical JSON encoding used by host-loaded content bounds"
+    },
+    {
+      "file": "encoding/identifier.ts",
+      "reason": "Canonical identifiers and ordering used by host-loaded values"
+    },
     {
       "file": "transport/wire/values.ts",
       "reason": "Addresses, post ids, content, and member limits hosts decode without loading signing, verification, or the Router client"
@@ -54,6 +73,10 @@
       "reason": "History export values hosts decode without loading inbox state or SQLite"
     },
     {
+      "file": "store/database/values.ts",
+      "reason": "Closed store errors and row-value checks shared by database implementation modules"
+    },
+    {
       "file": "service/bootstrap.ts",
       "reason": "Loaded daemon configuration and closed bootstrap failures shared by service composition modules"
     }
@@ -77,6 +100,18 @@
     }
   ],
   "domains": [
+    {
+      "name": "encoding",
+      "roots": [
+        "src/encoding"
+      ],
+      "entrypoints": [
+        "src/encoding/exact.ts",
+        "src/encoding/canonical-json.ts",
+        "src/encoding/identifier.ts"
+      ],
+      "reason": "Leaf codecs depending only on Effect, canonicalize and Node built-ins"
+    },
     {
       "name": "release",
       "roots": [
@@ -362,6 +397,13 @@
         "release"
       ],
       "reason": "Client package release metadata used by MCP peers, policy provenance and telemetry"
+    },
+    {
+      "name": "encoding",
+      "folders": [
+        "encoding"
+      ],
+      "reason": "Leaf codecs depending only on Effect, canonicalize and Node built-ins"
     }
   ],
   "publicTypePackages": [

@@ -12,6 +12,10 @@ import {
 import { Effect, Schema } from "effect";
 import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
 import {
+  decodeCanonical,
+  encodeCanonical,
+} from "../../../encoding/canonical-json.js";
+import {
   type EndpointRecovery,
   type EndpointStore,
   isSemanticStoreRejection,
@@ -22,8 +26,6 @@ import {
   CompletedReanchor,
   type CompletedReanchor as CompletedReanchorValue,
   type ConversationId as ConversationIdValue,
-  decodeCanonical,
-  encodeCanonical,
   type EvidenceStatement as EvidenceStatementValue,
   ReanchorBody,
   type ReanchorBody as ReanchorBodyValue,

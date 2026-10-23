@@ -22,7 +22,7 @@ Acquire one real MCP-backed endpoint and its scoped connection.
 
 **Returns:** An endpoint whose resources remain live for the caller's scope.
 
-### [`AgentAddress (type)`](./transport/wire/values.ts#L254)
+### [`AgentAddress (type)`](./transport/wire/values.ts#L199)
 
 _TypeAlias_
 
@@ -32,7 +32,7 @@ export type AgentAddress = typeof AgentAddress.Type;
 
 A validated direct destination.
 
-### [`AgentAddress (value)`](./transport/wire/values.ts#L248)
+### [`AgentAddress (value)`](./transport/wire/values.ts#L193)
 
 _Variable_
 
@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CheckedGuidance`](./firewall/outcome/index.ts#L55)
+### [`CheckedGuidance`](./firewall/outcome/index.ts#L51)
 
 _TypeAlias_
 
@@ -92,7 +92,7 @@ export class ConnectError extends Data.TaggedError("ConnectError")<{
 
 Acquiring the endpoint connection failed.
 
-### [`Content (type)`](./transport/wire/values.ts#L116)
+### [`Content (type)`](./transport/wire/values.ts#L98)
 
 _TypeAlias_
 
@@ -102,7 +102,7 @@ export type Content = typeof Content.Type;
 
 Validated nonempty semantic content.
 
-### [`Content (value)`](./transport/wire/values.ts#L111)
+### [`Content (value)`](./transport/wire/values.ts#L93)
 
 _Variable_
 
@@ -115,7 +115,7 @@ export const Content = contentStructure.pipe(
 
 Nonempty semantic content whose canonical JSON is at most 32,768 bytes.
 
-### [`ContentPart (type)`](./transport/wire/values.ts#L106)
+### [`ContentPart (type)`](./transport/wire/values.ts#L88)
 
 _TypeAlias_
 
@@ -125,7 +125,7 @@ export type ContentPart = typeof ContentPart.Type;
 
 A validated semantic message part.
 
-### [`ContentPart (value)`](./transport/wire/values.ts#L101)
+### [`ContentPart (value)`](./transport/wire/values.ts#L83)
 
 _Variable_
 
@@ -221,7 +221,7 @@ export type DirectMessage = typeof directMessage.Type;
 
 One certified remote-authored direct message.
 
-### [`FirewallSendError`](./firewall/outcome/index.ts#L125)
+### [`FirewallSendError`](./firewall/outcome/index.ts#L121)
 
 _Class_
 
@@ -242,7 +242,7 @@ export class FirewallSendError extends Data.TaggedError("FirewallSendError")<
 A refusal is returned only before an application invocation creates any intent.
 Its opaque check reference survives hosts that retain only the error message.
 
-### [`GroupAddress (type)`](./transport/wire/values.ts#L263)
+### [`GroupAddress (type)`](./transport/wire/values.ts#L208)
 
 _TypeAlias_
 
@@ -252,7 +252,7 @@ export type GroupAddress = typeof GroupAddress.Type;
 
 A validated canonical complete group destination.
 
-### [`GroupAddress (value)`](./transport/wire/values.ts#L257)
+### [`GroupAddress (value)`](./transport/wire/values.ts#L202)
 
 _Variable_
 
@@ -319,7 +319,7 @@ stream. A multicast has no operation id, so its failure is always returned.
 A firewall refusal always returns on the send call before creating an intent,
 including when inbound failure delivery was requested.
 
-### [`HistoryExportRecord (type)`](./harness/inbox/history-export.ts#L50)
+### [`HistoryExportRecord (type)`](./harness/inbox/history-export.ts#L51)
 
 _TypeAlias_
 
@@ -329,7 +329,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord (value)`](./harness/inbox/history-export.ts#L31)
+### [`HistoryExportRecord (value)`](./harness/inbox/history-export.ts#L32)
 
 _Variable_
 
@@ -427,7 +427,7 @@ export const InboundMessage = Schema.Union(
 
 One certified remote-authored post, direct or to a fixed group.
 
-### [`JsonValue (type)`](./transport/wire/values.ts#L79)
+### [`JsonValue (type)`](./transport/wire/values.ts#L61)
 
 _TypeAlias_
 
@@ -443,7 +443,7 @@ export type JsonValue =
 
 A value accepted by the closed semantic content boundary.
 
-### [`JsonValue (value)`](./transport/wire/values.ts#L89)
+### [`JsonValue (value)`](./transport/wire/values.ts#L71)
 
 _Variable_
 
@@ -490,7 +490,7 @@ export class ListenError extends Data.TaggedError("ListenError")<{
 
 The endpoint's sole inbound subscription failed.
 
-### [`LocalGuidance`](./firewall/outcome/index.ts#L79)
+### [`LocalGuidance`](./firewall/outcome/index.ts#L75)
 
 _TypeAlias_
 
@@ -500,7 +500,7 @@ export type LocalGuidance = typeof localGuidanceSchema.Type;
 
 Local advice accompanies the envelope and never changes a certified item.
 
-### [`MessageAddressInput (type)`](./transport/wire/values.ts#L268)
+### [`MessageAddressInput (type)`](./transport/wire/values.ts#L213)
 
 _TypeAlias_
 
@@ -510,7 +510,7 @@ export type MessageAddressInput = typeof MessageAddressInput.Type;
 
 A validated explicit destination input.
 
-### [`MessageAddressInput (value)`](./transport/wire/values.ts#L266)
+### [`MessageAddressInput (value)`](./transport/wire/values.ts#L211)
 
 _Variable_
 
@@ -520,7 +520,7 @@ export const MessageAddressInput = addressInput
 
 Either accepted destination input, including noncanonical group order.
 
-### [`MessageTextError`](./transport/collectives/message-text.ts#L50)
+### [`MessageTextError`](./transport/collectives/message-text.ts#L51)
 
 _Class_
 
@@ -540,7 +540,7 @@ A message text states an operation it does not validly carry, or is plain
 text that is not well-formed Unicode. The message names each failing field
 so a host can hand it to its model as the tool error.
 
-### [`parseMessageText`](./transport/collectives/message-text.ts#L93)
+### [`parseMessageText`](./transport/collectives/message-text.ts#L94)
 
 _Function_
 
@@ -556,7 +556,7 @@ Read one message text as the send it states.
 **Returns:** The send input, or an error naming each field a stated operation
   gets wrong.
 
-### [`PostId (type)`](./transport/wire/values.ts#L68)
+### [`PostId (type)`](./transport/wire/values.ts#L50)
 
 _TypeAlias_
 
@@ -566,7 +566,7 @@ export type PostId = typeof PostId.Type;
 
 A validated author-scoped post identity.
 
-### [`PostId (value)`](./transport/wire/values.ts#L59)
+### [`PostId (value)`](./transport/wire/values.ts#L41)
 
 _Variable_
 
@@ -798,7 +798,7 @@ The environment must not also name a message-policy document.
 
 **Returns:** The complete daemon layer with both message boundaries checked.
 
-#### [`CheckInputError`](./firewall/evaluator/values.ts#L254)
+#### [`CheckInputError`](./firewall/evaluator/values.ts#L255)
 
 _Class_
 
@@ -810,7 +810,7 @@ export class CheckInputError extends Data.TaggedError("CheckInputError")<{
 
 Invalid construction or evidence is a typed failure, never permission.
 
-#### [`DecisionProviderError`](./firewall/evaluator/values.ts#L378)
+#### [`DecisionProviderError`](./firewall/evaluator/values.ts#L379)
 
 _Class_
 
@@ -839,7 +839,7 @@ export class DecisionProviderError extends Data.TaggedError(
 
 The adapter scrubs credentials before retaining optional private diagnostics.
 
-#### [`FirewallPolicyError`](./firewall/evaluator/values.ts#L621)
+#### [`FirewallPolicyError`](./firewall/evaluator/values.ts#L617)
 
 _Class_
 
@@ -858,7 +858,7 @@ export class FirewallPolicyError extends Data.TaggedError(
 
 A failed edit never replaces the active installation or retained editable document.
 
-#### [`MiddlewareError`](./firewall/evaluator/values.ts#L198)
+#### [`MiddlewareError`](./firewall/evaluator/values.ts#L199)
 
 _Class_
 
@@ -875,7 +875,7 @@ export class MiddlewareError extends Data.TaggedError("MiddlewareError")<{
 
 Operational failures carry closed reasons, never arbitrary exception text.
 
-#### [`DecisionProvider`](./firewall/evaluator/values.ts#L400)
+#### [`DecisionProvider`](./firewall/evaluator/values.ts#L401)
 
 _Interface_
 
@@ -891,7 +891,7 @@ export interface DecisionProvider {
 
 Entirely code-based chains have no dependency on this optional capability.
 
-#### [`DecisionRequest`](./firewall/evaluator/values.ts#L342)
+#### [`DecisionRequest`](./firewall/evaluator/values.ts#L343)
 
 _Interface_
 
@@ -916,7 +916,7 @@ export interface DecisionRequest {
 
 Provider input contains explicit questions and state, never execution authority.
 
-#### [`DecisionResponse`](./firewall/evaluator/values.ts#L360)
+#### [`DecisionResponse`](./firewall/evaluator/values.ts#L361)
 
 _Interface_
 
@@ -941,7 +941,7 @@ export class DecisionResponse extends Schema.Class<DecisionResponse>(
 
 Raw distributions and provider confidence survive routing unchanged.
 
-#### [`EnglishPolicySettings`](./firewall/evaluator/values.ts#L325)
+#### [`EnglishPolicySettings`](./firewall/evaluator/values.ts#L326)
 
 _Interface_
 
@@ -957,7 +957,7 @@ export class EnglishPolicySettings extends Schema.Class<EnglishPolicySettings>(
 
 Bytes bound allocation, not tokenizer capacity; probability is a routing setting.
 
-#### [`EnglishRule`](./firewall/evaluator/values.ts#L131)
+#### [`EnglishRule`](./firewall/evaluator/values.ts#L132)
 
 _Interface_
 
@@ -970,7 +970,7 @@ export class EnglishRule extends Schema.Class<EnglishRule>("EnglishRule")({
 
 Text is interpreted by the provider; it is never compiled into executable code.
 
-#### [`Firewall`](./firewall/evaluator/values.ts#L313)
+#### [`Firewall`](./firewall/evaluator/values.ts#L314)
 
 _Interface_
 
@@ -989,7 +989,7 @@ export interface Firewall {
 
 Checking returns data; Client separately owns fresh, atomic send/delivery admission.
 
-#### [`FirewallSettings`](./firewall/evaluator/values.ts#L244)
+#### [`FirewallSettings`](./firewall/evaluator/values.ts#L245)
 
 _Interface_
 
@@ -1006,7 +1006,7 @@ export class FirewallSettings extends Schema.Class<FirewallSettings>(
 
 Sequential execution is bounded per entry and across the whole attempt.
 
-#### [`Message`](./firewall/evaluator/values.ts#L38)
+#### [`Message`](./firewall/evaluator/values.ts#L39)
 
 _Interface_
 
@@ -1023,7 +1023,7 @@ export class Message extends Schema.Class<Message>("Message")({
 Attribution is supplied by Client, never inferred from names in the body.
 `operation` is absent for a plain message.
 
-#### [`MessageContext`](./firewall/evaluator/values.ts#L74)
+#### [`MessageContext`](./firewall/evaluator/values.ts#L75)
 
 _Interface_
 
@@ -1064,7 +1064,7 @@ Trusted composition supplies authorized earlier evidence and candidate-specific
 approval. Agent identity and principal identity have different meanings.
 The first live composition supplies absent approval.
 
-#### [`MessageMiddleware`](./firewall/evaluator/values.ts#L232)
+#### [`MessageMiddleware`](./firewall/evaluator/values.ts#L233)
 
 _Interface_
 
@@ -1085,7 +1085,7 @@ Code and English policies have the same contract. Registered code is trusted;
 it receives no messaging/store capability and must not retain conversation
 state or perform messaging side effects.
 
-#### [`MiddlewareInput`](./firewall/evaluator/values.ts#L219)
+#### [`MiddlewareInput`](./firewall/evaluator/values.ts#L220)
 
 _Interface_
 
@@ -1101,7 +1101,7 @@ export class MiddlewareInput extends Schema.Class<MiddlewareInput>(
 
 Each invocation gets immutable evidence and previously validated observations.
 
-#### [`MiddlewareResult`](./firewall/evaluator/values.ts#L189)
+#### [`MiddlewareResult`](./firewall/evaluator/values.ts#L190)
 
 _Interface_
 
@@ -1117,7 +1117,7 @@ export class MiddlewareResult extends Schema.Class<MiddlewareResult>(
 
 A result is atomic: interrupted middleware has no returned partial findings.
 
-#### [`RuleDescription`](./firewall/evaluator/values.ts#L115)
+#### [`RuleDescription`](./firewall/evaluator/values.ts#L116)
 
 _Interface_
 
@@ -1140,7 +1140,7 @@ export class RuleDescription extends Schema.Class<RuleDescription>(
 
 Runtime advice can only select templates registered by trusted composition.
 
-#### [`FirewallAuditRecord (type)`](./firewall/admission/firewall-values.ts#L170)
+#### [`FirewallAuditRecord (type)`](./firewall/admission/firewall-values.ts#L171)
 
 _TypeAlias_
 
@@ -1175,7 +1175,7 @@ Decodes the text of a message-policy document, refusing any property it
 does not name, so a misspelled or newer setting never silently weakens the
 policy.
 
-#### [`FirewallAuditRecord (value)`](./firewall/admission/firewall-values.ts#L131)
+#### [`FirewallAuditRecord (value)`](./firewall/admission/firewall-values.ts#L132)
 
 _Variable_
 
@@ -1460,6 +1460,9 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 
 ## Files
 
+- `encoding/canonical-json.ts`
+- `encoding/exact.ts`
+- `encoding/identifier.ts`
 - `environment.ts`
 - `firewall/admission/admission.ts`
 - `firewall/admission/firewall-checks.ts`
@@ -1616,7 +1619,6 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `transport/router/index.ts`
 - `transport/router/outage.ts`
 - `transport/router/types.ts`
-- `transport/wire/encoding/canonical.ts`
 - `transport/wire/encoding/codec.ts`
 - `transport/wire/encoding/index.ts`
 - `transport/wire/index.ts`

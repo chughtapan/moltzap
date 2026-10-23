@@ -18,11 +18,14 @@ import type {
   EngineConversation,
 } from "../runtime/index.js";
 import {
+  type ClientRepresentationError,
+  encodeCanonical,
+  representationFailure,
+} from "../../../encoding/canonical-json.js";
+import {
   type ActionCertifiedRecord,
   type AnchorHash,
   type CertifiedRecord,
-  ClientRepresentationError,
-  encodeCanonical,
   hashAnchor,
   hashRecord,
   type RecordCore,
@@ -40,10 +43,6 @@ import {
   certifiedRecord,
   orderedSignatures,
 } from "./certificate.js";
-
-function representationFailure(): ClientRepresentationError {
-  return new ClientRepresentationError();
-}
 
 /**
  * The hash of a conversation's current anchor, which its next record binds.

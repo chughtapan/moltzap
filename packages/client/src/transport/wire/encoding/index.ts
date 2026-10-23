@@ -9,7 +9,7 @@ export {
   equalCanonical,
   representationFailure,
   sameBytes,
-} from "./canonical.js";
+} from "../../../encoding/canonical-json.js";
 export {
   type DecodedOuterBody,
   decodeOuterBody,

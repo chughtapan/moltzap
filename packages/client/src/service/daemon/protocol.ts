@@ -15,6 +15,8 @@ import type {
 } from "../../store/index.js";
 import type { ListenError } from "../../transport/messaging/errors.js";
 import type { DaemonBootstrap } from "../bootstrap.js";
+import { encodeCanonical, sameBytes } from "../../encoding/canonical-json.js";
+import { compareAscii } from "../../encoding/identifier.js";
 import {
   collectiveAdmission,
   type InstalledFirewall,
@@ -42,11 +44,9 @@ import {
 import {
   type DecodedOuterBody,
   decodeOuterBody,
-  encodeCanonical,
   type OuterBodyReader,
-  sameBytes,
 } from "../../transport/wire/index.js";
-import { AgentAddress, compareAscii } from "../../transport/wire/values.js";
+import { AgentAddress } from "../../transport/wire/values.js";
 import {
   activationFailure,
   type DaemonActivationError,

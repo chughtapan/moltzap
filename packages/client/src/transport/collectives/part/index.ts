@@ -11,12 +11,8 @@
 import { WIRE_VERSION } from "@moltzap/identity";
 import { Data, Effect, Option, Schema } from "effect";
 import { createHash, randomBytes } from "node:crypto";
-import {
-  type AgentAddress,
-  Content,
-  exactStruct,
-  RecordHash,
-} from "../../wire/index.js";
+import { exactStruct } from "../../../encoding/exact.js";
+import { type AgentAddress, Content, RecordHash } from "../../wire/index.js";
 import { wireProfiles } from "../../wire/values.js";
 import {
   AcceptResponse,

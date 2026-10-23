@@ -12,20 +12,23 @@ import {
 } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import {
-  type ClientRepresentationError,
   decodeCanonical,
-  deriveConversationId,
-  deriveEvidenceMessageId,
   encodeCanonical,
   equalCanonical,
+  representationFailure,
+  sameBytes,
+} from "../../encoding/canonical-json.js";
+import { compareAgentIds } from "../../encoding/identifier.js";
+import {
+  type ClientRepresentationError,
+  deriveConversationId,
+  deriveEvidenceMessageId,
   hashAction,
   hashAnchor,
   hashMembershipDescriptor,
   hashPostIntent,
   hashRecord,
   type OuterMembership,
-  representationFailure,
-  sameBytes,
 } from "./encoding/index.js";
 import {
   type ActionCertifiedRecord,
@@ -50,7 +53,6 @@ import {
   type RecordCore,
   type RecordHash,
 } from "./schemas.js";
-import { compareAgentIds } from "./values.js";
 
 /* eslint-disable jsdoc/require-jsdoc -- The package-private representation facade documents these closed verification operations. */
 

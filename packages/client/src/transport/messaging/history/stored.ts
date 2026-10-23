@@ -12,6 +12,7 @@ import type {
   EngineConversation,
   EngineRuntime,
 } from "../runtime/index.js";
+import { decodeCanonical } from "../../../encoding/canonical-json.js";
 import {
   type EndpointRecovery,
   OutboxTooOldError,
@@ -33,7 +34,6 @@ import {
   type CompletedReanchor as CompletedReanchorValue,
   ConversationId,
   type ConversationId as ConversationIdValue,
-  decodeCanonical,
   GenesisAnchorBody,
   type GenesisAnchorBody as GenesisAnchorBodyValue,
   hashAnchor,

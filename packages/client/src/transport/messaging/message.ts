@@ -1,10 +1,10 @@
 /** @file Certified inbound messages, direct or to a fixed group. */
 
 import { Schema } from "effect";
+import { exactStruct } from "../../encoding/exact.js";
 import {
   AgentAddress,
   Content,
-  exactStruct,
   GroupAddress,
   maximumMembers,
   parseAgentAddress,

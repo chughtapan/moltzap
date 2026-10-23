@@ -16,6 +16,16 @@ import {
 import { Effect, Encoding, Schema } from "effect";
 import { createHash, randomBytes } from "node:crypto";
 import {
+  type ClientRepresentationError,
+  decodeCanonical,
+  encodeCanonical,
+  representationFailure,
+} from "../../../encoding/canonical-json.js";
+import {
+  compareAgentIds,
+  decodeCanonicalBase64Url,
+} from "../../../encoding/identifier.js";
+import {
   ActionCore,
   ActionHash,
   type ActionHash as ActionHashValue,
@@ -42,19 +52,7 @@ import {
   RecordHash,
   type RecordHash as RecordHashValue,
 } from "../schemas.js";
-import {
-  compareAgentIds,
-  decodeCanonicalBase64Url,
-  PostId,
-  type PostId as PostIdValue,
-  wireProfiles,
-} from "../values.js";
-import {
-  type ClientRepresentationError,
-  decodeCanonical,
-  encodeCanonical,
-  representationFailure,
-} from "./canonical.js";
+import { PostId, type PostId as PostIdValue, wireProfiles } from "../values.js";
 
 /* eslint-disable jsdoc/require-jsdoc -- The package-private representation facade documents this closed protocol vocabulary. */
 

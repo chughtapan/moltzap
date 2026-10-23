@@ -29,10 +29,12 @@ export {
   requireSameBytes,
   requireSameOptionalBytes,
   requireText,
-  sameBytes,
   StoreSignal,
   validateContinuation,
 } from "./values.js";
+
+/** Canonical equality shared by storage checks and wire verification. */
+export { sameBytes } from "../../encoding/canonical-json.js";
 
 /** Synthetic migration policies enter through the database boundary. */
 export type { MigrationSteps } from "./migrations.js";

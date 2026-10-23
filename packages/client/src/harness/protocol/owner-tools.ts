@@ -6,12 +6,15 @@ import {
   RegistryListRequest,
   RegistryLookupRequest,
 } from "@moltzap/identity/registry";
-import { Either, Encoding, Schema } from "effect";
+import { Schema } from "effect";
+import { exactStruct } from "../../encoding/exact.js";
 import {
-  AgentAddress,
   compareAgentIds,
   compareAscii,
-  exactStruct,
+  decodeCanonicalBase64Url,
+} from "../../encoding/identifier.js";
+import {
+  AgentAddress,
   GroupAddress,
   RecordCore,
   RecordHash,
@@ -45,12 +48,7 @@ function addressesAreOrdered(addresses: readonly string[]): boolean {
 }
 
 function canonicalBase64UrlBytes(value: string, byteLength: number): boolean {
-  return Either.match(Encoding.decodeBase64Url(value), {
-    onLeft: () => false,
-    onRight: (bytes) =>
-      bytes.byteLength === byteLength &&
-      Encoding.encodeBase64Url(bytes) === value,
-  });
+  return decodeCanonicalBase64Url(value)?.byteLength === byteLength;
 }
 
 function agentIdsAreOrdered(agentIds: readonly AgentId[]): boolean {

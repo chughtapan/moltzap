@@ -8,7 +8,7 @@ Package-private facade for the complete Client protocol representation.
 
 ## Public surface
 
-### [`AgentAddress`](./values.ts#L254)
+### [`AgentAddress`](./values.ts#L199)
 
 _TypeAlias_
 
@@ -18,7 +18,7 @@ export type AgentAddress = typeof AgentAddress.Type;
 
 A validated direct destination.
 
-### [`AgentAddress`](./values.ts#L248)
+### [`AgentAddress`](./values.ts#L193)
 
 _Variable_
 
@@ -32,7 +32,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`Content`](./values.ts#L116)
+### [`Content`](./values.ts#L98)
 
 _TypeAlias_
 
@@ -42,7 +42,7 @@ export type Content = typeof Content.Type;
 
 Validated nonempty semantic content.
 
-### [`Content`](./values.ts#L111)
+### [`Content`](./values.ts#L93)
 
 _Variable_
 
@@ -55,7 +55,7 @@ export const Content = contentStructure.pipe(
 
 Nonempty semantic content whose canonical JSON is at most 32,768 bytes.
 
-### [`ContentPart`](./values.ts#L106)
+### [`ContentPart`](./values.ts#L88)
 
 _TypeAlias_
 
@@ -65,7 +65,7 @@ export type ContentPart = typeof ContentPart.Type;
 
 A validated semantic message part.
 
-### [`ContentPart`](./values.ts#L101)
+### [`ContentPart`](./values.ts#L83)
 
 _Variable_
 
@@ -78,7 +78,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`GroupAddress`](./values.ts#L263)
+### [`GroupAddress`](./values.ts#L208)
 
 _TypeAlias_
 
@@ -88,7 +88,7 @@ export type GroupAddress = typeof GroupAddress.Type;
 
 A validated canonical complete group destination.
 
-### [`GroupAddress`](./values.ts#L257)
+### [`GroupAddress`](./values.ts#L202)
 
 _Variable_
 
@@ -102,7 +102,7 @@ export const GroupAddress = addressInput.pipe(
 
 A complete fixed-member group address in unsigned ASCII name order.
 
-### [`JsonValue`](./values.ts#L79)
+### [`JsonValue`](./values.ts#L61)
 
 _TypeAlias_
 
@@ -118,7 +118,7 @@ export type JsonValue =
 
 A value accepted by the closed semantic content boundary.
 
-### [`JsonValue`](./values.ts#L89)
+### [`JsonValue`](./values.ts#L71)
 
 _Variable_
 
@@ -137,7 +137,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`MessageAddressInput`](./values.ts#L268)
+### [`MessageAddressInput`](./values.ts#L213)
 
 _TypeAlias_
 
@@ -147,7 +147,7 @@ export type MessageAddressInput = typeof MessageAddressInput.Type;
 
 A validated explicit destination input.
 
-### [`MessageAddressInput`](./values.ts#L266)
+### [`MessageAddressInput`](./values.ts#L211)
 
 _Variable_
 
@@ -157,7 +157,7 @@ export const MessageAddressInput = addressInput
 
 Either accepted destination input, including noncanonical group order.
 
-### [`PostId`](./values.ts#L68)
+### [`PostId`](./values.ts#L50)
 
 _TypeAlias_
 
@@ -167,7 +167,7 @@ export type PostId = typeof PostId.Type;
 
 A validated author-scoped post identity.
 
-### [`PostId`](./values.ts#L59)
+### [`PostId`](./values.ts#L41)
 
 _Variable_
 
