@@ -150,9 +150,7 @@ export function retainDeliveryInTransaction(
     requireSameBytes(existing.canonicalMessage, delivery.canonicalMessage);
     return "existing";
   }
-  const deliveryToken = Schema.decodeUnknownSync(DeliveryToken)(
-    mintDeliveryToken((token) => hasDeliveryToken(database, token)),
-  );
+  const deliveryToken = mintRetainedDeliveryToken(database);
   database
     .prepare(
       `INSERT INTO pending_deliveries
@@ -184,10 +182,12 @@ function findRetainedDelivery(
   return row === undefined ? undefined : readPendingDelivery(row);
 }
 
-function hasDeliveryToken(database: DatabaseSync, token: string): boolean {
-  return (
-    database
-      .prepare("SELECT 1 FROM pending_deliveries WHERE delivery_token = ?")
-      .get(token) !== undefined
+/** Collision retries reuse one indexed query, including acknowledgment tombstones. */
+function mintRetainedDeliveryToken(database: DatabaseSync): DeliveryToken {
+  const collision = database.prepare(
+    "SELECT 1 FROM pending_deliveries WHERE delivery_token = ?",
+  );
+  return Schema.decodeUnknownSync(DeliveryToken)(
+    mintDeliveryToken((token) => collision.get(token) !== undefined),
   );
 }

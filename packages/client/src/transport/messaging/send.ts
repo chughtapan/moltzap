@@ -88,7 +88,7 @@ function failBind(
     error.reason === "persistence" &&
     error.commitOutcome === "not-committed"
   ) {
-    return Effect.fail(new SendError({ reason: "persistence-failed" }));
+    return Effect.fail(storeFailure(error));
   }
   return error.reason === "persistence"
     ? runtime.input
@@ -101,9 +101,23 @@ function failBind(
     : Effect.fail(storeFailure(error));
 }
 
-function storeFailure(error: EndpointStoreError): SendError;
-function storeFailure(): SendError {
-  return new SendError({ reason: "persistence-failed" });
+function storeFailure(error: EndpointStoreError): SendError {
+  const reasonByReason = {
+    closed: "persistence-failed",
+    conflict: "persistence-failed",
+    corrupt: "persistence-failed",
+    incompatible: "persistence-failed",
+    "invalid-continuation": "persistence-failed",
+    "invalid-input": "persistence-failed",
+    "newer-schema": "persistence-failed",
+    "pre-reset": "persistence-failed",
+    "not-found": "persistence-failed",
+    persistence: "persistence-failed",
+  } as const satisfies Record<
+    EndpointStoreError["reason"],
+    SendError["reason"]
+  >;
+  return new SendError({ reason: reasonByReason[error.reason] });
 }
 
 const representationFailure = (): SendError =>
@@ -231,7 +245,7 @@ const proposalAction = (
       if (anchor.kind !== "genesis_anchor_body") {
         return yield* Effect.fail(representationFailure());
       }
-      return {
+      const action: ActionCore = {
         sharnessVersion: intent.sharnessVersion,
         kind: "GENESIS",
         conversationId: conversation.conversationId,
@@ -241,8 +255,9 @@ const proposalAction = (
         postIntent: intent,
         postIntentHash,
       };
+      return action;
     }
-    return {
+    const action: ActionCore = {
       sharnessVersion: intent.sharnessVersion,
       kind: "POST",
       conversationId: conversation.conversationId,
@@ -252,6 +267,7 @@ const proposalAction = (
       postIntent: intent,
       postIntentHash,
     };
+    return action;
   });
 
 /**

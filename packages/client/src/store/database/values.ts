@@ -2,10 +2,10 @@
 
 import { Data } from "effect";
 import { randomBytes } from "node:crypto";
-import { sameBytes } from "../../transport/wire/encoding/canonical.js";
+import { sameBytes } from "../../transport/wire/index.js";
 
 /** Canonical equality shared by storage checks and wire verification. */
-export { sameBytes } from "../../transport/wire/encoding/canonical.js";
+export { sameBytes };
 
 /** Closed storage failures that never expose SQLite diagnostics. */
 export type EndpointStoreFailure =
