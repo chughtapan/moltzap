@@ -13,6 +13,7 @@ import { Effect, Schema } from "effect";
 import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
 import {
   type EndpointRecovery,
+  type EndpointStore,
   isSemanticStoreRejection,
 } from "../../../store/index.js";
 import { RouterWorkerPersistenceError } from "../../router/index.js";
@@ -208,33 +209,11 @@ export function persistCompletedReanchor(
   runtime: EngineRuntime,
   completed: CompletedReanchorValue,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
-  const body = completed.reanchor;
-  return Effect.all({
-    canonicalBody: encodeCanonical(ReanchorBody, body),
-    canonicalCompletedReanchor: encodeCanonical(CompletedReanchor, completed),
-  }).pipe(
-    Effect.mapError(persistenceFailure),
-    Effect.flatMap((canonical) =>
-      runtime.input.store
-        .completeReanchor({
-          conversationId: body.conversationId,
-          anchorHash: completed.anchorHash,
-          previousAnchorHash: body.previousAnchorHash,
-          routerInstanceId: body.routerInstanceId,
-          selectedRecordHash: body.selectedRecordHash,
-          ...canonical,
-        })
-        .pipe(
-          Effect.zipRight(
-            Effect.sync(() => {
-              adoptCompletedReanchor(runtime, completed);
-            }),
-          ),
-          Effect.uninterruptible,
-        ),
-    ),
-    Effect.mapError(persistenceFailure),
-  );
+  return storeAndAdoptReanchor(
+    runtime,
+    completed,
+    runtime.input.store.completeReanchor,
+  ).pipe(Effect.mapError(persistenceFailure));
 }
 
 /**
@@ -245,9 +224,7 @@ export function persistCompletedReanchor(
  * certificates for one scope would need an honest member to vote twice. The
  * store refuses a completion that does not extend this endpoint's durable
  * position; that refusal comes from the member's input, not a failed store,
- * so the completion does not count. The durable change and its adoption in
- * memory happen together, so an interruption cannot leave the store past an
- * anchor the engine still holds.
+ * so the completion does not count.
  * @param runtime Engine whose store and conversation take the anchor.
  * @param completed Verified completed re-anchor from a member.
  * @returns Whether the anchor was applied; false when the store refused it.
@@ -256,6 +233,34 @@ export function applyCompletedReanchor(
   runtime: EngineRuntime,
   completed: CompletedReanchorValue,
 ): Effect.Effect<boolean, RouterWorkerPersistenceError> {
+  return storeAndAdoptReanchor(
+    runtime,
+    completed,
+    runtime.input.store.applyCatchUpReanchor,
+  ).pipe(
+    Effect.as(true),
+    Effect.catchTag("EndpointStoreError", (error) =>
+      isSemanticStoreRejection(error)
+        ? Effect.succeed(false)
+        : Effect.fail(persistenceFailure()),
+    ),
+    Effect.withSpan("applyCompletedReanchor"),
+  );
+}
+
+type WriteReanchor =
+  | EndpointStore["completeReanchor"]
+  | EndpointStore["applyCatchUpReanchor"];
+
+/**
+ * The durable row and its in-memory adoption form one interruption boundary,
+ * so interruption cannot leave the store past an anchor the engine still holds.
+ */
+function storeAndAdoptReanchor(
+  runtime: EngineRuntime,
+  completed: CompletedReanchorValue,
+  write: WriteReanchor,
+) {
   const body = completed.reanchor;
   return Effect.all({
     canonicalBody: encodeCanonical(ReanchorBody, body),
@@ -263,31 +268,22 @@ export function applyCompletedReanchor(
   }).pipe(
     Effect.mapError(persistenceFailure),
     Effect.flatMap((canonical) =>
-      runtime.input.store
-        .applyCatchUpReanchor({
-          conversationId: body.conversationId,
-          anchorHash: completed.anchorHash,
-          previousAnchorHash: body.previousAnchorHash,
-          routerInstanceId: body.routerInstanceId,
-          selectedRecordHash: body.selectedRecordHash,
-          ...canonical,
-        })
-        .pipe(
-          Effect.zipRight(
-            Effect.sync(() => {
-              adoptCompletedReanchor(runtime, completed);
-            }),
-          ),
-          Effect.as(true),
-          Effect.catchTag("EndpointStoreError", (error) =>
-            isSemanticStoreRejection(error)
-              ? Effect.succeed(false)
-              : Effect.fail(persistenceFailure()),
-          ),
-          Effect.uninterruptible,
+      write({
+        conversationId: body.conversationId,
+        anchorHash: completed.anchorHash,
+        previousAnchorHash: body.previousAnchorHash,
+        routerInstanceId: body.routerInstanceId,
+        selectedRecordHash: body.selectedRecordHash,
+        ...canonical,
+      }).pipe(
+        Effect.zipRight(
+          Effect.sync(() => {
+            adoptCompletedReanchor(runtime, completed);
+          }),
         ),
+        Effect.uninterruptible,
+      ),
     ),
-    Effect.withSpan("applyCompletedReanchor"),
   );
 }
 

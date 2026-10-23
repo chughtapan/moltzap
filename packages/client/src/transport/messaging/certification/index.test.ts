@@ -1610,53 +1610,6 @@ function refusesASecondCertificateOverAStagedAction() {
 }
 
 /**
- * One N4 post costs `2 + 3n` outer messages: the author's copy of the
- * certified head and its proposal, every member's action signature, every
- * member's action-certified copy and every member's durability vote. No member
- * sends the certified record it assembles for the post. Fails when a member
- * sends a certified record it assembles, when an action-certified copy is not
- * sent, or when the author proposes without its head's certified record.
- * @returns Completion once the post's traffic is counted.
- */
-function sendsTwoPlusThreeNMessagesPerPost() {
-  return Effect.gen(function* () {
-    const harness = yield* makeProtocolHarness();
-    yield* certifyGenesis(harness);
-    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
-    const sending = yield* Effect.fork(
-      author.send(yield* sendInput(harness, "counted post")),
-    );
-
-    const delivered = yield* pump(harness, yield* takeReadyBatch(harness));
-    yield* Fiber.join(sending).pipe(Effect.orDie);
-
-    const kinds = yield* Effect.forEach(
-      delivered,
-      (message) => protocolMessageKind(harness, message),
-      { concurrency: 1 },
-    );
-    expect([...kinds].sort((left, right) => left.localeCompare(right))).toEqual(
-      [
-        "action_certified_record",
-        "action_certified_record",
-        "action_certified_record",
-        "action_certified_record",
-        "action_proposal",
-        "action_signature",
-        "action_signature",
-        "action_signature",
-        "action_signature",
-        "certified_record",
-        "durability_vote",
-        "durability_vote",
-        "durability_vote",
-        "durability_vote",
-      ],
-    );
-  });
-}
-
-/**
  * Member 2 is away while member 1 proposes a post and the members sign it,
  * so it holds no fold for the post. It is back for the action-certified
  * copies and the durability votes: it stages the record from a copy, sends
@@ -1806,14 +1759,12 @@ function certifiesOrdinaryN4Post() {
       authorEngine.send(yield* sendInput(harness, "ordinary post")),
     );
     const proposalBatch = yield* takeReadyBatch(harness);
-    expect(
-      yield* Effect.forEach(
-        proposalBatch,
-        (message) => protocolMessageKind(harness, message),
-        { concurrency: 1 },
-      ),
-    ).toEqual(["certified_record", "action_proposal"]);
-    const proposalMessage = yield* requireAt(proposalBatch, 1, "POST proposal");
+    const proposals = yield* messagesOfKind(
+      harness,
+      proposalBatch,
+      "action_proposal",
+    );
+    const proposalMessage = yield* requireAt(proposals, 0, "POST proposal");
     const proposal = yield* decodeActionProposal(harness, proposalMessage);
     if (proposal.action.kind !== "POST") {
       return yield* Effect.dieMessage("ordinary send did not propose POST");
@@ -2242,15 +2193,72 @@ function reappendedOuterMessagesYieldOnePost() {
   });
 }
 
+/** A lossless N4 POST spends the specified traffic budget without sending its completed record. */
+function postTrafficMatchesTheSpec() {
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness();
+    const predecessor = yield* certifyGenesis(harness);
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const sending = yield* Effect.fork(
+      author.send(yield* sendInput(harness, "counted post")),
+    );
+    const messages = yield* pump(harness, yield* takeReadyBatch(harness));
+    yield* Fiber.join(sending).pipe(Effect.orDie);
+    yield* harness.drain();
+    expect(yield* takeQueued(harness)).toEqual([]);
+    const kinds = yield* Effect.forEach(
+      messages,
+      (message) => protocolMessageKind(harness, message),
+      { concurrency: 1 },
+    );
+    expect(
+      kinds.slice().sort((left, right) => left.localeCompare(right)),
+    ).toEqual([
+      "action_certified_record",
+      "action_certified_record",
+      "action_certified_record",
+      "action_certified_record",
+      "action_proposal",
+      "action_signature",
+      "action_signature",
+      "action_signature",
+      "action_signature",
+      "certified_record",
+      "durability_vote",
+      "durability_vote",
+      "durability_vote",
+      "durability_vote",
+    ]);
+    expect(kinds.indexOf("certified_record")).toBeLessThan(
+      kinds.indexOf("action_proposal"),
+    );
+    expect(messages).toHaveLength(2 + 3 * MEMBER_COUNT);
+    const headCopies = yield* messagesOfKind(
+      harness,
+      messages,
+      "certified_record",
+    );
+    const headCopy = yield* requireAt(headCopies, 0, "predecessor record");
+    expect(yield* openAsSender(harness, headCopy)).toMatchObject({
+      kind: "direct",
+      packet: {
+        kind: "certified_record",
+        actionCertifiedRecord: { recordHash: predecessor },
+      },
+    });
+    expect(yield* certifiedRecordCounts(harness)).toEqual([2, 2, 2, 2]);
+  });
+}
+
 describe("fixed-post endpoint protocol", () => {
+  itOnTestClock(
+    "spends 2 + 3n outer messages on an N4 POST, with only its predecessor certified record",
+    postTrafficMatchesTheSpec,
+    TEST_TIMEOUT_MS,
+  );
   it.each([2, 4])(
     "seals every outer body of a %i-member post to its members, each of which opens it",
     sealsEveryOuterBodyOfAPost,
-    TEST_TIMEOUT_MS,
-  );
-  itOnTestClock(
-    "sends 2 + 3n outer messages for one N4 post: its head's certified record and no copy of its own",
-    sendsTwoPlusThreeNMessagesPerPost,
     TEST_TIMEOUT_MS,
   );
   itOnTestClock(

@@ -480,22 +480,34 @@ function verifyConversationHistory(
   recovery: EndpointRecovery,
   membership: VerifiedMembership,
 ): Effect.Effect<void, RouterWorkerRecoveryError> {
-  return conversationHistory(recovery, membership).pipe(
-    Effect.flatMap((history) =>
-      verifyHistoryRecords({
-        membership,
-        history,
-        recordIndex: 0,
-        cursor: history.initial,
-      }),
-    ),
-    Effect.flatMap((result) =>
-      historyCursorMatchesPosition(result.history, result.cursor)
-        ? Effect.void
-        : Effect.fail(recoveryFailure()),
-    ),
-    Effect.mapError(recoveryFailure),
-  );
+  return Effect.gen(function* () {
+    const history = yield* conversationHistory(recovery, membership);
+    let cursor = history.initial;
+    for (const stored of history.records) {
+      if (!recordExtendsCursor(stored, membership, cursor)) {
+        return yield* Effect.fail(recoveryFailure());
+      }
+      yield* recordFromStore(membership, stored, cursor.currentAnchor);
+      cursor = { ...cursor, currentRecordHash: stored.recordHash };
+      let nextAnchor = history.anchors[cursor.anchorIndex];
+      while (
+        nextAnchor !== undefined &&
+        anchorExtendsCursor(nextAnchor, cursor)
+      ) {
+        const currentAnchor = yield* decodeStoredAnchor(membership, nextAnchor);
+        cursor = {
+          currentAnchor,
+          currentAnchorHash: nextAnchor.anchorHash,
+          currentRecordHash: cursor.currentRecordHash,
+          anchorIndex: cursor.anchorIndex + 1,
+        };
+        nextAnchor = history.anchors[cursor.anchorIndex];
+      }
+    }
+    if (!historyCursorMatchesPosition(history, cursor)) {
+      return yield* Effect.fail(recoveryFailure());
+    }
+  }).pipe(Effect.mapError(recoveryFailure));
 }
 
 function conversationHistory(
@@ -549,48 +561,6 @@ function validHistoryFoundation(
   ].every((matches) => matches);
 }
 
-interface VerifiedHistoryResult {
-  readonly history: ConversationHistory;
-  readonly cursor: HistoryCursor;
-}
-
-interface HistoryVerificationInput {
-  readonly membership: VerifiedMembership;
-  readonly history: ConversationHistory;
-  readonly recordIndex: number;
-  readonly cursor: HistoryCursor;
-}
-
-function verifyHistoryRecords(
-  input: HistoryVerificationInput,
-): Effect.Effect<VerifiedHistoryResult, RouterWorkerRecoveryError> {
-  const { cursor, history, membership, recordIndex } = input;
-  const stored = history.records[recordIndex];
-  if (stored === undefined) {
-    return Effect.succeed({ history, cursor });
-  }
-  if (!recordExtendsCursor(stored, membership, cursor)) {
-    return Effect.fail(recoveryFailure());
-  }
-  return recordFromStore(membership, stored, cursor.currentAnchor).pipe(
-    Effect.mapError(recoveryFailure),
-    Effect.flatMap(() =>
-      advanceHistoryAnchors(membership, history.anchors, {
-        ...cursor,
-        currentRecordHash: stored.recordHash,
-      }),
-    ),
-    Effect.flatMap((nextCursor) =>
-      verifyHistoryRecords({
-        membership,
-        history,
-        recordIndex: recordIndex + 1,
-        cursor: nextCursor,
-      }),
-    ),
-  );
-}
-
 function recordExtendsCursor(
   stored: EndpointRecovery["certifiedRecords"][number],
   membership: VerifiedMembership,
@@ -602,28 +572,6 @@ function recordExtendsCursor(
     previous === cursor.currentRecordHash,
     stored.anchorHash === cursor.currentAnchorHash,
   ].every((matches) => matches);
-}
-
-function advanceHistoryAnchors(
-  membership: VerifiedMembership,
-  anchors: ReadonlyArray<EndpointRecovery["anchors"][number]>,
-  cursor: HistoryCursor,
-): Effect.Effect<HistoryCursor, RouterWorkerRecoveryError> {
-  const nextAnchor = anchors[cursor.anchorIndex];
-  if (nextAnchor === undefined || !anchorExtendsCursor(nextAnchor, cursor)) {
-    return Effect.succeed(cursor);
-  }
-  return decodeStoredAnchor(membership, nextAnchor).pipe(
-    Effect.mapError(recoveryFailure),
-    Effect.flatMap((currentAnchor) =>
-      advanceHistoryAnchors(membership, anchors, {
-        currentAnchor,
-        currentAnchorHash: nextAnchor.anchorHash,
-        currentRecordHash: cursor.currentRecordHash,
-        anchorIndex: cursor.anchorIndex + 1,
-      }),
-    ),
-  );
 }
 
 function anchorExtendsCursor(

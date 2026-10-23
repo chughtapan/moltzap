@@ -66,12 +66,13 @@ const CLIENT_DOMAIN = wireProfiles[WIRE_VERSION].clientHashDomain;
 const EVIDENCE_MESSAGE_ID_DOMAIN = `${CLIENT_DOMAIN}evidence-message-id\0`;
 const utf8Encoder = new TextEncoder();
 
-const domainHash = <A, I, R>(input: {
+const domainHash = <A, I, R, Hash>(input: {
   readonly artifact: string;
   readonly prefix: string;
   readonly schema: Schema.Schema<A, I, R>;
   readonly value: A;
-}): Effect.Effect<string, ClientRepresentationError, R> =>
+  readonly output: Schema.Schema<Hash, string>;
+}): Effect.Effect<Hash, ClientRepresentationError, R> =>
   encodeCanonical(input.schema, input.value).pipe(
     Effect.map((bytes) =>
       createHash("sha256")
@@ -79,11 +80,11 @@ const domainHash = <A, I, R>(input: {
         .update(bytes)
         .digest(),
     ),
-    Effect.flatMap((digest) =>
-      digest.byteLength === HASH_BYTE_LENGTH
-        ? Effect.succeed(`${input.prefix}${Encoding.encodeBase64Url(digest)}`)
-        : Effect.fail(representationFailure()),
+    Effect.map(
+      (digest) => `${input.prefix}${Encoding.encodeBase64Url(digest)}`,
     ),
+    Effect.flatMap(Schema.decodeUnknown(input.output)),
+    Effect.mapError(representationFailure),
   );
 
 const sortedDistinctAgentIds = (agentIds: readonly AgentId[]): boolean => {
@@ -125,10 +126,8 @@ export const deriveConversationId = (
     prefix: "cnv_",
     schema: ConversationIdentityInput,
     value: input,
-  }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(ConversationId)),
-    Effect.mapError(representationFailure),
-  );
+    output: ConversationId,
+  });
 };
 
 export const hashMembershipDescriptor = (
@@ -139,10 +138,8 @@ export const hashMembershipDescriptor = (
     prefix: "mbr_",
     schema: MembershipDescriptor,
     value: membership,
-  }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(MembershipHash)),
-    Effect.mapError(representationFailure),
-  );
+    output: MembershipHash,
+  });
 
 export const mintPostId = (): Effect.Effect<
   PostIdValue,
@@ -164,10 +161,8 @@ export const hashPostIntent = (
     prefix: "pit_",
     schema: PostIntent,
     value: intent,
-  }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(PostIntentHash)),
-    Effect.mapError(representationFailure),
-  );
+    output: PostIntentHash,
+  });
 
 export const hashAnchor = (
   anchor: GenesisAnchorBody | ReanchorBody,
@@ -177,10 +172,8 @@ export const hashAnchor = (
     prefix: "anc_",
     schema: AnchorBody,
     value: anchor,
-  }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(AnchorHash)),
-    Effect.mapError(representationFailure),
-  );
+    output: AnchorHash,
+  });
 
 export const hashAction = (
   action: ActionCore,
@@ -190,10 +183,8 @@ export const hashAction = (
     prefix: "ach_",
     schema: ActionCore,
     value: action,
-  }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(ActionHash)),
-    Effect.mapError(representationFailure),
-  );
+    output: ActionHash,
+  });
 
 export const hashRecord = (
   record: RecordCore,
@@ -203,10 +194,8 @@ export const hashRecord = (
     prefix: "rch_",
     schema: RecordCore,
     value: record,
-  }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(RecordHash)),
-    Effect.mapError(representationFailure),
-  );
+    output: RecordHash,
+  });
 
 export const deriveEvidenceMessageId = (
   statement: EvidenceStatementValue,

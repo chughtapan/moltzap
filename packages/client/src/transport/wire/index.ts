@@ -84,7 +84,6 @@ export {
   type VerifiedActionCore,
   type VerifiedEvidence,
   type VerifiedMembership,
-  verifyActionCertificate,
   verifyActionCertifiedRecord,
   verifyActionCore,
   verifyActionProposal,

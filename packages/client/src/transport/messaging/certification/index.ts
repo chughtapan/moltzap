@@ -4,7 +4,7 @@
  */
 
 import type { SignedMessage } from "@moltzap/identity";
-import { Deferred, Effect } from "effect";
+import { absurd, Deferred, Effect } from "effect";
 import type { SendError } from "../errors.js";
 import {
   type ConversationFoundation,
@@ -237,29 +237,73 @@ const foldFor = (
   return fold;
 };
 
+type LocalEvidenceRole = "action" | "durability";
+
 const mergeEvidence = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
-  kind: "action" | "durability",
+  role: LocalEvidenceRole,
   message: SignedMessage,
 ): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
   Effect.gen(function* () {
-    const subjectId = kind === "action" ? fold.actionHash : fold.recordHash;
+    const subjectId = role === "action" ? fold.actionHash : fold.recordHash;
     if (subjectId === undefined) {
       return;
     }
     const row = yield* protocolEvidence(
       fold.conversation.conversationId,
-      kind,
+      role,
       subjectId,
       message,
     ).pipe(Effect.mapError(localRepresentationFailure));
     yield* runtime.input.store.mergeEvidence(row);
     const evidence =
-      kind === "action" ? fold.actionEvidence : fold.durabilityEvidence;
+      role === "action" ? fold.actionEvidence : fold.durabilityEvidence;
     yield* Effect.sync(() => {
       evidence.set(message.senderAgentId, message);
     });
+  });
+
+/**
+ * Merge unless the evidence is already retained, then queue and flag it.
+ * Queueing and its flag share an interruption boundary after evidence is durable.
+ * @param runtime Engine whose store and outbox retain the evidence.
+ * @param fold Fold that owes the local evidence.
+ * @param role The evidence obligation being completed.
+ * @param evidence Local signature or vote selected by the caller.
+ * @returns Completion once the evidence is durable and queued.
+ */
+const completeLocalEvidence = (
+  runtime: EngineRuntime,
+  fold: EngineActionFold,
+  role: LocalEvidenceRole,
+  evidence: SignedMessage,
+): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
+  Effect.gen(function* () {
+    const retained =
+      role === "action" ? fold.actionEvidence : fold.durabilityEvidence;
+    if (!retained.has(runtime.input.localAgentCard.agentId)) {
+      yield* mergeEvidence(runtime, fold, role, evidence);
+    }
+    yield* Effect.uninterruptible(
+      runtime.outbox.queueEvidence(fold.conversation, evidence).pipe(
+        Effect.mapError(() => persistenceFailure()),
+        Effect.zipRight(
+          Effect.sync(() => {
+            switch (role) {
+              case "action":
+                fold.localActionEvidenceQueued = true;
+                return;
+              case "durability":
+                fold.localDurabilityEvidenceQueued = true;
+                return;
+              default:
+                return absurd(role);
+            }
+          }),
+        ),
+      ),
+    );
   });
 
 const localActionEvidence = (
@@ -267,28 +311,14 @@ const localActionEvidence = (
   fold: EngineActionFold,
 ): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
   Effect.gen(function* () {
-    const localAgentId = runtime.input.localAgentCard.agentId;
     if (fold.localActionEvidenceQueued) {
       return;
     }
-    const retained = fold.actionEvidence.has(localAgentId);
     const evidence = yield* selectLocalActionEvidence(runtime, fold);
     if (evidence === undefined) {
       return;
     }
-    if (!retained) {
-      yield* mergeEvidence(runtime, fold, "action", evidence);
-    }
-    yield* Effect.uninterruptible(
-      runtime.outbox.queueEvidence(fold.conversation, evidence).pipe(
-        Effect.mapError(() => persistenceFailure()),
-        Effect.zipRight(
-          Effect.sync(() => {
-            fold.localActionEvidenceQueued = true;
-          }),
-        ),
-      ),
-    );
+    yield* completeLocalEvidence(runtime, fold, "action", evidence);
   });
 
 /**
@@ -395,19 +425,7 @@ const localDurabilityEvidence = (
         agentCard: runtime.input.localAgentCard,
         signingAuthority: runtime.input.signingAuthority,
       }).pipe(Effect.mapError(localRepresentationFailure)));
-    if (retained === undefined) {
-      yield* mergeEvidence(runtime, fold, "durability", evidence);
-    }
-    yield* Effect.uninterruptible(
-      runtime.outbox.queueEvidence(fold.conversation, evidence).pipe(
-        Effect.mapError(() => persistenceFailure()),
-        Effect.zipRight(
-          Effect.sync(() => {
-            fold.localDurabilityEvidenceQueued = true;
-          }),
-        ),
-      ),
-    );
+    yield* completeLocalEvidence(runtime, fold, "durability", evidence);
   });
 
 const applyPromotionState = (

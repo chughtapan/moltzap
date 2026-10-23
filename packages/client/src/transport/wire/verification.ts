@@ -253,14 +253,14 @@ export const verifyDeliveredEvidence = (input: {
 
 type EvidenceKind = EvidenceStatementValue["kind"];
 
-const verifyEvidenceSet = (input: {
+const verifyEvidenceSet = <Kind extends EvidenceKind>(input: {
   readonly representations: readonly unknown[];
-  readonly expectedKind: EvidenceKind;
+  readonly expectedKind: Kind;
   readonly membership: VerifiedMembership;
-  readonly exactCount?: number;
-  readonly minimumCount?: number;
+  /** At least this many distinct member signers, at most one per member; all-member requirements are exact. */
+  readonly requiredCount: number;
   readonly statementMatches: (
-    statement: EvidenceStatementValue,
+    statement: Extract<EvidenceStatementValue, { readonly kind: Kind }>,
   ) => Effect.Effect<boolean, ClientRepresentationError>;
 }): Effect.Effect<readonly VerifiedEvidence[], ClientRepresentationError> =>
   Effect.gen(function* () {
@@ -268,10 +268,7 @@ const verifyEvidenceSet = (input: {
     if (length > input.membership.members.length) {
       return yield* representationFailure();
     }
-    if (input.exactCount !== undefined && length !== input.exactCount) {
-      return yield* representationFailure();
-    }
-    if (input.minimumCount !== undefined && length < input.minimumCount) {
+    if (length < input.requiredCount) {
       return yield* representationFailure();
     }
     const verified = yield* Effect.forEach(
@@ -284,10 +281,14 @@ const verifyEvidenceSet = (input: {
     if (!sortedDistinct(signers)) {
       return yield* representationFailure();
     }
+    const matchesKind = (
+      statement: EvidenceStatementValue,
+    ): statement is Extract<EvidenceStatementValue, { readonly kind: Kind }> =>
+      statement.kind === input.expectedKind;
     const matches = yield* Effect.forEach(
       verified,
       ({ statement }) =>
-        statement.kind === input.expectedKind
+        matchesKind(statement)
           ? input.statementMatches(statement)
           : Effect.succeed(false),
       { concurrency: "inherit" },
@@ -385,17 +386,18 @@ export const verifyActionProposal = (input: {
     return verifiedAction;
   }).pipe(Effect.withSpan("verifyActionProposal"));
 
-export const verifyActionCertificate = (input: {
+/**
+ * The caller has verified `actionHash` against `action`;
+ * the verifyActionCertificate span name preserves trace continuity.
+ */
+const verifyActionCertificateEvidence = (input: {
+  readonly actionHash: ActionHash;
   readonly certificate: ActionCertifiedRecord["actionCertificate"];
   readonly action: ActionCore;
   readonly membership: VerifiedMembership;
 }): Effect.Effect<ActionHash, ClientRepresentationError> =>
   Effect.gen(function* () {
-    const verifiedAction = yield* verifyActionCore({
-      action: input.action,
-      membership: input.membership,
-    });
-    if (input.certificate.actionHash !== verifiedAction.actionHash) {
+    if (input.certificate.actionHash !== input.actionHash) {
       return yield* representationFailure();
     }
     const requiredCount =
@@ -406,14 +408,9 @@ export const verifyActionCertificate = (input: {
       representations: input.certificate.signatures,
       expectedKind: "action_signature",
       membership: input.membership,
-      ...(input.action.kind === "GENESIS"
-        ? { exactCount: requiredCount }
-        : { minimumCount: requiredCount }),
+      requiredCount,
       statementMatches: (statement) =>
-        Effect.succeed(
-          statement.kind === "action_signature" &&
-            statement.actionHash === verifiedAction.actionHash,
-        ),
+        Effect.succeed(statement.actionHash === input.actionHash),
     });
     const authorAgentId = input.action.postIntent.authorAgentId;
     if (
@@ -423,7 +420,7 @@ export const verifyActionCertificate = (input: {
     ) {
       return yield* representationFailure();
     }
-    return verifiedAction.actionHash;
+    return input.actionHash;
   }).pipe(Effect.withSpan("verifyActionCertificate"));
 
 export const verifyCompletedReanchor = (input: {
@@ -445,20 +442,18 @@ export const verifyCompletedReanchor = (input: {
       representations: input.completed.certificate.votes,
       expectedKind: "reanchor_vote",
       membership: input.membership,
-      minimumCount: quorumThreshold(input.membership.members.length),
+      requiredCount: quorumThreshold(input.membership.members.length),
       statementMatches: (statement) =>
-        statement.kind === "reanchor_vote"
-          ? equalCanonical(
-              ReanchorBody,
-              statement.reanchor,
-              input.completed.reanchor,
-            ).pipe(
-              Effect.map(
-                (sameReanchor) =>
-                  sameReanchor && statement.anchorHash === expectedAnchorHash,
-              ),
-            )
-          : Effect.succeed(false),
+        equalCanonical(
+          ReanchorBody,
+          statement.reanchor,
+          input.completed.reanchor,
+        ).pipe(
+          Effect.map(
+            (sameReanchor) =>
+              sameReanchor && statement.anchorHash === expectedAnchorHash,
+          ),
+        ),
     });
     return expectedAnchorHash;
   }).pipe(Effect.withSpan("verifyCompletedReanchor"));
@@ -568,10 +563,11 @@ export const verifyActionCertifiedRecord = (input: {
     if (input.record.recordHash !== recordHash) {
       return yield* representationFailure();
     }
-    yield* verifyActionCertificate({
+    yield* verifyActionCertificateEvidence({
       certificate: input.record.actionCertificate,
       action: input.record.recordCore.action,
       membership: input.membership,
+      actionHash: input.record.recordCore.actionHash,
     });
     yield* verifyRecordRouterAnchor({
       record: input.record,
@@ -599,11 +595,10 @@ export const verifyCertifiedRecord = (input: {
       representations: certificate.votes,
       expectedKind: "durability_vote",
       membership,
-      minimumCount: quorumThreshold(membership.members.length),
+      requiredCount: quorumThreshold(membership.members.length),
       statementMatches: (statement) =>
         Effect.succeed(
-          statement.kind === "durability_vote" &&
-            statement.conversationId === membership.descriptor.conversationId &&
+          statement.conversationId === membership.descriptor.conversationId &&
             statement.membershipHash === membership.hash &&
             statement.recordHash === recordHash,
         ),
