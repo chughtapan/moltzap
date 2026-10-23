@@ -1,7 +1,7 @@
 /** @file Collective operations, answers and the closed errors of a refused collective send. */
 
 import { Data, ParseResult, Schema } from "effect";
-import type { CheckedGuidance } from "../../firewall/runtime.js";
+import type { CheckedGuidance } from "../../firewall/outcome/index.js";
 import {
   type SendError,
   sendFailureReasons,

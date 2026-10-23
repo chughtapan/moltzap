@@ -83,9 +83,11 @@
             "pages": [
               "modules/client/delivery",
               "modules/client/endpoint/harness-endpoint",
-              "modules/client/firewall",
+              "modules/client/firewall/admission",
+              "modules/client/firewall/evaluator",
+              "modules/client/firewall/outcome",
+              "modules/client/firewall/policy",
               "modules/client/service",
-              "modules/client/service/message-policy",
               "modules/client/src",
               "modules/client/transport/collectives",
               "modules/client/transport/messaging",

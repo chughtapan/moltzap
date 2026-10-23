@@ -5,7 +5,7 @@ import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Config, ConfigProvider, Effect } from "effect";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { beginFirewallAudit } from "../delivery/firewall-audit.js";
+import { beginFirewallAudit } from "../firewall/audit/firewall-audit.js";
 import { openEndpointStore } from "../store/index.js";
 import { makeAuditFixture } from "./firewall-audit-fixtures.js";
 

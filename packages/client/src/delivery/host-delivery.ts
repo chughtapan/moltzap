@@ -11,13 +11,15 @@ import type {
 } from "../transport/collectives/index.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";
 import type {
-  FirewallEnvironment,
-  InstalledFirewall,
-} from "./firewall-checks.js";
-import type {
   HistoryExportPort,
   HistoryExportRecord,
 } from "./history-export.js";
+import {
+  type AdmissionContext,
+  type FirewallEnvironment,
+  type InstalledFirewall,
+  runAdmission,
+} from "../firewall/index.js";
 import {
   decodeRuntimeValue,
   type DeliveryToken,
@@ -30,7 +32,6 @@ import {
   DeliveryAcknowledgeError,
   SendError,
 } from "../transport/messaging/errors.js";
-import { type AdmissionContext, runAdmission } from "./admission.js";
 import {
   decodeInboxEntry,
   mintLocalDeliveryToken,

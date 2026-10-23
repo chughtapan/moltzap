@@ -42,7 +42,7 @@ const hostModules: ReadonlySet<string> = new Set([
   "dist/endpoint/harness-endpoint/index.js",
   "dist/endpoint/implementation.js",
   "dist/endpoint/mcp/names.js",
-  "dist/firewall/runtime.js",
+  "dist/firewall/outcome/index.js",
   "dist/index.js",
   "dist/store/types.js",
   "dist/transport/collectives/forms.js",

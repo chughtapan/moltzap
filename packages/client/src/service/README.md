@@ -13,8 +13,7 @@ configuration and bootstrap material from the environment into the types
 production process edges. It joins the owner tools in `management.ts` with the
 daemon's delivery operations into the MCP operations the loopback listener
 serves. `registration/` owns the durable identity and Registry registration,
-`daemon/` owns the running daemon and its protocol, `message-policy/` builds
-the firewall a configured message-policy file describes, and `errors.ts`
+`daemon/` owns the running daemon and its protocol, and `errors.ts`
 holds the closed failures they share. None of these modules crosses the public Client
 boundary.
 
@@ -24,3 +23,6 @@ the retained-check snapshot follows worker and MCP request finalization while
 the outer store is still open. Request cancellation and handler closure join
 the same scoped work. The file path does not enter the firewall installation
 or its digest.
+
+The service supplies its release version, policy file locations and configuration
+error constructor to `firewall/`, which loads and composes personal policy.

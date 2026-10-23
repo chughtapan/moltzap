@@ -10,7 +10,7 @@ import {
   Schedule,
   Schema,
 } from "effect";
-import type { FirewallSendError } from "../../firewall/runtime.js";
+import type { FirewallSendError } from "../../firewall/outcome/index.js";
 import type {
   ConversationFoundation,
   EndpointStoreError,

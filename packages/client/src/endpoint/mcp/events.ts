@@ -21,7 +21,7 @@ import {
 } from "effect";
 import { randomUUID } from "node:crypto";
 import type { InboxSummary } from "../../store/index.js";
-import { localGuidanceSchema } from "../../firewall/runtime.js";
+import { localGuidanceSchema } from "../../firewall/outcome/index.js";
 import { InboundItem } from "../../transport/collectives/inbound.js";
 import { exactStruct } from "../../transport/wire/values.js";
 import {

@@ -18,7 +18,7 @@ import type { DaemonBootstrap } from "../bootstrap.js";
 import {
   collectiveAdmission,
   type InstalledFirewall,
-} from "../../delivery/index.js";
+} from "../../firewall/index.js";
 import {
   type CollectiveEmitError,
   type CollectiveOperations,

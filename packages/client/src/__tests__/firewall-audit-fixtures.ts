@@ -3,8 +3,7 @@
 import { WIRE_VERSION } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import { createHash } from "node:crypto";
-import { installFirewall } from "../delivery/index.js";
-import { Message, MessageContext } from "../firewall/index.js";
+import { installFirewall, Message, MessageContext } from "../firewall/index.js";
 import { FirewallAuditRecord } from "../service/index.js";
 import { encodeRuntimeValue } from "../store/index.js";
 import { InboundItem } from "../transport/collectives/inbound.js";

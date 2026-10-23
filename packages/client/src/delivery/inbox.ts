@@ -2,7 +2,7 @@
 
 import { Effect, Encoding, Schema } from "effect";
 import { randomBytes } from "node:crypto";
-import { localGuidanceSchema } from "../firewall/runtime.js";
+import { localGuidanceSchema } from "../firewall/outcome/index.js";
 import {
   decodeRuntimeValue,
   DeliveryToken,

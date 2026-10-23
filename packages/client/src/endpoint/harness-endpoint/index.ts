@@ -15,7 +15,7 @@ import {
   decodeHarnessSendErrorData,
   decodeHarnessSendResult,
 } from "../../delivery/operations.js";
-import { FirewallSendError } from "../../firewall/runtime.js";
+import { FirewallSendError } from "../../firewall/outcome/index.js";
 import {
   CollectiveError,
   type SendResult,

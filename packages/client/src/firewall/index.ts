@@ -1,105 +1,64 @@
-/** @file Personal firewall composition for code and English policies. */
+/** @file Personal firewall evaluation, policy, admission and operator audit. */
 
-import { Effect } from "effect";
-import { makeChain } from "./chain.js";
-import {
-  CheckInputError,
-  decodeFrozen,
-  type Firewall,
-  FirewallSettings,
-  type Message,
-  type MessageContext,
-  type MessageMiddleware,
-} from "./values.js";
-
-/** English rules and code policies share the same checking contract. */
-export { englishPolicyFormat, makeEnglishPolicy } from "./english.js";
-/** Client-synthesized holds use the same permitted advice as policy decisions. */
-export {
-  type DecidingRule,
-  decidingRules,
-  projectFeedback,
-} from "./decision.js";
-/** Credentials are supplied by trusted composition without environment lookup. */
-export { makeJevDecisionProvider } from "./jev.js";
-/** Closed failures never contain arbitrary agent-visible diagnostics. */
+/** Code and English policies use one evaluator contract. */
 export {
   CheckInputError,
+  type DecisionProvider,
   DecisionProviderError,
-  decodeFrozen,
+  type DecisionRequest,
+  type DecisionResponse,
   EnglishPolicySettings,
   EnglishRule,
-  FirewallSettings,
-  HistoryEntry,
-  Message,
-  MessageContext,
-  MiddlewareError,
-  MiddlewareObservation,
-  NormExpectation,
-  PrivateCheckTrace,
-  RuleDescription,
-  UncertainNormGuidance,
-} from "./values.js";
-/** Policy authors exchange validated data; only guidance and feedback are runtime projections. */
-export type {
-  DecisionProvider,
-  DecisionRequest,
-  DecisionResponse,
-  Firewall,
-  FirewallCheck,
-  MessageMiddleware,
-  MiddlewareInput,
-  MiddlewareResult,
-} from "./values.js";
-
-/**
- * Runs every installed check in order within the budget. Refusals accumulate;
- * only Client can apply the result to an exact candidate with fresh evidence.
- * Cancellation propagates, so an interrupted check never returns permission.
- *
- * ```mermaid
- * flowchart TD
- *   I[Incoming message or outgoing draft] --> C[Capture immutable context]
- *   C --> M[Run each registered middleware]
- *   M --> V[Validate and retain each atomic result]
- *   V --> D[Compose all findings and permitted advice]
- *   D --> R[Return to Client for enforcement]
- * ```
- */
-export const makeFirewall = Effect.fn("makeFirewall")(function* (options: {
-  readonly incoming: readonly MessageMiddleware[];
-  readonly outgoing: readonly MessageMiddleware[];
-  readonly settings: unknown;
-}): Effect.fn.Return<Firewall, CheckInputError> {
-  const settings = yield* decodeFrozen(FirewallSettings, options.settings).pipe(
-    Effect.catchTag("ParseError", () =>
-      Effect.fail(new CheckInputError({ reason: "settings" })),
-    ),
-  );
-  const incoming = yield* makeChain(options.incoming, settings);
-  const outgoing = yield* makeChain(options.outgoing, settings);
-  return Object.freeze({
-    checkIncoming: (message: Message, context: MessageContext) =>
-      incoming({ direction: "incoming", message }, context).pipe(
-        Effect.flatMap((result) =>
-          result.judgment === "revise"
-            ? Effect.fail(new CheckInputError({ reason: "message" }))
-            : Effect.succeed({ ...result, judgment: result.judgment }),
-        ),
-      ),
-    checkOutgoing: (message: Message, context: MessageContext) =>
-      outgoing({ direction: "outgoing", message }, context),
-  });
-});
-
-/** Owner management values grant no runtime messaging capability. */
-export {
-  firewallActivationSchema,
+  type Firewall,
   firewallDecisionsRequestSchema,
   firewallDecisionsSchema,
   FirewallPolicyError,
   type FirewallPolicyOperations,
+  FirewallSettings,
+  makeEnglishPolicy,
+  makeFirewall,
+  makeJevDecisionProvider,
+  Message,
+  MessageContext,
+  type MessageMiddleware,
+  MiddlewareError,
+  type MiddlewareInput,
+  type MiddlewareResult,
   policyReadSchema,
   policyUpdateResultSchema,
   policyUpdateSchema,
-} from "./values.js";
+  RuleDescription,
+} from "./evaluator/index.js";
+/** Trusted composition installs policy before admitting application traffic. */
+export {
+  collectiveAdmission,
+  type FirewallOptions,
+  installFirewall,
+} from "./admission/index.js";
+/** The daemon retains one installed admission capability. */
+export type { InstalledFirewall } from "./admission/index.js";
+/** Operator audit stays outside runtime-visible guidance. */
+export { beginFirewallAudit } from "./audit/firewall-audit.js";
+/** Retained judgments have a versioned operator representation. */
+export { FirewallAuditRecord } from "./admission/index.js";
+/** Owner edits preserve the daemon resource lifetime. */
+export { installEditableFirewall } from "./policy/editable.js";
+/** Policy documents and their composition share one firewall boundary. */
+export {
+  decodeMessagePolicy,
+  type FirewallInstallation,
+  firewallInstallation,
+  MessagePolicy,
+  messagePolicyFirewall,
+  policyInstallationError,
+} from "./policy/index.js";
+
+/** Policy loading requires no daemon bootstrap authority. */
+export type { MessagePolicyConfigurationFailure } from "./policy/configuration.js";
+
+/** Delivery supplies context and drains the firewall's incoming queue. */
+export {
+  type AdmissionContext,
+  type FirewallEnvironment,
+  runAdmission,
+} from "./admission/index.js";

@@ -30,7 +30,7 @@ export {
   type CheckedGuidance,
   FirewallSendError,
   type LocalGuidance,
-} from "./firewall/runtime.js";
+} from "./firewall/outcome/index.js";
 /** Send input and the closed error of a refused collective send. */
 export {
   CollectiveError,
