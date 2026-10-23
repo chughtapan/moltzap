@@ -953,11 +953,11 @@ const assertNoncanonicalCursorHeaders = (
           firstRecipient,
           { pollCursor: `plc_${encodedHeader}.${remainingSegments.join(".")}` },
         );
-        expectHttpObservation(
-          yield* observeHttpRequest(request),
-          OK_STATUS,
-          JSON.stringify(CURSOR_INVALID_RESULT),
-        );
+        expect(yield* observeHttpRequest(request), header).toStrictEqual({
+          status: OK_STATUS,
+          contentType: JSON_CONTENT_TYPE,
+          body: JSON.stringify(CURSOR_INVALID_RESULT),
+        });
       }),
     { concurrency: 1, discard: true },
   );

@@ -129,7 +129,10 @@ export const RouterSendRequest: Schema.Schema<
   RouterSendRequest,
   typeof sendRequest.Encoded
 > = sendRequest;
-/** One authenticated request to accept or recover an opaque message. */
+/**
+ * One authenticated request to accept or recover an opaque message, carrying
+ * `expectedRouterInstanceId`, `mode` (`initial` or `retry`), and `signedMessage`.
+ */
 export type RouterSendRequest = typeof sendRequest.Type;
 
 const accepted = closedStruct({
@@ -181,7 +184,7 @@ export const RouterPollRequest: Schema.Schema<
   RouterPollRequest,
   typeof pollRequest.Encoded
 > = pollRequest;
-/** One authenticated endpoint-wide poll request. */
+/** One authenticated endpoint-wide poll request with an optional `pollCursor`. */
 export type RouterPollRequest = typeof pollRequest.Type;
 
 const batch = closedStruct({

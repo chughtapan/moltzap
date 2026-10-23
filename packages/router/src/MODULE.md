@@ -76,7 +76,7 @@ export class Router extends Context.Tag("@moltzap/router/Router")<
 
 Opaque message acceptance and endpoint-wide bounded polling.
 
-### [`RouterConnectionError`](./router/contract.ts#L220)
+### [`RouterConnectionError`](./router/contract.ts#L223)
 
 _Class_
 
@@ -112,7 +112,7 @@ export const RouterInstanceId = canonicalValue(
 
 Identifies one volatile Router process instance.
 
-### [`RouterInvalidResponseError`](./router/contract.ts#L230)
+### [`RouterInvalidResponseError`](./router/contract.ts#L233)
 
 _Class_
 
@@ -124,7 +124,7 @@ export class RouterInvalidResponseError extends Data.TaggedError(
 
 A Router response did not match the selected operation contract.
 
-### [`RouterPollRequest (type)`](./router/contract.ts#L185)
+### [`RouterPollRequest (type)`](./router/contract.ts#L188)
 
 _TypeAlias_
 
@@ -132,9 +132,9 @@ _TypeAlias_
 export type RouterPollRequest = typeof pollRequest.Type;
 ```
 
-One authenticated endpoint-wide poll request.
+One authenticated endpoint-wide poll request with an optional `pollCursor`.
 
-### [`RouterPollRequest (value)`](./router/contract.ts#L180)
+### [`RouterPollRequest (value)`](./router/contract.ts#L183)
 
 _Variable_
 
@@ -147,7 +147,7 @@ export const RouterPollRequest: Schema.Schema<
 
 Exact Schema for one endpoint-wide poll request.
 
-### [`RouterPollResult (type)`](./router/contract.ts#L215)
+### [`RouterPollResult (type)`](./router/contract.ts#L218)
 
 _TypeAlias_
 
@@ -159,7 +159,7 @@ Closed poll outcome: `batch` carries `routerInstanceId`, `signedMessages`,
 and `pollCursor`; `feed_gap` carries `routerInstanceId`.
 `cursor_invalid` carries only its `kind` discriminator.
 
-### [`RouterPollResult (value)`](./router/contract.ts#L206)
+### [`RouterPollResult (value)`](./router/contract.ts#L209)
 
 _Variable_
 
@@ -172,7 +172,7 @@ export const RouterPollResult: Schema.Schema<
 
 Exact Schema for every closed poll outcome.
 
-### [`RouterRequestTimeoutError`](./router/contract.ts#L225)
+### [`RouterRequestTimeoutError`](./router/contract.ts#L228)
 
 _Class_
 
@@ -184,7 +184,7 @@ export class RouterRequestTimeoutError extends Data.TaggedError(
 
 The configured complete Router call deadline expired.
 
-### [`RouterSendRequest (type)`](./router/contract.ts#L133)
+### [`RouterSendRequest (type)`](./router/contract.ts#L136)
 
 _TypeAlias_
 
@@ -192,7 +192,8 @@ _TypeAlias_
 export type RouterSendRequest = typeof sendRequest.Type;
 ```
 
-One authenticated request to accept or recover an opaque message.
+One authenticated request to accept or recover an opaque message, carrying
+`expectedRouterInstanceId`, `mode` (`initial` or `retry`), and `signedMessage`.
 
 ### [`RouterSendRequest (value)`](./router/contract.ts#L128)
 
@@ -207,7 +208,7 @@ export const RouterSendRequest: Schema.Schema<
 
 Exact Schema for one send request.
 
-### [`RouterSendResult (type)`](./router/contract.ts#L173)
+### [`RouterSendResult (type)`](./router/contract.ts#L176)
 
 _TypeAlias_
 
@@ -220,7 +221,7 @@ Closed send outcome: `accepted` carries `routerInstanceId` and
 `message_invalid`, `idempotency_conflict`, and `retry_identity_unknown`
 carry only their `kind` discriminator.
 
-### [`RouterSendResult (value)`](./router/contract.ts#L163)
+### [`RouterSendResult (value)`](./router/contract.ts#L166)
 
 _Variable_
 
