@@ -1082,7 +1082,7 @@ export interface MessageMiddleware {
 ```
 
 Code and English policies have the same contract. Registered code is trusted;
-it receives no messaging/store capability and must not retain conversation
+it receives no conversation or store capability and must not retain conversation
 state or perform messaging side effects.
 
 #### [`MiddlewareInput`](./firewall/evaluator/values.ts#L220)

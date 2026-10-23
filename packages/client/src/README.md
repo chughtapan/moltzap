@@ -10,7 +10,8 @@ domains below it, which `pnpm arch:check` enforces.
 entrypoints: usually its `index.ts`, plus schema files that hosts can load
 without the domain's runtime. `harness/` groups the protocol, host endpoint,
 inbox and daemon MCP server; each has its own declared entrypoints.
-`communication/` groups the client's Layer 2 domains.
+`communication/` groups the client's Layer 2 domains; its store also keeps
+the firewall and host inbox rows of the layers above.
 
 - `encoding/`: exact struct decoding, canonical JSON and byte equality, canonical
   identifiers and ordering; depends only on Effect and canonicalize.

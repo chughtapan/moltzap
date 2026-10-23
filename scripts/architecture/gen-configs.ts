@@ -174,7 +174,7 @@ const clientDomains: readonly ClientDomain[] = [
     root: "firewall/outcome",
     entrypoints: ["index.ts"],
     reason:
-      "Closed refusal and guidance schemas hosts and transport decode without loading policy evaluation or provider clients",
+      "Closed refusal and guidance schemas hosts and communication decode without loading policy evaluation or provider clients",
   },
 
   {
@@ -307,7 +307,7 @@ const clientDomains: readonly ClientDomain[] = [
     root: "firewall",
     entrypoints: ["index.ts"],
     reason:
-      "Personal firewall evaluation, rules, policy, admission and audit above the collective transport",
+      "Personal firewall evaluation, rules, policy, admission and audit above communication collectives",
   },
   {
     name: "harness-inbox",

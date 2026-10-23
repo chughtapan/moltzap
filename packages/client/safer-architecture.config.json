@@ -133,7 +133,7 @@
       "entrypoints": [
         "src/firewall/outcome/index.ts"
       ],
-      "reason": "Closed refusal and guidance schemas hosts and transport decode without loading policy evaluation or provider clients"
+      "reason": "Closed refusal and guidance schemas hosts and communication decode without loading policy evaluation or provider clients"
     },
     {
       "name": "firewall-evaluator",
@@ -234,7 +234,7 @@
       "entrypoints": [
         "src/firewall/index.ts"
       ],
-      "reason": "Personal firewall evaluation, rules, policy, admission and audit above the collective transport"
+      "reason": "Personal firewall evaluation, rules, policy, admission and audit above communication collectives"
     },
     {
       "name": "harness-inbox",
@@ -312,7 +312,7 @@
       "folders": [
         "firewall"
       ],
-      "reason": "Personal firewall evaluation, rules, policy, admission and audit above the collective transport"
+      "reason": "Personal firewall evaluation, rules, policy, admission and audit above communication collectives"
     },
     {
       "name": "harness-endpoint",
@@ -375,7 +375,7 @@
       "folders": [
         "firewall/outcome"
       ],
-      "reason": "Closed refusal and guidance schemas hosts and transport decode without loading policy evaluation or provider clients"
+      "reason": "Closed refusal and guidance schemas hosts and communication decode without loading policy evaluation or provider clients"
     },
     {
       "name": "release",

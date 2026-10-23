@@ -1,9 +1,9 @@
 # Records
 
-This folder owns certified record formats, hashes, verification, the fixed
-`q(n)` threshold, and the exact protocol representation: closed schemas, canonical
-JCS encoding, hashing, sealing and signing, verification, and the message
-values (`PostId`, `Content`) every layer above encodes. `encoding/` holds the
+This folder owns certified record formats and their exact protocol
+representation: closed schemas, canonical JCS encoding, hashing, sealing and
+signing, verification, the fixed `q(n)` threshold, and the message values
+(`PostId`, `Content`) every layer above encodes. `encoding/` holds the
 canonical bytes, the hashes and signatures over them, and the seal on every
 outer body; `verification.ts` builds on it.
 

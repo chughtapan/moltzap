@@ -6,14 +6,14 @@ loading and editing, incoming and outgoing admission, and operator audit.
 
 | Folder | Holds |
 | --- | --- |
-| `outcome/` | Runtime-safe check references, guidance, withheld text and send refusals. Transport and hosts read these values without loading the firewall implementation. |
+| `outcome/` | Runtime-safe check references, guidance, withheld text and send refusals. Communication and hosts read these values without loading the firewall implementation. |
 | `evaluator/` | Ordered code and English middleware, decisions, questions and provider integration. |
 | `rules/` | Built-in code policies and the collective norm bundle. |
 | `policy/` | Policy documents, loading, composition and persisted owner edits. Configuration errors belong to policy loading. |
 | `admission/` | Installation, outgoing checks, incoming admission, result checks and retained check values. |
 | `audit/` | Operator audit snapshots and private file publication. |
 
-Rules, policy, admission and audit sit above collective transport. `outcome/`
+Rules, policy, admission and audit sit above `communication/collectives/`. `outcome/`
 and the isolated `evaluator/` sit below certified records. Client release
 metadata comes from `../release/`. Store owns persistence in
 `communication/store/firewall.ts`, and MCP owner tools live in `harness/mcp/tools.ts`.
