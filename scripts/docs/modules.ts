@@ -180,24 +180,18 @@ export function resolveExportDeclaration(
 }
 
 /**
- * Read the leading JSDoc block of a TypeScript source string. Returns
- * the comment body as plain text (asterisks stripped, leading
- * whitespace normalized) or null if the source has no leading JSDoc.
+ * Read the summary of a TypeScript source's leading JSDoc block, or null
+ * when no complete leading JSDoc block exists.
  *
  * If the block starts with the &amp;#64;file tag, the prose after that tag
  * becomes the summary. The summary ends before the first subsequent block
  * tag, with asterisk markup removed.
  */
 export function readLeadingJsDoc(source: string): string | null {
-  const trimmed = source.trimStart();
-  if (!trimmed.startsWith("/**")) {
+  const block = readLeadingJsDocBlock(source);
+  if (block === null) {
     return null;
   }
-  const closeIx = trimmed.indexOf("*/");
-  if (closeIx === -1) {
-    return null;
-  }
-  const block = trimmed.slice(0, closeIx);
   const lines = block
     .replace(/^\/\*\*/, "")
     .split("\n")
@@ -206,7 +200,7 @@ export function readLeadingJsDoc(source: string): string | null {
   const summary = stripped.startsWith("@file ")
     ? stripped.slice("@file ".length).trim()
     : stripped;
-  return summary.split(/^@\w+/m, 1)[0]?.trim() ?? "";
+  return summary.split(/^@\w+(?=\s|$)/m, 1)[0]?.trim() ?? "";
 }
 
 /**
@@ -523,8 +517,21 @@ function isEmptyBarrelSource(source: string): boolean {
 }
 
 function isInternalModuleSource(source: string): boolean {
-  const purpose = readLeadingJsDoc(source);
-  return purpose !== null && /(^|\s)@internal(\s|$)/.test(purpose);
+  const block = readLeadingJsDocBlock(source);
+  return block !== null && /(^|\s)@internal(\s|$)/.test(block);
+}
+
+/** Retains block tags for module visibility checks before summary extraction. */
+function readLeadingJsDocBlock(source: string): string | null {
+  const trimmed = source.trimStart();
+  if (!trimmed.startsWith("/**")) {
+    return null;
+  }
+  const closeIx = trimmed.indexOf("*/");
+  if (closeIx === -1) {
+    return null;
+  }
+  return trimmed.slice(0, closeIx);
 }
 
 /**

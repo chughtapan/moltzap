@@ -4,8 +4,8 @@
  * allowlists, and imports cleanly from an isolated consumer.
  */
 import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
-import { dirname, join } from "node:path";
+import { Effect, Schema } from "effect";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FINAL_PACKAGES } from "./architecture/boundary-contract.ts";
 import { verifyHostImportGraph } from "./test/client-host-imports.ts";
@@ -263,7 +263,10 @@ function verifyConsumerImports(
   });
 }
 
-/** Installed entrypoints must load, and offline preparation must discover the consumer as its seed. */
+/**
+ * Installed entrypoints load, and offline preparation reports `upgrade-off`
+ * with an existing daemon path under the consumer root.
+ */
 function verifyConsumerExecutables(
   consumerRoot: string,
   temporaryRoot: string,
@@ -282,7 +285,7 @@ function verifyConsumerExecutables(
         ),
       { concurrency: 1, discard: true },
     );
-    yield* runCommand(
+    const output = yield* runCommand(
       "env",
       [
         "-u",
@@ -301,6 +304,41 @@ function verifyConsumerExecutables(
           SHARNESS_LAUNCHER_UPGRADE: "off",
         },
       },
+    );
+    yield* verifyPreparedDaemon(output, consumerRoot);
+  });
+}
+
+/** Checks the offline choice without relying on the launcher's private record. */
+function verifyPreparedDaemon(
+  output: string,
+  consumerRoot: string,
+): Effect.Effect<void, GateError, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const choice = yield* Schema.decodeUnknown(
+      Schema.parseJson(
+        Schema.Struct({ kept: Schema.String, daemon: Schema.NonEmptyString }),
+      ),
+    )(output.trim());
+    yield* requireCondition(
+      choice.kept === "upgrade-off",
+      `Offline preparation must report upgrade-off: ${output}`,
+    );
+    const daemonPath = relative(consumerRoot, choice.daemon);
+    yield* requireCondition(
+      isAbsolute(choice.daemon),
+      `Prepared daemon path must be absolute: ${choice.daemon}`,
+    );
+    yield* requireCondition(
+      daemonPath !== "" &&
+        !isAbsolute(daemonPath) &&
+        !daemonPath.split(sep).includes(".."),
+      `Prepared daemon must be under the consumer root: ${choice.daemon}`,
+    );
+    const fs = yield* FileSystem.FileSystem;
+    yield* requireCondition(
+      yield* fs.exists(choice.daemon),
+      `Prepared daemon must exist: ${choice.daemon}`,
     );
   });
 }

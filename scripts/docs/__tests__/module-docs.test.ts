@@ -71,6 +71,10 @@ beforeAll(async () => {
     "/**\n * @file Public identity values.\n * @module identity\n */\nexport interface AgentCard {}\n",
   );
   writeFixture(
+    "packages/identity/src/private/index.ts",
+    "/**\n * @file Private identity helpers.\n * @internal\n */\nexport const privateHelper = true;\n",
+  );
+  writeFixture(
     "packages/identity/src/registry.ts",
     'export class Registry {}\nexport type OperationId = string;\nexport const OperationId = "operation";\n',
   );
@@ -136,6 +140,19 @@ beforeAll(async () => {
         {
           name: "@moltzap/identity",
           children: [
+            {
+              id: 30,
+              name: "private",
+              kind: ReflectionKind.Module,
+              children: [
+                {
+                  id: 31,
+                  name: "privateHelper",
+                  kind: ReflectionKind.Variable,
+                  sources: source("packages/identity/src/private/index.ts", 5),
+                },
+              ],
+            },
             {
               id: 3,
               name: "index",
@@ -346,6 +363,14 @@ afterAll(() => {
 // @agent-code-guard/regression-only: fixed navigation and TypeDoc fixtures exercise distinct formatting and failure regressions.
 // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The declarative suite keeps the related generated-document regression cases together.
 describe("module documentation", () => {
+  it("omits folders with a leading JSDoc @internal tag line", () => {
+    const folder = "packages/identity/src/private";
+    expect(rendered.map((result) => result.folder)).not.toContain(folder);
+    expect(existsSync(join(sandbox, folder, "MODULE.md"))).toBe(false);
+    expect(existsSync(join(sandbox, "docs/modules/identity/private.mdx"))).toBe(
+      false,
+    );
+  });
   // eslint-disable-next-line agent-code-guard/async-keyword -- Vitest awaits this Promise boundary; the implementation under test remains an Effect.
   it("normalizes declaration roots reported from a worktree", async () => {
     const cachePath = join(sandbox, "typedoc-dist-path.json");
@@ -440,6 +465,7 @@ describe("module documentation", () => {
     expect(filesSection).toBe(
       [
         "- `index.ts`",
+        "- `private/index.ts`",
         "- `registry.ts`",
         "- `registry/client.ts`",
         "- `registry/README.md`",

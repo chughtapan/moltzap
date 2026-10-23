@@ -93,7 +93,10 @@ export {};
 });
 
 describe("readLeadingJsDoc block tags", () => {
-  it.each(["", "@file "])("stops the %s summary at a block tag", (prefix) => {
+  it.each([
+    { label: "plain", prefix: "" },
+    { label: "@file", prefix: "@file " },
+  ])("stops the $label summary at a block tag", ({ prefix }) => {
     const purpose = "Production composition for one endpoint daemon.";
     const source = `/**
  * ${prefix}${purpose}
@@ -101,6 +104,17 @@ describe("readLeadingJsDoc block tags", () => {
  * @module service
  * Tag continuation is not summary prose.
  * @see Other composition
+ */
+export {};
+`;
+    expect(readLeadingJsDoc(source)).toBe(purpose);
+  });
+
+  it("preserves a prose line beginning with a scoped package name", () => {
+    const purpose = "Public endpoint composition.\n@moltzap/client owns it.";
+    const source = `/**
+ * @file ${purpose}
+ * @module client
  */
 export {};
 `;
