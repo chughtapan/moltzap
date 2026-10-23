@@ -24,6 +24,7 @@ import {
   Data,
   Duration,
   Effect,
+  Encoding,
   Layer,
   Option,
   Redacted,
@@ -929,6 +930,38 @@ const assertMalformedMessageRemainsFenced = (
     );
   });
 
+/** Noncanonical protected headers fail at the authenticated public poll boundary. */
+const assertNoncanonicalCursorHeaders = (
+  infrastructure: Infrastructure,
+  firstRecipient: RegisteredAgent,
+  anchor: BatchResult,
+) =>
+  Effect.forEach(
+    [
+      '{"enc":"A256GCM","alg":"dir","typ":"application/vnd.sharness.poll-cursor+jwe"}',
+      '{"alg":"dir","enc":"A256GCM","typ":"application/vnd.sharness.poll-cursor+jwe","x":0}',
+    ],
+    (header) =>
+      Effect.gen(function* () {
+        const encodedHeader = Encoding.encodeBase64Url(
+          new TextEncoder().encode(header),
+        );
+        const [, ...remainingSegments] = anchor.pollCursor.split(".");
+        const request = yield* signAuthenticatedRequest(
+          infrastructure.routerOrigin,
+          "/v1/messages:poll",
+          firstRecipient,
+          { pollCursor: `plc_${encodedHeader}.${remainingSegments.join(".")}` },
+        );
+        expectHttpObservation(
+          yield* observeHttpRequest(request),
+          OK_STATUS,
+          JSON.stringify(CURSOR_INVALID_RESULT),
+        );
+      }),
+    { concurrency: 1, discard: true },
+  );
+
 const assertCursorInvalidation = (
   sentMessage: SentMessage,
   firstRecipient: RegisteredAgent,
@@ -1050,6 +1083,11 @@ const runEndToEndBehavior = Effect.gen(function* () {
   const agents = yield* registerAgents(runRegistry);
   yield* assertAgentLookups(agents, runRegistry);
   const anchors = yield* anchorFeeds(agents, firstRouter);
+  yield* assertNoncanonicalCursorHeaders(
+    infrastructure,
+    agents.firstRecipient,
+    anchors.firstRecipient,
+  );
   yield* assertInvalidSignedMessageShapes(
     infrastructure,
     agents.sender,

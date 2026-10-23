@@ -1,5 +1,8 @@
 /**
  * @file
+ * Public request and result types derive from their schemas. These canaries
+ * keep their exact readonly shapes so a schema edit cannot silently change
+ * the published types.
  * Router's exported capability keeps send and poll on their exact request,
  * success, failure, and requirement channels. This prevents a later adapter
  * change from widening either operation to unknown or leaking private server

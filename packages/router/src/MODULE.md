@@ -76,7 +76,7 @@ export class Router extends Context.Tag("@moltzap/router/Router")<
 
 Opaque message acceptance and endpoint-wide bounded polling.
 
-### [`RouterConnectionError`](./router/contract.ts#L200)
+### [`RouterConnectionError`](./router/contract.ts#L220)
 
 _Class_
 
@@ -112,7 +112,7 @@ export const RouterInstanceId = canonicalValue(
 
 Identifies one volatile Router process instance.
 
-### [`RouterInvalidResponseError`](./router/contract.ts#L210)
+### [`RouterInvalidResponseError`](./router/contract.ts#L230)
 
 _Class_
 
@@ -124,55 +124,55 @@ export class RouterInvalidResponseError extends Data.TaggedError(
 
 A Router response did not match the selected operation contract.
 
-### [`RouterPollRequest (type)`](./router/contract.ts#L164)
+### [`RouterPollRequest (type)`](./router/contract.ts#L185)
 
 _TypeAlias_
 
 ```ts
-export type RouterPollRequest = typeof RouterPollRequest.Type;
+export type RouterPollRequest = typeof pollRequest.Type;
 ```
 
 One authenticated endpoint-wide poll request.
 
-### [`RouterPollRequest (value)`](./router/contract.ts#L167)
+### [`RouterPollRequest (value)`](./router/contract.ts#L180)
 
 _Variable_
 
 ```ts
-export const RouterPollRequest = closedStruct({
-  pollCursor: Schema.optional(PollCursor),
-}).annotations({ identifier: "RouterPollRequest" })
+export const RouterPollRequest: Schema.Schema<
+  RouterPollRequest,
+  typeof pollRequest.Encoded
+> = pollRequest
 ```
 
 Exact Schema for one endpoint-wide poll request.
 
-### [`RouterPollResult (type)`](./router/contract.ts#L186)
+### [`RouterPollResult (type)`](./router/contract.ts#L215)
 
 _TypeAlias_
 
 ```ts
-export type RouterPollResult = typeof RouterPollResult.Type;
+export type RouterPollResult = typeof pollResult.Type;
 ```
 
-Closed outcome of one endpoint-wide bounded poll.
+Closed poll outcome: `batch` carries `routerInstanceId`, `signedMessages`,
+and `pollCursor`; `feed_gap` carries `routerInstanceId`.
+`cursor_invalid` carries only its `kind` discriminator.
 
-### [`RouterPollResult (value)`](./router/contract.ts#L189)
+### [`RouterPollResult (value)`](./router/contract.ts#L206)
 
 _Variable_
 
 ```ts
-export const RouterPollResult = Schema.Union(
-  batch,
-  feedGap,
-  cursorInvalid,
-).annotations({
-  identifier: "RouterPollResult",
-})
+export const RouterPollResult: Schema.Schema<
+  RouterPollResult,
+  typeof pollResult.Encoded
+> = pollResult
 ```
 
 Exact Schema for every closed poll outcome.
 
-### [`RouterRequestTimeoutError`](./router/contract.ts#L205)
+### [`RouterRequestTimeoutError`](./router/contract.ts#L225)
 
 _Class_
 
@@ -184,52 +184,51 @@ export class RouterRequestTimeoutError extends Data.TaggedError(
 
 The configured complete Router call deadline expired.
 
-### [`RouterSendRequest (type)`](./router/contract.ts#L105)
+### [`RouterSendRequest (type)`](./router/contract.ts#L133)
 
 _TypeAlias_
 
 ```ts
-export type RouterSendRequest = typeof RouterSendRequest.Type;
+export type RouterSendRequest = typeof sendRequest.Type;
 ```
 
 One authenticated request to accept or recover an opaque message.
 
-### [`RouterSendRequest (value)`](./router/contract.ts#L126)
+### [`RouterSendRequest (value)`](./router/contract.ts#L128)
 
 _Variable_
 
 ```ts
-export const RouterSendRequest = closedStruct({
-  expectedRouterInstanceId: RouterInstanceId,
-  mode: Schema.Literal("initial", "retry"),
-  signedMessage: SignedMessage.live,
-}).annotations({ identifier: "RouterSendRequest" })
+export const RouterSendRequest: Schema.Schema<
+  RouterSendRequest,
+  typeof sendRequest.Encoded
+> = sendRequest
 ```
 
 Exact Schema for one send request.
 
-### [`RouterSendResult (type)`](./router/contract.ts#L152)
+### [`RouterSendResult (type)`](./router/contract.ts#L173)
 
 _TypeAlias_
 
 ```ts
-export type RouterSendResult = typeof RouterSendResult.Type;
+export type RouterSendResult = typeof sendResult.Type;
 ```
 
-Closed outcome of accepting or recovering an opaque message.
+Closed send outcome: `accepted` carries `routerInstanceId` and
+`signedMessageDigest`; `router_restarted` carries `routerInstanceId`.
+`message_invalid`, `idempotency_conflict`, and `retry_identity_unknown`
+carry only their `kind` discriminator.
 
-### [`RouterSendResult (value)`](./router/contract.ts#L155)
+### [`RouterSendResult (value)`](./router/contract.ts#L163)
 
 _Variable_
 
 ```ts
-export const RouterSendResult = Schema.Union(
-  accepted,
-  routerRestarted,
-  messageInvalid,
-  idempotencyConflict,
-  retryIdentityUnknown,
-).annotations({ identifier: "RouterSendResult" })
+export const RouterSendResult: Schema.Schema<
+  RouterSendResult,
+  typeof sendResult.Encoded
+> = sendResult
 ```
 
 Exact Schema for every closed send outcome.

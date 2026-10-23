@@ -101,12 +101,6 @@ export const PollCursor = Schema.String.pipe(
 /** Validated opaque Router poll continuation. */
 export type PollCursor = typeof PollCursor.Type;
 
-/** One authenticated request to accept or recover an opaque message. */
-export type RouterSendRequest = typeof RouterSendRequest.Type;
-
-/** Private send shape before the identity-owned artifact is decoded. */
-export type RawRouterSendRequest = typeof RawRouterSendRequest.Type;
-
 const exact = {
   exact: true,
   onExcessProperty: "error" as const,
@@ -121,13 +115,22 @@ export const RawRouterSendRequest = closedStruct({
   mode: Schema.Literal("initial", "retry"),
   signedMessage: Schema.Unknown,
 }).annotations({ identifier: "RawRouterSendRequest" });
+/** Private send shape before the identity-owned artifact is decoded. */
+export type RawRouterSendRequest = typeof RawRouterSendRequest.Type;
 
-/** Exact Schema for one send request. */
-export const RouterSendRequest = closedStruct({
+const sendRequest = closedStruct({
   expectedRouterInstanceId: RouterInstanceId,
   mode: Schema.Literal("initial", "retry"),
   signedMessage: SignedMessage.live,
 }).annotations({ identifier: "RouterSendRequest" });
+
+/** Exact Schema for one send request. */
+export const RouterSendRequest: Schema.Schema<
+  RouterSendRequest,
+  typeof sendRequest.Encoded
+> = sendRequest;
+/** One authenticated request to accept or recover an opaque message. */
+export type RouterSendRequest = typeof sendRequest.Type;
 
 const accepted = closedStruct({
   kind: Schema.Literal("accepted"),
@@ -148,11 +151,7 @@ const retryIdentityUnknown = closedStruct({
   kind: Schema.Literal("retry_identity_unknown"),
 });
 
-/** Closed outcome of accepting or recovering an opaque message. */
-export type RouterSendResult = typeof RouterSendResult.Type;
-
-/** Exact Schema for every closed send outcome. */
-export const RouterSendResult = Schema.Union(
+const sendResult = Schema.Union(
   accepted,
   routerRestarted,
   messageInvalid,
@@ -160,13 +159,30 @@ export const RouterSendResult = Schema.Union(
   retryIdentityUnknown,
 ).annotations({ identifier: "RouterSendResult" });
 
-/** One authenticated endpoint-wide poll request. */
-export type RouterPollRequest = typeof RouterPollRequest.Type;
+/** Exact Schema for every closed send outcome. */
+export const RouterSendResult: Schema.Schema<
+  RouterSendResult,
+  typeof sendResult.Encoded
+> = sendResult;
+/**
+ * Closed send outcome: `accepted` carries `routerInstanceId` and
+ * `signedMessageDigest`; `router_restarted` carries `routerInstanceId`.
+ * `message_invalid`, `idempotency_conflict`, and `retry_identity_unknown`
+ * carry only their `kind` discriminator.
+ */
+export type RouterSendResult = typeof sendResult.Type;
+
+const pollRequest = closedStruct({
+  pollCursor: Schema.optionalWith(PollCursor, { exact: true }),
+}).annotations({ identifier: "RouterPollRequest" });
 
 /** Exact Schema for one endpoint-wide poll request. */
-export const RouterPollRequest = closedStruct({
-  pollCursor: Schema.optional(PollCursor),
-}).annotations({ identifier: "RouterPollRequest" });
+export const RouterPollRequest: Schema.Schema<
+  RouterPollRequest,
+  typeof pollRequest.Encoded
+> = pollRequest;
+/** One authenticated endpoint-wide poll request. */
+export type RouterPollRequest = typeof pollRequest.Type;
 
 const batch = closedStruct({
   kind: Schema.Literal("batch"),
@@ -182,17 +198,21 @@ const cursorInvalid = closedStruct({
   kind: Schema.Literal("cursor_invalid"),
 });
 
-/** Closed outcome of one endpoint-wide bounded poll. */
-export type RouterPollResult = typeof RouterPollResult.Type;
-
-/** Exact Schema for every closed poll outcome. */
-export const RouterPollResult = Schema.Union(
-  batch,
-  feedGap,
-  cursorInvalid,
-).annotations({
+const pollResult = Schema.Union(batch, feedGap, cursorInvalid).annotations({
   identifier: "RouterPollResult",
 });
+
+/** Exact Schema for every closed poll outcome. */
+export const RouterPollResult: Schema.Schema<
+  RouterPollResult,
+  typeof pollResult.Encoded
+> = pollResult;
+/**
+ * Closed poll outcome: `batch` carries `routerInstanceId`, `signedMessages`,
+ * and `pollCursor`; `feed_gap` carries `routerInstanceId`.
+ * `cursor_invalid` carries only its `kind` discriminator.
+ */
+export type RouterPollResult = typeof pollResult.Type;
 
 /* eslint-enable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- restore the shared project rules */
 
