@@ -62,8 +62,10 @@ export const makeRouterPoll = (input: PollDependencies): RouterPoll =>
 const HOLD_DURATION = Duration.seconds(25);
 const utf8Encoder = new TextEncoder();
 
+type PollBatch = Extract<RouterPollResultValue, { readonly kind: "batch" }>;
+
 interface ScanResult {
-  readonly result: RouterPollResultValue;
+  readonly result: PollBatch;
   readonly reachedTail: boolean;
   readonly lastScannedOrder: bigint;
 }
@@ -106,13 +108,13 @@ const makeBatch = (
   callerAgentId: AgentId,
   signedMessages: readonly LiveSignedMessage[],
   lastScannedOrder: bigint,
-): Effect.Effect<RouterPollResultValue, InternalServerError> =>
+): Effect.Effect<PollBatch, InternalServerError> =>
   input.cursorCodec.encrypt({ agentId: callerAgentId, lastScannedOrder }).pipe(
     Effect.catchTag("PollCursorEncryptionError", () =>
       Effect.fail(new InternalServerError()),
     ),
     Effect.map(
-      (pollCursor): RouterPollResultValue => ({
+      (pollCursor): PollBatch => ({
         kind: "batch",
         routerInstanceId: input.routerInstanceId,
         signedMessages,
@@ -223,9 +225,7 @@ const continueFromOrder = (
     }
     const first = yield* scan(input, snapshot, callerAgentId, startOrder);
     const hasImmediateResult =
-      first.result.kind !== "batch" ||
-      first.result.signedMessages.length > 0 ||
-      !first.reachedTail;
+      first.result.signedMessages.length > 0 || !first.reachedTail;
     if (hasImmediateResult) {
       return first.result;
     }

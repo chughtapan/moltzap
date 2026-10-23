@@ -5,7 +5,6 @@ import {
   AuthenticationFailedError,
   InternalServerError,
   LIVE_WIRE_VERSIONS,
-  type LiveSignedMessage,
   MalformedRequestError,
   MethodNotAllowedError,
   OverloadedError,
@@ -102,26 +101,6 @@ export const PollCursor = Schema.String.pipe(
 /** Validated opaque Router poll continuation. */
 export type PollCursor = typeof PollCursor.Type;
 
-/** One authenticated request to accept or recover an opaque message. */
-export interface RouterSendRequest {
-  readonly expectedRouterInstanceId: RouterInstanceId;
-  readonly mode: "initial" | "retry";
-  readonly signedMessage: LiveSignedMessage;
-}
-
-type RouterSendRequestEncoded = Readonly<{
-  expectedRouterInstanceId: string;
-  mode: "initial" | "retry";
-  signedMessage: unknown;
-}>;
-
-/** Private send shape before the identity-owned artifact is decoded. */
-export interface RawRouterSendRequest {
-  readonly expectedRouterInstanceId: RouterInstanceId;
-  readonly mode: "initial" | "retry";
-  readonly signedMessage: unknown;
-}
-
 const exact = {
   exact: true,
   onExcessProperty: "error" as const,
@@ -136,16 +115,25 @@ export const RawRouterSendRequest = closedStruct({
   mode: Schema.Literal("initial", "retry"),
   signedMessage: Schema.Unknown,
 }).annotations({ identifier: "RawRouterSendRequest" });
+/** Private send shape before the identity-owned artifact is decoded. */
+export type RawRouterSendRequest = typeof RawRouterSendRequest.Type;
 
-/** Exact Schema for one send request. */
-export const RouterSendRequest: Schema.Schema<
-  RouterSendRequest,
-  RouterSendRequestEncoded
-> = closedStruct({
+const sendRequest = closedStruct({
   expectedRouterInstanceId: RouterInstanceId,
   mode: Schema.Literal("initial", "retry"),
   signedMessage: SignedMessage.live,
 }).annotations({ identifier: "RouterSendRequest" });
+
+/** Exact Schema for one send request. */
+export const RouterSendRequest: Schema.Schema<
+  RouterSendRequest,
+  typeof sendRequest.Encoded
+> = sendRequest;
+/**
+ * One authenticated request to accept or recover an opaque message, carrying
+ * `expectedRouterInstanceId`, `mode` (`initial` or `retry`), and `signedMessage`.
+ */
+export type RouterSendRequest = typeof sendRequest.Type;
 
 const accepted = closedStruct({
   kind: Schema.Literal("accepted"),
@@ -166,40 +154,7 @@ const retryIdentityUnknown = closedStruct({
   kind: Schema.Literal("retry_identity_unknown"),
 });
 
-/** Closed outcome of accepting or recovering an opaque message. */
-export type RouterSendResult =
-  | Readonly<{
-      kind: "accepted";
-      routerInstanceId: RouterInstanceId;
-      signedMessageDigest: SignedMessageDigest;
-    }>
-  | Readonly<{
-      kind: "router_restarted";
-      routerInstanceId: RouterInstanceId;
-    }>
-  | Readonly<{ kind: "message_invalid" }>
-  | Readonly<{ kind: "idempotency_conflict" }>
-  | Readonly<{ kind: "retry_identity_unknown" }>;
-
-type RouterSendResultEncoded =
-  | Readonly<{
-      kind: "accepted";
-      routerInstanceId: string;
-      signedMessageDigest: string;
-    }>
-  | Readonly<{
-      kind: "router_restarted";
-      routerInstanceId: string;
-    }>
-  | Readonly<{ kind: "message_invalid" }>
-  | Readonly<{ kind: "idempotency_conflict" }>
-  | Readonly<{ kind: "retry_identity_unknown" }>;
-
-/** Exact Schema for every closed send outcome. */
-export const RouterSendResult: Schema.Schema<
-  RouterSendResult,
-  RouterSendResultEncoded
-> = Schema.Union(
+const sendResult = Schema.Union(
   accepted,
   routerRestarted,
   messageInvalid,
@@ -207,22 +162,30 @@ export const RouterSendResult: Schema.Schema<
   retryIdentityUnknown,
 ).annotations({ identifier: "RouterSendResult" });
 
-/** One authenticated endpoint-wide poll request. */
-export interface RouterPollRequest {
-  readonly pollCursor?: PollCursor;
-}
+/** Exact Schema for every closed send outcome. */
+export const RouterSendResult: Schema.Schema<
+  RouterSendResult,
+  typeof sendResult.Encoded
+> = sendResult;
+/**
+ * Closed send outcome: `accepted` carries `routerInstanceId` and
+ * `signedMessageDigest`; `router_restarted` carries `routerInstanceId`.
+ * `message_invalid`, `idempotency_conflict`, and `retry_identity_unknown`
+ * carry only their `kind` discriminator.
+ */
+export type RouterSendResult = typeof sendResult.Type;
 
-type RouterPollRequestEncoded = Readonly<{
-  pollCursor?: string;
-}>;
+const pollRequest = closedStruct({
+  pollCursor: Schema.optionalWith(PollCursor, { exact: true }),
+}).annotations({ identifier: "RouterPollRequest" });
 
 /** Exact Schema for one endpoint-wide poll request. */
 export const RouterPollRequest: Schema.Schema<
   RouterPollRequest,
-  RouterPollRequestEncoded
-> = closedStruct({
-  pollCursor: Schema.optional(PollCursor),
-}).annotations({ identifier: "RouterPollRequest" });
+  typeof pollRequest.Encoded
+> = pollRequest;
+/** One authenticated endpoint-wide poll request with an optional `pollCursor`. */
+export type RouterPollRequest = typeof pollRequest.Type;
 
 const batch = closedStruct({
   kind: Schema.Literal("batch"),
@@ -238,40 +201,21 @@ const cursorInvalid = closedStruct({
   kind: Schema.Literal("cursor_invalid"),
 });
 
-/** Closed outcome of one endpoint-wide bounded poll. */
-export type RouterPollResult =
-  | Readonly<{
-      kind: "batch";
-      routerInstanceId: RouterInstanceId;
-      signedMessages: readonly LiveSignedMessage[];
-      pollCursor: PollCursor;
-    }>
-  | Readonly<{
-      kind: "feed_gap";
-      routerInstanceId: RouterInstanceId;
-    }>
-  | Readonly<{ kind: "cursor_invalid" }>;
-
-type RouterPollResultEncoded =
-  | Readonly<{
-      kind: "batch";
-      routerInstanceId: string;
-      signedMessages: readonly unknown[];
-      pollCursor: string;
-    }>
-  | Readonly<{
-      kind: "feed_gap";
-      routerInstanceId: string;
-    }>
-  | Readonly<{ kind: "cursor_invalid" }>;
+const pollResult = Schema.Union(batch, feedGap, cursorInvalid).annotations({
+  identifier: "RouterPollResult",
+});
 
 /** Exact Schema for every closed poll outcome. */
 export const RouterPollResult: Schema.Schema<
   RouterPollResult,
-  RouterPollResultEncoded
-> = Schema.Union(batch, feedGap, cursorInvalid).annotations({
-  identifier: "RouterPollResult",
-});
+  typeof pollResult.Encoded
+> = pollResult;
+/**
+ * Closed poll outcome: `batch` carries `routerInstanceId`, `signedMessages`,
+ * and `pollCursor`; `feed_gap` carries `routerInstanceId`.
+ * `cursor_invalid` carries only its `kind` discriminator.
+ */
+export type RouterPollResult = typeof pollResult.Type;
 
 /* eslint-enable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- restore the shared project rules */
 

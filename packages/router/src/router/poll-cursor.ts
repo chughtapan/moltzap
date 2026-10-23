@@ -128,17 +128,6 @@ const canonicalPlaintext = (input: {
 
 const invalidCursor = () => new PollCursorInvalidError();
 
-const headerIsExact = (header: Readonly<Record<string, unknown>>): boolean => {
-  if (Reflect.ownKeys(header).length !== 3) {
-    return false;
-  }
-  return (
-    header.alg === pollCursorProtectedHeader.alg &&
-    header.enc === pollCursorProtectedHeader.enc &&
-    header.typ === pollCursorProtectedHeader.typ
-  );
-};
-
 function encodePollCursor(
   key: CryptoKey,
   routerInstanceId: RouterInstanceIdValue,
@@ -216,9 +205,6 @@ function decodePollCursor(
       try: () => compactDecrypt(compact, key),
       catch: invalidCursor,
     });
-    if (!headerIsExact(decrypted.protectedHeader)) {
-      return yield* Effect.fail(invalidCursor());
-    }
     const text = yield* Effect.try({
       try: () => utf8Decoder.decode(decrypted.plaintext),
       catch: invalidCursor,
