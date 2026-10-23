@@ -2,9 +2,14 @@
 
 import { Array, Either, Encoding, Schema } from "effect";
 
+// safer-arch-ignore shared-kernel-cohesion: Canonical identity identifiers, their shared base64url decoder, and decoded AgentId ordering have one representation owner; artifact and Registry consumers use different subsets.
+
 const IDENTIFIER_BYTE_LENGTH = 16;
 
-const decodeCanonicalBase64Url = (value: string): Uint8Array | undefined => {
+/** Returns bytes only for their unique unpadded base64url spelling. */
+export const decodeCanonicalBase64Url = (
+  value: string,
+): Uint8Array | undefined => {
   return Either.match(Encoding.decodeBase64Url(value), {
     onLeft: () => undefined,
     onRight: (decoded) =>
@@ -103,3 +108,28 @@ export type AgentName = typeof AgentName.Type;
 /* eslint-enable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare --
  * Restore the general naming rules after the public Schema/type pairs.
  */
+
+/**
+ * Orders AgentIds by their decoded bytes, unsigned and bytewise. This is the
+ * one decoded-AgentId order for recipient lists and Registry list pages.
+ */
+export const compareAgentIds = (left: AgentId, right: AgentId): number => {
+  const leftBytes = decodeCanonicalBase64Url(left.slice(4));
+  const rightBytes = decodeCanonicalBase64Url(right.slice(4));
+  if (leftBytes === undefined || rightBytes === undefined) {
+    return 0;
+  }
+  const length = Math.min(leftBytes.byteLength, rightBytes.byteLength);
+  for (let index = 0; index < length; index += 1) {
+    const leftByte = leftBytes[index];
+    const rightByte = rightBytes[index];
+    if (leftByte === undefined || rightByte === undefined) {
+      return 0;
+    }
+    const difference = leftByte - rightByte;
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return leftBytes.byteLength - rightBytes.byteLength;
+};

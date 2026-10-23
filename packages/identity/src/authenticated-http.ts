@@ -18,7 +18,12 @@ import {
   type VerifiedAgentCard,
   verifiedAgentCardSchema,
 } from "./agent-card.js";
-import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
+import { type BoundedCache, makeBoundedCache } from "./bounded-cache.js";
+import {
+  decodeCanonicalJson,
+  encodeCanonicalJson,
+  exactStruct,
+} from "./canonical-json.js";
 import {
   AuthenticationFailedError,
   MalformedRequestError,
@@ -84,14 +89,6 @@ export class AuthenticatedHttp extends Context.Tag(
 }
 
 const brandVerifiedAgentRequest = Brand.nominal<VerifiedAgentRequest>();
-
-const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
-  Schema.Struct(fields).annotations({
-    parseOptions: {
-      exact: true,
-      onExcessProperty: "error",
-    },
-  });
 
 const registeredAgentBody = exactStruct({
   callerAgentId: AgentId,
@@ -200,8 +197,6 @@ function verifyRequest(
 }
 
 type CardCache = Readonly<{
-  readonly cards: ReadonlyMap<AgentIdValue, VerifiedAgentCard>;
-  readonly recency: readonly AgentIdValue[];
   readonly pending: ReadonlyMap<
     AgentIdValue,
     Deferred.Deferred<VerifiedAgentCard, CardResolutionError>
@@ -245,7 +240,7 @@ interface CardResolutionSettings {
 
 interface CardResolverDependencies {
   readonly cache: Ref.Ref<CardCache>;
-  readonly cacheCapacity: number;
+  readonly cards: BoundedCache<AgentIdValue, VerifiedAgentCard>;
   readonly lookup: RegistryLookup;
   readonly lookupPermits: Effect.Semaphore;
 }
@@ -260,8 +255,6 @@ function makeCardResolver(
 > {
   return Effect.gen(function* () {
     const cache = yield* Ref.make<CardCache>({
-      cards: new Map(),
-      recency: Object.freeze([]),
       pending: new Map(),
     });
     const lookupPermits = yield* Effect.makeSemaphore(
@@ -269,7 +262,9 @@ function makeCardResolver(
     );
     const dependencies: CardResolverDependencies = {
       cache,
-      cacheCapacity: settings.cacheCapacity,
+      cards: makeBoundedCache<AgentIdValue, VerifiedAgentCard>(
+        settings.cacheCapacity,
+      ),
       lookup,
       lookupPermits,
     };
@@ -296,6 +291,7 @@ function resolveCard(
     >();
     const access = yield* beginCardResolution(
       dependencies.cache,
+      dependencies.cards,
       agentId,
       candidate,
     );
@@ -314,7 +310,6 @@ function resolveCacheAccess(
   access: CacheAccess,
   restoreInterruptibility: RestoreInterruptibility,
 ): Effect.Effect<VerifiedAgentCard, CardResolutionError> {
-  // CacheAccess is a closed discriminated union.
   // eslint-disable-next-line default-case -- the switch is exhaustive
   switch (access.kind) {
     case "cached":
@@ -341,8 +336,7 @@ function runLeadingResolution(
 ): Effect.Effect<VerifiedAgentCard, CardResolutionError> {
   return lookupCard(dependencies, agentId).pipe(
     Effect.tap((card) =>
-      retainResolvedCard(dependencies.cache, {
-        capacity: dependencies.cacheCapacity,
+      retainResolvedCard(dependencies.cache, dependencies.cards, {
         agentId,
         card,
       }),
@@ -418,22 +412,14 @@ function resolveLookupAttempt(
 
 function beginCardResolution(
   cache: Ref.Ref<CardCache>,
+  cards: BoundedCache<AgentIdValue, VerifiedAgentCard>,
   agentId: AgentIdValue,
   candidate: Deferred.Deferred<VerifiedAgentCard, CardResolutionError>,
 ): Effect.Effect<CacheAccess> {
   return Ref.modify(cache, (current): readonly [CacheAccess, CardCache] => {
-    const card = current.cards.get(agentId);
-    if (card !== undefined) {
-      return [
-        { kind: "cached", card },
-        {
-          ...current,
-          recency: Object.freeze([
-            ...current.recency.filter((value) => value !== agentId),
-            agentId,
-          ]),
-        },
-      ] as const;
+    const card = cards.get(agentId);
+    if (Option.isSome(card)) {
+      return [{ kind: "cached", card: card.value }, current] as const;
     }
     const pending = current.pending.get(agentId);
     if (pending !== undefined) {
@@ -462,32 +448,15 @@ function removePendingResolution(
 
 function retainResolvedCard(
   cache: Ref.Ref<CardCache>,
+  cards: BoundedCache<AgentIdValue, VerifiedAgentCard>,
   input: {
-    readonly capacity: number;
     readonly agentId: AgentIdValue;
     readonly card: VerifiedAgentCard;
   },
 ): Effect.Effect<void> {
-  return Ref.update(cache, (current) => {
-    const pending = new Map(current.pending);
-    pending.delete(input.agentId);
-    const cards = new Map(current.cards);
-    const recency = [
-      ...current.recency.filter((value) => value !== input.agentId),
-      input.agentId,
-    ];
+  return Ref.modify(cache, (current) => {
     cards.set(input.agentId, input.card);
-    while (recency.length > input.capacity) {
-      const evicted = recency.shift();
-      if (evicted !== undefined) {
-        cards.delete(evicted);
-      }
-    }
-    return {
-      cards,
-      recency: Object.freeze(recency),
-      pending,
-    };
+    return [undefined, current] as const;
   });
 }
 

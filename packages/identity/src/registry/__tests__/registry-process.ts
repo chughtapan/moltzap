@@ -694,7 +694,6 @@ const startReadyRegistry = (
 
 /** Shared process and Registry fixtures for executable acceptance tests. */
 export {
-  ADMISSION_CREDENTIAL,
   callRegister,
   canConnect,
   LOOPBACK_HOST,

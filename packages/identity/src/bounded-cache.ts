@@ -2,7 +2,7 @@
 
 import { Option } from "effect";
 
-// safer-arch-ignore no-trivial-sink-file: The bound keeps memory fixed however many distinct keys arrive and is tested through this module's own API; agent-key.ts is its one consumer, and inlining it would leave the bound testable only through identity internals.
+// safer-arch-ignore no-trivial-sink-file: The bound keeps memory fixed however many distinct keys arrive and is tested through this module's own API; key derivation and authenticated HTTP card resolution share the same eviction policy.
 
 /**
  * A map that keeps at most its capacity of entries. Reading or storing an

@@ -60,11 +60,13 @@ const PARAMETERS = Object.freeze([
 /** Closed request-signature profile selected by the owning HTTP route. */
 export type HttpSignatureProfile = "normal" | "registration";
 
-const fieldsFor = (profile: HttpSignatureProfile): readonly string[] =>
-  profile === "normal" ? NORMAL_FIELDS : REGISTRATION_FIELDS;
-
-const tagFor = (profile: HttpSignatureProfile): string =>
-  profile === "normal" ? "sharness-request-v1" : "sharness-registration-v1";
+const PROFILES = {
+  normal: { fields: NORMAL_FIELDS, tag: "sharness-request-v1" },
+  registration: {
+    fields: REGISTRATION_FIELDS,
+    tag: "sharness-registration-v1",
+  },
+} as const;
 
 /**
  * Exact RFC 8941 SHA-256 content-digest field value.
@@ -148,12 +150,12 @@ const signPreparedRequest = (input: {
       httpbis.signMessage(
         {
           name: SIGNATURE_LABEL,
-          fields: [...fieldsFor(input.profile)],
+          fields: [...PROFILES[input.profile].fields],
           params: [...PARAMETERS],
           paramValues: {
             ...input.parameters,
             alg: "ed25519",
-            tag: tagFor(input.profile),
+            tag: PROFILES[input.profile].tag,
           },
           key: {
             id: input.parameters.keyid,
@@ -325,8 +327,7 @@ interface SignatureParameterValues {
   readonly expires: number;
   readonly keyid: string;
   readonly nonce: string;
-  readonly algorithm: Option.Option<BareItem>;
-  readonly tag: Option.Option<BareItem>;
+  readonly tag: string;
 }
 
 const readParameterValues = (
@@ -336,12 +337,13 @@ const readParameterValues = (
   const expires = readInteger(parameters, "expires");
   const keyid = parameters.get("keyid");
   const nonce = parameters.get("nonce");
-  if (
-    Option.isNone(created) ||
-    Option.isNone(expires) ||
-    typeof keyid !== "string" ||
-    typeof nonce !== "string"
-  ) {
+  const algorithm = parameters.get("alg");
+  const tag = parameters.get("tag");
+  const missingTimes = Option.isNone(created) || Option.isNone(expires);
+  const invalidIdentity =
+    typeof keyid !== "string" || typeof nonce !== "string";
+  const invalidProfile = algorithm !== "ed25519" || typeof tag !== "string";
+  if (missingTimes || invalidIdentity || invalidProfile) {
     return Option.none();
   }
   return Option.some({
@@ -349,8 +351,7 @@ const readParameterValues = (
     expires: expires.value,
     keyid,
     nonce,
-    algorithm: Option.fromNullable(parameters.get("alg")),
-    tag: Option.fromNullable(parameters.get("tag")),
+    tag,
   });
 };
 
@@ -361,14 +362,11 @@ const hasExpectedIdentityParameters = (
     readonly expectedKeyId: string;
   },
 ): boolean => {
-  const algorithmMatches =
-    Option.isSome(values.algorithm) && values.algorithm.value === "ed25519";
-  const tagMatches =
-    Option.isSome(values.tag) && values.tag.value === tagFor(input.profile);
+  const tagMatches = values.tag === PROFILES[input.profile].tag;
   const keyMatches =
     values.keyid === input.expectedKeyId &&
     hasCanonicalBase64UrlLength(values.nonce, 16);
-  return algorithmMatches && tagMatches && keyMatches;
+  return tagMatches && keyMatches;
 };
 
 const hasAcceptableTimes = (
@@ -512,7 +510,7 @@ const verifyWithLibrary = (input: {
       httpbis.verifyMessage(
         {
           all: true,
-          requiredFields: [...fieldsFor(input.profile)],
+          requiredFields: [...PROFILES[input.profile].fields],
           requiredParams: [...PARAMETERS],
           // Effect Clock applies the exact time law before this call.
           tolerance: Number.MAX_SAFE_INTEGER,
@@ -555,7 +553,7 @@ export const verifyHttpRequestSignature = (input: {
     );
     if (
       Option.isNone(parsed) ||
-      !hasExactSequence(parsed.value.fields, fieldsFor(input.profile))
+      !hasExactSequence(parsed.value.fields, PROFILES[input.profile].fields)
     ) {
       return yield* new AuthenticationFailedError();
     }

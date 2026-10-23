@@ -85,7 +85,6 @@ const SIGNATURE_INTERVAL_MILLISECONDS = 300_000;
 const CONCURRENT_REQUEST_COUNT = 4;
 const REGISTRY_LOOKUP_DEADLINE = Duration.millis(20);
 const RESOLVER_REGRESSION_DEADLINE = Duration.seconds(2);
-const AUTHENTICATION_FAILED_TAG = "AuthenticationFailedError";
 const VERIFIED_PROOF_FIELDS = Object.freeze([
   "agentCard",
   "callerAgentId",
@@ -151,38 +150,17 @@ const makeLookupController = (mode: LookupMode) =>
     } satisfies LookupController;
   });
 
-const makeExpiryBoundaryClock = (expiresAt: number) =>
-  Effect.gen(function* () {
-    const liveClock = Clock.make();
-    const release = yield* Deferred.make<undefined>();
-    const sampled = yield* Deferred.make<undefined>();
-    const sampleCount = yield* Ref.make(0);
-    const expiresAtMilliseconds = expiresAt * 1_000;
-    const expiredMilliseconds = expiresAtMilliseconds + 1_000;
-    const currentTimeMillis = Ref.updateAndGet(
-      sampleCount,
-      (count) => count + 1,
-    ).pipe(
-      Effect.tap((count) =>
-        count === 2 ? Deferred.succeed(sampled, undefined) : Effect.void,
-      ),
-      Effect.flatMap((count) =>
-        count <= 2
-          ? Deferred.await(release).pipe(Effect.as(expiresAtMilliseconds))
-          : Effect.succeed(expiredMilliseconds),
-      ),
-    );
-    const clock = {
-      [Clock.ClockTypeId]: Clock.ClockTypeId,
-      unsafeCurrentTimeMillis: () => expiredMilliseconds,
-      currentTimeMillis,
-      unsafeCurrentTimeNanos: () => BigInt(expiredMilliseconds) * 1_000_000n,
-      currentTimeNanos: liveClock.currentTimeNanos,
-      sleep: (duration: Parameters<Clock.Clock["sleep"]>[0]) =>
-        liveClock.sleep(duration),
-    } satisfies Clock.Clock;
-    return { clock, release, sampled, sampleCount };
-  });
+const clockAt = (milliseconds: number): Clock.Clock => {
+  const live = Clock.make();
+  return {
+    [Clock.ClockTypeId]: Clock.ClockTypeId,
+    unsafeCurrentTimeMillis: () => milliseconds,
+    currentTimeMillis: Effect.succeed(milliseconds),
+    unsafeCurrentTimeNanos: () => BigInt(milliseconds) * 1_000_000n,
+    currentTimeNanos: Effect.succeed(BigInt(milliseconds) * 1_000_000n),
+    sleep: (duration) => live.sleep(duration),
+  };
+};
 
 const lookupAgentCard = (controller: LookupController, agentId: AgentIdValue) =>
   Effect.gen(function* () {
@@ -819,45 +797,63 @@ it("authenticates a body whose bytes carry their own iterator", () =>
     }),
   ));
 
-it("retains a replay claim when concurrent verification completes at expiry", () =>
+it.each([
+  { offsetSeconds: -1, outcome: "accepted" },
+  { offsetSeconds: 0, outcome: "accepted" },
+  { offsetSeconds: 1, outcome: "refused" },
+])(
+  "$outcome at $offsetSeconds s from the signature expiry",
+  ({ offsetSeconds, outcome }) =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const fixture = yield* makeIdentityFixture;
+        const prepared = yield* prepareRequest({ fixture });
+        const verification = verifyAgentRequest(prepared).pipe(
+          Effect.provide(
+            authenticatedHttpLayerWithRegistry(
+              registryWithLookup(() =>
+                Effect.succeed({ kind: "found", agentCard: fixture.agentCard }),
+              ),
+            ),
+          ),
+          Effect.withClock(
+            clockAt((signatureExpiry(prepared) + offsetSeconds) * 1_000),
+          ),
+        );
+        if (outcome === "accepted") {
+          expect((yield* verification).callerAgentId).toBe(
+            fixture.agentCard.agentId,
+          );
+        } else {
+          expect(yield* Effect.flip(verification)).toStrictEqual(
+            new AuthenticationFailedError(),
+          );
+        }
+      }),
+    ),
+);
+
+it("refuses a nonce replay at exactly the signature expiry second", () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const fixture = yield* makeIdentityFixture;
-      const controller = yield* makeLookupController({
-        kind: "found",
-        agentCard: fixture.agentCard,
-      });
-      yield* releaseLookups(controller);
       const prepared = yield* prepareRequest({ fixture });
-      const boundaryClock = yield* makeExpiryBoundaryClock(
-        signatureExpiry(prepared),
+      yield* Effect.gen(function* () {
+        const accepted = yield* verifyAgentRequest(prepared);
+        expect(accepted.callerAgentId).toBe(fixture.agentCard.agentId);
+        expect(yield* Effect.flip(verifyAgentRequest(prepared))).toStrictEqual(
+          new AuthenticationFailedError(),
+        );
+      }).pipe(
+        Effect.provide(
+          authenticatedHttpLayerWithRegistry(
+            registryWithLookup(() =>
+              Effect.succeed({ kind: "found", agentCard: fixture.agentCard }),
+            ),
+          ),
+        ),
+        Effect.withClock(clockAt(signatureExpiry(prepared) * 1_000)),
       );
-      const attempts = Effect.all(
-        [
-          verifyAgentRequest(prepared).pipe(Effect.either),
-          verifyAgentRequest(prepared).pipe(Effect.either),
-        ] as const,
-        { concurrency: 2 },
-      ).pipe(
-        Effect.provide(authenticatedHttpLayer(controller)),
-        Effect.withClock(boundaryClock.clock),
-      );
-      const fiber = yield* Effect.fork(attempts);
-      yield* Deferred.await(boundaryClock.sampled);
-      yield* Deferred.succeed(boundaryClock.release, undefined);
-      const outcomes = yield* Fiber.join(fiber);
-      const outcomeKinds = outcomes.map(
-        Either.match({
-          onLeft: (failure) => failure._tag,
-          onRight: () => "accepted",
-        }),
-      );
-      expect(outcomeKinds.filter((kind) => kind === "accepted")).toHaveLength(
-        1,
-      );
-      expect(
-        outcomeKinds.filter((kind) => kind === AUTHENTICATION_FAILED_TAG),
-      ).toHaveLength(1);
     }),
   ));
 

@@ -1,4 +1,4 @@
-/** @file Exact Ed25519 public keys and opaque private signing authority. */
+/** @file Exact Ed25519 public keys, opaque private signing authority, and the single-signature General JWS that AgentCard and SignedMessage carry. */
 
 import type { LazyArg } from "effect/Function";
 import { ed25519 } from "@noble/curves/ed25519.js";
@@ -20,6 +20,8 @@ import {
   type JWK,
 } from "jose";
 import { type BoundedCache, makeBoundedCache } from "./bounded-cache.js";
+import { exactStruct } from "./canonical-json.js";
+import { decodeCanonicalBase64Url } from "./identifiers.js";
 
 const PUBLIC_KEY_BYTE_LENGTH = 32;
 const SIGNATURE_BYTE_LENGTH = 64;
@@ -105,15 +107,12 @@ const encodesSmallOrderPoint = (value: Uint8Array): boolean =>
 const hasAcceptedPublicKeyEncoding = (value: Uint8Array): boolean =>
   hasCanonicalPointEncoding(value) && !encodesSmallOrderPoint(value);
 
-const decodeAcceptedPublicKey = (value: string): Uint8Array | undefined =>
-  Either.match(Encoding.decodeBase64Url(value), {
-    onLeft: () => undefined,
-    onRight: (bytes) =>
-      Encoding.encodeBase64Url(bytes) === value &&
-      hasAcceptedPublicKeyEncoding(bytes)
-        ? bytes
-        : undefined,
-  });
+const decodeAcceptedPublicKey = (value: string): Uint8Array | undefined => {
+  const bytes = decodeCanonicalBase64Url(value);
+  return bytes !== undefined && hasAcceptedPublicKeyEncoding(bytes)
+    ? bytes
+    : undefined;
+};
 
 /**
  * Checks the closed Ed25519 signature representation before cryptographic
@@ -639,3 +638,39 @@ export const AgentSigningAuthority = Object.freeze({
   fromPkcs8,
   publicKey,
 });
+
+const canonicalBase64Url = Schema.String.pipe(
+  Schema.filter((value) => decodeCanonicalBase64Url(value) !== undefined),
+);
+
+const jwsSignatureRepresentation = exactStruct({
+  protected: canonicalBase64Url,
+  signature: Schema.String.pipe(
+    Schema.filter((value) => {
+      const bytes = decodeCanonicalBase64Url(value);
+      return bytes !== undefined && hasCanonicalEd25519SignatureEncoding(bytes);
+    }),
+  ),
+});
+
+/** Exact General JWS with one canonical Ed25519 signature and no extra members. */
+export const generalJwsRepresentation = exactStruct({
+  payload: canonicalBase64Url,
+  signatures: Schema.Tuple(jwsSignatureRepresentation),
+});
+
+type SingleSignatureJwsRepresentation = typeof generalJwsRepresentation.Type;
+
+/** Retains immutable copies of every admitted JWS member. */
+export const snapshotRepresentation = (
+  representation: SingleSignatureJwsRepresentation,
+): SingleSignatureJwsRepresentation =>
+  Object.freeze({
+    payload: representation.payload,
+    signatures: Object.freeze([
+      Object.freeze({
+        protected: representation.signatures[0].protected,
+        signature: representation.signatures[0].signature,
+      }),
+    ] as const),
+  });
