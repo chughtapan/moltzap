@@ -111,13 +111,14 @@ export {};
   });
 
   it("preserves a prose line beginning with a scoped package name", () => {
-    const purpose = "Public endpoint composition.\n@moltzap/client owns it.";
+    const lines = ["Public endpoint composition.", "@moltzap/client owns it."];
     const source = `/**
- * @file ${purpose}
+ * @file ${lines[0]}
+ * ${lines[1]}
  * @module client
  */
 export {};
 `;
-    expect(readLeadingJsDoc(source)).toBe(purpose);
+    expect(readLeadingJsDoc(source)).toBe(lines.join("\n"));
   });
 });

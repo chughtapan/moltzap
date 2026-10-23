@@ -521,7 +521,7 @@ function isInternalModuleSource(source: string): boolean {
   return block !== null && /(^|\s)@internal(\s|$)/.test(block);
 }
 
-/** Retains block tags for module visibility checks before summary extraction. */
+/** The leading JSDoc block of a source with its tags, or null when it has none. */
 function readLeadingJsDocBlock(source: string): string | null {
   const trimmed = source.trimStart();
   if (!trimmed.startsWith("/**")) {

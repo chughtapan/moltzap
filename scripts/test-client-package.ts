@@ -309,7 +309,7 @@ function verifyConsumerExecutables(
   });
 }
 
-/** Checks the offline choice without relying on the launcher's private record. */
+/** Requires the offline choice to keep `upgrade-off` and name an existing daemon under the consumer root. */
 function verifyPreparedDaemon(
   output: string,
   consumerRoot: string,
@@ -317,28 +317,26 @@ function verifyPreparedDaemon(
   return Effect.gen(function* () {
     const choice = yield* Schema.decodeUnknown(
       Schema.parseJson(
-        Schema.Struct({ kept: Schema.String, daemon: Schema.NonEmptyString }),
+        Schema.Struct({
+          kept: Schema.Literal("upgrade-off"),
+          daemon: Schema.NonEmptyString,
+        }),
       ),
     )(output.trim());
     yield* requireCondition(
-      choice.kept === "upgrade-off",
-      `Offline preparation must report upgrade-off: ${output}`,
-    );
-    const daemonPath = relative(consumerRoot, choice.daemon);
-    yield* requireCondition(
       isAbsolute(choice.daemon),
       `Prepared daemon path must be absolute: ${choice.daemon}`,
+    );
+    const fs = yield* FileSystem.FileSystem;
+    const daemonPath = relative(
+      yield* fs.realPath(consumerRoot),
+      yield* fs.realPath(choice.daemon),
     );
     yield* requireCondition(
       daemonPath !== "" &&
         !isAbsolute(daemonPath) &&
         !daemonPath.split(sep).includes(".."),
       `Prepared daemon must be under the consumer root: ${choice.daemon}`,
-    );
-    const fs = yield* FileSystem.FileSystem;
-    yield* requireCondition(
-      yield* fs.exists(choice.daemon),
-      `Prepared daemon must exist: ${choice.daemon}`,
     );
   });
 }
