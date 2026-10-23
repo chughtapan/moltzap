@@ -84,12 +84,16 @@ interface DaemonInput extends DaemonStartup {
   readonly edges: ProtocolEdges;
 }
 
-/** Binding is visible to management before protocol resources are ready. */
+/**
+ * Binding is visible to management before protocol resources are ready.
+ * See docs/spec/management.md and docs/spec/harness/daemon.md.
+ */
 type DaemonIdentity =
   | { readonly kind: "unregistered" }
   | { readonly kind: "bound"; readonly card: VerifiedAgentCard }
   | { readonly kind: "running"; readonly protocol: ActiveProtocol };
 
+/** Mutable daemon state shared with supervised protocol resources. */
 interface DaemonState {
   identity: DaemonIdentity;
   subscriptionActive: boolean;
@@ -227,14 +231,20 @@ const initializeProtocol = (
     .withPermits(1)(
       Effect.gen(function* () {
         const { identity } = environment.state;
+        if (identity.kind === "unregistered") {
+          return yield* Effect.fail(activationFailure("representation"));
+        }
+        const boundCard =
+          identity.kind === "bound"
+            ? identity.card
+            : identity.protocol.agentCard;
+        if (
+          boundCard.agentId !== agentCard.agentId ||
+          boundCard.publicKey.x !== agentCard.publicKey.x
+        ) {
+          return yield* Effect.fail(activationFailure("representation"));
+        }
         if (identity.kind === "running") {
-          const activeCard = identity.protocol.agentCard;
-          if (
-            activeCard.agentId !== agentCard.agentId ||
-            activeCard.publicKey.x !== agentCard.publicKey.x
-          ) {
-            return yield* Effect.fail(activationFailure("representation"));
-          }
           return;
         }
         yield* acquireProtocol(
@@ -382,7 +392,7 @@ export const makeDaemon = (
     const state: DaemonState = {
       identity:
         input.registration.kind === "unregistered"
-          ? { kind: "unregistered" }
+          ? Object.freeze({ kind: "unregistered" })
           : { kind: "bound", card: input.registration.agentCard },
       subscriptionActive: false,
     };
