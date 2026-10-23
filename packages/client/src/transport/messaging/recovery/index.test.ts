@@ -55,6 +55,10 @@ import {
   pollCursor as fixturePollCursor,
 } from "../../../__tests__/router-worker-fixtures.js";
 import {
+  decodeCanonical,
+  encodeCanonical,
+} from "../../../encoding/canonical-json.js";
+import {
   type EndpointRecovery,
   type EndpointStore,
   EndpointStoreError,
@@ -75,15 +79,12 @@ import {
   type CatchUpPage,
   type CatchUpRequest,
   type CertifiedRecord,
-  compareAgentIds,
   type CompletedReanchor,
   Content,
-  decodeCanonical,
   type DecodedOuterBody,
   decodeOuterBody,
   deriveConversationId,
   type DirectPacket,
-  encodeCanonical,
   EvidenceStatement,
   type EvidenceStatement as EvidenceStatementValue,
   type GenesisActionCore,
@@ -110,7 +111,7 @@ import {
   verifyCompletedReanchor,
   verifyMembershipDescriptor,
 } from "../../wire/index.js";
-import { MessageAddressInput } from "../../wire/values.js";
+import { compareAgentIds, MessageAddressInput } from "../../wire/values.js";
 import { acceptEngineRecoveryIngress } from "../certification/index.js";
 import {
   type EndpointEngine,

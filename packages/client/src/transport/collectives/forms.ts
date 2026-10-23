@@ -2,6 +2,8 @@
 
 import { Data, ParseResult, Schema } from "effect";
 import type { CheckedGuidance } from "../../firewall/outcome/index.js";
+import { exactStruct } from "../../encoding/exact.js";
+import { isCanonicalIdentifier } from "../../encoding/identifier.js";
 import {
   type SendError,
   sendFailureReasons,
@@ -9,8 +11,6 @@ import {
 } from "../messaging/errors.js";
 import {
   AgentAddress,
-  exactStruct,
-  isCanonicalIdentifier,
   JsonValue,
   MessageAddressInput,
   type PostId,

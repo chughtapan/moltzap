@@ -26,12 +26,12 @@ import type {
   EnginePostIntent,
   EngineRuntime,
 } from "./runtime/index.js";
+import { encodeCanonical } from "../../encoding/canonical-json.js";
 import {
   type ActionCore,
   type ActionHash,
   Content,
   deriveConversationId,
-  encodeCanonical,
   GenesisAnchorBody,
   hashAction,
   hashAnchor,

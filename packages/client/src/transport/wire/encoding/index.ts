@@ -3,14 +3,6 @@
 /* eslint-disable jsdoc/require-jsdoc -- Re-exported private symbols retain their owning-module documentation. */
 
 export {
-  ClientRepresentationError,
-  decodeCanonical,
-  encodeCanonical,
-  equalCanonical,
-  representationFailure,
-  sameBytes,
-} from "./canonical.js";
-export {
   type DecodedOuterBody,
   decodeOuterBody,
   deriveConversationId,

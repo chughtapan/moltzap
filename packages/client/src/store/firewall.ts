@@ -2,6 +2,7 @@
 
 import type { DatabaseSync } from "node:sqlite";
 import { Schema } from "effect";
+import { sameBytes } from "../encoding/canonical-json.js";
 import {
   readBytes,
   readInteger,
@@ -12,7 +13,6 @@ import {
   requireSameBytes,
   requireSameOptionalBytes,
   requireText,
-  sameBytes,
   StoreSignal,
   transaction,
 } from "./database/index.js";

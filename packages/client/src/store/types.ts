@@ -1,23 +1,14 @@
 /** @file Private typed contract for endpoint persistence operations. */
 
-import { type Effect, Either, Encoding, Schema } from "effect";
+import { type Effect, Schema } from "effect";
 import type { EndpointStoreError } from "./database/values.js";
+import { isCanonicalIdentifier } from "../encoding/identifier.js";
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- The private Effect Schema and decoded nominal value intentionally share one domain name. */
 
 /** Stable opaque identity for one durable inbound delivery. */
 export const DeliveryToken = Schema.String.pipe(
-  Schema.filter((value) => {
-    if (!value.startsWith("dlv_")) {
-      return false;
-    }
-    const suffix = value.slice(4);
-    return Either.match(Encoding.decodeBase64Url(suffix), {
-      onLeft: () => false,
-      onRight: (bytes) =>
-        bytes.length === 32 && Encoding.encodeBase64Url(bytes) === suffix,
-    });
-  }),
+  Schema.filter((value) => isCanonicalIdentifier("dlv_", value)),
   Schema.brand("DeliveryToken"),
 );
 

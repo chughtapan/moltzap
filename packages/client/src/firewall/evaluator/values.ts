@@ -2,6 +2,7 @@
 
 import { AgentId } from "@moltzap/identity";
 import { Cause, Data, Effect, Either, Schema } from "effect";
+import { exactStruct } from "../../encoding/exact.js";
 
 const identifier = Schema.NonEmptyTrimmedString;
 const visibility = Schema.Literal("runtime", "assessor");
@@ -483,11 +484,6 @@ function freezeData(value: unknown): void {
   Object.freeze(value);
 }
 
-const exact = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
-  Schema.Struct(fields).annotations({
-    parseOptions: { exact: true, onExcessProperty: "error" },
-  });
-
 const ruleFields = {
   id: EnglishRule.fields.id,
   text: EnglishRule.fields.text,
@@ -496,12 +492,12 @@ const ruleFields = {
 
 /** Norm instructions must have a registered template before owners can activate them. */
 const editableRuleSchema = Schema.Union(
-  exact({
+  exactStruct({
     ...ruleFields,
     kind: Schema.Literal("norm"),
     guidance: Schema.NonEmptyString,
   }),
-  exact({
+  exactStruct({
     ...ruleFields,
     kind: Schema.Literal("safety", "autonomy"),
     guidance: EnglishRule.fields.guidance,
@@ -509,7 +505,7 @@ const editableRuleSchema = Schema.Union(
 );
 
 /** Removing and adding the same editable id replaces it in one activation. */
-export const policyUpdateSchema = exact({
+export const policyUpdateSchema = exactStruct({
   add: Schema.optional(
     Schema.Array(editableRuleSchema).pipe(Schema.maxItems(256)),
   ),
@@ -530,12 +526,12 @@ const describedFields = {
  * description a code middleware declares for a rule it checks in code.
  */
 const fixedRuleSchema = Schema.Union(
-  exact({
+  exactStruct({
     from: Schema.Literal("code"),
     middleware: Schema.NonEmptyString,
     ...describedFields,
   }),
-  exact({
+  exactStruct({
     from: Schema.Literal("english"),
     ...describedFields,
     text: EnglishRule.fields.text,
@@ -543,25 +539,25 @@ const fixedRuleSchema = Schema.Union(
 );
 
 /** The digest identifies the entire active installation, including fixed policy. */
-export const policyReadSchema = exact({
+export const policyReadSchema = exactStruct({
   rules: Schema.Array(editableRuleSchema),
   fixedRules: Schema.Array(fixedRuleSchema),
   activeRevision: Schema.NonEmptyString,
 });
 
 /** Activation acknowledges future checks only; retained dispositions are unchanged. */
-export const policyUpdateResultSchema = exact({
+export const policyUpdateResultSchema = exactStruct({
   activeRevision: Schema.NonEmptyString,
   retroactive: Schema.Literal(false),
 });
 
 /** Inclusive Unix milliseconds permit polling across checks completed out of start order. */
-export const firewallDecisionsRequestSchema = exact({
+export const firewallDecisionsRequestSchema = exactStruct({
   since: Schema.optional(Schema.NonNegativeInt),
 });
 
 /** Activation metadata contains rule ids only, never their text or templates. */
-export const firewallActivationSchema = exact({
+export const firewallActivationSchema = exactStruct({
   time: Schema.NonNegativeInt,
   activeRevision: Schema.NonEmptyString,
   addedRuleIds: Schema.Array(Schema.NonEmptyString),
@@ -593,10 +589,10 @@ const decisionCause = Schema.Literal(
  * or an owner-editable English rule. `checkedRuleIds` lists every rule with a
  * finding in the completed chain.
  */
-export const firewallDecisionsSchema = exact({
+export const firewallDecisionsSchema = exactStruct({
   activations: Schema.Array(firewallActivationSchema),
   decisions: Schema.Array(
-    exact({
+    exactStruct({
       checkId: Schema.NonEmptyString,
       time: Schema.NonNegativeInt,
       direction: Schema.Literal("incoming", "outgoing"),
@@ -605,7 +601,7 @@ export const firewallDecisionsSchema = exact({
       disposition: Schema.Literal("stale", "admitted", "withheld"),
       cause: decisionCause,
       decidedBy: Schema.Array(
-        exact({
+        exactStruct({
           ruleId: Schema.NonEmptyString,
           from: Schema.Literal("code", "fixed", "editable"),
           advice: Schema.optional(Schema.NonEmptyString),

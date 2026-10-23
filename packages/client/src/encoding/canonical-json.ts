@@ -2,24 +2,21 @@
 
 import canonicalize from "canonicalize";
 import { Data, Effect, Schema } from "effect";
-
-/* eslint-disable jsdoc/require-jsdoc -- This package-private codec is named and documented at its representation facade. */
+import { exactParseOptions } from "./exact.js";
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 const utf8Encoder = new TextEncoder();
-const exactOptions = {
-  exact: true,
-  onExcessProperty: "error" as const,
-};
 
 /** A Client-owned representation, hash, or verification check failed. */
 export class ClientRepresentationError extends Data.TaggedError(
   "ClientRepresentationError",
 ) {}
 
+/** Discard decoder and encoder diagnostics at the representation boundary. */
 export const representationFailure = (): ClientRepresentationError =>
   new ClientRepresentationError();
 
+/** Compare exact lengths and bytes without coercing either representation. */
 export const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => {
   if (left.byteLength !== right.byteLength) {
     return false;
@@ -32,7 +29,8 @@ export const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => {
   return true;
 };
 
-const canonicalBytes = (
+/** Encode JSON as canonical UTF-8, rejecting values with no JSON representation. */
+export const canonicalBytes = (
   value: unknown,
 ): Effect.Effect<Uint8Array, ClientRepresentationError> =>
   Effect.try({
@@ -68,7 +66,7 @@ export const decodeCanonical = <A, I, R>(
     });
     const decoded = yield* Schema.decodeUnknown(Schema.parseJson(schema))(
       text,
-      exactOptions,
+      exactParseOptions,
     ).pipe(Effect.mapError(representationFailure));
     const canonical = yield* encodeCanonical(schema, decoded);
     if (!sameBytes(bytes, canonical)) {
@@ -89,5 +87,3 @@ export const equalCanonical = <A, I, R>(
   ]).pipe(
     Effect.map(([leftBytes, rightBytes]) => sameBytes(leftBytes, rightBytes)),
   );
-
-/* eslint-enable jsdoc/require-jsdoc -- Restore package documentation rules. */

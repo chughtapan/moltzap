@@ -22,6 +22,10 @@ import {
   makeTestAuthority,
 } from "../../__tests__/agent-card-fixtures.js";
 import {
+  ClientRepresentationError,
+  encodeCanonical,
+} from "../../encoding/canonical-json.js";
+import {
   type ActionCertifiedRecord,
   type ActionCore,
   type ActionHash,
@@ -29,12 +33,10 @@ import {
   CatchUpPage,
   type CatchUpRequest,
   type CertifiedRecord,
-  ClientRepresentationError,
   type CompletedReanchor,
   deriveConversationId,
   deriveEvidenceMessageId,
   DirectPacket,
-  encodeCanonical,
   EvidenceStatement,
   type GenesisAnchorBody,
   hashAction,

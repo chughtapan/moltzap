@@ -140,6 +140,27 @@ const sharedConfig: ArchitectureConfig = {
  */
 const clientDomains: readonly ClientDomain[] = [
   {
+    name: "encoding",
+    root: "encoding",
+    entrypoints: [
+      {
+        file: "exact.ts",
+        host: true,
+        reason: "Closed struct decoding shared by host-loaded value schemas",
+      },
+      {
+        file: "canonical-json.ts",
+        reason: "Canonical JSON encoding of signed and stored values",
+      },
+      {
+        file: "identifier.ts",
+        host: true,
+        reason: "Canonical identifiers and ordering used by host-loaded values",
+      },
+    ],
+    reason: "Leaf codecs depending only on Effect and canonicalize",
+  },
+  {
     name: "release",
     host: true,
     root: "release",
@@ -161,7 +182,7 @@ const clientDomains: readonly ClientDomain[] = [
     root: "firewall/evaluator",
     entrypoints: ["index.ts"],
     reason:
-      "Isolated code and English evaluation depends only on runtime-safe outcomes and packages",
+      "Isolated code and English evaluation depends on encoding, runtime-safe outcomes and packages",
   },
   {
     name: "wire",
@@ -392,9 +413,27 @@ const packageDefinitions: Readonly<Record<string, PackageDefinition>> = {
         },
       ],
       maxFolderCycles: 1,
+      folderChildCountOverrides: [
+        {
+          folder: ".",
+          maxChildren: 11,
+          reason:
+            "Client keeps leaf encoding alongside its runtime domains, environment values and package facade",
+        },
+      ],
       folderReadmeFileNames: ["README.md", "../README.md"],
       facadeFiles: [
         ...clientEntrypointFacades,
+        {
+          file: "transport/wire/schemas.ts",
+          reason:
+            "Closed Client wire grammar shared by encoding and verification within the wire domain",
+        },
+        {
+          file: "store/database/values.ts",
+          reason:
+            "Closed store errors and row-value checks shared by database implementation modules",
+        },
         {
           file: "daemon/bootstrap.ts",
           reason:

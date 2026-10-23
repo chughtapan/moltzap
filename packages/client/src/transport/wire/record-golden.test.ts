@@ -9,11 +9,13 @@ import { Ed25519PublicKey } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import { describe, expect } from "vitest";
 import {
+  decodeCanonical,
+  encodeCanonical,
+} from "../../encoding/canonical-json.js";
+import {
   ActionCertifiedRecord,
   CertifiedRecord,
-  decodeCanonical,
   DirectPacket,
-  encodeCanonical,
   hashAction,
   hashRecord,
   MembershipDescriptor,

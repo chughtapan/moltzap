@@ -35,6 +35,7 @@ import {
   registryLayer,
   routerInstanceId,
 } from "../../__tests__/router-worker-fixtures.js";
+import { encodeCanonical } from "../../encoding/canonical-json.js";
 import {
   makeRouterWorker,
   type RouterWorker,
@@ -44,7 +45,6 @@ import {
   ConversationId,
   type DecodedOuterBody,
   DirectPacket,
-  encodeCanonical,
   MembershipHash,
   signOuterPacket,
 } from "../../transport/wire/index.js";

@@ -1,11 +1,7 @@
 /** @file Runtime-safe projections of local message policy, separate from peer content. */
 
 import { Data, Schema } from "effect";
-
-const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
-  Schema.Struct(fields).annotations({
-    parseOptions: { exact: true, onExcessProperty: "error" },
-  });
+import { exactStruct } from "../../encoding/exact.js";
 
 /** An opaque local assessment reference conveys no approval or lookup authority. */
 const checkIdSchema = Schema.String.pipe(Schema.pattern(/^chk_[a-f0-9]{64}$/u));

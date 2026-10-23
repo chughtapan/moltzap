@@ -28,8 +28,10 @@ import type {
 import {
   type ClientRepresentationError,
   decodeCanonical,
-  type DecodedOuterBody,
   encodeCanonical,
+} from "../../encoding/canonical-json.js";
+import {
+  type DecodedOuterBody,
   type MessageAddressInput,
   PostIntent,
   RecordHash,

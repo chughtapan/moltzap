@@ -8,6 +8,10 @@ import type { SignedMessage as SignedMessageValue } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import type { EngineRuntime } from "../runtime/index.js";
 import {
+  type ClientRepresentationError,
+  encodeCanonical,
+} from "../../../encoding/canonical-json.js";
+import {
   type EndpointRecovery,
   isSemanticStoreRejection,
   type StagedRecord,
@@ -22,11 +26,9 @@ import {
 import {
   AnchorHash,
   type AnchorHash as AnchorHashValue,
-  type ClientRepresentationError,
   type CompletedReanchor as CompletedReanchorValue,
   type ConversationId as ConversationIdValue,
   type DecodedOuterBody,
-  encodeCanonical,
   type EvidenceStatement,
   hashAnchor,
   quorumThreshold,

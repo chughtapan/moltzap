@@ -7,15 +7,17 @@ import type {
   PostIntent as StoredPostIntent,
 } from "../../../store/index.js";
 import type { EngineRuntime } from "../runtime/index.js";
+import {
+  decodeCanonical,
+  encodeCanonical,
+  sameBytes,
+} from "../../../encoding/canonical-json.js";
 import { RouterWorkerPersistenceError } from "../../router/index.js";
 import {
   type ConversationId as ConversationIdValue,
-  decodeCanonical,
-  encodeCanonical,
   GenesisAnchorBody,
   type GenesisAnchorBody as GenesisAnchorBodyValue,
   hashAnchor,
-  sameBytes,
   type VerifiedMembership,
 } from "../../wire/index.js";
 

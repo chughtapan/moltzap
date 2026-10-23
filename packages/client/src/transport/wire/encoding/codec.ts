@@ -16,6 +16,16 @@ import {
 import { Effect, Encoding, Schema } from "effect";
 import { createHash, randomBytes } from "node:crypto";
 import {
+  type ClientRepresentationError,
+  decodeCanonical,
+  encodeCanonical,
+  representationFailure,
+} from "../../../encoding/canonical-json.js";
+import {
+  decodeCanonicalBase64Url,
+  isStrictlyAscending,
+} from "../../../encoding/identifier.js";
+import {
   ActionCore,
   ActionHash,
   type ActionHash as ActionHashValue,
@@ -44,17 +54,10 @@ import {
 } from "../schemas.js";
 import {
   compareAgentIds,
-  decodeCanonicalBase64Url,
   PostId,
   type PostId as PostIdValue,
   wireProfiles,
 } from "../values.js";
-import {
-  type ClientRepresentationError,
-  decodeCanonical,
-  encodeCanonical,
-  representationFailure,
-} from "./canonical.js";
 
 /* eslint-disable jsdoc/require-jsdoc -- The package-private representation facade documents this closed protocol vocabulary. */
 
@@ -88,18 +91,7 @@ const domainHash = <A, I, R, Hash>(input: {
   );
 
 const sortedDistinctAgentIds = (agentIds: readonly AgentId[]): boolean => {
-  for (let index = 1; index < agentIds.length; index += 1) {
-    const previous = agentIds[index - 1];
-    const current = agentIds[index];
-    if (
-      previous === undefined ||
-      current === undefined ||
-      compareAgentIds(previous, current) >= 0
-    ) {
-      return false;
-    }
-  }
-  return true;
+  return isStrictlyAscending(agentIds, compareAgentIds);
 };
 
 const decodeAgentIdBytes = (

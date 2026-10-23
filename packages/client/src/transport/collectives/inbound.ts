@@ -1,11 +1,11 @@
 /** @file The items an endpoint delivers to its host: messages and collective requests, results and failures. */
 
 import { Schema } from "effect";
+import { exactStruct } from "../../encoding/exact.js";
 import { withheldText } from "../../firewall/outcome/index.js";
 import { InboundMessage } from "../messaging/message.js";
 import {
   AgentAddress,
-  exactStruct,
   MessageAddressInput,
   PostId,
   wellFormedString,

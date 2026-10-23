@@ -6,22 +6,21 @@ import {
   RegistryListRequest,
   RegistryLookupRequest,
 } from "@moltzap/identity/registry";
-import { Either, Encoding, Schema } from "effect";
+import { Schema } from "effect";
+import { exactParseOptions, exactStruct } from "../../encoding/exact.js";
+import {
+  compareAscii,
+  decodeCanonicalBase64Url,
+  isStrictlyAscending,
+} from "../../encoding/identifier.js";
 import {
   AgentAddress,
   compareAgentIds,
-  compareAscii,
-  exactStruct,
   GroupAddress,
   RecordCore,
   RecordHash,
   RouterAnchor,
 } from "../../transport/wire/index.js";
-
-const exactOptions = {
-  exact: true,
-  onExcessProperty: "error" as const,
-};
 
 const encodedAgentCard = Schema.encodedSchema(AgentCard);
 
@@ -30,42 +29,15 @@ const messageAddress = Schema.Union(AgentAddress, GroupAddress).annotations({
 });
 
 function addressesAreOrdered(addresses: readonly string[]): boolean {
-  for (let index = 1; index < addresses.length; index += 1) {
-    const previous = addresses[index - 1];
-    const current = addresses[index];
-    if (
-      previous === undefined ||
-      current === undefined ||
-      compareAscii(previous, current) >= 0
-    ) {
-      return false;
-    }
-  }
-  return true;
+  return isStrictlyAscending(addresses, compareAscii);
 }
 
 function canonicalBase64UrlBytes(value: string, byteLength: number): boolean {
-  return Either.match(Encoding.decodeBase64Url(value), {
-    onLeft: () => false,
-    onRight: (bytes) =>
-      bytes.byteLength === byteLength &&
-      Encoding.encodeBase64Url(bytes) === value,
-  });
+  return decodeCanonicalBase64Url(value)?.byteLength === byteLength;
 }
 
 function agentIdsAreOrdered(agentIds: readonly AgentId[]): boolean {
-  for (let index = 1; index < agentIds.length; index += 1) {
-    const previous = agentIds[index - 1];
-    const current = agentIds[index];
-    if (
-      previous === undefined ||
-      current === undefined ||
-      compareAgentIds(previous, current) >= 0
-    ) {
-      return false;
-    }
-  }
-  return true;
+  return isStrictlyAscending(agentIds, compareAgentIds);
 }
 
 const historyContinuation = Schema.String.pipe(
@@ -123,7 +95,7 @@ export const managementRegisterResultSchema = Schema.Union(
   exactStruct({ kind: Schema.Literal("name_taken") }),
   exactStruct({ kind: Schema.Literal("key_already_registered") }),
   exactStruct({ kind: Schema.Literal("idempotency_conflict") }),
-).annotations({ parseOptions: exactOptions });
+).annotations({ parseOptions: exactParseOptions });
 
 /** Closed daemon lifecycle visible to the loopback operator. */
 export const managementStatusResultSchema = Schema.Union(
@@ -132,13 +104,13 @@ export const managementStatusResultSchema = Schema.Union(
     kind: Schema.Literal("active"),
     agentCard: encodedAgentCard,
   }),
-).annotations({ parseOptions: exactOptions });
+).annotations({ parseOptions: exactParseOptions });
 
 /** Exact Registry lookup-or-list selector used by agent discovery. */
 export const managementSearchAgentsRequestSchema = Schema.Union(
   RegistryLookupRequest,
   RegistryListRequest,
-).annotations({ parseOptions: exactOptions });
+).annotations({ parseOptions: exactParseOptions });
 
 /** Direct projection of exact Registry lookup and list results. */
 export const managementSearchAgentsResultSchema = Schema.Union(
@@ -152,7 +124,7 @@ export const managementSearchAgentsResultSchema = Schema.Union(
     agentCards: Schema.Array(encodedAgentCard),
     hasMore: Schema.Boolean,
   }),
-).annotations({ parseOptions: exactOptions });
+).annotations({ parseOptions: exactParseOptions });
 
 /** Canonically ordered local-conversation page selector. */
 export const managementSearchConversationsRequestSchema = exactStruct({
@@ -193,7 +165,7 @@ export const managementReadConversationRequestSchema = Schema.Union(
         "Single-use token from the previous history page; use alone and only within this daemon process.",
     }),
   }),
-).annotations({ parseOptions: exactOptions });
+).annotations({ parseOptions: exactParseOptions });
 
 /** Complete proof-bearing local certified-history page. */
 export const managementReadConversationResultSchema = exactStruct({

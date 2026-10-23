@@ -3,11 +3,11 @@
 import type { Registry } from "@moltzap/identity/registry";
 import { AgentName, type VerifiedAgentCard } from "@moltzap/identity";
 import { type Context, Effect, type ParseResult, Schema } from "effect";
+import { compareAscii } from "../../encoding/identifier.js";
 import {
   AGENT_ADDRESS_PREFIX,
   AgentAddress,
   compareAgentIds,
-  compareAscii,
   GROUP_ADDRESS_PREFIX,
   GroupAddress,
   maximumMembers,

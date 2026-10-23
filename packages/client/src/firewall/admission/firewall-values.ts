@@ -2,6 +2,7 @@
 
 import { AgentId } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
+import { exactStruct } from "../../encoding/exact.js";
 import {
   decodeRuntimeValue,
   EndpointStoreError,
@@ -9,7 +10,7 @@ import {
 } from "../../store/index.js";
 import { InboundItem } from "../../transport/collectives/inbound.js";
 import { PostIntent } from "../../transport/wire/index.js";
-import { exactStruct, PostId } from "../../transport/wire/values.js";
+import { PostId } from "../../transport/wire/values.js";
 import {
   decodeFrozen,
   firewallActivationSchema,

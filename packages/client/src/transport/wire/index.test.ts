@@ -18,17 +18,19 @@ import {
   type RegistryKeyPair,
 } from "../../__tests__/agent-card-fixtures.js";
 import {
+  ClientRepresentationError,
+  decodeCanonical,
+  encodeCanonical,
+} from "../../encoding/canonical-json.js";
+import {
   ActionHash,
   ActionSignatureStatement,
   CatchUpRequest,
-  ClientRepresentationError,
   Content,
   ConversationId,
-  decodeCanonical,
   decodeOuterBody,
   deriveConversationId,
   deriveEvidenceMessageId,
-  encodeCanonical,
   maximumContentBytes,
   MembershipHash,
   mintPostId,

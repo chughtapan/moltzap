@@ -6,11 +6,30 @@
     }
   ],
   "maxFolderCycles": 1,
+  "folderChildCountOverrides": [
+    {
+      "folder": ".",
+      "maxChildren": 11,
+      "reason": "Client keeps leaf encoding alongside its runtime domains, environment values and package facade"
+    }
+  ],
   "folderReadmeFileNames": [
     "README.md",
     "../README.md"
   ],
   "facadeFiles": [
+    {
+      "file": "encoding/exact.ts",
+      "reason": "Closed struct decoding shared by host-loaded value schemas"
+    },
+    {
+      "file": "encoding/canonical-json.ts",
+      "reason": "Canonical JSON encoding of signed and stored values"
+    },
+    {
+      "file": "encoding/identifier.ts",
+      "reason": "Canonical identifiers and ordering used by host-loaded values"
+    },
     {
       "file": "transport/wire/values.ts",
       "reason": "Addresses, post ids, content, and member limits hosts decode without loading signing, verification, or the Router client"
@@ -60,6 +79,14 @@
       "reason": "History export values hosts decode without loading inbox state or SQLite"
     },
     {
+      "file": "transport/wire/schemas.ts",
+      "reason": "Closed Client wire grammar shared by encoding and verification within the wire domain"
+    },
+    {
+      "file": "store/database/values.ts",
+      "reason": "Closed store errors and row-value checks shared by database implementation modules"
+    },
+    {
       "file": "daemon/bootstrap.ts",
       "reason": "Loaded daemon configuration and closed bootstrap failures shared by daemon composition modules"
     }
@@ -83,6 +110,18 @@
     }
   ],
   "domains": [
+    {
+      "name": "encoding",
+      "roots": [
+        "src/encoding"
+      ],
+      "entrypoints": [
+        "src/encoding/exact.ts",
+        "src/encoding/canonical-json.ts",
+        "src/encoding/identifier.ts"
+      ],
+      "reason": "Leaf codecs depending only on Effect and canonicalize"
+    },
     {
       "name": "release",
       "roots": [
@@ -111,7 +150,7 @@
       "entrypoints": [
         "src/firewall/evaluator/index.ts"
       ],
-      "reason": "Isolated code and English evaluation depends only on runtime-safe outcomes and packages"
+      "reason": "Isolated code and English evaluation depends on encoding, runtime-safe outcomes and packages"
     },
     {
       "name": "wire",
@@ -336,7 +375,7 @@
       "folders": [
         "firewall/evaluator"
       ],
-      "reason": "Isolated code and English evaluation depends only on runtime-safe outcomes and packages"
+      "reason": "Isolated code and English evaluation depends on encoding, runtime-safe outcomes and packages"
     },
     {
       "name": "firewall-outcome",
@@ -351,6 +390,13 @@
         "release"
       ],
       "reason": "Client package release metadata used by MCP peers, policy provenance and telemetry"
+    },
+    {
+      "name": "encoding",
+      "folders": [
+        "encoding"
+      ],
+      "reason": "Leaf codecs depending only on Effect and canonicalize"
     }
   ],
   "publicTypePackages": [

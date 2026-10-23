@@ -72,7 +72,7 @@ or duplicated, and multicasts that carry nothing besides that part; every
 other certified post becomes one item, and the endpoint itself emits
 results and failures.
 
-### [`MessageTextError`](./message-text.ts#L50)
+### [`MessageTextError`](./message-text.ts#L51)
 
 _Class_
 
@@ -92,7 +92,7 @@ A message text states an operation it does not validly carry, or is plain
 text that is not well-formed Unicode. The message names each failing field
 so a host can hand it to its model as the tool error.
 
-### [`parseMessageText`](./message-text.ts#L93)
+### [`parseMessageText`](./message-text.ts#L94)
 
 _Function_
 

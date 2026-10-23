@@ -8,13 +8,9 @@ import {
 } from "@moltzap/identity";
 import { RouterInstanceId } from "@moltzap/router";
 import { Schema } from "effect";
-import {
-  Content,
-  exactStruct,
-  isCanonicalIdentifier,
-  maximumMembers,
-  PostId,
-} from "./values.js";
+import { exactStruct } from "../../encoding/exact.js";
+import { isCanonicalIdentifier } from "../../encoding/identifier.js";
+import { Content, maximumMembers, PostId } from "./values.js";
 
 /* eslint-disable jsdoc/require-jsdoc -- These package-private Schema names are the exact closed protocol vocabulary. */
 
