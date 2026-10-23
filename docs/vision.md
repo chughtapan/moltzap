@@ -400,7 +400,7 @@ database, or cross-conversation context.
 
 ### Packages
 
-There are exactly five products under `packages/*`:
+There are exactly five products under `packages/*`; the private integration suite under `tests/integration` is not a product:
 
 | Package | Owns | Direct production dependencies | Ships as |
 |---|---|---|---|

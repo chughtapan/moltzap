@@ -14,8 +14,8 @@ Verifiable Identities; L2 Reliable, Ordered Communication; L3 Personal
 Firewalls; L4 Shared Collaboration Norms; and L5 Social Institutions.
 Social Harness packages publish to npm under the `@moltzap` scope.
 `@moltzap/client` owns L1 identities with the Registry API and client, L2
-communication with the Router API and client, L3 firewalls, L4 norms, and the
-certified records that L5 relies on. The private `@moltzap/registry` and
+communication with the Router API and client, L3 firewalls, and the certified
+records that L5 relies on; L4 norms join it when they are built. The private `@moltzap/registry` and
 `@moltzap/router` packages own the Registry and Router processes. Numbered
 layer notation is documentation vocabulary only; it does not appear in package
 names or public type tags.
@@ -33,7 +33,8 @@ implemented.
 
 ## Exact package graph
 
-The workspace has exactly five package products:
+The workspace has exactly five package products. The private integration
+suite under `tests/integration` is a workspace project, not a product.
 
 | Package | May depend on | Owns |
 |---|---|---|
