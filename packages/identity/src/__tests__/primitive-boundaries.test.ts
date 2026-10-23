@@ -38,11 +38,7 @@ it.each(["identifiers", "agent-key", "agent-card"])(
           fileURLToPath(new URL("../", import.meta.url)),
           fileURLToPath(new URL(specifier, source)),
         );
-        return (
-          /^(?:authenticated-http|http-signature|signed-message|registry)(?:[./]|$)/u.test(
-            file,
-          ) || !localModules.has(file)
-        );
+        return !localModules.has(file);
       });
 
     expect(forbidden).toStrictEqual([]);

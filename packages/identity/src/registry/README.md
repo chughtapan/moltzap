@@ -10,7 +10,7 @@ Start with:
 - `server.ts` validates process-environment configuration and composes the
   production Effect layers launched by the package executable.
 - `http.ts` exposes readiness and the registration, lookup, and list routes.
-- `admission.ts` authenticates registration before storage work.
+- `admission.ts` authenticates registration before storage work: it checks the admission credential and the submitted key around `../http-signature.ts → verifyBootstrapRequest`, then claims the nonce.
 - `rpc.ts` owns the private operation group, admission proof, handlers, and
   in-process dispatch.
 - `issuance.ts` signs and verifies immutable AgentCards for Registry storage.

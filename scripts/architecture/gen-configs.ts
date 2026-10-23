@@ -413,11 +413,6 @@ const architectureConfigDefinitions: ReadonlyArray<{
               "Immutable Registry attestation boundary for verification and digest operations",
           },
           {
-            file: "authenticated-http.ts",
-            reason:
-              "Identity-owned request signing and verification capability shared by registered-agent and Registry bootstrap admission",
-          },
-          {
             file: "agent-key.ts",
             reason:
               "Domain entrypoint for Ed25519 public keys, signing authority, and the single-signature General JWS representation shared by AgentCard and SignedMessage",
