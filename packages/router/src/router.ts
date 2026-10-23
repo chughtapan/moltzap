@@ -13,7 +13,6 @@ import {
   AgentSigningError,
   AuthenticatedHttp,
   Ed25519PublicKey,
-  type Ed25519PublicKey as Ed25519PublicKeyValue,
   legacyKeys,
   SignedMessage,
 } from "@moltzap/identity";
@@ -132,20 +131,6 @@ const utf8Decoder = new TextDecoder("utf-8", {
   fatal: true,
   ignoreBOM: true,
 });
-const utf8Encoder = new TextEncoder();
-
-const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => {
-  if (left.byteLength !== right.byteLength) {
-    return false;
-  }
-  for (let index = 0; index < left.byteLength; index += 1) {
-    if (left[index] !== right[index]) {
-      return false;
-    }
-  }
-  return true;
-};
-
 const decodeUtf8 = (
   bytes: Uint8Array,
 ): Effect.Effect<string, RouterInvalidResponseError> =>
@@ -168,10 +153,7 @@ const decodeCanonicalResult = <A, I>(
       Effect.mapError(invalidResponse),
     );
     const canonical = canonicalize(encoded);
-    if (
-      canonical === undefined ||
-      !sameBytes(bytes, utf8Encoder.encode(canonical))
-    ) {
+    if (canonical === undefined || text !== canonical) {
       return yield* Effect.fail(invalidResponse());
     }
     return result;
@@ -220,10 +202,7 @@ const decodeResponse = <A, I>(
     }
     const text = yield* decodeUtf8(bytes);
     const recognized = routerHttpErrorFromResponse(response.status, text);
-    if (
-      Option.isNone(recognized) ||
-      !sameBytes(bytes, utf8Encoder.encode(text))
-    ) {
+    if (Option.isNone(recognized)) {
       return yield* Effect.fail(invalidResponse());
     }
     return yield* Effect.fail(recognized.value);
@@ -416,22 +395,9 @@ export const processHelp = [
 ].join("\n");
 
 /** Complete validated private process configuration. */
-export interface RouterConfiguration {
-  readonly host: string;
-  readonly port: number;
-  readonly registryOrigin: URL;
-  readonly registrySignerPublicKey: Ed25519PublicKeyValue;
-  readonly retainedMessageCapacity: number;
-  readonly retainedMessageByteCapacity: number;
-  readonly pollMessageLimit: number;
-  readonly pollResponseByteLimit: number;
-  readonly requestConcurrencyLimit: number;
-  readonly heldPollCapacity: number;
-  readonly liveNonceCapacity: number;
-  readonly agentCardCacheCapacity: number;
-  readonly registryLookupConcurrencyLimit: number;
-  readonly registryLookupTimeoutMs: number;
-}
+export type RouterConfiguration = Readonly<
+  Config.Config.Success<typeof configuredValues>
+>;
 
 const retentionFits = (candidate: RouterConfiguration): boolean =>
   candidate.retainedMessageCapacity >= 1 &&

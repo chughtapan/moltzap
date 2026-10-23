@@ -13,6 +13,7 @@ import type {
   AgentSigningError,
   AuthenticationFailedError,
   InternalServerError,
+  LiveSignedMessage,
   MalformedRequestError,
   MethodNotAllowedError,
   OverloadedError,
@@ -54,6 +55,56 @@ type PollCall = Readonly<{
   callerAgentId: AgentId;
   signingAuthority: AgentSigningAuthority;
 }>;
+
+type SendRequestShapeIsExact = Expect<
+  Types.Equals<
+    RouterPackage.RouterSendRequest,
+    Readonly<{
+      expectedRouterInstanceId: RouterPackage.RouterInstanceId;
+      mode: "initial" | "retry";
+      signedMessage: LiveSignedMessage;
+    }>
+  >
+>;
+type PollRequestShapeIsExact = Expect<
+  Types.Equals<
+    RouterPackage.RouterPollRequest,
+    Readonly<{ pollCursor?: RouterPackage.PollCursor }>
+  >
+>;
+type SendResultShapeIsExact = Expect<
+  Types.Equals<
+    RouterPackage.RouterSendResult,
+    | Readonly<{
+        kind: "accepted";
+        routerInstanceId: RouterPackage.RouterInstanceId;
+        signedMessageDigest: RouterPackage.SignedMessageDigest;
+      }>
+    | Readonly<{
+        kind: "router_restarted";
+        routerInstanceId: RouterPackage.RouterInstanceId;
+      }>
+    | Readonly<{ kind: "message_invalid" }>
+    | Readonly<{ kind: "idempotency_conflict" }>
+    | Readonly<{ kind: "retry_identity_unknown" }>
+  >
+>;
+type PollResultShapeIsExact = Expect<
+  Types.Equals<
+    RouterPackage.RouterPollResult,
+    | Readonly<{
+        kind: "batch";
+        routerInstanceId: RouterPackage.RouterInstanceId;
+        signedMessages: readonly LiveSignedMessage[];
+        pollCursor: RouterPackage.PollCursor;
+      }>
+    | Readonly<{
+        kind: "feed_gap";
+        routerInstanceId: RouterPackage.RouterInstanceId;
+      }>
+    | Readonly<{ kind: "cursor_invalid" }>
+  >
+>;
 
 type SendEffect = ReturnType<typeof RouterPackage.Router.send>;
 type PollEffect = ReturnType<typeof RouterPackage.Router.poll>;
@@ -149,6 +200,10 @@ type ServerNamespaceIsExact = Expect<
 
 /** Compile-time evidence for the complete public Router capability channels. */
 export type RouterCapabilityCanaries = [
+  SendRequestShapeIsExact,
+  PollRequestShapeIsExact,
+  SendResultShapeIsExact,
+  PollResultShapeIsExact,
   SendInputIsExact,
   SendSuccessIsExact,
   SendFailureIsExact,
