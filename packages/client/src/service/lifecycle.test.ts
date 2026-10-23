@@ -23,8 +23,8 @@ import {
 } from "effect";
 import { join } from "node:path";
 import { describe, expect, vi } from "vitest";
-import type { EventStore } from "../delivery/operations.js";
-import type { HarnessMcpEventHandler } from "../endpoint/mcp/tools.js";
+import type { HarnessMcpEventHandler } from "../harness/mcp/tools.js";
+import type { EventStore } from "../harness/protocol/operations.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";
 import { digest } from "../__tests__/agent-card-fixtures.js";
 import {
@@ -52,8 +52,8 @@ import {
   SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION,
 } from "../__tests__/daemon-runtime-harness.js";
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
-import { HistoryExportRecord } from "../delivery/history-export.js";
-import { INBOX_PENDING_EVENT } from "../endpoint/mcp/names.js";
+import { HistoryExportRecord } from "../harness/inbox/history-export.js";
+import { INBOX_PENDING_EVENT } from "../harness/protocol/names.js";
 import { SendInput } from "../index.js";
 import {
   DeliveryToken,

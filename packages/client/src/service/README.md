@@ -2,7 +2,7 @@
 
 This folder composes one registered endpoint daemon: configuration, identity
 registration, the protocol engine and Router worker, the collective layer, and
-the delivery that `delivery/` builds.
+the delivery that `harness/inbox/` builds.
 
 `index.ts` is the `./service` entry point. It loads the configuration,
 requires the admission credential before it creates a store, opens the store,

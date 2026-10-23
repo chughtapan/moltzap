@@ -16,6 +16,6 @@ loading and editing, incoming and outgoing admission, and operator audit.
 Rules, policy, admission and audit sit above collective transport. `outcome/`
 and the isolated `evaluator/` sit below identity and wire. Client release
 metadata comes from `../release/`. Store owns persistence in
-`store/firewall.ts`, and MCP owner tools live in `endpoint/mcp/tools.ts`.
+`store/firewall.ts`, and MCP owner tools live in `harness/mcp/tools.ts`.
 
 See the [message-policy specification](https://github.com/social-harness/moltzap/blob/main/docs/spec/harness/message-policy.md).

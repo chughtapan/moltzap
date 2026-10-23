@@ -2,7 +2,7 @@
 
 import type { McpHttpHandler } from "@modelcontextprotocol/server";
 import { Effect, type Scope } from "effect";
-import { acquireHarnessMcpHttpServer } from "../endpoint/mcp/http.js";
+import { acquireHarnessMcpHttpServer } from "../harness/mcp/http.js";
 
 /**
  * Serve `handler` on an ephemeral loopback port and return the server's `/mcp`

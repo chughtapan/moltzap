@@ -1,0 +1,50 @@
+/** @file Daemon MCP schemas and ports; hosts use the names and operations entrypoints. */
+/** Daemon event transport schemas and callback ports. */
+export {
+  callbackReasons,
+  eventListInput,
+  type EventStreamInput,
+  eventStreamInput,
+  type EventSubscribeInput,
+  eventSubscribeInput,
+  type EventUnsubscribeInput,
+  eventUnsubscribeInput,
+  type HarnessWebhookEvents,
+  maximumEventBytes,
+  type WebhookStatus,
+  webhookStatusJsonSchema,
+} from "./event-schemas.js";
+/** Exact owner-authorized management request and result schemas. */
+export {
+  type ManagementReadConversationRequest,
+  managementReadConversationRequestSchema,
+  type ManagementReadConversationResult,
+  managementReadConversationResultSchema,
+  type ManagementRegisterRequest,
+  managementRegisterRequestSchema,
+  type ManagementRegisterResult,
+  managementRegisterResultSchema,
+  type ManagementSearchAgentsRequest,
+  managementSearchAgentsRequestSchema,
+  type ManagementSearchAgentsResult,
+  managementSearchAgentsResultSchema,
+  type ManagementSearchConversationsRequest,
+  managementSearchConversationsRequestSchema,
+  type ManagementSearchConversationsResult,
+  managementSearchConversationsResultSchema,
+  type ManagementStatusResult,
+  managementStatusResultSchema,
+} from "./owner-tools.js";
+/** MCP projections keep semantic operations separate from transport framing. */
+export {
+  decodeHarnessSendCall,
+  harnessAcknowledgeDeliveryRequestJsonSchema,
+  type HarnessEmptyResult,
+  harnessEmptyResultJsonSchema,
+  harnessFailureReasons,
+  harnessReadInboxRequestJsonSchema,
+  harnessReadInboxResultJsonSchema,
+  harnessSendArgumentsJsonSchema,
+  harnessSendResultJsonSchema,
+  validationIssues,
+} from "./schemas.js";

@@ -42,12 +42,16 @@
       "reason": "Complete message rendering shared by hosts and policy evidence without loading collective operations"
     },
     {
-      "file": "delivery/operations.ts",
-      "reason": "The values harness operations take and return, decoded by hosts without loading the inbox or the store"
+      "file": "harness/protocol/operations.ts",
+      "reason": "Harness operation values and decoders shared by the host and daemon"
     },
     {
-      "file": "delivery/history-export.ts",
-      "reason": "The history export line schema hosts decode, without loading the inbox or the store"
+      "file": "harness/protocol/names.ts",
+      "reason": "Tool and event names shared by the host and daemon"
+    },
+    {
+      "file": "harness/inbox/history-export.ts",
+      "reason": "History export values hosts decode without loading inbox state or SQLite"
     },
     {
       "file": "service/bootstrap.ts",
@@ -58,6 +62,10 @@
     {
       "path": "src/index.ts",
       "reason": "Package facade: re-exports the adapter-facing values each domain owns"
+    },
+    {
+      "path": "src/environment.ts",
+      "reason": "Host configuration check for retired environment names re-exported by the package facade"
     },
     {
       "path": "src/index.types-check.ts",
@@ -169,6 +177,28 @@
       "reason": "Gather and all_gather carried in posts"
     },
     {
+      "name": "harness-protocol",
+      "roots": [
+        "src/harness/protocol"
+      ],
+      "entrypoints": [
+        "src/harness/protocol/index.ts",
+        "src/harness/protocol/operations.ts",
+        "src/harness/protocol/names.ts"
+      ],
+      "reason": "The loopback MCP tools, events and results both peers speak"
+    },
+    {
+      "name": "harness-endpoint",
+      "roots": [
+        "src/harness/endpoint"
+      ],
+      "entrypoints": [
+        "src/harness/endpoint/index.ts"
+      ],
+      "reason": "The HarnessEndpoint library an agent host loads"
+    },
+    {
       "name": "firewall",
       "roots": [
         "src/firewall"
@@ -179,27 +209,25 @@
       "reason": "Personal firewall evaluation, rules, policy, admission and audit above the collective transport"
     },
     {
-      "name": "delivery",
+      "name": "harness-inbox",
       "roots": [
-        "src/delivery"
+        "src/harness/inbox"
       ],
       "entrypoints": [
-        "src/delivery/index.ts",
-        "src/delivery/operations.ts",
-        "src/delivery/history-export.ts"
+        "src/harness/inbox/index.ts",
+        "src/harness/inbox/history-export.ts"
       ],
-      "reason": "The host inbox, send invocations, the delivery pass, the history export, and the operations hosts call on them"
+      "reason": "The classified host inbox, delivery pass and history export"
     },
     {
-      "name": "endpoint",
+      "name": "harness-mcp",
       "roots": [
-        "src/endpoint"
+        "src/harness/mcp"
       ],
       "entrypoints": [
-        "src/endpoint/mcp/index.ts",
-        "src/endpoint/harness-endpoint/index.ts"
+        "src/harness/mcp/index.ts"
       ],
-      "reason": "The loopback MCP, owner tools, and the HarnessEndpoint hosts connect to"
+      "reason": "The daemon's loopback MCP server, authentication and event delivery"
     },
     {
       "name": "service",
@@ -238,18 +266,18 @@
       "reason": "The always-on process: configuration, registration, supervision, and wiring"
     },
     {
-      "name": "endpoint",
+      "name": "harness-mcp",
       "folders": [
-        "endpoint"
+        "harness/mcp"
       ],
-      "reason": "The loopback MCP, owner tools, and the HarnessEndpoint hosts connect to"
+      "reason": "The daemon's loopback MCP server, authentication and event delivery"
     },
     {
-      "name": "delivery",
+      "name": "harness-inbox",
       "folders": [
-        "delivery"
+        "harness/inbox"
       ],
-      "reason": "The host inbox, send invocations, the delivery pass, the history export, and the operations hosts call on them"
+      "reason": "The classified host inbox, delivery pass and history export"
     },
     {
       "name": "firewall",
@@ -257,6 +285,20 @@
         "firewall"
       ],
       "reason": "Personal firewall evaluation, rules, policy, admission and audit above the collective transport"
+    },
+    {
+      "name": "harness-endpoint",
+      "folders": [
+        "harness/endpoint"
+      ],
+      "reason": "The HarnessEndpoint library an agent host loads"
+    },
+    {
+      "name": "harness-protocol",
+      "folders": [
+        "harness/protocol"
+      ],
+      "reason": "The loopback MCP tools, events and results both peers speak"
     },
     {
       "name": "collectives",

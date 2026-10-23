@@ -1,5 +1,5 @@
 /** @file Public barrel for the final endpoint runtime capability. */
-// safer-arch-ignore no-folder-cycle: release/index.ts imports package.json for the Client release version, which places the package root below every domain that reads it, while this facade re-exports from endpoint/harness-endpoint.
+// safer-arch-ignore no-folder-cycle: release/index.ts imports package.json for the Client release version, which places the package root below every domain that reads it, while this facade re-exports from harness/endpoint.
 // safer-arch-ignore require-curated-public-facade: Each re-export names one domain's adapter-facing values; the root re-exports them from their owners instead of from a shared contract module.
 // safer-arch-ignore no-large-public-surface: The root is the one adapter-facing boundary, and each operation and inbound item is a closed schema its adapters decode; splitting them behind narrower entrypoints would give adapters a second import path for one contract.
 
@@ -8,10 +8,10 @@ export {
   ConnectError,
   type HarnessEndpoint,
   type InboundDelivery,
-} from "./endpoint/harness-endpoint/index.js";
+} from "./harness/endpoint/index.js";
 /** Acquire the structural endpoint for one loopback daemon endpoint. */
 // safer-arch-ignore no-public-vendor-type-leak: URL is the platform-standard endpoint locator required by the public acquisition contract.
-export { acquireHarnessEndpoint } from "./endpoint/harness-endpoint/index.js";
+export { acquireHarnessEndpoint } from "./harness/endpoint/index.js";
 /**
  * Decoders of the daemon's MCP tool results, refusal data and
  * pending-delivery event. They ignore fields they do not name, so a newer
@@ -22,9 +22,9 @@ export {
   decodeHarnessReadInboxResult,
   decodeHarnessSendErrorData,
   decodeHarnessSendResult,
-} from "./delivery/operations.js";
+} from "./harness/protocol/operations.js";
 /** One line of the daemon's optional history export. */
-export { HistoryExportRecord } from "./delivery/history-export.js";
+export { HistoryExportRecord } from "./harness/inbox/history-export.js";
 /** Local message refusal and advice expose no private assessment evidence. */
 export {
   type CheckedGuidance,
@@ -78,4 +78,4 @@ export {
 } from "./transport/wire/values.js";
 
 /** Host adapters reject retired environment keys before acquiring an endpoint. */
-export { legacyKeys } from "./endpoint/environment.js";
+export { legacyKeys } from "./environment.js";

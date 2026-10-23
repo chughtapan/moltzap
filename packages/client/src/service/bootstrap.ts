@@ -5,8 +5,8 @@ import type {
   Ed25519PublicKey as Ed25519PublicKeyValue,
 } from "@moltzap/identity";
 import { Data, type Effect, type Redacted } from "effect";
-import type { HarnessMcpCredentials } from "../endpoint/mcp/index.js";
 import type { MessagePolicyConfigurationFailure } from "../firewall/index.js";
+import type { HarnessMcpCredentials } from "../harness/mcp/index.js";
 
 /** Closed reason that daemon configuration cannot become startup authority. */
 export type DaemonConfigurationFailure =

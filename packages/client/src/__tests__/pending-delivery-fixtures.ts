@@ -1,8 +1,8 @@
 /** @file Pending durable deliveries and the classify, engine and subscriber ports a delivery pass runs over. */
 
 import { Effect, Schema } from "effect";
-import type { HarnessMessageReadyEvent } from "../delivery/operations.js";
-import type { PendingOffer } from "../delivery/pass.js";
+import type { PendingOffer } from "../harness/inbox/pass.js";
+import type { HarnessMessageReadyEvent } from "../harness/protocol/operations.js";
 import type { InboundItem } from "../transport/collectives/inbound.js";
 import type { CollectiveOperations } from "../transport/collectives/index.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";

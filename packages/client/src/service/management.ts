@@ -21,7 +21,7 @@ import type {
   ManagementSearchConversationsRequest,
   ManagementSearchConversationsResult,
   ManagementStatusResult,
-} from "../endpoint/mcp/index.js";
+} from "../harness/mcp/index.js";
 import type {
   EndpointRecovery,
   EndpointStore,

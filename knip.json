@@ -122,7 +122,7 @@
     "packages/client/src/store/rows/index.ts": [
       "exports"
     ],
-    "packages/client/src/endpoint/mcp/owner-tools.ts": [
+    "packages/client/src/harness/protocol/owner-tools.ts": [
       "exports"
     ]
   }

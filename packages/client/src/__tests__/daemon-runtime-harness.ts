@@ -9,15 +9,15 @@ import {
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { type Context, Deferred, Duration, Effect } from "effect";
-import type { EventStore } from "../delivery/operations.js";
+import type { EventStore } from "../harness/protocol/operations.js";
 import type { Fixture } from "./daemon-runtime-fixtures.js";
-import { makeHistoryExport } from "../delivery/history-export.js";
-import { INBOX_PENDING_EVENT } from "../endpoint/mcp/names.js";
+import { makeHistoryExport } from "../harness/inbox/history-export.js";
 import {
   type HarnessMcpEventHandler,
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
-} from "../endpoint/mcp/tools.js";
+} from "../harness/mcp/tools.js";
+import { INBOX_PENDING_EVENT } from "../harness/protocol/names.js";
 import {
   type DaemonRuntimeDependencies,
   DaemonRuntimeError,

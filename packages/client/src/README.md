@@ -8,8 +8,8 @@ Domains, lowest first. A domain imports only the declared entrypoints of
 domains below it, which `pnpm arch:check` enforces.
 `scripts/architecture/gen-configs.ts → clientDomains` lists each domain's
 entrypoints: usually its `index.ts`, plus schema files that hosts can load
-without the domain's runtime. `endpoint/` has no root `index.ts`; its
-entrypoints are `mcp/index.ts` and `harness-endpoint/index.ts`.
+without the domain's runtime. `harness/` groups the protocol, host endpoint,
+inbox and daemon MCP server; each has its own declared entrypoints.
 
 - `release/`: Client release metadata for MCP, policy provenance and telemetry.
 - `firewall/outcome/`: runtime-safe refusal and guidance values.
@@ -26,9 +26,10 @@ entrypoints are `mcp/index.ts` and `harness-endpoint/index.ts`.
 - `transport/collectives/`: gather and all_gather carried in posts, and the
   inbound items the endpoint delivers.
 - `firewall/`: built-in rules, policy loading and editing, admission and audit.
-- `delivery/`: the host inbox, sends, the delivery pass, the
-  history export, and the operations hosts call on them.
-- `endpoint/`: the loopback MCP, owner tools, and `HarnessEndpoint`.
+- `harness/protocol/`: shared MCP tools, events, operation values and schemas.
+- `harness/endpoint/`: the `HarnessEndpoint` library hosts load.
+- `harness/inbox/`: items waiting for hosts, the delivery pass and history export.
+- `harness/mcp/`: the daemon's loopback MCP server and event delivery.
 - `service/`: the always-on daemon process that composes the rest;
   `bin/sharnessd` is its entry point.
 - `launcher/`: verifies and installs the daemon release each start runs.

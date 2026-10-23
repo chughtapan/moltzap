@@ -30,7 +30,7 @@ baseline composition without message checks.
 
 See [firewall/admission/firewall.ts](https://github.com/social-harness/moltzap/blob/main/packages/client/src/firewall/admission/firewall.ts) →
 `collectiveAdmission` and
-[delivery/host-delivery.ts](https://github.com/social-harness/moltzap/blob/main/packages/client/src/delivery/host-delivery.ts) →
+[harness/inbox/host-delivery.ts](https://github.com/social-harness/moltzap/blob/main/packages/client/src/harness/inbox/host-delivery.ts) →
 `makeHostDelivery` with
 [firewall/admission/admission.ts](https://github.com/social-harness/moltzap/blob/main/packages/client/src/firewall/admission/admission.ts) →
 `runAdmission` for the outgoing and incoming flows. The standalone runner

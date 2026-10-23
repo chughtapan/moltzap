@@ -49,7 +49,7 @@ import {
   managementReadConversationRequestSchema,
   managementRegisterRequestSchema,
   managementSearchAgentsRequestSchema,
-} from "../endpoint/mcp/owner-tools.js";
+} from "../harness/protocol/index.js";
 import {
   type EndpointRecovery,
   type EndpointStore,

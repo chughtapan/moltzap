@@ -10,7 +10,7 @@ import {
 import { type Context, Effect, Layer, Redacted, Ref, Schema } from "effect";
 import { describe, expect } from "vitest";
 import { makeFixture } from "../../__tests__/daemon-runtime-fixtures.js";
-import { managementRegisterRequestSchema } from "../../endpoint/mcp/owner-tools.js";
+import { managementRegisterRequestSchema } from "../../harness/protocol/index.js";
 import { EndpointStoreError, type IdentityBinding } from "../../store/index.js";
 import { DaemonConfigurationError } from "../bootstrap.js";
 import {

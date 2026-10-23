@@ -27,7 +27,7 @@ import {
 } from "../../__tests__/daemon-runtime-harness.js";
 import { pollCursor } from "../../__tests__/router-worker-fixtures.js";
 import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
-import { acquireHarnessMcpHttpServer } from "../../endpoint/mcp/index.js";
+import { acquireHarnessMcpHttpServer } from "../../harness/mcp/index.js";
 import { SendInput } from "../../index.js";
 import { EndpointStoreError, openEndpointStore } from "../../store/index.js";
 import { makeEndpointEngine } from "../../transport/messaging/index.js";

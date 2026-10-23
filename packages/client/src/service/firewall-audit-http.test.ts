@@ -7,7 +7,7 @@ import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Deferred, Effect, Fiber, Option, Schema } from "effect";
 import { join } from "node:path";
 import { describe, expect } from "vitest";
-import type { HarnessMcpEventHandler } from "../endpoint/mcp/tools.js";
+import type { HarnessMcpEventHandler } from "../harness/mcp/tools.js";
 import { makeFixture } from "../__tests__/daemon-runtime-fixtures.js";
 import {
   awaitStage,
@@ -20,8 +20,8 @@ import {
   makeAuditFixture,
 } from "../__tests__/firewall-audit-fixtures.js";
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
-import { acquireHarnessEndpoint } from "../endpoint/harness-endpoint/index.js";
-import { acquireHarnessMcpHttpServer } from "../endpoint/mcp/http.js";
+import { acquireHarnessEndpoint } from "../harness/endpoint/index.js";
+import { acquireHarnessMcpHttpServer } from "../harness/mcp/http.js";
 import { openEndpointStore } from "../store/index.js";
 import { SendInput } from "../transport/collectives/forms.js";
 

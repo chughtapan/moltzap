@@ -12,14 +12,12 @@ import { RouterInstanceId } from "@moltzap/router";
 import { Deferred, Effect, Queue, Schema, Scope } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { join } from "node:path";
-import type { HarnessMessageReadyEvent } from "../delivery/operations.js";
 import type {
   MessageMiddleware,
   MiddlewareResult,
 } from "../firewall/evaluator/values.js";
+import type { HarnessMessageReadyEvent } from "../harness/protocol/operations.js";
 import type { InboundItem } from "../transport/collectives/inbound.js";
-import { noHistoryExport } from "../delivery/history-export.js";
-import { makeHostDelivery } from "../delivery/host-delivery.js";
 import {
   collectiveAdmission,
   type FirewallOptions,
@@ -27,6 +25,8 @@ import {
   installFirewall,
 } from "../firewall/admission/index.js";
 import { beginFirewallAudit } from "../firewall/audit/firewall-audit.js";
+import { noHistoryExport } from "../harness/inbox/history-export.js";
+import { makeHostDelivery } from "../harness/inbox/host-delivery.js";
 import {
   decodeRuntimeValue,
   DeliveryToken,
