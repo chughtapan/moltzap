@@ -327,7 +327,6 @@ interface SignatureParameterValues {
   readonly expires: number;
   readonly keyid: string;
   readonly nonce: string;
-  readonly algorithm: "ed25519";
   readonly tag: string;
 }
 
@@ -340,15 +339,11 @@ const readParameterValues = (
   const nonce = parameters.get("nonce");
   const algorithm = parameters.get("alg");
   const tag = parameters.get("tag");
-  if (
-    Option.isNone(created) ||
-    Option.isNone(expires) ||
-    typeof keyid !== "string" ||
-    typeof nonce !== "string"
-  ) {
-    return Option.none();
-  }
-  if (algorithm !== "ed25519" || typeof tag !== "string") {
+  const missingTimes = Option.isNone(created) || Option.isNone(expires);
+  const invalidIdentity =
+    typeof keyid !== "string" || typeof nonce !== "string";
+  const invalidProfile = algorithm !== "ed25519" || typeof tag !== "string";
+  if (missingTimes || invalidIdentity || invalidProfile) {
     return Option.none();
   }
   return Option.some({
@@ -356,7 +351,6 @@ const readParameterValues = (
     expires: expires.value,
     keyid,
     nonce,
-    algorithm,
     tag,
   });
 };

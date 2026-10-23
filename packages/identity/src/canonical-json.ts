@@ -546,3 +546,11 @@ export const encodeCanonicalJson = (
         : Effect.fail(new CanonicalJsonError()),
     ),
   );
+
+/** Rejects excess members and absent required fields at identity boundaries. */
+export const exactStruct = <Fields extends Schema.Struct.Fields>(
+  fields: Fields,
+) =>
+  Schema.Struct(fields).annotations({
+    parseOptions: { exact: true, onExcessProperty: "error" },
+  });

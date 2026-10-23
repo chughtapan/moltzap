@@ -4,7 +4,6 @@ import {
   Brand,
   Data,
   Effect,
-  Either,
   Encoding,
   ParseResult,
   Schema,
@@ -28,11 +27,17 @@ import {
   sameEd25519PublicKey,
   snapshotRepresentation,
 } from "./agent-key.js";
-import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
+import {
+  decodeCanonicalJson,
+  encodeCanonicalJson,
+  exactStruct,
+} from "./canonical-json.js";
 import {
   AgentId,
   type AgentId as AgentIdValue,
   canonicalIdentifier,
+  compareAgentIds,
+  decodeCanonicalBase64Url,
 } from "./identifiers.js";
 import { WIRE_VERSION } from "./version.js";
 import { WIRE_PROFILES } from "./wire-profile.js";
@@ -86,21 +91,6 @@ const MAXIMUM_ENCODED_BYTES = Effect.runSync(
   }),
 );
 
-const decodeCanonicalBase64Url = (value: string): Uint8Array | undefined =>
-  Either.match(Encoding.decodeBase64Url(value), {
-    onLeft: () => undefined,
-    onRight: (bytes) =>
-      Encoding.encodeBase64Url(bytes) === value ? bytes : undefined,
-  });
-
-const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
-  Schema.Struct(fields).annotations({
-    parseOptions: {
-      exact: true,
-      onExcessProperty: "error",
-    },
-  });
-
 type SignedMessageRepresentation = typeof generalJwsRepresentation.Type;
 
 const protectedHeader = exactStruct({
@@ -108,34 +98,6 @@ const protectedHeader = exactStruct({
   kid: Schema.String,
   typ: Schema.Literal(SIGNED_MESSAGE_TYPE),
 });
-
-/**
- * Orders AgentIds by their decoded bytes, unsigned and bytewise. This is the
- * one canonical order of a SignedMessage recipient list.
- */
-export const compareAgentIds = (
-  left: AgentIdValue,
-  right: AgentIdValue,
-): number => {
-  const leftBytes = decodeCanonicalBase64Url(left.slice(4));
-  const rightBytes = decodeCanonicalBase64Url(right.slice(4));
-  if (leftBytes === undefined || rightBytes === undefined) {
-    return 0;
-  }
-  const length = Math.min(leftBytes.byteLength, rightBytes.byteLength);
-  for (let index = 0; index < length; index += 1) {
-    const leftByte = leftBytes[index];
-    const rightByte = rightBytes[index];
-    if (leftByte === undefined || rightByte === undefined) {
-      return 0;
-    }
-    const difference = leftByte - rightByte;
-    if (difference !== 0) {
-      return difference;
-    }
-  }
-  return leftBytes.byteLength - rightBytes.byteLength;
-};
 
 const recipientsAreCanonical = (
   recipientAgentIds: readonly AgentIdValue[],

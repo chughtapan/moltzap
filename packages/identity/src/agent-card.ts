@@ -21,7 +21,11 @@ import {
   generalJwsRepresentation,
   snapshotRepresentation,
 } from "./agent-key.js";
-import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
+import {
+  decodeCanonicalJson,
+  encodeCanonicalJson,
+  exactStruct,
+} from "./canonical-json.js";
 import {
   AgentId,
   type AgentId as AgentIdValue,
@@ -80,14 +84,6 @@ export const AgentCardIssuedAt = Schema.String.pipe(
 /** Validated nominal value decoded by AgentCardIssuedAt. */
 // eslint-disable-next-line @typescript-eslint/no-redeclare -- The same-named Schema and type form one package boundary model.
 export type AgentCardIssuedAt = typeof AgentCardIssuedAt.Type;
-
-const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
-  Schema.Struct(fields).annotations({
-    parseOptions: {
-      exact: true,
-      onExcessProperty: "error",
-    },
-  });
 
 type AgentCardRepresentation = typeof generalJwsRepresentation.Type;
 

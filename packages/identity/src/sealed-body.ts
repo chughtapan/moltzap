@@ -13,14 +13,19 @@ import {
   SEALED_BODY_KEY_MANAGEMENT_ALGORITHM,
   x25519SealingKey,
 } from "./agent-key.js";
-import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
+import {
+  decodeCanonicalJson,
+  encodeCanonicalJson,
+  exactStruct,
+} from "./canonical-json.js";
 import {
   AgentId,
   type AgentId as AgentIdValue,
+  compareAgentIds,
+  decodeCanonicalBase64Url,
   hasCanonicalBase64UrlLength,
 } from "./identifiers.js";
 import {
-  compareAgentIds,
   isParsedSignedMessage,
   MAXIMUM_BODY_BYTES,
   MAXIMUM_RECIPIENTS,
@@ -47,21 +52,6 @@ const X25519_PUBLIC_KEY_BYTES = 32;
 const SALT_BYTES = 32;
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
-
-const decodeCanonicalBase64Url = (value: string): Uint8Array | undefined =>
-  Either.match(Encoding.decodeBase64Url(value), {
-    onLeft: () => undefined,
-    onRight: (bytes) =>
-      Encoding.encodeBase64Url(bytes) === value ? bytes : undefined,
-  });
-
-const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
-  Schema.Struct(fields).annotations({
-    parseOptions: {
-      exact: true,
-      onExcessProperty: "error",
-    },
-  });
 
 const canonicalBase64Url = Schema.String.pipe(
   Schema.filter((value) => decodeCanonicalBase64Url(value) !== undefined),

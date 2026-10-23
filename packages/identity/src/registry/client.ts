@@ -6,7 +6,6 @@ import {
   type HttpClientResponse,
 } from "@effect/platform";
 import { Duration, Effect, ParseResult, Redacted, Schema } from "effect";
-import type { AgentId } from "../identifiers.js";
 import { AgentCard, type VerifiedAgentCard } from "../agent-card.js";
 import {
   AgentSigningAuthority,
@@ -28,7 +27,7 @@ import {
   VersionMismatchError,
 } from "../http-errors.js";
 import { AgentSigningError, signHttpRequest } from "../http-signature.js";
-import { compareAgentIds } from "../signed-message.js";
+import { type AgentId, compareAgentIds } from "../identifiers.js";
 import { WireVersions } from "../wire-versions.js";
 import {
   LIST_PATH,

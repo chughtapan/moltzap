@@ -1,29 +1,41 @@
 /** @file PostgreSQL Registry persistence, restart, admission, and outage integration tests. */
 
 import * as Reactivity from "@effect/experimental/Reactivity";
-import { FileSystem } from "@effect/platform";
+import { FileSystem, HttpServerRequest } from "@effect/platform";
 import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
 import { PgClient } from "@effect/sql-pg";
 import {
   PostgreSqlContainer,
   type StartedPostgreSqlContainer,
 } from "@testcontainers/postgresql";
-import { Duration, Effect, Either, Redacted, Schema } from "effect";
+import {
+  Clock,
+  Duration,
+  Effect,
+  Either,
+  Match,
+  Redacted,
+  Schema,
+} from "effect";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { encodeCanonicalJson } from "../../canonical-json.js";
+import { AuthenticationFailedError } from "../../http-errors.js";
 import {
   AgentCard,
   AgentSigningAuthority,
   type VerifiedAgentCard,
 } from "../../index.js";
 import { Registry, RegistryRegisterRequest } from "../../registry.js";
+import { WIRE_VERSION } from "../../version.js";
+import { verifyBootstrapRegistration } from "../admission.js";
 import { initializeRegistryStorage, makeRegistryStorage } from "../storage.js";
 import {
   LOOPBACK_HOST,
   makePrivateKeyPem,
   makeRegistryRunner,
   makeSigningAuthority,
+  makeVersionedBootstrapRequest,
   managedProcess,
   prepareAgent,
   processTestError,
@@ -342,6 +354,95 @@ it.each(["moltzap_registry_migrations", "sharness_registry_migrations"])(
         yield* waitForExit(process);
         expect(process.child.exitCode).not.toBe(0);
         expect(process.logs()).toContain(preResetReason);
+      }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+    ),
+  180_000,
+);
+
+/** Keeps signature time fixed while storage deadlines use live timers. */
+const clockAt = (milliseconds: number): Clock.Clock => {
+  const live = Clock.make();
+  return {
+    [Clock.ClockTypeId]: Clock.ClockTypeId,
+    unsafeCurrentTimeMillis: () => milliseconds,
+    currentTimeMillis: Effect.succeed(milliseconds),
+    unsafeCurrentTimeNanos: () => BigInt(milliseconds) * 1_000_000n,
+    currentTimeNanos: Effect.succeed(BigInt(milliseconds) * 1_000_000n),
+    sleep: (duration) => live.sleep(duration),
+  };
+};
+
+const prepareBootstrapAdmission = (origin: URL) =>
+  Effect.gen(function* () {
+    const prepared = yield* prepareAgent("concurrent-bootstrap");
+    const signedAt = 1_700_000_000_000;
+    const signed = yield* makeVersionedBootstrapRequest(
+      origin,
+      prepared,
+      WIRE_VERSION,
+    ).pipe(Effect.withClock(clockAt(signedAt)));
+    const bodyBytes = yield* Match.value(signed.body).pipe(
+      Match.tag("Uint8Array", (body) => Effect.succeed(body.body)),
+      Match.orElse(() =>
+        Effect.dieMessage("bootstrap request is missing its byte body"),
+      ),
+    );
+    return {
+      request: prepared.request,
+      expiresAt: signedAt + 300_000,
+      input: {
+        httpRequest: HttpServerRequest.fromWeb(
+          new Request(signed.url, {
+            method: signed.method,
+            headers: { ...signed.headers, host: origin.host },
+          }),
+        ),
+        bodyBytes,
+      },
+    };
+  });
+
+it(
+  "claims a bootstrap nonce once under concurrent admission at exactly the signature expiry second",
+  () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const setup = yield* makePostgreSqlRegistrySetup;
+        const sql = yield* PgClient.make({
+          url: Redacted.make(setup.container.getConnectionUri()),
+        }).pipe(Effect.provide(Reactivity.layer));
+        yield* initializeRegistryStorage({
+          sql,
+          registrySignerPublicKey: setup.registrySignerPublicKey,
+        });
+        const storage = makeRegistryStorage({
+          sql,
+          registrySignerPublicKey: setup.registrySignerPublicKey,
+          listPageSize: 100,
+          operationTimeoutMilliseconds: 5_000,
+        });
+        const prepared = yield* prepareBootstrapAdmission(setup.origin);
+        const input = {
+          ...prepared.input,
+          admissionCredential: Redacted.make(
+            setup.environment.SHARNESS_REGISTRY_ADMISSION_CREDENTIAL,
+          ),
+          nonceCapacity: 10,
+          storage,
+        };
+        const outcomes = yield* Effect.all(
+          [
+            verifyBootstrapRegistration(input).pipe(Effect.either),
+            verifyBootstrapRegistration(input).pipe(Effect.either),
+          ],
+          { concurrency: 2 },
+        ).pipe(Effect.withClock(clockAt(prepared.expiresAt)));
+        expect(
+          outcomes.filter(Either.isRight).map((result) => result.right),
+        ).toStrictEqual([prepared.request]);
+        expect(
+          outcomes.filter(Either.isLeft).map((result) => result.left),
+        ).toStrictEqual([new AuthenticationFailedError()]);
       }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
     ),
   180_000,

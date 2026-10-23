@@ -85,7 +85,6 @@ const SIGNATURE_INTERVAL_MILLISECONDS = 300_000;
 const CONCURRENT_REQUEST_COUNT = 4;
 const REGISTRY_LOOKUP_DEADLINE = Duration.millis(20);
 const RESOLVER_REGRESSION_DEADLINE = Duration.seconds(2);
-const AUTHENTICATION_FAILED_TAG = "AuthenticationFailedError";
 const VERIFIED_PROOF_FIELDS = Object.freeze([
   "agentCard",
   "callerAgentId",
@@ -151,13 +150,17 @@ const makeLookupController = (mode: LookupMode) =>
     } satisfies LookupController;
   });
 
-const clockAt = (milliseconds: number): Clock.Clock => ({
-  ...Clock.make(),
-  unsafeCurrentTimeMillis: () => milliseconds,
-  currentTimeMillis: Effect.succeed(milliseconds),
-  unsafeCurrentTimeNanos: () => BigInt(milliseconds) * 1_000_000n,
-  currentTimeNanos: Effect.succeed(BigInt(milliseconds) * 1_000_000n),
-});
+const clockAt = (milliseconds: number): Clock.Clock => {
+  const live = Clock.make();
+  return {
+    [Clock.ClockTypeId]: Clock.ClockTypeId,
+    unsafeCurrentTimeMillis: () => milliseconds,
+    currentTimeMillis: Effect.succeed(milliseconds),
+    unsafeCurrentTimeNanos: () => BigInt(milliseconds) * 1_000_000n,
+    currentTimeNanos: Effect.succeed(BigInt(milliseconds) * 1_000_000n),
+    sleep: (duration) => live.sleep(duration),
+  };
+};
 
 const lookupAgentCard = (controller: LookupController, agentId: AgentIdValue) =>
   Effect.gen(function* () {
@@ -796,24 +799,20 @@ it("authenticates a body whose bytes carry their own iterator", () =>
 
 it.each([
   { offsetSeconds: -1, outcome: "accepted" },
-  { offsetSeconds: 1, outcome: AUTHENTICATION_FAILED_TAG },
+  { offsetSeconds: 0, outcome: "accepted" },
+  { offsetSeconds: 1, outcome: "refused" },
 ])(
-  "verifies the signature window at expiry offset $offsetSeconds",
+  "$outcome at $offsetSeconds s from the signature expiry",
   ({ offsetSeconds, outcome }) =>
     Effect.runPromise(
       Effect.gen(function* () {
         const fixture = yield* makeIdentityFixture;
         const prepared = yield* prepareRequest({ fixture });
-        const result = yield* verifyAgentRequest(prepared).pipe(
-          Effect.either,
+        const verification = verifyAgentRequest(prepared).pipe(
           Effect.provide(
             authenticatedHttpLayerWithRegistry(
               registryWithLookup(() =>
-                Effect.succeed({
-                  kind: "found",
-                  agentCard: fixture.agentCard,
-                  etag: "1",
-                }),
+                Effect.succeed({ kind: "found", agentCard: fixture.agentCard }),
               ),
             ),
           ),
@@ -821,46 +820,39 @@ it.each([
             clockAt((signatureExpiry(prepared) + offsetSeconds) * 1_000),
           ),
         );
-        expect(
-          Either.match(result, {
-            onLeft: (failure) => failure._tag,
-            onRight: () => "accepted",
-          }),
-        ).toBe(outcome);
+        if (outcome === "accepted") {
+          expect((yield* verification).callerAgentId).toBe(
+            fixture.agentCard.agentId,
+          );
+        } else {
+          expect(yield* Effect.flip(verification)).toStrictEqual(
+            new AuthenticationFailedError(),
+          );
+        }
       }),
     ),
 );
 
-it("refuses a nonce replay inside the signature window", () =>
+it("refuses a nonce replay at exactly the signature expiry second", () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const fixture = yield* makeIdentityFixture;
       const prepared = yield* prepareRequest({ fixture });
       yield* Effect.gen(function* () {
         const accepted = yield* verifyAgentRequest(prepared);
-        const replayed = yield* verifyAgentRequest(prepared).pipe(
-          Effect.either,
-        );
         expect(accepted.callerAgentId).toBe(fixture.agentCard.agentId);
-        expect(
-          Either.match(replayed, {
-            onLeft: (failure) => failure instanceof AuthenticationFailedError,
-            onRight: () => false,
-          }),
-        ).toBe(true);
+        expect(yield* Effect.flip(verifyAgentRequest(prepared))).toStrictEqual(
+          new AuthenticationFailedError(),
+        );
       }).pipe(
         Effect.provide(
           authenticatedHttpLayerWithRegistry(
             registryWithLookup(() =>
-              Effect.succeed({
-                kind: "found",
-                agentCard: fixture.agentCard,
-                etag: "1",
-              }),
+              Effect.succeed({ kind: "found", agentCard: fixture.agentCard }),
             ),
           ),
         ),
-        Effect.withClock(clockAt((signatureExpiry(prepared) - 1) * 1_000)),
+        Effect.withClock(clockAt(signatureExpiry(prepared) * 1_000)),
       );
     }),
   ));

@@ -20,6 +20,7 @@ import {
 import {
   decodeCanonicalJson,
   encodeCanonicalJson,
+  exactStruct,
   sameBytes,
 } from "../canonical-json.js";
 import { InternalServerError, UnavailableError } from "../http-errors.js";
@@ -147,10 +148,6 @@ const migrations = Migrator.fromRecord({
   "0001_registry": registryMigration,
 });
 
-const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
-  Schema.Struct(fields).annotations({
-    parseOptions: { exact: true, onExcessProperty: "error" },
-  });
 const metadataRow = exactStruct({
   signerThumbprint: Schema.String,
 });

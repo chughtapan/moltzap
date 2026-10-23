@@ -11,7 +11,7 @@ package.
 
 ## Public surface
 
-### [`AgentCard (type)`](./agent-card.ts#L111)
+### [`AgentCard (type)`](./agent-card.ts#L107)
 
 _Interface_
 
@@ -27,7 +27,7 @@ export interface AgentCard {
 
 Immutable public identity fields carried by an AgentCard.
 
-### [`AgentCard (value)`](./agent-card.ts#L416)
+### [`AgentCard (value)`](./agent-card.ts#L412)
 
 _Variable_
 
@@ -44,7 +44,7 @@ export const AgentCard = Object.assign(agentCardSchema, {
 
 Verifies immutable Registry attestation without exposing JOSE mechanics.
 
-### [`AgentCardDigest (type)`](./agent-card.ts#L64)
+### [`AgentCardDigest (type)`](./agent-card.ts#L68)
 
 _TypeAlias_
 
@@ -54,7 +54,7 @@ export type AgentCardDigest = typeof AgentCardDigest.Type;
 
 Validated nominal value decoded by AgentCardDigest.
 
-### [`AgentCardDigest (value)`](./agent-card.ts#L57)
+### [`AgentCardDigest (value)`](./agent-card.ts#L61)
 
 _Variable_
 
@@ -68,7 +68,7 @@ export const AgentCardDigest = canonicalIdentifier(
 
 Digest binding a message to one complete immutable AgentCard.
 
-### [`AgentCardVerificationError`](./agent-card.ts#L261)
+### [`AgentCardVerificationError`](./agent-card.ts#L257)
 
 _Class_
 
@@ -80,7 +80,7 @@ export class AgentCardVerificationError extends Data.TaggedError(
 
 A parsed AgentCard does not verify against the pinned Registry signer.
 
-### [`AgentId (type)`](./identifiers.ts#L78)
+### [`AgentId (type)`](./identifiers.ts#L83)
 
 _TypeAlias_
 
@@ -90,7 +90,7 @@ export type AgentId = typeof AgentId.Type;
 
 Validated nominal value decoded by AgentId.
 
-### [`AgentId (value)`](./identifiers.ts#L72)
+### [`AgentId (value)`](./identifiers.ts#L77)
 
 _Variable_
 
@@ -104,7 +104,7 @@ export const AgentId = canonicalIdentifier(
 
 Canonical network identity minted by the Registry.
 
-### [`AgentName (type)`](./identifiers.ts#L101)
+### [`AgentName (type)`](./identifiers.ts#L106)
 
 _TypeAlias_
 
@@ -114,7 +114,7 @@ export type AgentName = typeof AgentName.Type;
 
 Validated nominal value decoded by AgentName.
 
-### [`AgentName (value)`](./identifiers.ts#L90)
+### [`AgentName (value)`](./identifiers.ts#L95)
 
 _Variable_
 
@@ -133,7 +133,7 @@ export const AgentName = Schema.String.pipe(
 
 Immutable Registry-wide human-facing agent handle.
 
-### [`AgentSigningAuthority (type)`](./agent-key.ts#L425)
+### [`AgentSigningAuthority (type)`](./agent-key.ts#L424)
 
 _Interface_
 
@@ -146,7 +146,7 @@ export interface AgentSigningAuthority {
 Opaque authority over one imported Ed25519 private key and the X25519
 opening key derived from it.
 
-### [`AgentSigningAuthority (value)`](./agent-key.ts#L638)
+### [`AgentSigningAuthority (value)`](./agent-key.ts#L637)
 
 _Variable_
 
@@ -170,7 +170,7 @@ export class AgentSigningError extends Data.TaggedError("AgentSigningError") {}
 
 An agent-owned HTTP request could not be signed.
 
-### [`AuthenticatedHttp`](./authenticated-http.ts#L61)
+### [`AuthenticatedHttp`](./authenticated-http.ts#L66)
 
 _Class_
 
@@ -216,7 +216,7 @@ export class AuthenticationFailedError extends Schema.TaggedError<Authentication
 
 The request does not prove the required identity or admission authority.
 
-### [`Ed25519PublicKey (type)`](./agent-key.ts#L253)
+### [`Ed25519PublicKey (type)`](./agent-key.ts#L252)
 
 _TypeAlias_
 
@@ -226,7 +226,7 @@ export type Ed25519PublicKey = typeof Ed25519PublicKey.Type;
 
 Validated immutable Ed25519 public JWK.
 
-### [`Ed25519PublicKey (value)`](./agent-key.ts#L222)
+### [`Ed25519PublicKey (value)`](./agent-key.ts#L221)
 
 _Variable_
 
@@ -289,7 +289,7 @@ export class InternalServerError extends Schema.TaggedError<InternalServerError>
 
 An unexpected implementation failure prevented a closed result.
 
-### [`InvalidAgentPrivateKeyError`](./agent-key.ts#L434)
+### [`InvalidAgentPrivateKeyError`](./agent-key.ts#L433)
 
 _Class_
 
@@ -328,7 +328,7 @@ export const LIVE_WIRE_VERSIONS: DistinctWindow<typeof liveWindow> = liveWindow
 Versions accepted at outer-envelope and authenticated HTTP admission by the
 Registry, the Router, and the daemon.
 
-### [`LiveSignedMessage`](./signed-message.ts#L328)
+### [`LiveSignedMessage`](./signed-message.ts#L290)
 
 _TypeAlias_
 
@@ -352,7 +352,7 @@ export class MalformedRequestError extends Schema.TaggedError<MalformedRequestEr
 
 The request representation is not valid for the selected operation.
 
-### [`MessageId (type)`](./signed-message.ts#L46)
+### [`MessageId (type)`](./signed-message.ts#L51)
 
 _TypeAlias_
 
@@ -362,7 +362,7 @@ export type MessageId = typeof MessageId.Type;
 
 Validated nominal value decoded by MessageId.
 
-### [`MessageId (value)`](./signed-message.ts#L43)
+### [`MessageId (value)`](./signed-message.ts#L48)
 
 _Variable_
 
@@ -411,7 +411,7 @@ export class PayloadTooLargeError extends Schema.TaggedError<PayloadTooLargeErro
 
 The received body exceeds the selected route's derived representation cap.
 
-### [`PrincipalId (type)`](./identifiers.ts#L87)
+### [`PrincipalId (type)`](./identifiers.ts#L92)
 
 _TypeAlias_
 
@@ -421,7 +421,7 @@ export type PrincipalId = typeof PrincipalId.Type;
 
 Validated nominal value decoded by PrincipalId.
 
-### [`PrincipalId (value)`](./identifiers.ts#L81)
+### [`PrincipalId (value)`](./identifiers.ts#L86)
 
 _Variable_
 
@@ -448,7 +448,7 @@ export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()
 
 No exact HTTP route owns the request target.
 
-### [`SealedBody`](./sealed-body.ts#L613)
+### [`SealedBody`](./sealed-body.ts#L603)
 
 _Variable_
 
@@ -465,7 +465,7 @@ Seals a SignedMessage body to its recipients, opens a verified sealed body,
 and reports sealed sizes. `SignedMessage.sign` never seals; the caller
 chooses which bodies to seal and signs the sealed bytes.
 
-### [`SealedBodyOpeningError`](./sealed-body.ts#L200)
+### [`SealedBodyOpeningError`](./sealed-body.ts#L190)
 
 _Class_
 
@@ -477,7 +477,7 @@ export class SealedBodyOpeningError extends Data.TaggedError(
 
 A verified SignedMessage body does not open as a sealed body for this agent.
 
-### [`SealedBodySealingError`](./sealed-body.ts#L195)
+### [`SealedBodySealingError`](./sealed-body.ts#L185)
 
 _Class_
 
@@ -489,7 +489,7 @@ export class SealedBodySealingError extends Data.TaggedError(
 
 A body cannot be sealed from the supplied sender to the supplied recipients.
 
-### [`SignedMessage (type)`](./signed-message.ts#L180)
+### [`SignedMessage (type)`](./signed-message.ts#L142)
 
 _Interface_
 
@@ -505,7 +505,7 @@ export interface SignedMessage {
 
 Immutable attributed-message fields exposed to Router consumers.
 
-### [`SignedMessage (value)`](./signed-message.ts#L578)
+### [`SignedMessage (value)`](./signed-message.ts#L540)
 
 _Variable_
 
@@ -531,7 +531,7 @@ export const SignedMessage = Object.assign(signedMessageSchema, {
 
 Opaque attributed message operations and exact representation Schema.
 
-### [`SignedMessageSigningError`](./signed-message.ts#L318)
+### [`SignedMessageSigningError`](./signed-message.ts#L280)
 
 _Class_
 
@@ -543,7 +543,7 @@ export class SignedMessageSigningError extends Data.TaggedError(
 
 A message cannot be signed under the supplied immutable identity.
 
-### [`SignedMessageVerificationError`](./signed-message.ts#L323)
+### [`SignedMessageVerificationError`](./signed-message.ts#L285)
 
 _Class_
 
@@ -581,7 +581,7 @@ export class UnsupportedMediaTypeError extends Schema.TaggedError<UnsupportedMed
 
 The selected route cannot consume the request content framing.
 
-### [`VerifiedAgentCard`](./agent-card.ts#L246)
+### [`VerifiedAgentCard`](./agent-card.ts#L242)
 
 _TypeAlias_
 
@@ -591,7 +591,7 @@ export type VerifiedAgentCard = AgentCard & Brand.Brand<"VerifiedAgentCard">;
 
 AgentCard verified against a deployment-pinned Registry signer.
 
-### [`VerifiedAgentRequest`](./authenticated-http.ts#L39)
+### [`VerifiedAgentRequest`](./authenticated-http.ts#L44)
 
 _TypeAlias_
 
@@ -606,7 +606,7 @@ export type VerifiedAgentRequest = Readonly<{
 
 Request body and caller identity established by AuthenticatedHttp.
 
-### [`VerifiedSignedMessage`](./signed-message.ts#L312)
+### [`VerifiedSignedMessage`](./signed-message.ts#L274)
 
 _TypeAlias_
 
@@ -717,7 +717,7 @@ export class Registry extends Context.Tag("@moltzap/identity/Registry")<
 
 Bootstrap registration and immutable identity resolution.
 
-#### [`RegistryConnectionError`](./registry/contract.ts#L27)
+#### [`RegistryConnectionError`](./registry/contract.ts#L28)
 
 _Class_
 
@@ -729,7 +729,7 @@ export class RegistryConnectionError extends Data.TaggedError(
 
 The Registry connection could not be established or used.
 
-#### [`RegistryInvalidResponseError`](./registry/contract.ts#L37)
+#### [`RegistryInvalidResponseError`](./registry/contract.ts#L38)
 
 _Class_
 
@@ -741,7 +741,7 @@ export class RegistryInvalidResponseError extends Data.TaggedError(
 
 A Registry response did not match the selected operation contract.
 
-#### [`RegistryRequestTimeoutError`](./registry/contract.ts#L32)
+#### [`RegistryRequestTimeoutError`](./registry/contract.ts#L33)
 
 _Class_
 
@@ -753,7 +753,7 @@ export class RegistryRequestTimeoutError extends Data.TaggedError(
 
 The configured complete Registry call deadline expired.
 
-#### [`OperationId (type)`](./registry/contract.ts#L24)
+#### [`OperationId (type)`](./registry/contract.ts#L25)
 
 _TypeAlias_
 
@@ -763,7 +763,7 @@ export type OperationId = typeof OperationId.Type;
 
 Validated nominal value decoded by OperationId.
 
-#### [`RegistryListRequest (type)`](./registry/contract.ts#L97)
+#### [`RegistryListRequest (type)`](./registry/contract.ts#L90)
 
 _TypeAlias_
 
@@ -773,7 +773,7 @@ export type RegistryListRequest = typeof RegistryListRequest.Type;
 
 Validated Registry list continuation request.
 
-#### [`RegistryListResult`](./registry/contract.ts#L112)
+#### [`RegistryListResult`](./registry/contract.ts#L105)
 
 _TypeAlias_
 
@@ -787,7 +787,7 @@ export type RegistryListResult = Readonly<{
 
 One deterministic page of complete immutable AgentCards.
 
-#### [`RegistryLookupRequest (type)`](./registry/contract.ts#L85)
+#### [`RegistryLookupRequest (type)`](./registry/contract.ts#L78)
 
 _TypeAlias_
 
@@ -797,7 +797,7 @@ export type RegistryLookupRequest = typeof RegistryLookupRequest.Type;
 
 Validated Registry lookup selector.
 
-#### [`RegistryLookupResult`](./registry/contract.ts#L107)
+#### [`RegistryLookupResult`](./registry/contract.ts#L100)
 
 _TypeAlias_
 
@@ -809,7 +809,7 @@ export type RegistryLookupResult =
 
 Closed domain outcome from one public identity lookup.
 
-#### [`RegistryRegisterRequest (type)`](./registry/contract.ts#L59)
+#### [`RegistryRegisterRequest (type)`](./registry/contract.ts#L52)
 
 _TypeAlias_
 
@@ -819,7 +819,7 @@ export type RegistryRegisterRequest = typeof RegistryRegisterRequest.Type;
 
 Validated Registry bootstrap registration request.
 
-#### [`RegistryRegisterResult`](./registry/contract.ts#L100)
+#### [`RegistryRegisterResult`](./registry/contract.ts#L93)
 
 _TypeAlias_
 
@@ -833,7 +833,7 @@ export type RegistryRegisterResult =
 
 Closed domain outcome from one bootstrap registration attempt.
 
-#### [`OperationId (value)`](./registry/contract.ts#L21)
+#### [`OperationId (value)`](./registry/contract.ts#L22)
 
 _Variable_
 
@@ -843,7 +843,7 @@ export const OperationId = canonicalIdentifier("OperationId", "opn_", 16)
 
 Idempotency identity for a registration operation.
 
-#### [`RegistryListRequest (value)`](./registry/contract.ts#L89)
+#### [`RegistryListRequest (value)`](./registry/contract.ts#L82)
 
 _Variable_
 
@@ -858,7 +858,7 @@ export const RegistryListRequest = exactStruct({
 
 Closed Registry list continuation request.
 
-#### [`RegistryLookupRequest (value)`](./registry/contract.ts#L63)
+#### [`RegistryLookupRequest (value)`](./registry/contract.ts#L56)
 
 _Variable_
 
@@ -887,7 +887,7 @@ export const RegistryLookupRequest = Schema.Union(
 
 Closed Registry lookup selector.
 
-#### [`RegistryRegisterRequest (value)`](./registry/contract.ts#L51)
+#### [`RegistryRegisterRequest (value)`](./registry/contract.ts#L44)
 
 _Variable_
 

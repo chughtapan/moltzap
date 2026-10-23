@@ -20,6 +20,8 @@ import {
   type JWK,
 } from "jose";
 import { type BoundedCache, makeBoundedCache } from "./bounded-cache.js";
+import { exactStruct } from "./canonical-json.js";
+import { decodeCanonicalBase64Url } from "./identifiers.js";
 
 const PUBLIC_KEY_BYTE_LENGTH = 32;
 const SIGNATURE_BYTE_LENGTH = 64;
@@ -105,15 +107,12 @@ const encodesSmallOrderPoint = (value: Uint8Array): boolean =>
 const hasAcceptedPublicKeyEncoding = (value: Uint8Array): boolean =>
   hasCanonicalPointEncoding(value) && !encodesSmallOrderPoint(value);
 
-const decodeAcceptedPublicKey = (value: string): Uint8Array | undefined =>
-  Either.match(Encoding.decodeBase64Url(value), {
-    onLeft: () => undefined,
-    onRight: (bytes) =>
-      Encoding.encodeBase64Url(bytes) === value &&
-      hasAcceptedPublicKeyEncoding(bytes)
-        ? bytes
-        : undefined,
-  });
+const decodeAcceptedPublicKey = (value: string): Uint8Array | undefined => {
+  const bytes = decodeCanonicalBase64Url(value);
+  return bytes !== undefined && hasAcceptedPublicKeyEncoding(bytes)
+    ? bytes
+    : undefined;
+};
 
 /**
  * Checks the closed Ed25519 signature representation before cryptographic
@@ -640,38 +639,17 @@ export const AgentSigningAuthority = Object.freeze({
   publicKey,
 });
 
-const ED25519_SIGNATURE_BYTES = 64;
-
-const hasCanonicalBase64UrlByteLength = (value: string): boolean =>
-  Either.match(Encoding.decodeBase64Url(value), {
-    onLeft: () => false,
-    onRight: (bytes) => Encoding.encodeBase64Url(bytes) === value,
-  });
-
 const canonicalBase64Url = Schema.String.pipe(
-  Schema.filter((value) => hasCanonicalBase64UrlByteLength(value)),
+  Schema.filter((value) => decodeCanonicalBase64Url(value) !== undefined),
 );
-
-const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
-  Schema.Struct(fields).annotations({
-    parseOptions: {
-      exact: true,
-      onExcessProperty: "error",
-    },
-  });
 
 const jwsSignatureRepresentation = exactStruct({
   protected: canonicalBase64Url,
   signature: Schema.String.pipe(
-    Schema.filter((value) =>
-      Either.match(Encoding.decodeBase64Url(value), {
-        onLeft: () => false,
-        onRight: (bytes) =>
-          Encoding.encodeBase64Url(bytes) === value &&
-          bytes.byteLength === ED25519_SIGNATURE_BYTES &&
-          hasCanonicalEd25519SignatureEncoding(bytes),
-      }),
-    ),
+    Schema.filter((value) => {
+      const bytes = decodeCanonicalBase64Url(value);
+      return bytes !== undefined && hasCanonicalEd25519SignatureEncoding(bytes);
+    }),
   ),
 });
 

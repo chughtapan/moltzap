@@ -409,7 +409,7 @@ const architectureConfigDefinitions: ReadonlyArray<{
           {
             file: "agent-key.ts",
             reason:
-              "Domain entrypoint for the root-exported Ed25519 public key and signing authority; identity's artifact modules take the authority's signing and opening keys only from here",
+              "Domain entrypoint for Ed25519 public keys, signing authority, and the single-signature General JWS representation shared by AgentCard and SignedMessage",
           },
           {
             file: "http-signature.ts",

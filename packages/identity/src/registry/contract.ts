@@ -9,6 +9,7 @@ import {
   verifiedAgentCardSchema,
 } from "../agent-card.js";
 import { type AgentSigningAuthority, Ed25519PublicKey } from "../agent-key.js";
+import { exactStruct } from "../canonical-json.js";
 import {
   AgentId,
   AgentName,
@@ -37,14 +38,6 @@ export class RegistryRequestTimeoutError extends Data.TaggedError(
 export class RegistryInvalidResponseError extends Data.TaggedError(
   "RegistryInvalidResponseError",
 ) {}
-
-const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
-  Schema.Struct(fields).annotations({
-    parseOptions: {
-      exact: true,
-      onExcessProperty: "error",
-    },
-  });
 
 /** Closed Registry bootstrap registration request. */
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Effect Schemas share the public domain name they decode.
