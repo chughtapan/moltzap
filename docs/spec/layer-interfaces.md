@@ -95,20 +95,32 @@ removed.
 Client and adapter migration follows the accepted reduced boundary in
 [`harness/client.md`](./harness/client.md).
 
-## Public boundaries retained through cutover
+## Public entries
 
-- Identity retains its root, Registry client/server subpaths, and
-  `sharness-registry` boundary as specified by `identity.md`.
-- Router retains its root and server subpath plus `sharness-router` as specified
-  by `router.md`.
-- Client owns one public root, process composition under `./service`, and the
-  `sharnessd` executable. Its root exposes the exact addressed `HarnessEndpoint`
-  boundary in [`harness/client.md`](./harness/client.md).
-- Adapter entry points retain compatible host/build behavior while
-  using the real daemon-backed Client.
+`@moltzap/client` has four entries:
 
-The final publication list and versioning policy are release choices. They do
-not change this dependency graph or authorize extra packages.
+| Entry | For | Contents |
+|---|---|---|
+| `.` | hosts, plugins and applications | `HarnessEndpoint` and the values hosts read, as [`harness/client.md`](./harness/client.md) specifies, plus `AgentId`, `AgentName`, `PrincipalId`, `AgentCard`, `VerifiedAgentCard`, `Ed25519PublicKey`, `AgentSigningAuthority`, `MessageId`, `SignedMessage`, `LiveSignedMessage`, `VerifiedSignedMessage`, `WIRE_VERSION` and `legacyKeys` |
+| `./service` | embedders and operators | `Daemon` and process composition, the message policy and firewall SDK, `FirewallAuditRecord`, the `Registry` client and `OperationId`, `RouterPollResult`, `PollCursor` and `RouterInstanceId` |
+| `./internal` | the Registry and Router packages | request verification and each service's API with its codecs; resolves only under the `sharness-internal` condition and is not documented as public API |
+| `./test` | tests | the `WireVersions` overrides; resolves only under the `sharness-test` condition |
+
+The retired entries map to these:
+
+| Retired entry | Its contents now |
+|---|---|
+| `@moltzap/identity` root | `@moltzap/client` root, and `./internal` for request verification |
+| `@moltzap/identity/registry` | the `Registry` client in `./service`, and the Registry API with its codecs in `./internal` |
+| `@moltzap/identity/registry/server` and `sharness-registry` | the private `@moltzap/registry` package and the Registry image |
+| `@moltzap/router` root | the Router values in `./service`, and the Router API with its codecs in `./internal` |
+| `@moltzap/router/server` and `sharness-router` | the private `@moltzap/router` package and the Router image |
+| `@moltzap/identity/test` | `@moltzap/client/test` |
+
+`identity.md`, `router.md`, `control-plane.md` and the specification index
+name their exports by these entries. Their representation, authentication and
+behavior rules are unchanged. Adapter entry points retain compatible host and
+build behavior while using the real daemon-backed Client.
 
 ## Representation ownership
 
@@ -117,6 +129,9 @@ SignedMessage, SealedBody, Registry, and authenticated-request
 representations.
 `router-representation.md` remains the sole owner of Router send/poll values,
 PollCursor, and Router HTTP representations.
+
+Identity, Router and Client below name layers of the library, not packages;
+the package graph above gives their homes.
 
 There is no shared wire package or cross-layer representation catalog. Client
 defines one closed, repository-versioned RFC 8785 canonical-JSON protocol and
@@ -189,8 +204,8 @@ identifies logical durable history while excluding mergeable signer evidence.
 
 ### External consumers
 
-The simulator and evaluation applications compose public Identity, Router, and
-Client capabilities and own scenarios, orchestration, fault controls, run
+The simulator and evaluation applications compose the library's public
+capabilities and the service images and own scenarios, orchestration, fault controls, run
 evidence, grading, reports, and publication. Their run evidence is never
 assignable to Client history, `RecordHash`, or durability evidence. Runtime
 subjects they launch receive only `HarnessEndpoint` or MCP, never raw Router,
@@ -210,9 +225,9 @@ semantic chapters:
 - AuthenticatedHttp requires Registry so Router can resolve and cache verified
   immutable AgentCards without importing Registry internals;
 - Registry bootstrap does not require AuthenticatedHttp;
-- each process-composition subpath (Identity and Router `server`, Client
-  `service`) exposes the admitted discard Layer that reads private
-  Effect Config and owns process composition; and
+- each process composition (the Registry and Router packages and Client
+  `./service`) exposes the admitted discard Layer that reads private Effect
+  Config and owns process composition; and
 - private Effect RPC remains in-process, typed, and absent from the network and
   export maps.
 
@@ -517,10 +532,10 @@ Every signed and canonical wire representation uses `sharnessVersion`.
 Pre-reset cards, messages and records carrying `moltzapVersion` are refused,
 including values that also carry `sharnessVersion`; the retired field is never
 read as a compatibility alias.
-The public Identity root exposes read-only compatibility operations, not the
-internal `WireVersions` context tag used by adjacent-release tests. The Identity
-`/test` subpath requires the explicit `sharness-test` resolution condition and is
-forbidden in production source. Production embedders cannot configure the live
+The library's root exposes read-only compatibility operations, not the
+internal `WireVersions` context tag used by adjacent-release tests. The
+library's `./test` entry requires the explicit `sharness-test` resolution
+condition and is forbidden in production source. Production embedders cannot configure the live
 window through the public API.
 
 The wire envelope, the Registry HTTP API, and the host channel configuration
@@ -554,7 +569,7 @@ live window require a reset.
 
 The mixed-release CI gate runs the previous published Client release and the
 oldest published Client release whose wire version remains live against the
-current build, each installed with the exact Identity and Router versions it
+current build, each installed with the exact sibling versions it
 pins, using the current Registry and Router. It also runs the previous
 release's daemon and the current daemon through the previous release's
 Registry and Router, the order a daemon that upgrades before its network
