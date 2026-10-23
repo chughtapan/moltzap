@@ -101,17 +101,10 @@ export interface ProtocolHooks {
   ) => Effect.Effect<void, CollectiveEmitError>;
 }
 
-interface PinnedCards {
-  readonly cards: Map<AgentId, VerifiedAgentCard>;
-  readonly representations: Map<AgentId, Uint8Array>;
-}
-
-const encodeCard = (
-  card: VerifiedAgentCard,
-): Effect.Effect<Uint8Array, DaemonActivationError> =>
-  encodeCanonical(AgentCard, card).pipe(
-    Effect.mapError(() => activationFailure("representation")),
-  );
+type PinnedCards = Map<
+  AgentId,
+  { readonly card: VerifiedAgentCard; readonly canonical: Uint8Array }
+>;
 
 /** Log only the closed storage reason before waking daemon shutdown. */
 export const reportStorageFault = (
@@ -134,13 +127,14 @@ const retainPinnedCard = (
   card: VerifiedAgentCard,
 ): Effect.Effect<void, DaemonActivationError> =>
   Effect.gen(function* () {
-    const canonical = yield* encodeCard(card);
-    const existing = pinned.representations.get(card.agentId);
-    if (existing !== undefined && !sameBytes(existing, canonical)) {
+    const canonical = yield* encodeCanonical(AgentCard, card).pipe(
+      Effect.mapError(() => activationFailure("representation")),
+    );
+    const existing = pinned.get(card.agentId);
+    if (existing !== undefined && !sameBytes(existing.canonical, canonical)) {
       return yield* Effect.fail(activationFailure("representation"));
     }
-    pinned.cards.set(card.agentId, card);
-    pinned.representations.set(card.agentId, canonical);
+    pinned.set(card.agentId, { card, canonical });
   });
 
 const retainMembershipCards = (
@@ -177,10 +171,7 @@ const recoverPinnedSenderCards = (
     const recovery = yield* environment.store
       .recover()
       .pipe(Effect.mapError(() => activationFailure("persistence")));
-    const pinned: PinnedCards = {
-      cards: new Map(),
-      representations: new Map(),
-    };
+    const pinned: PinnedCards = new Map();
     yield* retainPinnedCard(pinned, localAgentCard);
     yield* Effect.forEach(
       recovery.memberships,
@@ -191,9 +182,9 @@ const recoverPinnedSenderCards = (
         ),
       { concurrency: 1, discard: true },
     );
-    return [...pinned.cards.values()].sort((left, right) =>
-      compareAscii(left.agentId, right.agentId),
-    );
+    return [...pinned.values()]
+      .map(({ card }) => card)
+      .sort((left, right) => compareAscii(left.agentId, right.agentId));
   }).pipe(Effect.withSpan("recoverPinnedSenderCards"));
 
 /**

@@ -84,10 +84,14 @@ interface DaemonInput extends DaemonStartup {
   readonly edges: ProtocolEdges;
 }
 
-/** Mutable daemon state shared with supervised protocol resources. */
+/** Binding is visible to management before protocol resources are ready. */
+type DaemonIdentity =
+  | { readonly kind: "unregistered" }
+  | { readonly kind: "bound"; readonly card: VerifiedAgentCard }
+  | { readonly kind: "running"; readonly protocol: ActiveProtocol };
+
 interface DaemonState {
-  registration: DaemonRegistrationState;
-  activeProtocol?: ActiveProtocol;
+  identity: DaemonIdentity;
   subscriptionActive: boolean;
   handler?: SubscriptionHandler;
 }
@@ -152,10 +156,10 @@ const publishPendingMessages = (
   environment.delivery
     .runPass(() => {
       const { state } = environment;
-      const protocol = state.activeProtocol;
-      if (protocol === undefined) {
+      if (state.identity.kind !== "running") {
         return undefined;
       }
+      const { protocol } = state.identity;
       const handler = state.subscriptionActive ? state.handler : undefined;
       return {
         readPending: protocol.engine.readPendingMessages(),
@@ -203,22 +207,6 @@ const emitLocalItem = (
     Effect.asVoid,
   );
 
-const checkExistingProtocol = (
-  agentCard: VerifiedAgentCard,
-  activeProtocol?: ActiveProtocol,
-): Effect.Effect<boolean, DaemonActivationError> => {
-  if (activeProtocol === undefined) {
-    return Effect.succeed(false);
-  }
-  if (
-    activeProtocol.agentCard.agentId !== agentCard.agentId ||
-    activeProtocol.agentCard.publicKey.x !== agentCard.publicKey.x
-  ) {
-    return Effect.fail(activationFailure("representation"));
-  }
-  return Effect.succeed(true);
-};
-
 /**
  * Activate the protocol for one immutable daemon identity and publish the
  * deliveries it recovered.
@@ -238,18 +226,22 @@ const initializeProtocol = (
   activationGate
     .withPermits(1)(
       Effect.gen(function* () {
-        const alreadyActive = yield* checkExistingProtocol(
-          agentCard,
-          environment.state.activeProtocol,
-        );
-        if (alreadyActive) {
+        const { identity } = environment.state;
+        if (identity.kind === "running") {
+          const activeCard = identity.protocol.agentCard;
+          if (
+            activeCard.agentId !== agentCard.agentId ||
+            activeCard.publicKey.x !== agentCard.publicKey.x
+          ) {
+            return yield* Effect.fail(activationFailure("representation"));
+          }
           return;
         }
         yield* acquireProtocol(
           environment,
           {
             retain: (protocol) => {
-              environment.state.activeProtocol = protocol;
+              environment.state.identity = { kind: "running", protocol };
               environment.state.handler?.notify.toolsChanged();
             },
             publishPending: Effect.ignore(reconciler),
@@ -295,10 +287,9 @@ const activateRegistered = (
   agentCard: VerifiedAgentCard,
 ): Effect.Effect<void, DaemonActivationError> =>
   Effect.sync(() => {
-    environment.state.registration = Object.freeze({
-      kind: "active",
-      agentCard,
-    });
+    if (environment.state.identity.kind !== "running") {
+      environment.state.identity = { kind: "bound", card: agentCard };
+    }
   }).pipe(
     Effect.zipRight(initialize(agentCard)),
     Effect.tapErrorCause((cause) =>
@@ -317,18 +308,21 @@ const activateAtStart = (
   initialize: InitializeProtocol,
 ): Effect.Effect<void, DaemonRuntimeError> =>
   Effect.suspend(() => {
-    const { registration } = environment.state;
-    return registration.kind === "unregistered"
-      ? Effect.void
-      : initialize(registration.agentCard).pipe(
-          Effect.catchAllCause((cause) =>
-            Cause.isInterruptedOnly(cause)
-              ? Effect.interrupt
-              : activationStopped(cause).pipe(
-                  Effect.flatMap((failure) => Effect.fail(failure)),
-                ),
-          ),
-        );
+    const { identity } = environment.state;
+    if (identity.kind === "unregistered") {
+      return Effect.void;
+    }
+    return initialize(
+      identity.kind === "bound" ? identity.card : identity.protocol.agentCard,
+    ).pipe(
+      Effect.catchAllCause((cause) =>
+        Cause.isInterruptedOnly(cause)
+          ? Effect.interrupt
+          : activationStopped(cause).pipe(
+              Effect.flatMap((failure) => Effect.fail(failure)),
+            ),
+      ),
+    );
   });
 
 const assembleDaemon = ({
@@ -337,8 +331,19 @@ const assembleDaemon = ({
   reconciler,
   initialize,
 }: DaemonAssembly): RunningDaemon => ({
-  readRegistration: () => environment.state.registration,
-  protocolActive: () => environment.state.activeProtocol !== undefined,
+  readRegistration: () => {
+    const { identity } = environment.state;
+    return identity.kind === "unregistered"
+      ? identity
+      : Object.freeze({
+          kind: "active",
+          agentCard:
+            identity.kind === "bound"
+              ? identity.card
+              : identity.protocol.agentCard,
+        });
+  },
+  protocolActive: () => environment.state.identity.kind === "running",
   activateRegistered: (agentCard) =>
     activateRegistered(environment, initialize, agentCard),
   deliveryOperations: environment.delivery.operations,
@@ -375,7 +380,10 @@ export const makeDaemon = (
     const activationGate = yield* Effect.makeSemaphore(1);
     const changes = yield* Queue.unbounded<boolean>();
     const state: DaemonState = {
-      registration: input.registration,
+      identity:
+        input.registration.kind === "unregistered"
+          ? { kind: "unregistered" }
+          : { kind: "bound", card: input.registration.agentCard },
       subscriptionActive: false,
     };
     const delivery = yield* daemonDelivery(input, state, daemonScope);
@@ -415,19 +423,22 @@ function daemonDelivery(
   return makeHostDelivery({
     store: input.store,
     historyExport: input.historyExport,
-    collectives: () => state.activeProtocol?.collectives,
+    collectives: () =>
+      state.identity.kind === "running"
+        ? state.identity.protocol.collectives
+        : undefined,
     ...(input.firewall === undefined
       ? {}
       : {
           firewall: input.firewall,
           firewallEnvironment: () => {
-            const localAgentCard = state.activeProtocol?.agentCard;
-            return localAgentCard === undefined || input.firewall === undefined
+            return state.identity.kind !== "running" ||
+              input.firewall === undefined
               ? undefined
               : {
                   store: input.store,
                   installed: input.firewall,
-                  localAgentCard,
+                  localAgentCard: state.identity.protocol.agentCard,
                 };
           },
         }),
