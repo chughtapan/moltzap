@@ -10,15 +10,17 @@ Start with:
 - `server.ts` validates process-environment configuration and composes the
   production Effect layers launched by the package executable.
 - `http.ts` exposes readiness and the registration, lookup, and list routes.
-- `admission.ts` authenticates registration before storage work.
+- `admission.ts` authenticates registration before storage work: it checks the admission credential and the submitted key around `../http-signature.ts → verifyBootstrapRequest`, then claims the nonce.
 - `rpc.ts` owns the private operation group, admission proof, handlers, and
   in-process dispatch.
+- `issuance.ts` signs and verifies immutable AgentCards for Registry storage.
 - `storage.ts` owns PostgreSQL transactions, migrations, nonces, and immutable
   registration records.
 - `client.ts` implements the public `Registry` capability over HTTP.
 
 `contract.ts` owns the closed requests, results, operation values, client
-failures, routes, and enclosing limits shared by those boundaries.
+failures, routes, enclosing limits, and shared request and response codecs
+used by those boundaries.
 `migrations/` remains a private implementation detail.
 
 Consumers that compose the Registry process import `layer` and `StartupError`

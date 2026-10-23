@@ -18,7 +18,6 @@ import {
 } from "effect";
 import type { AgentSigningAuthority } from "../agent-key.js";
 import type { RegistryStorage } from "./storage.js";
-import { encodeCanonicalJson } from "../canonical-json.js";
 import {
   AuthenticationFailedError,
   InternalServerError,
@@ -37,6 +36,7 @@ import {
   registerResultSchema,
   RegistryListRequest,
   RegistryLookupRequest,
+  registryRegisterCodec,
   RegistryRegisterRequest,
 } from "./contract.js";
 
@@ -175,8 +175,7 @@ export const makeRegistryRpcClient = Effect.gen(function* () {
 const canonicalRegisterRequest = (
   request: typeof RegistryRegisterRequest.Type,
 ) =>
-  Schema.encode(RegistryRegisterRequest)(request).pipe(
-    Effect.flatMap(encodeCanonicalJson),
+  registryRegisterCodec.request.encode(request).pipe(
     // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Private serialization failure has one closed domain error at the RPC boundary.
     Effect.mapError(() => new InternalServerError()),
   );

@@ -1,4 +1,4 @@
-/** @file Immutable AgentCard representation, issuance, verification, encoding, and digest. */
+/** @file Immutable AgentCard representation, verification, and digest. */
 
 import {
   Brand,
@@ -9,11 +9,9 @@ import {
   Schema,
   type SchemaAST,
 } from "effect";
-import { GeneralSign, generalVerify } from "jose";
+import { generalVerify } from "jose";
 import { createHash } from "node:crypto";
 import {
-  AgentSigningAuthority,
-  agentSigningPrivateKey,
   Ed25519PublicKey,
   ed25519PublicKeyThumbprintUri,
   type Ed25519PublicKey as Ed25519PublicKeyValue,
@@ -67,9 +65,8 @@ export const AgentCardDigest = canonicalIdentifier(
 // eslint-disable-next-line @typescript-eslint/no-redeclare -- The same-named Schema and type form one boundary model.
 export type AgentCardDigest = typeof AgentCardDigest.Type;
 
-/** Whole-second UTC issuance evidence carried by an AgentCard. */
-// eslint-disable-next-line @typescript-eslint/naming-convention -- Effect Schemas share the package-owned domain name they decode.
-export const AgentCardIssuedAt = Schema.String.pipe(
+/** Shared whole-second UTC validation for parsed and issued AgentCards. */
+export const agentCardIssuedAtSchema = Schema.String.pipe(
   Schema.pattern(WHOLE_SECOND_UTC),
   Schema.filter(isWholeSecondUtc, {
     identifier: "AgentCardIssuedAt",
@@ -81,10 +78,6 @@ export const AgentCardIssuedAt = Schema.String.pipe(
     description: "AgentCard issuance time in whole-second UTC",
   }),
 );
-/** Validated nominal value decoded by AgentCardIssuedAt. */
-// eslint-disable-next-line @typescript-eslint/no-redeclare -- The same-named Schema and type form one package boundary model.
-export type AgentCardIssuedAt = typeof AgentCardIssuedAt.Type;
-
 type AgentCardRepresentation = typeof generalJwsRepresentation.Type;
 
 const protectedHeader = exactStruct({
@@ -100,7 +93,7 @@ const payload = exactStruct({
   principalId: PrincipalId,
   agentName: AgentName,
   publicKey: Ed25519PublicKey,
-  issuedAt: AgentCardIssuedAt,
+  issuedAt: agentCardIssuedAtSchema,
 });
 
 /** Immutable public identity fields carried by an AgentCard. */
@@ -261,23 +254,6 @@ export class AgentCardVerificationError extends Data.TaggedError(
 const verificationFailure = (): AgentCardVerificationError =>
   new AgentCardVerificationError();
 
-interface IssueAgentCardInput {
-  readonly agentId: AgentIdValue;
-  readonly principalId: PrincipalIdValue;
-  readonly agentName: AgentNameValue;
-  readonly publicKey: Ed25519PublicKeyValue;
-  readonly issuedAt: AgentCardIssuedAt;
-  readonly registrySigningAuthority: AgentSigningAuthority;
-}
-
-const parseAgentCard = (
-  representation: unknown,
-): Effect.Effect<AgentCard, AgentCardVerificationError> =>
-  Schema.decodeUnknown(agentCardSchema)(representation, {
-    exact: true,
-    onExcessProperty: "error",
-  }).pipe(Effect.mapError(verificationFailure));
-
 const verifyAgentCard = (input: {
   readonly agentCard: AgentCard;
   readonly registrySignerPublicKey: Ed25519PublicKeyValue;
@@ -324,66 +300,6 @@ const verifyAgentCard = (input: {
     verifiedCards.add(input.agentCard);
     return brandVerifiedAgentCard(input.agentCard);
   });
-
-/**
- * Issues one exact AgentCard for Registry storage.
- *
- * @param input Complete identity fields and Registry signing authority.
- * @returns A Registry-verified immutable AgentCard.
- */
-export const issueAgentCard = (
-  input: IssueAgentCardInput,
-): Effect.Effect<VerifiedAgentCard, AgentCardVerificationError> =>
-  Effect.gen(function* () {
-    const payloadBytes = yield* encodeCanonicalJson({
-      kind: "agentCard",
-      sharnessVersion: yield* WireVersions.emitted,
-      agentId: input.agentId,
-      principalId: input.principalId,
-      agentName: input.agentName,
-      publicKey: input.publicKey,
-      issuedAt: input.issuedAt,
-    }).pipe(Effect.mapError(verificationFailure));
-    const kid = yield* ed25519PublicKeyThumbprintUri(
-      AgentSigningAuthority.publicKey(input.registrySigningAuthority),
-    ).pipe(Effect.mapError(verificationFailure));
-    const representation = yield* Effect.tryPromise({
-      try: () =>
-        new GeneralSign(payloadBytes)
-          .addSignature(agentSigningPrivateKey(input.registrySigningAuthority))
-          .setProtectedHeader({
-            alg: "Ed25519",
-            kid,
-            typ: AGENT_CARD_TYPE,
-          })
-          .sign(),
-      catch: verificationFailure,
-    });
-    const card = yield* parseAgentCard(representation);
-    return yield* verifyAgentCard({
-      agentCard: card,
-      registrySignerPublicKey: AgentSigningAuthority.publicKey(
-        input.registrySigningAuthority,
-      ),
-    });
-  }).pipe(Effect.withSpan("issueAgentCard"));
-
-/**
- * JCS representation bytes retained by a parsed AgentCard.
- *
- * @param agentCard Parsed AgentCard whose retained bytes are requested.
- * @returns The complete canonical General JWS bytes.
- */
-export const encodeAgentCard = (
-  agentCard: AgentCard,
-): Effect.Effect<Uint8Array, AgentCardVerificationError> => {
-  const state = cardState.get(agentCard);
-  return state === undefined
-    ? Effect.fail(new AgentCardVerificationError())
-    : encodeCanonicalJson(state.representation).pipe(
-        Effect.mapError(verificationFailure),
-      );
-};
 
 /**
  * Identity-owned digest over the complete retained AgentCard JWS.

@@ -205,10 +205,11 @@ requires the authority's public key to equal the request's public key.
 Its Registry-owned HTTP adapter installs the admission header and
 registration-profile signature. The signature proves possession and
 covers the closed request plus the admission header. Registry owns the
-registration framing, admission, submitted-key proof, replay nonce,
-version, complete request validation, uniqueness, idempotency, and
-signer continuity before minting AgentId and returning the complete
-AgentCard.
+registration framing, credential and key admission, durable replay nonce
+claim, complete request validation, uniqueness, idempotency, and signer
+continuity before minting AgentId and returning the complete AgentCard.
+Shared HTTP verification checks the bootstrap signature after Registry key
+admission and the signed version after Registry nonce admission.
 
 Wrong admission and invalid proof both collapse to the same 401
 `authentication_failed` envelope. Successful registration admission is
@@ -606,8 +607,9 @@ decoder. The carried verified card prevents a second Registry lookup
 when the route verifies a caller's SignedMessage.
 
 Registration adds no `signRegistrationRequest` or
-`verifyRegistrationRequest` member. Registry owns those private
-bootstrap-admission operations. Public Registry lookup and list use no
+`verifyRegistrationRequest` member. Shared HTTP verification supplies the
+bootstrap signature and version step; Registry keeps credential and key
+admission and durable nonce claim. Public Registry lookup and list use no
 signature profile.
 
 The verifier:
