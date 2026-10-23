@@ -6,9 +6,9 @@ import {
   HttpClientResponse,
 } from "@effect/platform";
 import { Effect, Match, Schema } from "effect";
-import { INBOX_ITEM_EVENT } from "../endpoint/mcp/names.js";
-import { makeWebhookEvents } from "../endpoint/mcp/webhook.js";
 import { localGuidanceSchema } from "../firewall/outcome/index.js";
+import { makeWebhookEvents } from "../harness/mcp/webhook.js";
+import { INBOX_ITEM_EVENT } from "../harness/protocol/names.js";
 import {
   DeliveryToken,
   encodeRuntimeValue,

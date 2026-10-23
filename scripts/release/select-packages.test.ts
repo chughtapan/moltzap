@@ -20,11 +20,15 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   contentHashOfDirectory,
   contentHashOfTarball,
 } from "./content-hash.ts";
-import { hostCodeHashOfDirectories } from "./host-code-hash.ts";
+import {
+  hostCodeHashOfDirectories,
+  hostModulesOfDirectory,
+} from "./host-code-hash.ts";
 import {
   classifyNpmView,
   type Manifest,
@@ -402,3 +406,12 @@ function packedDirectory(
   }
   return root;
 }
+
+await test("the Client root reaches its host endpoint", () => {
+  const root = fileURLToPath(
+    new URL("../../packages/client/", import.meta.url),
+  );
+  const modules = hostModulesOfDirectory(root);
+  assert.ok(modules.size > 0);
+  assert.ok(modules.has("dist/harness/endpoint/index.js"));
+});

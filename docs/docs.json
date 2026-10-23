@@ -81,12 +81,12 @@
           {
             "group": "Modules",
             "pages": [
-              "modules/client/delivery",
-              "modules/client/endpoint/harness-endpoint",
               "modules/client/firewall/admission",
               "modules/client/firewall/evaluator",
               "modules/client/firewall/outcome",
               "modules/client/firewall/policy",
+              "modules/client/harness/endpoint",
+              "modules/client/harness/inbox",
               "modules/client/service",
               "modules/client/src",
               "modules/client/transport/collectives",
@@ -120,5 +120,15 @@
     "socials": {
       "github": "https://github.com/social-harness/moltzap"
     }
-  }
+  },
+  "redirects": [
+    {
+      "source": "/modules/client/delivery",
+      "destination": "/modules/client/harness/inbox"
+    },
+    {
+      "source": "/modules/client/endpoint/harness-endpoint",
+      "destination": "/modules/client/harness/endpoint"
+    }
+  ]
 }

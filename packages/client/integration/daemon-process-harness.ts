@@ -47,7 +47,7 @@ import {
   type ManagementRegisterResult,
   type ManagementSearchConversationsResult,
   type ManagementStatusResult,
-} from "../src/endpoint/mcp/owner-tools.js";
+} from "../src/harness/protocol/owner-tools.js";
 
 /** Loader resolution follows Client dependencies even when child processes run from the workspace root. */
 const require = createRequire(import.meta.url);

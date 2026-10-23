@@ -7,7 +7,9 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import clientArchitecture from "../packages/client/safer-architecture.config.json" with { type: "json" };
 import { FINAL_PACKAGES } from "./architecture/boundary-contract.ts";
+import { hostModulesOfDirectory } from "./release/host-code-hash.ts";
 import {
   type Archives,
   extractPackedArchive,
@@ -26,34 +28,39 @@ import {
 
 const workspaceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
-/**
- * Package-relative modules the packed root entry may load. Hosts import the
- * root, so anything else it reaches statically, such as the inbox, the SQLite
- * store, the engine, the collective operation layer, wire signing and
- * verification, or the service, fails the check until it is reviewed and
- * added here.
- */
-const hostModules: ReadonlySet<string> = new Set([
-  "dist/delivery/history-export.js",
-  "dist/delivery/operations.js",
-  "dist/endpoint/environment.js",
-  "dist/endpoint/harness-endpoint/capability.js",
-  "dist/endpoint/harness-endpoint/events.js",
-  "dist/endpoint/harness-endpoint/index.js",
-  "dist/endpoint/mcp/names.js",
-  "dist/firewall/outcome/index.js",
-  "dist/index.js",
-  "dist/release/index.js",
-  "dist/store/types.js",
-  "dist/transport/collectives/forms.js",
-  "dist/transport/collectives/inbound.js",
-  "dist/transport/collectives/message-text.js",
-  "dist/transport/collectives/render.js",
-  "dist/transport/messaging/errors.js",
-  "dist/transport/messaging/message.js",
-  "dist/transport/wire/values.js",
-  "package.json",
+/** The built root's reachable files share the release hash's module walk. */
+const hostModules = hostModulesOfDirectory(
+  join(workspaceRoot, "packages/client"),
+);
+
+/** Whole host domains load safely; other domains expose only their value entrypoints. */
+const hostDomains: ReadonlySet<string> = new Set([
+  "release",
+  "firewall-outcome",
+  "harness-endpoint",
+  "harness-protocol",
 ]);
+
+/**
+ * Architecture entrypoints keep host values separate from daemon implementations.
+ * Root helpers have explicit composition ownership; domain runtime indexes are
+ * loadable only in the host domains above.
+ * @param module Package-relative emitted file reached from the root.
+ * @returns Whether the architecture admits this file in a host process.
+ */
+function isHostModule(module: string): boolean {
+  const source = module.replace(/^dist\//u, "src/").replace(/\.js$/u, ".ts");
+  return (
+    clientArchitecture.compositionRoots.some(({ path }) => path === source) ||
+    clientArchitecture.domains.some(({ name, roots, entrypoints }) =>
+      hostDomains.has(name)
+        ? roots.some((root) => source.startsWith(`${root}/`))
+        : entrypoints.some(
+            (entry) => entry === source && !entry.endsWith("/index.ts"),
+          ),
+    )
+  );
+}
 
 /**
  * Bare specifiers the packed root entry may import, matched exactly, so a
@@ -319,7 +326,7 @@ function hostModuleImports(
   return Effect.gen(function* () {
     const module = relative(extractedPackage, file);
     yield* requireCondition(
-      hostModules.has(module),
+      hostModules.has(module) && isHostModule(module),
       `client root entry loads ${module}, which is not a host module`,
     );
     const source = yield* readText(

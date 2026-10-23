@@ -8,7 +8,7 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](./endpoint/harness-endpoint/index.ts#L59)
+### [`acquireHarnessEndpoint`](./harness/endpoint/index.ts#L59)
 
 _Function_
 
@@ -76,7 +76,7 @@ hands its model as the tool error: the failed action and its cause, naming
 each unreachable member or failing field. The operation id stays in the
 error's data, not its message.
 
-### [`ConnectError`](./endpoint/harness-endpoint/capability.ts#L27)
+### [`ConnectError`](./harness/endpoint/capability.ts#L27)
 
 _Class_
 
@@ -138,7 +138,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`decodeHarnessMessageReadyEvent`](./delivery/operations.ts#L247)
+### [`decodeHarnessMessageReadyEvent`](./harness/protocol/operations.ts#L247)
 
 _Function_
 
@@ -152,7 +152,7 @@ Decode one exact pending-delivery notification payload.
 
 **Returns:** The validated pending delivery.
 
-### [`decodeHarnessReadInboxResult`](./delivery/operations.ts#L156)
+### [`decodeHarnessReadInboxResult`](./harness/protocol/operations.ts#L156)
 
 _Variable_
 
@@ -163,7 +163,7 @@ export const decodeHarnessReadInboxResult =
 
 Decode a bounded inbox page received through the MCP transport.
 
-### [`decodeHarnessSendErrorData`](./delivery/operations.ts#L258)
+### [`decodeHarnessSendErrorData`](./harness/protocol/operations.ts#L258)
 
 _Function_
 
@@ -177,7 +177,7 @@ Decode the error data of one refused `send_message` call.
 
 **Returns:** The collective failure or send reason it carries.
 
-### [`decodeHarnessSendResult`](./delivery/operations.ts#L280)
+### [`decodeHarnessSendResult`](./harness/protocol/operations.ts#L280)
 
 _Function_
 
@@ -289,7 +289,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](./endpoint/harness-endpoint/capability.ts#L54)
+### [`HarnessEndpoint`](./harness/endpoint/capability.ts#L54)
 
 _Interface_
 
@@ -319,7 +319,7 @@ stream. A multicast has no operation id, so its failure is always returned.
 A firewall refusal always returns on the send call before creating an intent,
 including when inbound failure delivery was requested.
 
-### [`HistoryExportRecord (type)`](./delivery/history-export.ts#L50)
+### [`HistoryExportRecord (type)`](./harness/inbox/history-export.ts#L50)
 
 _TypeAlias_
 
@@ -329,7 +329,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord (value)`](./delivery/history-export.ts#L31)
+### [`HistoryExportRecord (value)`](./harness/inbox/history-export.ts#L31)
 
 _Variable_
 
@@ -359,7 +359,7 @@ published it, a completed `send` invocation with its input and outcome, or
 the one line that says the export stopped. Readers decode the file line by
 line with this schema rather than copying its shape.
 
-### [`InboundDelivery`](./endpoint/harness-endpoint/capability.ts#L36)
+### [`InboundDelivery`](./harness/endpoint/capability.ts#L36)
 
 _Interface_
 
@@ -462,7 +462,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`legacyKeys`](./endpoint/environment.ts#L6)
+### [`legacyKeys`](./environment.ts#L6)
 
 _Function_
 
@@ -1460,29 +1460,7 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 
 ## Files
 
-- `delivery/history-export.ts`
-- `delivery/host-delivery.ts`
-- `delivery/inbox.ts`
-- `delivery/index.ts`
-- `delivery/operations.ts`
-- `delivery/pass.ts`
-- `delivery/README.md`
-- `endpoint/environment.ts`
-- `endpoint/harness-endpoint/capability.ts`
-- `endpoint/harness-endpoint/events.ts`
-- `endpoint/harness-endpoint/index.ts`
-- `endpoint/mcp/auth.ts`
-- `endpoint/mcp/event-schemas.ts`
-- `endpoint/mcp/event-signing.ts`
-- `endpoint/mcp/events.ts`
-- `endpoint/mcp/http.ts`
-- `endpoint/mcp/index.ts`
-- `endpoint/mcp/names.ts`
-- `endpoint/mcp/owner-tools.ts`
-- `endpoint/mcp/README.md`
-- `endpoint/mcp/schemas.ts`
-- `endpoint/mcp/tools.ts`
-- `endpoint/mcp/webhook.ts`
+- `environment.ts`
 - `firewall/admission/admission.ts`
 - `firewall/admission/firewall-checks.ts`
 - `firewall/admission/firewall-results.ts`
@@ -1517,6 +1495,31 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `firewall/rules/index.ts`
 - `firewall/rules/outcome.ts`
 - `firewall/rules/README.md`
+- `harness/endpoint/capability.ts`
+- `harness/endpoint/events.ts`
+- `harness/endpoint/index.ts`
+- `harness/endpoint/README.md`
+- `harness/inbox/history-export.ts`
+- `harness/inbox/host-delivery.ts`
+- `harness/inbox/inbox.ts`
+- `harness/inbox/index.ts`
+- `harness/inbox/pass.ts`
+- `harness/inbox/README.md`
+- `harness/mcp/auth.ts`
+- `harness/mcp/event-signing.ts`
+- `harness/mcp/events.ts`
+- `harness/mcp/http.ts`
+- `harness/mcp/index.ts`
+- `harness/mcp/README.md`
+- `harness/mcp/tools.ts`
+- `harness/mcp/webhook.ts`
+- `harness/protocol/event-schemas.ts`
+- `harness/protocol/names.ts`
+- `harness/protocol/operations.ts`
+- `harness/protocol/owner-tools.ts`
+- `harness/protocol/README.md`
+- `harness/protocol/schemas.ts`
+- `harness/README.md`
 - `identity/credentials.ts`
 - `identity/index.ts`
 - `index.ts`

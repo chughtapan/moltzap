@@ -28,7 +28,7 @@ import {
   seedIncoming,
   waitAction,
 } from "../../__tests__/firewall-runtime-fixtures.js";
-import { eventIdOf } from "../../delivery/operations.js";
+import { eventIdOf } from "../../harness/protocol/operations.js";
 import { DeliveryToken, encodeRuntimeValue } from "../../store/index.js";
 import { InboundItem } from "../../transport/collectives/inbound.js";
 import { makeEnglishPolicy } from "../evaluator/index.js";

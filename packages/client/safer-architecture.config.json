@@ -42,12 +42,28 @@
       "reason": "Complete message rendering shared by hosts and policy evidence without loading collective operations"
     },
     {
-      "file": "delivery/operations.ts",
-      "reason": "The values harness operations take and return, decoded by hosts without loading the inbox or the store"
+      "file": "harness/protocol/operations.ts",
+      "reason": "Harness operation values and decoders shared by the host and daemon"
     },
     {
-      "file": "delivery/history-export.ts",
-      "reason": "The history export line schema hosts decode, without loading the inbox or the store"
+      "file": "harness/protocol/names.ts",
+      "reason": "Tool and event names shared by the host and daemon"
+    },
+    {
+      "file": "harness/protocol/schemas.ts",
+      "reason": "MCP request and result schema projections"
+    },
+    {
+      "file": "harness/protocol/event-schemas.ts",
+      "reason": "Event schemas and callback ports shared by MCP transports"
+    },
+    {
+      "file": "harness/protocol/owner-tools.ts",
+      "reason": "Private owner-management request and result schemas"
+    },
+    {
+      "file": "harness/inbox/history-export.ts",
+      "reason": "History export values hosts decode without loading inbox state or SQLite"
     },
     {
       "file": "service/bootstrap.ts",
@@ -58,6 +74,10 @@
     {
       "path": "src/index.ts",
       "reason": "Package facade: re-exports the adapter-facing values each domain owns"
+    },
+    {
+      "path": "src/environment.ts",
+      "reason": "Host and daemon configuration check for retired environment names"
     },
     {
       "path": "src/index.types-check.ts",
@@ -179,27 +199,49 @@
       "reason": "Personal firewall evaluation, rules, policy, admission and audit above the collective transport"
     },
     {
-      "name": "delivery",
+      "name": "harness-protocol",
       "roots": [
-        "src/delivery"
+        "src/harness/protocol"
       ],
       "entrypoints": [
-        "src/delivery/index.ts",
-        "src/delivery/operations.ts",
-        "src/delivery/history-export.ts"
+        "src/harness/protocol/operations.ts",
+        "src/harness/protocol/names.ts",
+        "src/harness/protocol/schemas.ts",
+        "src/harness/protocol/event-schemas.ts",
+        "src/harness/protocol/owner-tools.ts"
       ],
-      "reason": "The host inbox, send invocations, the delivery pass, the history export, and the operations hosts call on them"
+      "reason": "The loopback MCP tools, events and results both peers speak"
     },
     {
-      "name": "endpoint",
+      "name": "harness-endpoint",
       "roots": [
-        "src/endpoint"
+        "src/harness/endpoint"
       ],
       "entrypoints": [
-        "src/endpoint/mcp/index.ts",
-        "src/endpoint/harness-endpoint/index.ts"
+        "src/harness/endpoint/index.ts"
       ],
-      "reason": "The loopback MCP, owner tools, and the HarnessEndpoint hosts connect to"
+      "reason": "The HarnessEndpoint library an agent host loads"
+    },
+    {
+      "name": "harness-inbox",
+      "roots": [
+        "src/harness/inbox"
+      ],
+      "entrypoints": [
+        "src/harness/inbox/index.ts",
+        "src/harness/inbox/history-export.ts"
+      ],
+      "reason": "The classified host inbox, delivery pass and history export"
+    },
+    {
+      "name": "harness-mcp",
+      "roots": [
+        "src/harness/mcp"
+      ],
+      "entrypoints": [
+        "src/harness/mcp/index.ts"
+      ],
+      "reason": "The daemon's loopback MCP server, authentication and event delivery"
     },
     {
       "name": "service",
@@ -238,18 +280,32 @@
       "reason": "The always-on process: configuration, registration, supervision, and wiring"
     },
     {
-      "name": "endpoint",
+      "name": "harness-mcp",
       "folders": [
-        "endpoint"
+        "harness/mcp"
       ],
-      "reason": "The loopback MCP, owner tools, and the HarnessEndpoint hosts connect to"
+      "reason": "The daemon's loopback MCP server, authentication and event delivery"
     },
     {
-      "name": "delivery",
+      "name": "harness-inbox",
       "folders": [
-        "delivery"
+        "harness/inbox"
       ],
-      "reason": "The host inbox, send invocations, the delivery pass, the history export, and the operations hosts call on them"
+      "reason": "The classified host inbox, delivery pass and history export"
+    },
+    {
+      "name": "harness-endpoint",
+      "folders": [
+        "harness/endpoint"
+      ],
+      "reason": "The HarnessEndpoint library an agent host loads"
+    },
+    {
+      "name": "harness-protocol",
+      "folders": [
+        "harness/protocol"
+      ],
+      "reason": "The loopback MCP tools, events and results both peers speak"
     },
     {
       "name": "firewall",

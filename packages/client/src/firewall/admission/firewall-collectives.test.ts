@@ -47,7 +47,7 @@ import {
   seedIncoming,
   settings,
 } from "../../__tests__/firewall-runtime-fixtures.js";
-import { eventIdOf } from "../../delivery/operations.js";
+import { eventIdOf } from "../../harness/protocol/operations.js";
 import { type DeliveryToken, encodeRuntimeValue } from "../../store/index.js";
 import { InboundItem } from "../../transport/collectives/inbound.js";
 import { collectiveIdOf } from "../../transport/collectives/part/index.js";

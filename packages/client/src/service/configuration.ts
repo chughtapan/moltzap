@@ -17,7 +17,7 @@ import type { MessagePolicyConfigurationFailure } from "../firewall/index.js";
 import {
   credentialMatches,
   type HarnessMcpCredentials,
-} from "../endpoint/mcp/index.js";
+} from "../harness/mcp/index.js";
 import {
   type CredentialError,
   credentialText,

@@ -252,30 +252,58 @@ const clientDomains: readonly ClientDomain[] = [
       "Personal firewall evaluation, rules, policy, admission and audit above the collective transport",
   },
   {
-    name: "delivery",
-    root: "delivery",
+    name: "harness-protocol",
+    root: "harness/protocol",
     entrypoints: [
-      "index.ts",
       {
         file: "operations.ts",
         reason:
-          "The values harness operations take and return, decoded by hosts without loading the inbox or the store",
+          "Harness operation values and decoders shared by the host and daemon",
       },
+      {
+        file: "names.ts",
+        reason: "Tool and event names shared by the host and daemon",
+      },
+      {
+        file: "schemas.ts",
+        reason: "MCP request and result schema projections",
+      },
+      {
+        file: "event-schemas.ts",
+        reason: "Event schemas and callback ports shared by MCP transports",
+      },
+      {
+        file: "owner-tools.ts",
+        reason: "Private owner-management request and result schemas",
+      },
+    ],
+    reason: "The loopback MCP tools, events and results both peers speak",
+  },
+  {
+    name: "harness-endpoint",
+    root: "harness/endpoint",
+    entrypoints: ["index.ts"],
+    reason: "The HarnessEndpoint library an agent host loads",
+  },
+  {
+    name: "harness-inbox",
+    root: "harness/inbox",
+    entrypoints: [
+      "index.ts",
       {
         file: "history-export.ts",
         reason:
-          "The history export line schema hosts decode, without loading the inbox or the store",
+          "History export values hosts decode without loading inbox state or SQLite",
       },
     ],
-    reason:
-      "The host inbox, send invocations, the delivery pass, the history export, and the operations hosts call on them",
+    reason: "The classified host inbox, delivery pass and history export",
   },
   {
-    name: "endpoint",
-    root: "endpoint",
-    entrypoints: ["mcp/index.ts", "harness-endpoint/index.ts"],
+    name: "harness-mcp",
+    root: "harness/mcp",
+    entrypoints: ["index.ts"],
     reason:
-      "The loopback MCP, owner tools, and the HarnessEndpoint hosts connect to",
+      "The daemon's loopback MCP server, authentication and event delivery",
   },
   {
     name: "service",
@@ -322,6 +350,11 @@ const packageDefinitions: Readonly<Record<string, PackageDefinition>> = {
           path: "src/index.ts",
           reason:
             "Package facade: re-exports the adapter-facing values each domain owns",
+        },
+        {
+          path: "src/environment.ts",
+          reason:
+            "Host and daemon configuration check for retired environment names",
         },
         {
           path: "src/index.types-check.ts",

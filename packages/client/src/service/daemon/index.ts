@@ -7,13 +7,16 @@ import type { VerifiedAgentCard } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Cause, Deferred, Effect, Option, Queue, Scope } from "effect";
-import type { HistoryExportPort } from "../../delivery/history-export.js";
-import type { HarnessMcpEventHandler } from "../../endpoint/mcp/index.js";
 import type { InstalledFirewall } from "../../firewall/index.js";
+import type { HistoryExportPort } from "../../harness/inbox/history-export.js";
+import type { HarnessMcpEventHandler } from "../../harness/mcp/index.js";
 import type { EndpointStore, EndpointStoreError } from "../../store/index.js";
 import type { DaemonBootstrap } from "../bootstrap.js";
 import type { DaemonRegistrationState } from "../registration/index.js";
-import { type HostDelivery, makeHostDelivery } from "../../delivery/index.js";
+import {
+  type HostDelivery,
+  makeHostDelivery,
+} from "../../harness/inbox/index.js";
 import { CollectiveEmitError } from "../../transport/collectives/index.js";
 import {
   activationFailure,

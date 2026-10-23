@@ -6,18 +6,18 @@ import type { Router } from "@moltzap/router";
 import { NodeFileSystem } from "@effect/platform-node";
 import { WIRE_VERSION } from "@moltzap/identity";
 import { Console, Effect, type Scope } from "effect";
+import { beginFirewallAudit } from "../firewall/index.js";
 import {
   type HistoryExportPort,
   makeHistoryExport,
   noHistoryExport,
-} from "../delivery/history-export.js";
+} from "../harness/inbox/history-export.js";
 import {
   acquireHarnessMcpHttpServer,
   type HarnessMcpEventHandler,
   LOOPBACK_HOST,
   makeHarnessMcpHttpHandler,
-} from "../endpoint/mcp/index.js";
-import { beginFirewallAudit } from "../firewall/index.js";
+} from "../harness/mcp/index.js";
 import { packageVersion } from "../release/index.js";
 import { makeEndpointEngine } from "../transport/messaging/index.js";
 import { makeRouterWorker } from "../transport/router/index.js";
