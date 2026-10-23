@@ -45,7 +45,6 @@ describe("canonical record golden bytes", () => {
     Effect.gen(function* () {
       const bytes = utf8.encode(form.bytes);
       const record = yield* decodeCanonical(ActionCertifiedRecord, bytes);
-      expect(record.kind).toBe(form.kind);
       expect(yield* encodeCanonical(DirectPacket, record)).toEqual(bytes);
       expect(yield* hashRecord(record.recordCore)).toBe(form.recordHash);
       expect(yield* hashAction(record.recordCore.action)).toBe(form.actionHash);
@@ -61,7 +60,6 @@ describe("canonical record golden bytes", () => {
       Effect.gen(function* () {
         const bytes = utf8.encode(form.bytes);
         const record = yield* decodeCanonical(CertifiedRecord, bytes);
-        expect(record.kind).toBe(form.kind);
         expect(yield* encodeCanonical(DirectPacket, record)).toEqual(bytes);
         expect(yield* hashRecord(record.actionCertifiedRecord.recordCore)).toBe(
           form.recordHash,

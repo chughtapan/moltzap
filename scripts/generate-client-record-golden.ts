@@ -1,8 +1,9 @@
 /**
  * @file Rebuild retained Client records after pnpm build:
  * node scripts/generate-client-record-golden.ts.
- * The original random-key capture retains signed inputs; new forms use public
- * deterministic test seeds. Neither fixture contains production key material.
+ * Two-member forms rebuild from retained signed inputs whose keys were not kept;
+ * N4 forms sign under public deterministic test seeds. Neither fixture contains
+ * production key material.
  */
 
 import { FileSystem } from "@effect/platform";
@@ -148,8 +149,8 @@ function form(
   });
 }
 
-/** Preserve the initial capture whose random signing keys were not retained. */
-const legacyForms = Effect.gen(function* () {
+/** Rebuild two-member forms from retained signed inputs whose keys were not kept. */
+const retainedForms = Effect.gen(function* () {
   const membership = yield* Schema.decodeUnknown(MembershipDescriptor)(
     captured.membership,
   );
@@ -183,14 +184,19 @@ const legacyForms = Effect.gen(function* () {
   );
 });
 
+/** Repeated bytes identify synthetic members independently of their signing keys. */
+function agentIdOf(byte: number) {
+  return Schema.decodeUnknown(AgentId)(
+    `agt_${Buffer.alloc(16, byte).toString("base64url")}`,
+  );
+}
+
 /** A stable card binds one deterministic member seed to the fixed Registry key. */
 function deterministicIdentity(byte: number, registry: AgentSigningAuthority) {
   return Effect.gen(function* () {
     const authority = yield* testAuthority(byte + 10);
     const card = yield* issueAgentCard({
-      agentId: yield* Schema.decodeUnknown(AgentId)(
-        `agt_${Buffer.alloc(16, byte).toString("base64url")}`,
-      ),
+      agentId: yield* agentIdOf(byte),
       principalId: yield* Schema.decodeUnknown(PrincipalId)(
         `prn_${Buffer.alloc(16, byte).toString("base64url")}`,
       ),
@@ -207,7 +213,7 @@ function deterministicIdentity(byte: number, registry: AgentSigningAuthority) {
   });
 }
 
-/** Fixed cards and seeds make all new signatures reproducible. */
+/** Fixed cards and public seeds make N4 signatures reproducible. */
 const deterministicFixture = Effect.gen(function* () {
   const registry = yield* testAuthority(1);
   const identities = yield* Effect.forEach(
@@ -219,12 +225,8 @@ const deterministicFixture = Effect.gen(function* () {
     sharnessVersion,
     kind: "membership_descriptor",
     conversationId: yield* deriveConversationId([
-      yield* Schema.decodeUnknown(AgentId)(
-        `agt_${Buffer.alloc(16, 1).toString("base64url")}`,
-      ),
-      yield* Schema.decodeUnknown(AgentId)(
-        `agt_${Buffer.alloc(16, 2).toString("base64url")}`,
-      ),
+      yield* agentIdOf(1),
+      yield* agentIdOf(2),
       ...identities.slice(2).map(({ card }) => card.agentId),
     ]),
     members: yield* Effect.forEach(
@@ -412,7 +414,11 @@ const generate = Effect.gen(function* () {
     name: "N4 POST completed_reanchor",
   });
   return {
-    forms: [...(yield* legacyForms).flat(), ...post.forms, ...reanchored.forms],
+    forms: [
+      ...(yield* retainedForms).flat(),
+      ...post.forms,
+      ...reanchored.forms,
+    ],
   };
 });
 

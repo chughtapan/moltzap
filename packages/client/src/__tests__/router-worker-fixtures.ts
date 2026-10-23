@@ -49,6 +49,7 @@ type ScriptedSend = RouterSendResult | ScriptedSendAnswer;
 interface ScriptedRouter {
   readonly polls: Ref.Ref<RouterPollResult[]>;
   readonly sends: Ref.Ref<ScriptedSend[]>;
+  /** Reject supplied cursors until an omitted-cursor poll, after invalidation or restart. */
   readonly cursorInvalid: Ref.Ref<boolean>;
   readonly sendCalls: Ref.Ref<SendCall[]>;
   readonly fallbackPoll?: Effect.Effect<RouterPollResult>;
@@ -185,6 +186,8 @@ export const corruptSignature = (
 
 /**
  * Build a Router layer that consumes explicit poll and send results in order.
+ * A cursor_invalid poll or router_restarted send makes cursor rejection sticky
+ * until an omitted-cursor poll reattaches to the Router's current instance.
  * @param input Ordered poll and send results plus an optional poll fallback.
  * @returns Mutable script evidence and its Router layer.
  */
@@ -319,8 +322,12 @@ function scriptedSend(
       if (step === undefined) {
         return yield* Effect.die("send script exhausted");
       }
-      return yield* typeof step === "function"
+      const result = yield* typeof step === "function"
         ? step(call.request)
         : Effect.succeed(step);
+      if (result.kind === "router_restarted") {
+        yield* Ref.set(scripted.cursorInvalid, true);
+      }
+      return result;
     });
 }

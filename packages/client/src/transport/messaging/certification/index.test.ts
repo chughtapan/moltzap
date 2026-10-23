@@ -2204,23 +2204,34 @@ function postTrafficMatchesTheSpec() {
     );
     const messages = yield* pump(harness, yield* takeReadyBatch(harness));
     yield* Fiber.join(sending).pipe(Effect.orDie);
+    yield* harness.drain();
+    expect(yield* takeQueued(harness)).toEqual([]);
     const kinds = yield* Effect.forEach(
       messages,
       (message) => protocolMessageKind(harness, message),
       { concurrency: 1 },
     );
     expect(
-      kinds.reduce<Record<string, number>>((counts, kind) => {
-        counts[kind] = (counts[kind] ?? 0) + 1;
-        return counts;
-      }, {}),
-    ).toEqual({
-      certified_record: 1,
-      action_proposal: 1,
-      action_signature: 4,
-      action_certified_record: 4,
-      durability_vote: 4,
-    });
+      kinds.slice().sort((left, right) => left.localeCompare(right)),
+    ).toEqual([
+      "action_certified_record",
+      "action_certified_record",
+      "action_certified_record",
+      "action_certified_record",
+      "action_proposal",
+      "action_signature",
+      "action_signature",
+      "action_signature",
+      "action_signature",
+      "certified_record",
+      "durability_vote",
+      "durability_vote",
+      "durability_vote",
+      "durability_vote",
+    ]);
+    expect(kinds.indexOf("certified_record")).toBeLessThan(
+      kinds.indexOf("action_proposal"),
+    );
     expect(messages).toHaveLength(2 + 3 * MEMBER_COUNT);
     const headCopies = yield* messagesOfKind(
       harness,

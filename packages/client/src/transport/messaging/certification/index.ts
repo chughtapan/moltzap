@@ -237,10 +237,12 @@ const foldFor = (
   return fold;
 };
 
+type LocalEvidenceRole = "action" | "durability";
+
 const mergeEvidence = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
-  role: "action" | "durability",
+  role: LocalEvidenceRole,
   message: SignedMessage,
 ): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
   Effect.gen(function* () {
@@ -274,7 +276,7 @@ const mergeEvidence = (
 const completeLocalEvidence = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
-  role: "action" | "durability",
+  role: LocalEvidenceRole,
   evidence: SignedMessage,
 ): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
   Effect.gen(function* () {
