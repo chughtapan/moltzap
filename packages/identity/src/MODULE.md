@@ -263,7 +263,7 @@ export const Ed25519PublicKey = Schema.transform(
 
 Exact immutable Ed25519 public JWK.
 
-### [`HISTORY_WIRE_VERSIONS`](./version.ts#L40)
+### [`HISTORY_WIRE_VERSIONS`](./version.ts#L43)
 
 _Variable_
 
@@ -276,7 +276,7 @@ export const HISTORY_WIRE_VERSIONS = [
 
 Retained artifacts remain readable until the next protocol reset.
 
-### [`InternalServerError`](./http-errors.ts#L65)
+### [`InternalServerError`](./http-errors.ts#L70)
 
 _Class_
 
@@ -317,7 +317,7 @@ Returns only retired key names so startup diagnostics cannot expose values.
 
 **Returns:** Sorted legacy keys, including keys with empty values.
 
-### [`LIVE_WIRE_VERSIONS`](./version.ts#L34)
+### [`LIVE_WIRE_VERSIONS`](./version.ts#L37)
 
 _Variable_
 
@@ -385,7 +385,7 @@ export class MethodNotAllowedError extends Schema.TaggedError<MethodNotAllowedEr
 
 The selected route does not accept the request method.
 
-### [`OverloadedError`](./http-errors.ts#L53)
+### [`OverloadedError`](./http-errors.ts#L58)
 
 _Class_
 
@@ -398,7 +398,7 @@ export class OverloadedError extends Schema.TaggedError<OverloadedError>()(
 
 A finite immediate resource permit is unavailable.
 
-### [`PayloadTooLargeError`](./http-errors.ts#L41)
+### [`PayloadTooLargeError`](./http-errors.ts#L46)
 
 _Class_
 
@@ -555,7 +555,7 @@ export class SignedMessageVerificationError extends Data.TaggedError(
 
 A SignedMessage does not bind to the supplied verified AgentCard.
 
-### [`UnavailableError`](./http-errors.ts#L59)
+### [`UnavailableError`](./http-errors.ts#L64)
 
 _Class_
 
@@ -568,7 +568,7 @@ export class UnavailableError extends Schema.TaggedError<UnavailableError>()(
 
 A required service or durable operation cannot currently complete.
 
-### [`UnsupportedMediaTypeError`](./http-errors.ts#L47)
+### [`UnsupportedMediaTypeError`](./http-errors.ts#L52)
 
 _Class_
 
@@ -629,12 +629,17 @@ export class VersionMismatchError extends Schema.TaggedError<VersionMismatchErro
       default: () => LIVE_WIRE_VERSIONS,
     }),
   },
-) {}
+) {
+  /** A mismatch response advertises at least one calendar wire version. */
+  static readonly supportedSchema = Schema.NonEmptyArray(
+    Schema.String.pipe(Schema.pattern(WIRE_VERSION_PATTERN)),
+  );
+}
 ```
 
 The request carries a different wire compatibility value.
 
-### [`WIRE_VERSION`](./version.ts#L8)
+### [`WIRE_VERSION`](./version.ts#L11)
 
 _Variable_
 
@@ -646,7 +651,7 @@ Every newly signed artifact carries this wire value. Live admission accepts
 no other value, so a peer that emits a different one fails with
 `version-mismatch`; package publication never determines wire compatibility.
 
-### [`WireVersion`](./version.ts#L46)
+### [`WireVersion`](./version.ts#L49)
 
 _TypeAlias_
 

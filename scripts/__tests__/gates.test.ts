@@ -22,6 +22,7 @@ import {
 } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   readCompatibilityVersion as readCompatibilityVersionSource,
@@ -32,6 +33,11 @@ import {
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 
 const CONTRIBUTING_DOC = "docs/development/contributing.mdx";
+
+/** The head of version.ts's live window, after which planted entries go. */
+const LIVE_WINDOW_HEAD = /const liveWindow = \[WIRE_VERSION/u;
+/** The head of version.ts's retired list, after which planted entries go. */
+const RETIRED_HEAD = /const RETIRED_WIRE_VERSIONS = \[/u;
 
 const workspaceRoot = resolve(scriptDir, "..", "..");
 
@@ -59,6 +65,9 @@ function main(): void {
     testCompatibilityVersionFile();
     testBakeFailureFailClosed();
     testPublicationGuards();
+    testCalendarWireSets();
+    testNonCalendarLiveEntry();
+    testNonCalendarRetainedEntry();
     testDependencyVersions();
     testMalformedBoundaryInputs();
   } finally {
@@ -546,6 +555,60 @@ function testPublicationGuardsWireSemver(): void {
   restoreAllPlants();
 }
 
+/** Each mutation runs the real gate in a fresh process so version sets are evaluated anew. */
+function testCalendarWireSets(): void {
+  plantFile(WIRE_VERSION_SOURCE, (source) =>
+    insertAfter(
+      insertAfter(source, LIVE_WINDOW_HEAD, ', "2099.1023.1"'),
+      RETIRED_HEAD,
+      '"2098.1231.12", ',
+    ),
+  );
+  const calendar = runBoundaries();
+  test(
+    "accepts calendar live and retained entries",
+    calendar.code === 0 &&
+      isDeepStrictEqual(calendar.stderr.trim().split("\n").filter(Boolean), []),
+    `expected no failures. exit=${calendar.code}, stderr=${calendar.stderr}`,
+  );
+  restoreAllPlants();
+}
+
+function testNonCalendarLiveEntry(): void {
+  plantFile(WIRE_VERSION_SOURCE, (source) =>
+    insertAfter(source, LIVE_WINDOW_HEAD, ', "invalid"'),
+  );
+  const live = runBoundaries();
+  test(
+    "rejects a non-calendar live entry",
+    live.code === 1 &&
+      isDeepStrictEqual(live.stderr.trim().split("\n"), [
+        "[check-architecture-boundaries] FAIL",
+        '  packages/identity/src/version.ts: LIVE_WIRE_VERSIONS entry "invalid" is not a YYYY.MDD.N CalVer',
+        '  packages/identity/src/version.ts: HISTORY_WIRE_VERSIONS entry "invalid" is not a YYYY.MDD.N CalVer',
+      ]),
+    `expected exactly the live and inherited history failures. exit=${live.code}, stderr=${live.stderr}`,
+  );
+  restoreAllPlants();
+}
+
+function testNonCalendarRetainedEntry(): void {
+  plantFile(WIRE_VERSION_SOURCE, (source) =>
+    insertAfter(source, RETIRED_HEAD, '"1.2.3", '),
+  );
+  const retained = runBoundaries();
+  test(
+    "rejects a non-calendar retained entry",
+    retained.code === 1 &&
+      isDeepStrictEqual(retained.stderr.trim().split("\n"), [
+        "[check-architecture-boundaries] FAIL",
+        '  packages/identity/src/version.ts: HISTORY_WIRE_VERSIONS entry "1.2.3" is not a YYYY.MDD.N CalVer',
+      ]),
+    `expected exactly the retained history failure. exit=${retained.code}, stderr=${retained.stderr}`,
+  );
+  restoreAllPlants();
+}
+
 function testPublicationGuardsDriftedList(): void {
   plantFile(".github/workflows/publish.yml", (s) =>
     // eslint-disable-next-line sonarjs/slow-regex -- The input is bounded, repository-owned documentation or a fixed test fixture.
@@ -887,6 +950,26 @@ function readCompatibilityVersion(): string {
     throw new Error(read.error);
   }
   return read.value;
+}
+
+/**
+ * Inserts text right after the first match of pattern in a planted source.
+ * @param source The source being planted.
+ * @param pattern The array head to insert after.
+ * @param insertion The entries to add at the head of that array.
+ * @returns The source with the entries inserted.
+ */
+function insertAfter(
+  source: string,
+  pattern: RegExp,
+  insertion: string,
+): string {
+  if (!pattern.test(source)) {
+    throw new Error(
+      `Plant target ${pattern} missing in ${WIRE_VERSION_SOURCE}`,
+    );
+  }
+  return source.replace(pattern, (head) => `${head}${insertion}`);
 }
 
 function plantFile(relPath: string, mutate: (s: string) => string): void {

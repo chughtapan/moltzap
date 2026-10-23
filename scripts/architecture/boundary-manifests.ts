@@ -7,6 +7,11 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
+  HISTORY_WIRE_VERSIONS,
+  LIVE_WIRE_VERSIONS,
+  WIRE_VERSION_PATTERN,
+} from "../../packages/identity/src/version.ts";
+import {
   CALENDAR_VERSION,
   dependencyNames,
   FINAL_PACKAGE_DIRS,
@@ -50,18 +55,18 @@ const PRODUCTION_SECTIONS = [
 ];
 
 /**
- * Identity owns the one Social Harness wire compatibility value. Package release
- * versions are independent of it: a release changes manifests without
- * touching this literal, and a wire hard cut changes this literal alone.
+ * Identity owns emission and the live and retained wire sets. Every entry must
+ * be a calendar version so servers advertise values that clients can decode;
+ * package release versions remain independent. The sets come from the evaluated
+ * version module; the emitted literal is read from its source text.
  * @param run Run collecting failures.
  * @returns The literal when it is a calendar version, otherwise null.
  */
 export function checkCompatibilityVersion(run: BoundaryRun): string | null {
   const identitySource = path.join(run.packagesRoot, "identity", "src");
-  const compatibilityVersion = readCompatibilityVersion(
-    run,
-    path.join(identitySource, "version.ts"),
-  );
+  const versionPath = path.join(identitySource, "version.ts");
+  const compatibilityVersion = readCompatibilityVersion(run, versionPath);
+  checkWireVersionSets(run);
   const identityIndex = path.join(identitySource, "index.ts");
   if (!existsSync(identityIndex)) {
     run.failures.push(
@@ -164,16 +169,29 @@ export function checkReleaseSet(
   checkReleaseWorkflow(run);
 }
 
+/**
+ * Release admission checks every advertised and retained version against the
+ * same calendar shape as the emitted literal.
+ */
+function checkWireVersionSets(run: BoundaryRun): void {
+  for (const [name, values] of Object.entries({
+    LIVE_WIRE_VERSIONS,
+    HISTORY_WIRE_VERSIONS,
+  })) {
+    for (const version of values.filter(
+      (value) => !WIRE_VERSION_PATTERN.test(value),
+    )) {
+      run.failures.push(
+        `packages/identity/src/version.ts: ${name} entry "${version}" is not a YYYY.MDD.N CalVer`,
+      );
+    }
+  }
+}
+
 function readCompatibilityVersion(
   run: BoundaryRun,
   identityVersion: string,
 ): string | null {
-  if (!existsSync(identityVersion)) {
-    run.failures.push(
-      "packages/identity/src/version.ts: missing; it owns the Social Harness wire compatibility value",
-    );
-    return null;
-  }
   const literal = /export\s+const\s+WIRE_VERSION\s*=\s*["']([^"']*)["']/.exec(
     readFileSync(identityVersion, "utf8"),
   )?.[1];
@@ -183,7 +201,7 @@ function readCompatibilityVersion(
     );
     return null;
   }
-  if (!CALENDAR_VERSION.test(literal)) {
+  if (!WIRE_VERSION_PATTERN.test(literal)) {
     run.failures.push(
       `packages/identity/src/version.ts: WIRE_VERSION "${literal}" is not a YYYY.MDD.N CalVer`,
     );

@@ -204,9 +204,7 @@ const decodeEnvelope = (
     return decodeCanonicalJson(
       Schema.Struct({
         error: Schema.Literal("version_mismatch"),
-        supported: Schema.NonEmptyArray(
-          Schema.String.pipe(Schema.pattern(/^\d{4}\.\d{3,4}\.\d+$/)),
-        ),
+        supported: VersionMismatchError.supportedSchema,
       }),
       bytes,
     ).pipe(

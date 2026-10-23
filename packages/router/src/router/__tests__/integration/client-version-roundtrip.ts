@@ -1,9 +1,5 @@
 /** @file Real-process version-mismatch round trips through the public clients. */
-import {
-  type FileSystem,
-  HttpClient,
-  HttpClientRequest,
-} from "@effect/platform";
+import type { FileSystem, HttpClient } from "@effect/platform";
 import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
 import {
   AgentName,
@@ -12,55 +8,34 @@ import {
   PrincipalId,
 } from "@moltzap/identity";
 import { OperationId, Registry } from "@moltzap/identity/registry";
+import { WireVersions } from "@moltzap/identity/test";
 import { Duration, Effect, Layer, Redacted, Schema, type Scope } from "effect";
-import { generateKeyPairSync, sign } from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 import { expect, it } from "vitest";
-import { Router } from "../../router.js";
+import { Router } from "../../../router.js";
 
-interface Infrastructure {
-  readonly routerOrigin: URL;
+/** Registry setup shared by the independent process round trips. */
+export interface RegistryInfrastructure {
   readonly registryOrigin: URL;
   readonly registrySignerPublicKey: ReturnType<
     typeof AgentSigningAuthority.publicKey
   >;
 }
 
-const outsideWireWindow = "1900.101.0";
+interface Infrastructure extends RegistryInfrastructure {
+  readonly routerOrigin: URL;
+}
 
-/** Re-signs the version field so rejection occurs after real authentication. */
-const withOutsideWireVersion = (
-  request: HttpClientRequest.HttpClientRequest,
-  privateKeyPem: string,
-) => {
-  const url = new URL(request.url);
-  const versioned = HttpClientRequest.setHeader(
-    request,
-    "sharness-version",
-    outsideWireWindow,
-  );
-  const signatureInput = versioned.headers["signature-input"] ?? "";
-  const signatureParameters = signatureInput.slice("sharness=".length);
-  const base = [
-    `"@method": ${versioned.method}`,
-    `"@authority": ${url.host}`,
-    `"@path": ${url.pathname}`,
-    `"@query": ?`,
-    `"content-digest": ${versioned.headers["content-digest"]}`,
-    `"content-type": ${versioned.headers["content-type"]}`,
-    `"sharness-version": ${outsideWireWindow}`,
-    `"@signature-params": ${signatureParameters}`,
-  ].join("\n");
-  const signature = sign(null, Buffer.from(base), privateKeyPem).toString(
-    "base64",
-  );
-  return HttpClientRequest.setHeader(
-    versioned,
-    "signature",
-    `sharness=:${signature}:`,
-  );
+const outsideWireWindow = {
+  emitted: "1900.101.0",
+  live: ["1900.101.0"],
+  history: ["1900.101.0"],
 };
 
-const registerVersionMismatchAgent = (infrastructure: Infrastructure) =>
+const registerVersionMismatchAgent = (
+  infrastructure: RegistryInfrastructure,
+  admissionCredential: Redacted.Redacted,
+) =>
   Effect.gen(function* () {
     const privateKeyPem = generateKeyPairSync("ed25519").privateKey.export({
       format: "pem",
@@ -80,7 +55,7 @@ const registerVersionMismatchAgent = (infrastructure: Infrastructure) =>
         agentName: Schema.decodeUnknownSync(AgentName)("version-mismatch"),
         publicKey: AgentSigningAuthority.publicKey(signingAuthority),
       },
-      admissionCredential: Redacted.make("registry-router-e2e-admission"),
+      admissionCredential,
       signingAuthority,
     }).pipe(
       Effect.provide(
@@ -96,18 +71,18 @@ const registerVersionMismatchAgent = (infrastructure: Infrastructure) =>
         `registration returned ${registered.kind}`,
       );
     }
-    return { privateKeyPem, signingAuthority, agentCard: registered.agentCard };
+    return { signingAuthority, agentCard: registered.agentCard };
   });
 
 /** A signed out-of-window request preserves the real Router encoder's live set. */
-const assertRouterVersionMismatch = (infrastructure: Infrastructure) =>
+const assertRouterVersionMismatch = (
+  infrastructure: Infrastructure,
+  admissionCredential: Redacted.Redacted,
+) =>
   Effect.gen(function* () {
-    const { privateKeyPem, signingAuthority, agentCard } =
-      yield* registerVersionMismatchAgent(infrastructure);
-    const client = (yield* HttpClient.HttpClient).pipe(
-      HttpClient.mapRequest((request) =>
-        withOutsideWireVersion(request, privateKeyPem),
-      ),
+    const { signingAuthority, agentCard } = yield* registerVersionMismatchAgent(
+      infrastructure,
+      admissionCredential,
     );
     const error = yield* Router.poll({
       request: {},
@@ -119,8 +94,9 @@ const assertRouterVersionMismatch = (infrastructure: Infrastructure) =>
           origin: infrastructure.routerOrigin,
           sendTimeout: Duration.seconds(5),
           pollTimeout: Duration.seconds(5),
-        }).pipe(Layer.provide(Layer.succeed(HttpClient.HttpClient, client))),
+        }),
       ),
+      Effect.provideService(WireVersions, outsideWireWindow),
       Effect.flip,
     );
     expect(error).toMatchObject({
@@ -130,13 +106,10 @@ const assertRouterVersionMismatch = (infrastructure: Infrastructure) =>
   });
 
 /** A public out-of-window read preserves the real Registry encoder's live set. */
-const assertRegistryVersionMismatch = (infrastructure: Infrastructure) =>
+const assertRegistryVersionMismatch = (
+  infrastructure: RegistryInfrastructure,
+) =>
   Effect.gen(function* () {
-    const client = (yield* HttpClient.HttpClient).pipe(
-      HttpClient.mapRequest(
-        HttpClientRequest.setHeader("sharness-version", outsideWireWindow),
-      ),
-    );
     const error = yield* Registry.lookup({
       agentName: Schema.decodeUnknownSync(AgentName)("version-mismatch"),
     }).pipe(
@@ -145,8 +118,9 @@ const assertRegistryVersionMismatch = (infrastructure: Infrastructure) =>
           origin: infrastructure.registryOrigin,
           registrySignerPublicKey: infrastructure.registrySignerPublicKey,
           requestTimeout: Duration.seconds(5),
-        }).pipe(Layer.provide(Layer.succeed(HttpClient.HttpClient, client))),
+        }),
       ),
+      Effect.provideService(WireVersions, outsideWireWindow),
       Effect.flip,
     );
     expect(error).toMatchObject({
@@ -157,27 +131,41 @@ const assertRegistryVersionMismatch = (infrastructure: Infrastructure) =>
 
 /** Each real server's encoder is exercised independently through its public client. */
 export const testVersionMismatchRoundTrips = (
-  setup: Effect.Effect<
-    Infrastructure,
-    unknown,
-    FileSystem.FileSystem | Scope.Scope | HttpClient.HttpClient
-  >,
+  setups: {
+    readonly registry: Effect.Effect<
+      RegistryInfrastructure,
+      unknown,
+      FileSystem.FileSystem | Scope.Scope | HttpClient.HttpClient
+    >;
+    readonly router: Effect.Effect<
+      Infrastructure,
+      unknown,
+      FileSystem.FileSystem | Scope.Scope | HttpClient.HttpClient
+    >;
+  },
+  admissionCredential: Redacted.Redacted,
 ) => {
-  const scenarios: ReadonlyArray<{
-    readonly name: string;
-    readonly check: (
-      infrastructure: Infrastructure,
-    ) => Effect.Effect<void, unknown, HttpClient.HttpClient>;
-  }> = [
-    { name: "Router", check: assertRouterVersionMismatch },
-    { name: "Registry", check: assertRegistryVersionMismatch },
+  const scenarios = [
+    {
+      name: "Router",
+      check: setups.router.pipe(
+        Effect.flatMap((infrastructure) =>
+          assertRouterVersionMismatch(infrastructure, admissionCredential),
+        ),
+      ),
+    },
+    {
+      name: "Registry",
+      check: setups.registry.pipe(
+        Effect.flatMap(assertRegistryVersionMismatch),
+      ),
+    },
   ];
   it.each(scenarios)(
-    "returns the real $name's live versions through the public client",
+    "returns the live versions from the real $name through the public client",
     ({ check }) =>
       Effect.runPromise(
-        setup.pipe(
-          Effect.flatMap(check),
+        check.pipe(
           Effect.scoped,
           Effect.provide(NodeFileSystem.layer),
           Effect.provide(NodeHttpClient.layer),
@@ -196,4 +184,18 @@ export const makeRouterRunner = (origin: URL) => {
   }).pipe(Layer.provide(NodeHttpClient.layer));
   return <A, E>(effect: Effect.Effect<A, E, Router>) =>
     effect.pipe(Effect.provide(routerLayer));
+};
+
+/** Process tests share the Registry signer pin and production HTTP transport. */
+export const makeRegistryRunner = (
+  origin: URL,
+  registrySignerPublicKey: RegistryInfrastructure["registrySignerPublicKey"],
+) => {
+  const registryLayer = Registry.layer({
+    origin,
+    registrySignerPublicKey,
+    requestTimeout: Duration.seconds(5),
+  }).pipe(Layer.provide(NodeHttpClient.layer));
+  return <A, E>(effect: Effect.Effect<A, E, Registry>) =>
+    effect.pipe(Effect.provide(registryLayer));
 };

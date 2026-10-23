@@ -359,9 +359,7 @@ export const routerHttpErrorFromResponse = (
       Schema.parseJson(
         closedStruct({
           error: Schema.Literal("version_mismatch"),
-          supported: Schema.NonEmptyArray(
-            Schema.String.pipe(Schema.pattern(/^\d{4}\.\d{3,4}\.\d+$/)),
-          ),
+          supported: VersionMismatchError.supportedSchema,
         }),
       ),
     )(body).pipe(

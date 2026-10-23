@@ -1,7 +1,7 @@
 /** @file Closed HTTP envelope failures and their exact response projections. */
 
 import { Schema } from "effect";
-import { LIVE_WIRE_VERSIONS } from "./version.js";
+import { LIVE_WIRE_VERSIONS, WIRE_VERSION_PATTERN } from "./version.js";
 
 /** The request representation is not valid for the selected operation. */
 export class MalformedRequestError extends Schema.TaggedError<MalformedRequestError>()(
@@ -35,7 +35,12 @@ export class VersionMismatchError extends Schema.TaggedError<VersionMismatchErro
       default: () => LIVE_WIRE_VERSIONS,
     }),
   },
-) {}
+) {
+  /** A mismatch response advertises at least one calendar wire version. */
+  static readonly supportedSchema = Schema.NonEmptyArray(
+    Schema.String.pipe(Schema.pattern(WIRE_VERSION_PATTERN)),
+  );
+}
 
 /** The received body exceeds the selected route's derived representation cap. */
 export class PayloadTooLargeError extends Schema.TaggedError<PayloadTooLargeError>()(
