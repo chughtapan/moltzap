@@ -96,9 +96,7 @@ export const loadMessagePolicy = (
     }
     const policy = yield* readPolicyText(path).pipe(
       Effect.flatMap((text) =>
-        decodeMessagePolicy(text).pipe(
-          Effect.mapError((error) => invalidPolicy(error)),
-        ),
+        decodeMessagePolicy(text).pipe(Effect.mapError(invalidPolicy)),
       ),
     );
     const auditExport = configuration.firewallAuditExport;

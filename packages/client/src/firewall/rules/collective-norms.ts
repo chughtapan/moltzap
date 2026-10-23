@@ -234,7 +234,7 @@ const ACKNOWLEDGEMENT_FILLER: ReadonlySet<string> = new Set([
  * the code rules' assessment, not part of the edition. A change to how a code
  * rule assesses that these fields do not show bumps `edition`.
  */
-const edition = () => ({
+const EDITION = {
   edition: "org.social-harness/collective-norms/v1",
   client: packageVersion,
   acknowledgement: {
@@ -251,7 +251,7 @@ const edition = () => ({
     })),
     ...OUTGOING_ENGLISH_RULES,
   ],
-});
+};
 
 /** The bundle's registration for each direction. */
 export interface CollectiveNorms {
@@ -295,7 +295,7 @@ export const collectiveNorms = Effect.fn("collectiveNorms")(function* (
   });
   const revision = sha256(
     JSON.stringify({
-      edition: edition(),
+      edition: EDITION,
       english: { incoming: incoming.revision, outgoing: outgoing.revision },
       historyRecords: historyRecords ?? null,
       provider: provider.provenance ?? null,
@@ -367,7 +367,7 @@ function registration(
     provenance: {
       format: "org.social-harness/collective-norms.v1",
       data: JSON.stringify({
-        edition: edition(),
+        edition: EDITION,
         ...role,
         english: english.provenance ?? null,
       }),

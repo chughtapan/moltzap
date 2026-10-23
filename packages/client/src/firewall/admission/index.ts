@@ -2,7 +2,7 @@
 
 // safer-arch-ignore no-inventory-barrel: Admission exposes installation, the shared environment, retained check decoding and the incoming worker as the ports policy, audit and delivery consume.
 
-/** Trusted composition installs immutable chains and captures their registrations. */
+/** Trusted composition installs immutable chains, captures their registrations and builds outgoing collective admission. */
 export {
   captureRegistration,
   collectiveAdmission,
