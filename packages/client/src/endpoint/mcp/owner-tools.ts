@@ -9,14 +9,13 @@ import {
 import { Either, Encoding, Schema } from "effect";
 import {
   AgentAddress,
-  compareAgentIds,
-  compareAscii,
   exactStruct,
   GroupAddress,
   RecordCore,
   RecordHash,
   RouterAnchor,
 } from "../../transport/wire/index.js";
+import { compareAgentIds, compareAscii } from "../../transport/wire/values.js";
 
 const exactOptions = {
   exact: true,

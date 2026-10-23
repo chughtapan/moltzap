@@ -1,6 +1,5 @@
 /** @file Durable token minting bounds collision exhaustion with a persistence signal. */
 
-import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { mintDeliveryToken, StoreSignal } from "./database/index.js";
 
@@ -14,11 +13,10 @@ describe("delivery token minting", () => {
       return true;
     };
 
-    const failure = Effect.runSync(
-      Effect.flip(Effect.try(() => mintDeliveryToken(isRetained))),
-    );
-    expect(failure.error).toBeInstanceOf(StoreSignal);
-    expect(failure.error).toMatchObject({ reason: "persistence" });
+    expect(() => mintDeliveryToken(isRetained)).toThrow(StoreSignal);
     expect(attempts).toBe(EXPECTED_COLLISION_ATTEMPTS);
+    expect(() => mintDeliveryToken(() => true)).toThrow(
+      new StoreSignal("persistence"),
+    );
   });
 });

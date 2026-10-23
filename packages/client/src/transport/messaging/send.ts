@@ -101,23 +101,23 @@ function failBind(
     : Effect.fail(storeFailure(error));
 }
 
+const sendReasonByStoreReason = {
+  closed: "persistence-failed",
+  conflict: "persistence-failed",
+  corrupt: "persistence-failed",
+  incompatible: "persistence-failed",
+  "invalid-continuation": "persistence-failed",
+  "invalid-input": "persistence-failed",
+  "newer-schema": "persistence-failed",
+  "pre-reset": "persistence-failed",
+  "not-found": "persistence-failed",
+  persistence: "persistence-failed",
+} as const satisfies Readonly<
+  Record<EndpointStoreError["reason"], SendError["reason"]>
+>;
+
 function storeFailure(error: EndpointStoreError): SendError {
-  const reasonByReason = {
-    closed: "persistence-failed",
-    conflict: "persistence-failed",
-    corrupt: "persistence-failed",
-    incompatible: "persistence-failed",
-    "invalid-continuation": "persistence-failed",
-    "invalid-input": "persistence-failed",
-    "newer-schema": "persistence-failed",
-    "pre-reset": "persistence-failed",
-    "not-found": "persistence-failed",
-    persistence: "persistence-failed",
-  } as const satisfies Record<
-    EndpointStoreError["reason"],
-    SendError["reason"]
-  >;
-  return new SendError({ reason: reasonByReason[error.reason] });
+  return new SendError({ reason: sendReasonByStoreReason[error.reason] });
 }
 
 const representationFailure = (): SendError =>
