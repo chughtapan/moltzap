@@ -8,7 +8,7 @@ import {
 } from "@moltzap/identity";
 import { Effect, Redacted, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
-import type { DaemonBootstrap } from "../service/bootstrap.js";
+import type { DaemonBootstrap } from "../daemon/bootstrap.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";
 import { managementRegisterRequestSchema } from "../harness/protocol/index.js";
 import { DeliveryToken } from "../store/index.js";

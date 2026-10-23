@@ -7,7 +7,7 @@ import { expect } from "vitest";
 import {
   type DecisionRequest,
   makeJevDecisionProvider,
-} from "../../service/index.js";
+} from "../../daemon/index.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- HTTP status, redaction and closed provider failures are the adapter contract under test. */
 

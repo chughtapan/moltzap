@@ -1,4 +1,10 @@
 {
+  "isolatedFolders": [
+    {
+      "folder": "src/daemon/launcher",
+      "reason": "The launcher selects and starts an installed daemon without importing other Client source"
+    }
+  ],
   "maxFolderCycles": 1,
   "folderReadmeFileNames": [
     "README.md",
@@ -54,7 +60,7 @@
       "reason": "History export values hosts decode without loading inbox state or SQLite"
     },
     {
-      "file": "service/bootstrap.ts",
+      "file": "daemon/bootstrap.ts",
       "reason": "Loaded daemon configuration and closed bootstrap failures shared by service composition modules"
     }
   ],
@@ -106,16 +112,6 @@
         "src/firewall/evaluator/index.ts"
       ],
       "reason": "Isolated code and English evaluation depends only on runtime-safe outcomes and packages"
-    },
-    {
-      "name": "identity",
-      "roots": [
-        "src/identity"
-      ],
-      "entrypoints": [
-        "src/identity/index.ts"
-      ],
-      "reason": "The agent signing key and secret credential files, read exactly and failing closed"
     },
     {
       "name": "wire",
@@ -230,38 +226,38 @@
       "reason": "The daemon's loopback MCP server, authentication and event delivery"
     },
     {
-      "name": "service",
+      "name": "daemon",
       "roots": [
-        "src/service"
+        "src/daemon"
       ],
       "entrypoints": [
-        "src/service/index.ts"
+        "src/daemon/index.ts"
       ],
       "reason": "The always-on process: configuration, registration, supervision, and wiring"
     },
     {
-      "name": "launcher",
+      "name": "daemon/launcher",
       "roots": [
-        "src/launcher"
+        "src/daemon/launcher"
       ],
       "entrypoints": [
-        "src/launcher/index.ts"
+        "src/daemon/launcher/index.ts"
       ],
       "reason": "The daemon launcher: chooses, verifies and installs the release each start runs, then starts its sharnessd as a child process"
     }
   ],
   "layers": [
     {
-      "name": "launcher",
+      "name": "daemon/launcher",
       "folders": [
-        "launcher"
+        "daemon/launcher"
       ],
       "reason": "The daemon launcher: chooses, verifies and installs the release each start runs, then starts its sharnessd as a child process"
     },
     {
-      "name": "service",
+      "name": "daemon",
       "folders": [
-        "service"
+        "daemon"
       ],
       "reason": "The always-on process: configuration, registration, supervision, and wiring"
     },
@@ -334,13 +330,6 @@
         "transport/wire"
       ],
       "reason": "Canonical protocol encoding, verification, and the message values every layer encodes"
-    },
-    {
-      "name": "identity",
-      "folders": [
-        "identity"
-      ],
-      "reason": "The agent signing key and secret credential files, read exactly and failing closed"
     },
     {
       "name": "firewall-evaluator",

@@ -19,7 +19,7 @@ import {
   type MessageMiddleware,
   type MiddlewareInput,
   type MiddlewareResult,
-} from "../src/service/index.js";
+} from "../src/daemon/index.js";
 
 /** The marker an incoming text carries to be withheld. */
 const INCOMING_HOLD = "[in]";

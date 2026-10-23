@@ -9,7 +9,6 @@
 import { effect as it } from "@effect/vitest";
 import { Effect, FastCheck as fc } from "effect";
 import { expect } from "vitest";
-import { packageVersion } from "../../release/index.js";
 import {
   type DecisionProvider,
   DecisionProviderError,
@@ -20,7 +19,8 @@ import {
   type Message,
   type MessageContext,
   messagePolicyFirewall,
-} from "../../service/index.js";
+} from "../../daemon/index.js";
+import { packageVersion } from "../../release/index.js";
 
 const FORMAT = "org.social-harness/message-policy/v1";
 

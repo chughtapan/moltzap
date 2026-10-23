@@ -25,6 +25,7 @@ import {
   plainLanguagePolicy,
 } from "../rules/index.js";
 import {
+  type CredentialReader,
   MessagePolicyConfigurationError,
   type PolicyConfiguration,
 } from "./configuration.js";
@@ -106,14 +107,16 @@ export const messagePolicyFirewall = Effect.fn("messagePolicyFirewall")(
  * message-policy file describes, which is logged with its registrations. A
  * composition with its own firewall refuses that file.
  * @param configuration The policy and provider file locations.
+ * @param readCredential The daemon-owned secret-file reader.
  * @param composed The firewall the composition installs itself, if any.
  * @returns What the daemon installs; neither field is set without a firewall.
  */
 export const firewallInstallation = (
   configuration: PolicyConfiguration,
+  readCredential: CredentialReader,
   composed?: FirewallInstallation,
 ): Effect.Effect<FirewallInstallation, MessagePolicyConfigurationError> =>
-  loadMessagePolicy(configuration).pipe(
+  loadMessagePolicy(configuration, readCredential).pipe(
     Effect.flatMap((configured) =>
       Option.match(configured, {
         onNone: () => Effect.succeed(composed ?? {}),

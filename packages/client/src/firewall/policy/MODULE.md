@@ -71,7 +71,7 @@ provider, the collective norms with the `unavailable` provider, which would
 leave every one of their English checks unavailable, and an English rule
 id given twice across the fixed and initial rules are refused.
 
-### [`messagePolicyFirewall`](./compose.ts#L60)
+### [`messagePolicyFirewall`](./compose.ts#L61)
 
 _Variable_
 

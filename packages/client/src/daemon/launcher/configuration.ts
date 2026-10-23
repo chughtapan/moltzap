@@ -14,7 +14,7 @@ import type {
   Selection,
 } from "./selection.js";
 import { launcherError } from "./errors.js";
-import { DAEMON_PACKAGE } from "./registry.js";
+import { DAEMON_PACKAGE } from "./npm.js";
 
 /** The packages a launcher may follow: the daemon alone, or the OpenClaw channel and the daemon it pins. */
 const RELEASE_PACKAGES = [

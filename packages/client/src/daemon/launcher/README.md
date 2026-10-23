@@ -9,7 +9,7 @@ image installed, runs `prepare.ts`, and starts the chosen daemon or, for
 `prepare`, prints the choice. `prepare.ts` is one start: it reads or seeds the
 record, checks it offline, resolves the candidate, and records what runs.
 `selection.ts` holds the pure rules that decide whether a candidate is taken.
-`registry.ts` reads the npm registry, `provenance.ts` accepts a tarball only
+`npm.ts` reads the npm registry, `provenance.ts` accepts a tarball only
 when its Sigstore-verified SLSA provenance names the release workflow on
 `main` of `social-harness/moltzap` or of `chughtapan/moltzap`, the project's
 earlier home, and `installation.ts` owns the home-volume state: the

@@ -23,7 +23,7 @@ import {
   type DecisionRequest,
   FirewallAuditRecord,
   type MessageMiddleware,
-} from "../src/service/index.js";
+} from "../src/daemon/index.js";
 import {
   acquireDaemonManagementClient,
   acquireDaemonProcess,

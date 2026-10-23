@@ -7,7 +7,7 @@ import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import { join } from "node:path";
 import { describe, expect } from "vitest";
-import type { Daemon } from "../../service/index.js";
+import type { Daemon } from "../../daemon/index.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
 import {
   decodeAudit,

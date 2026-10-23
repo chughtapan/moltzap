@@ -27,7 +27,6 @@ import {
   seedRecord,
   writeRecord,
 } from "./installation.js";
-import { verifyProvenance } from "./provenance.js";
 import {
   DAEMON_PACKAGE,
   download,
@@ -35,7 +34,8 @@ import {
   type PublishedPackage,
   releaseClosure,
   taggedVersion,
-} from "./registry.js";
+} from "./npm.js";
+import { verifyProvenance } from "./provenance.js";
 import {
   choose,
   type KeepReason,

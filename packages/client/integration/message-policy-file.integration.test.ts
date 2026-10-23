@@ -15,7 +15,7 @@ import { Effect, Schedule, Schema } from "effect";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { FirewallAuditRecord } from "../src/service/index.js";
+import { FirewallAuditRecord } from "../src/daemon/index.js";
 import {
   acquireDaemonManagementClient,
   acquireDaemonProcess,

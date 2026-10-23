@@ -703,11 +703,11 @@ as a norm judgment the decision provider left unsettled.
 
 ### `@moltzap/client/service`
 
-#### [`Daemon`](./service/index.ts#L241)
+#### [`Daemon`](./daemon/index.ts#L91)
 
 _Namespace_
 
-#### [`Daemon.StartupError`](./service/index.ts#L255)
+#### [`Daemon.StartupError`](./daemon/index.ts#L105)
 
 _Class_
 
@@ -744,7 +744,7 @@ _Class_
 
 Closed startup phase with sanitized configuration details.
 
-#### [`Daemon.FirewallOptions`](./service/index.ts#L246)
+#### [`Daemon.FirewallOptions`](./daemon/index.ts#L96)
 
 _TypeAlias_
 
@@ -760,7 +760,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-#### [`Daemon.help`](./service/index.ts#L243)
+#### [`Daemon.help`](./daemon/index.ts#L93)
 
 _Variable_
 
@@ -770,7 +770,7 @@ _Variable_
 
 Usage text listing the daemon process's environment variables.
 
-#### [`Daemon.layer`](./service/index.ts#L344)
+#### [`Daemon.layer`](./daemon/index.ts#L195)
 
 _Variable_
 
@@ -783,7 +783,7 @@ _Variable_
 Complete production process composition for `sharnessd`, with the
 firewall `SHARNESS_MESSAGE_POLICY_FILE` describes when it is set.
 
-#### [`Daemon.withFirewall`](./service/index.ts#L354)
+#### [`Daemon.withFirewall`](./daemon/index.ts#L205)
 
 _Function_
 
@@ -1382,7 +1382,7 @@ provider, the collective norms with the `unavailable` provider, which would
 leave every one of their English checks unavailable, and an English rule
 id given twice across the fixed and initial rules are refused.
 
-#### [`messagePolicyFirewall`](./firewall/policy/compose.ts#L60)
+#### [`messagePolicyFirewall`](./firewall/policy/compose.ts#L61)
 
 _Variable_
 
@@ -1460,6 +1460,32 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 
 ## Files
 
+- `daemon/bootstrap.ts`
+- `daemon/configuration.ts`
+- `daemon/credentials.ts`
+- `daemon/errors.ts`
+- `daemon/index.ts`
+- `daemon/launcher/configuration.ts`
+- `daemon/launcher/errors.ts`
+- `daemon/launcher/index.ts`
+- `daemon/launcher/installation.ts`
+- `daemon/launcher/integrity.ts`
+- `daemon/launcher/npm.ts`
+- `daemon/launcher/packed-manifest.ts`
+- `daemon/launcher/prepare.ts`
+- `daemon/launcher/provenance.ts`
+- `daemon/launcher/README.md`
+- `daemon/launcher/selection.ts`
+- `daemon/lifecycle.ts`
+- `daemon/management.ts`
+- `daemon/README.md`
+- `daemon/registration/binding.ts`
+- `daemon/registration/index.ts`
+- `daemon/registration/README.md`
+- `daemon/runtime/index.ts`
+- `daemon/runtime/protocol.ts`
+- `daemon/runtime/README.md`
+- `daemon/telemetry.ts`
 - `environment.ts`
 - `firewall/admission/admission.ts`
 - `firewall/admission/firewall-checks.ts`
@@ -1521,36 +1547,10 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `harness/protocol/README.md`
 - `harness/protocol/schemas.ts`
 - `harness/README.md`
-- `identity/credentials.ts`
-- `identity/index.ts`
 - `index.ts`
-- `launcher/configuration.ts`
-- `launcher/errors.ts`
-- `launcher/index.ts`
-- `launcher/installation.ts`
-- `launcher/integrity.ts`
-- `launcher/packed-manifest.ts`
-- `launcher/prepare.ts`
-- `launcher/provenance.ts`
-- `launcher/README.md`
-- `launcher/registry.ts`
-- `launcher/selection.ts`
 - `README.md`
 - `release/index.ts`
 - `release/README.md`
-- `service/bootstrap.ts`
-- `service/configuration.ts`
-- `service/daemon/index.ts`
-- `service/daemon/protocol.ts`
-- `service/daemon/README.md`
-- `service/errors.ts`
-- `service/index.ts`
-- `service/lifecycle.ts`
-- `service/management.ts`
-- `service/README.md`
-- `service/registration/binding.ts`
-- `service/registration/index.ts`
-- `service/registration/README.md`
 - `store/anchors.ts`
 - `store/database/index.ts`
 - `store/database/migrations.ts`

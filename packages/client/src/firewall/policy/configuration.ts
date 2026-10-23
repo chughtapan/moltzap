@@ -1,6 +1,6 @@
 /** @file Inputs the daemon supplies to policy loading without granting bootstrap authority. */
 
-import { Data, type Redacted } from "effect";
+import { Data, type Effect, type Redacted, type Schema } from "effect";
 
 /** Closed reasons the policy settings cannot start the daemon. */
 export type MessagePolicyConfigurationFailure =
@@ -26,3 +26,9 @@ export class MessagePolicyConfigurationError extends Data.TaggedError(
   readonly reason: MessagePolicyConfigurationFailure;
   readonly message: string;
 }> {}
+
+/** The daemon supplies secret-file access without granting policy loading bootstrap authority. */
+export type CredentialReader = (
+  path: Redacted.Redacted,
+  grammar: Schema.Schema<string>,
+) => Effect.Effect<Redacted.Redacted, { readonly stage: "file" | "value" }>;

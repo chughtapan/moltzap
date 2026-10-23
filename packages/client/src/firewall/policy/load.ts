@@ -11,13 +11,13 @@ import {
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Configuration reads the configured policy file before the daemon composes its platform services.
 import { lstat, readFile } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
-import { readCredential } from "../../identity/index.js";
 import {
   type DecisionProvider,
   DecisionProviderError,
   makeJevDecisionProvider,
 } from "../evaluator/index.js";
 import {
+  type CredentialReader,
   MessagePolicyConfigurationError,
   type MessagePolicyConfigurationFailure,
   type PolicyConfiguration,
@@ -79,10 +79,12 @@ export interface LoadedMessagePolicy {
  * or invalid document, and a missing or invalid key fail configuration naming
  * no file content.
  * @param configuration The policy and provider file locations.
+ * @param readCredential The daemon-owned secret-file reader.
  * @returns The document, its decision provider and its audit export path.
  */
 export const loadMessagePolicy = (
   configuration: PolicyConfiguration,
+  readCredential: CredentialReader,
 ): Effect.Effect<
   Option.Option<LoadedMessagePolicy>,
   MessagePolicyConfigurationError
@@ -105,7 +107,7 @@ export const loadMessagePolicy = (
     }
     return Option.some({
       policy,
-      provider: yield* decisionProvider(policy, configuration),
+      provider: yield* decisionProvider(policy, configuration, readCredential),
       auditExport,
     });
   }).pipe(Effect.withSpan("loadMessagePolicy"));
@@ -179,6 +181,7 @@ function invalidPolicy(
 function decisionProvider(
   policy: MessagePolicy,
   configuration: PolicyConfiguration,
+  readCredential: CredentialReader,
 ): Effect.Effect<DecisionProvider, MessagePolicyConfigurationError> {
   const setting = policy.decisionProvider;
   switch (setting?.kind) {
@@ -189,7 +192,7 @@ function decisionProvider(
         "The message policy names no decision provider service; every English check is unavailable, which holds the message in enforcement mode and admits it in guidance mode.",
       ).pipe(Effect.as(unavailableProvider));
     case "jev":
-      return jevKey(configuration).pipe(
+      return jevKey(configuration, readCredential).pipe(
         Effect.map((apiKey) =>
           retryingTransientFailures(
             makeJevDecisionProvider({ apiKey, model: setting.model }),
@@ -203,6 +206,7 @@ function decisionProvider(
 
 function jevKey(
   configuration: PolicyConfiguration,
+  readCredential: CredentialReader,
 ): Effect.Effect<Redacted.Redacted, MessagePolicyConfigurationError> {
   const path = configuration.decisionProviderKeyFile;
   return path === undefined

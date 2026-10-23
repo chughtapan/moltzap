@@ -39,6 +39,10 @@ interface ClientDomain {
 
 /** The analyzer configuration keys this generator writes, in emitted order. */
 interface ArchitectureConfig {
+  readonly isolatedFolders?: ReadonlyArray<{
+    readonly folder: string;
+    readonly reason: string;
+  }>;
   readonly packageRuntime?: string;
   readonly minExportedSiblingModules?: number;
   readonly maxPublicExports?: number;
@@ -158,13 +162,6 @@ const clientDomains: readonly ClientDomain[] = [
     entrypoints: ["index.ts"],
     reason:
       "Isolated code and English evaluation depends only on runtime-safe outcomes and packages",
-  },
-  {
-    name: "identity",
-    root: "identity",
-    entrypoints: ["index.ts"],
-    reason:
-      "The agent signing key and secret credential files, read exactly and failing closed",
   },
   {
     name: "wire",
@@ -313,15 +310,15 @@ const clientDomains: readonly ClientDomain[] = [
       "The daemon's loopback MCP server, authentication and event delivery",
   },
   {
-    name: "service",
-    root: "service",
+    name: "daemon",
+    root: "daemon",
     entrypoints: ["index.ts"],
     reason:
       "The always-on process: configuration, registration, supervision, and wiring",
   },
   {
-    name: "launcher",
-    root: "launcher",
+    name: "daemon/launcher",
+    root: "daemon/launcher",
     entrypoints: ["index.ts"],
     reason:
       "The daemon launcher: chooses, verifies and installs the release each start runs, then starts its sharnessd as a child process",
@@ -387,12 +384,19 @@ export const clientHostModules: ReadonlySet<string> = new Set(
 const packageDefinitions: Readonly<Record<string, PackageDefinition>> = {
   client: {
     beforeShared: {
+      isolatedFolders: [
+        {
+          folder: "src/daemon/launcher",
+          reason:
+            "The launcher selects and starts an installed daemon without importing other Client source",
+        },
+      ],
       maxFolderCycles: 1,
       folderReadmeFileNames: ["README.md", "../README.md"],
       facadeFiles: [
         ...clientEntrypointFacades,
         {
-          file: "service/bootstrap.ts",
+          file: "daemon/bootstrap.ts",
           reason:
             "Loaded daemon configuration and closed bootstrap failures shared by service composition modules",
         },
@@ -638,6 +642,7 @@ function entrypointFile(entry: string | FacadeFile): string {
 /** Every path the config claims, resolved the way the analyzer resolves it. */
 function pathClaims(config: ArchitectureConfig): readonly string[] {
   return [
+    ...(config.isolatedFolders ?? []).map((entry) => entry.folder),
     ...(config.facadeFiles ?? []).map((entry) => facadePath(entry.file)),
     ...(config.folderChildCountOverrides ?? []).map((entry) =>
       folderPath(entry.folder),
