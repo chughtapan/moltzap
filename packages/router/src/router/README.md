@@ -17,8 +17,8 @@ Start with:
 - `feed.ts` owns volatile ordering, retention, and retry identity.
 - `poll-cursor.ts` authenticates caller- and process-bound continuations.
 - `poll-waiters.ts` owns the lifecycle of pending polls.
-- `../router.ts` owns the public `Router` capability over HTTP and the private
-  process configuration consumed by the server.
+- `configuration.ts` owns the private process configuration consumed by the server.
+- `../router.ts` owns the public `Router` capability over HTTP.
 
 `contract.ts` owns the closed requests, results, operation values, client
 failures, routes, limits, and representations shared by those boundaries.

@@ -4,7 +4,6 @@
  * because both values share the same encoded string representation.
  */
 
-import type { AgentCardIssuedAt } from "../agent-card.js";
 import type {
   AgentCardDigest,
   AgentId,
@@ -13,6 +12,7 @@ import type {
   PrincipalId,
 } from "../index.js";
 import type { OperationId } from "../registry.js";
+import type { AgentCardIssuedAt } from "../registry/issuance.js";
 
 /**
  * True when a value of either type is assignable to the other, that is, when

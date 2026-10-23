@@ -47,8 +47,9 @@ import {
   type Server as NetServer,
 } from "node:net";
 import { describe, expect, it } from "vitest";
-import { loadRouterConfiguration, Router } from "../../router.js";
+import { Router } from "../../router.js";
 import { RouterServer } from "../../server.js";
+import { loadRouterConfiguration } from "../configuration.js";
 import {
   calculateRouterRepresentationLimits,
   type PollCursor as PollCursorValue,

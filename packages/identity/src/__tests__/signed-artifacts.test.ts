@@ -13,10 +13,8 @@ import { generateKeyPairSync } from "node:crypto";
 import { expect, it } from "vitest";
 import {
   AgentCard,
-  AgentCardIssuedAt,
   AgentCardVerificationError,
   digestAgentCard,
-  issueAgentCard,
   type VerifiedAgentCard,
 } from "../agent-card.js";
 import {
@@ -33,6 +31,7 @@ import {
   AgentName,
   PrincipalId,
 } from "../identifiers.js";
+import { AgentCardIssuedAt, issueAgentCard } from "../registry/issuance.js";
 import {
   MessageId,
   SignedMessage,

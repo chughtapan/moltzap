@@ -2,12 +2,7 @@
 import { Effect, Encoding, Redacted, Schema } from "effect";
 import { GeneralSign } from "jose";
 import { generateKeyPairSync } from "node:crypto";
-import {
-  AgentCard,
-  AgentCardIssuedAt,
-  issueAgentCard,
-  type VerifiedAgentCard,
-} from "../agent-card.js";
+import { AgentCard, type VerifiedAgentCard } from "../agent-card.js";
 import {
   AgentSigningAuthority,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
@@ -17,6 +12,7 @@ import {
 import { decodeCanonicalJson, encodeCanonicalJson } from "../canonical-json.js";
 import { AuthenticationFailedError } from "../http-errors.js";
 import { AgentId, AgentName, PrincipalId } from "../identifiers.js";
+import { AgentCardIssuedAt, issueAgentCard } from "../registry/issuance.js";
 
 /** Independent Registry and agent signing keys bound by the verified card. */
 export interface IdentityFixture {
