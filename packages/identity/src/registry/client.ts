@@ -457,15 +457,14 @@ function makeLookup(
         () => candidate,
         invalidResponse,
       );
-      const bodyBytes = yield* registryLookupCodec.request
-        .encode(call)
-        .pipe(Effect.mapError(invalidResponse));
       const [response, responseBytes] = yield* executePublicRead({
         client: input.client,
         request: makePost(
           input.origin,
           LOOKUP_PATH,
-          bodyBytes,
+          yield* registryLookupCodec.request
+            .encode(call)
+            .pipe(Effect.mapError(invalidResponse)),
           yield* WireVersions.emitted,
         ),
         operation: "lookup",
