@@ -13,9 +13,10 @@ The five conceptual layers of the social harness are L1 Unforgeable,
 Verifiable Identities; L2 Reliable, Ordered Communication; L3 Personal
 Firewalls; L4 Shared Collaboration Norms; and L5 Social Institutions.
 Social Harness packages publish to npm under the `@moltzap` scope.
-`@moltzap/identity` owns L1, `@moltzap/router` owns L2 delivery, and
-`@moltzap/client` owns endpoint communication, L3 firewalls, L4 norms, and the
-certified records that L5 relies on. Numbered
+`@moltzap/client` owns L1 identities with the Registry API and client, L2
+communication with the Router API and client, L3 firewalls, L4 norms, and the
+certified records that L5 relies on. The private `@moltzap/registry` and
+`@moltzap/router` packages own the Registry and Router processes. Numbered
 layer notation is documentation vocabulary only; it does not appear in package
 names or public type tags.
 
@@ -32,20 +33,24 @@ implemented.
 
 ## Exact package graph
 
-The final workspace has exactly five package products:
+The workspace has exactly five package products:
 
 | Package | May depend on | Owns |
 |---|---|---|
-| `@moltzap/identity` | none | identity representation, Registry client, Registry server, and `sharness-registry` |
-| `@moltzap/router` | `@moltzap/identity` | opaque Router representation, Router client, Router server, and `sharness-router` |
-| `@moltzap/client` | `@moltzap/identity`, `@moltzap/router` | conversations, endpoint history, tasks/norms, personal firewalls, daemon MCP, `HarnessEndpoint`, and `sharnessd` |
+| `@moltzap/client` | none | identity representation, Registry API and client, envelope, records, conversations, collectives, endpoint history, Router API and client, personal firewalls, daemon MCP, `HarnessEndpoint`, `sharnessd`, and `sharnessd-launcher` |
+| `@moltzap/registry` | `@moltzap/client` | Registry admission, card issuance, storage, server configuration, and `sharness-registry` |
+| `@moltzap/router` | `@moltzap/client` | Router feed, polling, poll-cursor encryption, server configuration, and `sharness-router` |
 | `@moltzap/openclaw-channel` | `@moltzap/client` | OpenClaw host integration against an injected or MCP-backed client |
 | `@moltzap/nanoclaw-channel` | `@moltzap/client` | NanoClaw host integration against its MCP-backed client |
 
+The Registry and Router packages import the library's root entry and its
+condition-only `./internal` entry, never its other modules.
+
 The simulator and evaluation applications are built outside this repository
 and consume the published packages. Production packages do not depend on them.
-Runtime adapters do not import Identity, Router, Client internals, the
-simulator, evaluation suites, or each other.
+Runtime adapters import only the library's root entry. They do not import its
+`./service` or `./internal` entries, the service packages, the simulator,
+evaluation suites, or each other.
 
 There are no product packages named `protocol`, `server`, `transcript`,
 `ledger`, `harness`, or `testbed`, and no `v2/` directory: the constitution is
@@ -63,6 +68,13 @@ packing application fixtures into an image cannot create an undeclared package d
 `@moltzap/router`. The moves preserve source, migrations, tests, capability
 depth, wire bytes, errors, configuration behavior, and process binaries except
 for package-path and package-name references.
+
+`packages/identity` and `packages/router` then fold into `@moltzap/client`, for
+their identity, envelope, Registry and Router API and client code, and into the
+private `@moltzap/registry` and `@moltzap/router` packages, for their processes.
+The fold preserves wire bytes, errors, configuration behavior and process
+binaries, and every existing test passes with only import-path or launch-path
+changes.
 
 After their consumers and documentation tooling have final owners, delete:
 
@@ -399,10 +411,12 @@ topology and cross-address context.
 
 ## Publication and versions
 
-Four packages publish to npm, each at its own calendar version:
-`@moltzap/identity`, `@moltzap/router`, `@moltzap/client`, and
-`@moltzap/openclaw-channel`.
-`@moltzap/nanoclaw-channel` stays private. The simulator is not published.
+Two packages publish to npm, each at its own calendar version:
+`@moltzap/client` and `@moltzap/openclaw-channel`.
+`@moltzap/nanoclaw-channel`, `@moltzap/registry` and `@moltzap/router` stay
+private, and the simulator is not published. The Registry and Router ship only
+as the public images `ghcr.io/social-harness/registry` and
+`ghcr.io/social-harness/router`.
 
 Each reset release establishes fresh wire and storage baselines: `WIRE_VERSION`
 takes a value no earlier release emitted, the live and history sets contain
@@ -421,8 +435,8 @@ mismatches. Release notes mark each reset release with the phrase
 [upgrade guide](../guides/upgrades.mdx) gives the operator steps.
 
 - One release computes one calendar version, `YYYY.MDD.N`, one past the
-  highest counter in the union of the four packages' npm histories and the
-  `v<version>` release tags. It publishes at that version only the packages
+  highest counter in the union of the published packages' npm histories and
+  the `v<version>` release tags. It publishes at that version only the packages
   whose packed content changed since the version their manifest names; the
   other packages keep their versions.
 - A package's content hash covers its packed files with their executable
@@ -430,8 +444,7 @@ mismatches. Release notes mark each reset release with the phrase
   published manifest records it as `sharnessContentHash`, and the release
   selects a package when the hash differs from the value npm recorded for its
   manifest's version, or when npm recorded none. Two versions of a package
-  with equal hashes carry the same code. The first release that records
-  hashes republishes all four packages.
+  with equal hashes carry the same code.
 - The OpenClaw channel's published manifest also records
   `sharnessHostCodeHash`: the hash of the code OpenClaw loads for the
   channel, meaning every packed channel file plus each sibling module its
@@ -446,18 +459,39 @@ mismatches. Release notes mark each reset release with the phrase
   release tested.
 - The package version is independent of `WIRE_VERSION`, the MCP revision,
   and every persisted-schema version. Advancing one never advances another.
-- Releases run from `main` through `.github/workflows/publish.yml` with npm
-  provenance and publish npm packages only. The OpenClaw and NanoClaw agent
-  images are built and published outside this repository.
+- npm releases run from `main` through `.github/workflows/publish.yml` with
+  npm provenance. A release is a manual, serialized run that writes a release
+  commit recording what it published; reruns converge on that commit. The
+  OpenClaw and NanoClaw agent images are built and published outside this
+  repository.
+- `.github/workflows/images.yml` runs on every merge to `main`. Each image has
+  an input key covering its package's files; the library modules it reaches
+  through `exports` under the `import` and `sharness-internal` conditions; its
+  Dockerfile and base-image digest; the build tooling; and its run-time
+  lockfile closure. Manifests are hashed without versions, and a check fails
+  when a Dockerfile `COPY` source is not keyed. The workflow builds only keys
+  that have no `inputs-<key>` tag in the registry, as one `linux/amd64` and
+  `linux/arm64` index, signs the index digest with cosign keyless, and
+  verifies that signature against
+  `https://github.com/social-harness/moltzap/.github/workflows/images.yml@refs/heads/main`
+  and the issuer `https://token.actions.githubusercontent.com` before it tags
+  the index. A signing or verification failure fails the run with no tag. An
+  npm release tags the current indexes with its version and lists their
+  digests; an image's tag is not a package version.
+- The Registry image also carries `pglite-server` for run-scoped and
+  development databases. The image binaries run with
+  `--conditions=sharness-internal`.
 - `scripts/architecture/check-boundaries.ts` fails when a published manifest
   is private, when its `engines.node` differs from the root `package.json`
   range, when its version is not a calendar version, when a sibling edge is
-  not an exact `workspace:*` pin, when the NanoClaw adapter is not private, or
-  when the release workflow's package list drifts from the published set. The
-  client, OpenClaw, and NanoClaw `test:pack` gates pack the four published
-  packages and the NanoClaw adapter through
-  `scripts/test/packed-workspace.ts` and prove each closure installs with
-  exact sibling pins and every declared executable present. The NanoClaw gate
+  not an exact `workspace:*` pin, when the NanoClaw adapter, Registry or
+  Router package is not private, or when the release workflow's package list
+  drifts from the published set. The client, OpenClaw, and NanoClaw
+  `test:pack` gates pack the two published packages and the NanoClaw adapter
+  through `scripts/test/packed-workspace.ts` and prove each closure installs
+  with exact sibling pins and every declared executable present, that
+  `@moltzap/client/internal` resolves only under `sharness-internal`, and that
+  the packed library carries no Registry or Router server code. The NanoClaw gate
   proves the adapter compiles against the Client ABI in isolation;
   deployment's NanoClaw image build copies its source rather than installing
   a tarball.

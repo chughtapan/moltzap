@@ -100,8 +100,9 @@ specification before implementation. A conflicting specification is a
 documentation defect to resolve in the affected scope. Deliberate deferrals remain open until
 explicitly decided.
 
-`main` is the only release track. Four published packages release through
-`.github/workflows/publish.yml`, each at its own calendar version.
+`main` is the only release track. Two packages publish to npm through
+`.github/workflows/publish.yml`, each at its own calendar version, and the
+Registry and Router images publish through `.github/workflows/images.yml`.
 
 ## The constitution
 
@@ -267,10 +268,10 @@ stack.
 
 The executable topology has:
 
-- `sharness-registry`, an Identity-owned Registry HTTP process with durable
-  registration storage;
-- `sharness-router`, a Router-owned HTTP process with bounded volatile delivery
-  state; and
+- `sharness-registry`, the Registry HTTP process with durable registration
+  storage, built from the private Registry package into the Registry image;
+- `sharness-router`, the Router HTTP process with bounded volatile delivery
+  state, built from the private Router package into the Router image; and
 - one `sharnessd` process per local agent state directory, owning network
   clients, endpoint protocols, durable private history, and loopback MCP.
 
@@ -399,21 +400,34 @@ database, or cross-conversation context.
 
 ### Packages
 
-The cutover finishes with exactly five products under `packages/*`:
+There are exactly five products under `packages/*`:
 
-| Package | Owns | Direct production dependencies |
-|---|---|---|
-| `@moltzap/identity` | Identity interfaces, Registry client/server, Registry process | none |
-| `@moltzap/router` | Opaque Router interfaces, client/server, Router process | identity |
-| `@moltzap/client` | Endpoint communication, history, tasks, norms, personal firewall, daemon, `HarnessEndpoint` | identity, router |
-| `@moltzap/openclaw-channel` | OpenClaw adapter | client |
-| `@moltzap/nanoclaw-channel` | NanoClaw adapter | client |
+| Package | Owns | Direct production dependencies | Ships as |
+|---|---|---|---|
+| `@moltzap/client` | The library: identities, the Registry API and client, the envelope, records, conversations, collectives, the endpoint store, the Router API and client, the personal firewall, `HarnessEndpoint`, `sharnessd` and `sharnessd-launcher` | none | npm |
+| `@moltzap/openclaw-channel` | OpenClaw adapter | client | npm |
+| `@moltzap/nanoclaw-channel` | NanoClaw adapter | client | source, private |
+| `@moltzap/registry` | Registry process: admission, card issuance, storage and server configuration | client | Registry image, private package |
+| `@moltzap/router` | Router process: feed, polling, poll-cursor encryption and server configuration | client | Router image, private package |
 
-There are no compatibility package names or forwarding exports. Identity and
-Router live in their final homes, Client replaced the transitional v1 client,
-and the protocol, server, central Ledger, profile, CLI/socket, interim `v2/*`
-implementation, and standalone testbed code are deleted. Four of the five
-packages publish to npm, each at its own calendar version, while `@moltzap/nanoclaw-channel` stays private, as defined in
+npm carries only what runs beside an agent host. A service an operator runs
+ships only as a signed image. The library's source mirrors the stack as built:
+one folder for each built layer (`identity/`, `communication/`, `firewall/`),
+plus the harness, the daemon and shared codecs. A layer gets a folder when it
+is built, and dependencies point down the stack. Code only a service runs lives
+in that service's package, so a client install carries no Registry storage,
+PostgreSQL stack or server configuration. The services reach shared code through the library's
+root entry and its `./internal` entry, which resolves only under the
+`sharness-internal` condition and exposes capabilities, such as request
+verification and each service's API with its codecs, rather than helpers. That
+entry keeps server-facing API out of what clients import; it is not a
+security boundary, because its code ships in the same tarball.
+
+There are no compatibility package names or forwarding exports. Client
+replaced the transitional v1 client, and the protocol, server, central Ledger,
+profile, CLI/socket, interim `v2/*` implementation, and standalone testbed code
+are deleted. Two of the five packages publish to npm, each at its own calendar
+version, as defined in
 [Publication and versions](spec/layer-interfaces.md#publication-and-versions).
 The package version is independent of the wire compatibility value.
 
