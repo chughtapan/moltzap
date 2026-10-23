@@ -34,6 +34,11 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 
 const CONTRIBUTING_DOC = "docs/development/contributing.mdx";
 
+/** The head of version.ts's live window, after which planted entries go. */
+const LIVE_WINDOW_HEAD = /const liveWindow = \[WIRE_VERSION/u;
+/** The head of version.ts's retired list, after which planted entries go. */
+const RETIRED_HEAD = /const RETIRED_WIRE_VERSIONS = \[/u;
+
 const workspaceRoot = resolve(scriptDir, "..", "..");
 
 interface AssertionFailure {
@@ -947,10 +952,6 @@ function readCompatibilityVersion(): string {
   return read.value;
 }
 
-/** The head of version.ts's live window, after which planted entries go. */
-const LIVE_WINDOW_HEAD = /const liveWindow = \[WIRE_VERSION/u;
-/** The head of version.ts's retired list, after which planted entries go. */
-const RETIRED_HEAD = /const RETIRED_WIRE_VERSIONS = \[/u;
 /**
  * Inserts text right after the first match of pattern in a planted source.
  * @param source The source being planted.
