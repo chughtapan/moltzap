@@ -7,6 +7,12 @@ import type { SignedMessage } from "@moltzap/identity";
 import { absurd, Deferred, Effect } from "effect";
 import type { SendError } from "../errors.js";
 import {
+  ClientRepresentationError,
+  decodeCanonical,
+  encodeCanonical,
+  equalCanonical,
+} from "../../../encoding/canonical-json.js";
+import {
   type ConversationFoundation,
   type EndpointStoreError,
   isSemanticStoreRejection,
@@ -25,12 +31,8 @@ import {
   type ActionProposal,
   type AnchorHash,
   type CertifiedRecord,
-  ClientRepresentationError,
   type ConversationId,
-  decodeCanonical,
   type DecodedOuterBody,
-  encodeCanonical,
-  equalCanonical,
   EvidenceStatement,
   type EvidenceStatement as EvidenceStatementValue,
   GenesisAnchorBody,

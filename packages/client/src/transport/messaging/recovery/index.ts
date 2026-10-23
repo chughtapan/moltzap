@@ -19,6 +19,10 @@ import type {
   StoredOutboundMessage,
 } from "../../../store/index.js";
 import {
+  ClientRepresentationError,
+  decodeCanonical,
+} from "../../../encoding/canonical-json.js";
+import {
   type RouterIngressDisposition,
   type RouterWorkerIngress,
   RouterWorkerPersistenceError,
@@ -26,9 +30,7 @@ import {
   RouterWorkerRecoveryError,
 } from "../../router/index.js";
 import {
-  ClientRepresentationError,
   type ConversationId as ConversationIdValue,
-  decodeCanonical,
   type DecodedOuterBody,
   type DirectPacket,
   EvidenceStatement,

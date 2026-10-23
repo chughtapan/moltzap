@@ -52,13 +52,13 @@ import {
   unreachableOutbox,
 } from "../../__tests__/router-worker-fixtures.js";
 import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
+import { encodeCanonical } from "../../encoding/canonical-json.js";
 import {
   type ConversationFoundation,
   type EndpointStore,
   openEndpointStore,
   type StoredOutboundMessage,
 } from "../../store/index.js";
-import { encodeCanonical } from "../wire/index.js";
 import {
   makeRouterWorker,
   RouterWorkerAuthenticationError,

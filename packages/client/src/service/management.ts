@@ -31,6 +31,7 @@ import type {
 import type { SendError } from "../transport/messaging/errors.js";
 import type { DaemonBootstrap, DaemonConfigurationError } from "./bootstrap.js";
 import type { DaemonActivationError } from "./errors.js";
+import { compareAscii } from "../encoding/identifier.js";
 import {
   renderGroupAddress,
   resolveMessageAddress,
@@ -44,7 +45,7 @@ import {
   deriveConversationId,
   type VerifiedMembership,
 } from "../transport/wire/index.js";
-import { AgentAddress, compareAscii } from "../transport/wire/values.js";
+import { AgentAddress } from "../transport/wire/values.js";
 import {
   type DaemonRegistrationPersistenceError,
   type DaemonRegistrationRepresentationError,

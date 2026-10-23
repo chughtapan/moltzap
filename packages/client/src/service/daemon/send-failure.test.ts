@@ -27,11 +27,11 @@ import {
 } from "../../__tests__/daemon-runtime-harness.js";
 import { pollCursor } from "../../__tests__/router-worker-fixtures.js";
 import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
+import { encodeCanonical } from "../../encoding/canonical-json.js";
 import { acquireHarnessMcpHttpServer } from "../../harness/mcp/index.js";
 import { SendInput } from "../../index.js";
 import { EndpointStoreError, openEndpointStore } from "../../store/index.js";
 import { makeEndpointEngine } from "../../transport/messaging/index.js";
-import { encodeCanonical } from "../../transport/wire/index.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Exact HTTP statuses and closed diagnostic reasons are boundary contracts; secret sentinels verify redaction. */
 // @agent-code-guard/regression-only: failure injection pins send replies and secret-safe storage diagnostics during daemon shutdown.

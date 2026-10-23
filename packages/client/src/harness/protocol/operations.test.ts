@@ -3,6 +3,7 @@
 import { Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { InboundMessage } from "../../transport/messaging/message.js";
+import { exactParseOptions } from "../../encoding/exact.js";
 import { DeliveryToken } from "../../store/index.js";
 import { CollectiveId, SendInput } from "../../transport/collectives/forms.js";
 import { Content, PostId } from "../../transport/wire/index.js";
@@ -15,7 +16,6 @@ import {
   decodeHarnessSendResult,
 } from "./operations.js";
 
-const exact = { exact: true, onExcessProperty: "error" } as const;
 const deliveryToken = Schema.decodeUnknownSync(DeliveryToken)(
   `dlv_${"A".repeat(43)}`,
 );
@@ -43,7 +43,9 @@ function decodesExactOperationRequests(): void {
   };
 
   expect(
-    Effect.runSync(Schema.decodeUnknown(SendInput)(operation, exact)),
+    Effect.runSync(
+      Schema.decodeUnknown(SendInput)(operation, exactParseOptions),
+    ),
   ).toEqual(operation);
   expect(
     Effect.runSync(decodeHarnessAcknowledgeDeliveryRequest({ deliveryToken })),

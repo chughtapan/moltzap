@@ -10,10 +10,11 @@ import { Effect, Redacted, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import type { DaemonBootstrap } from "../service/bootstrap.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";
+import { encodeCanonical } from "../encoding/canonical-json.js";
 import { managementRegisterRequestSchema } from "../harness/protocol/index.js";
 import { DeliveryToken } from "../store/index.js";
 import { InboundMessage } from "../transport/messaging/message.js";
-import { encodeCanonical, RecordHash } from "../transport/wire/index.js";
+import { RecordHash } from "../transport/wire/index.js";
 import {
   digest,
   identifier,

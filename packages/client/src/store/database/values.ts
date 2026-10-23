@@ -2,10 +2,8 @@
 
 import { Data } from "effect";
 import { randomBytes } from "node:crypto";
-import { sameBytes } from "../../transport/wire/index.js";
-
-/** Canonical equality shared by storage checks and wire verification. */
-export { sameBytes };
+import { sameBytes } from "../../encoding/canonical-json.js";
+import { decodeCanonicalBase64Url } from "../../encoding/identifier.js";
 
 /** Closed storage failures that never expose SQLite diagnostics. */
 export type EndpointStoreFailure =
@@ -68,11 +66,7 @@ export function validateContinuation(continuation: string): void {
   if (!/^[A-Za-z0-9_-]{43}$/u.test(continuation)) {
     throw new StoreSignal("invalid-continuation");
   }
-  const decoded = Buffer.from(continuation, "base64url");
-  if (
-    decoded.byteLength !== 32 ||
-    decoded.toString("base64url") !== continuation
-  ) {
+  if (decodeCanonicalBase64Url(continuation)?.byteLength !== 32) {
     throw new StoreSignal("invalid-continuation");
   }
 }

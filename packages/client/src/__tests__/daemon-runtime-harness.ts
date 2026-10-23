@@ -11,6 +11,7 @@ import { Router } from "@moltzap/router";
 import { type Context, Deferred, Duration, Effect } from "effect";
 import type { EventStore } from "../harness/protocol/operations.js";
 import type { Fixture } from "./daemon-runtime-fixtures.js";
+import { sameBytes } from "../encoding/canonical-json.js";
 import { makeHistoryExport } from "../harness/inbox/history-export.js";
 import {
   type HarnessMcpEventHandler,
@@ -44,7 +45,6 @@ import {
   type RouterWorker,
   RouterWorkerPersistenceError,
 } from "../transport/router/index.js";
-import { sameBytes } from "../transport/wire/index.js";
 import { unusedEndpointStore } from "./unused-endpoint-store.js";
 
 /** The MCP handler the daemon installed; throws before installation. */

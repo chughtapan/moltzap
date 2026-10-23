@@ -18,6 +18,7 @@ import type {
 } from "../firewall/evaluator/values.js";
 import type { HarnessMessageReadyEvent } from "../harness/protocol/operations.js";
 import type { InboundItem } from "../transport/collectives/inbound.js";
+import { encodeCanonical } from "../encoding/canonical-json.js";
 import {
   collectiveAdmission,
   type FirewallOptions,
@@ -44,7 +45,6 @@ import { InboundMessage } from "../transport/messaging/message.js";
 import {
   AgentAddress,
   deriveConversationId,
-  encodeCanonical,
   MembershipDescriptor,
   RecordHash,
   verifyMembershipDescriptor,

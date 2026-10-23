@@ -27,7 +27,7 @@ import {
 } from "effect";
 import { createHash } from "node:crypto";
 import type { StoredOutboundMessage } from "../../store/index.js";
-import { decodeCanonical } from "../wire/index.js";
+import { decodeCanonical } from "../../encoding/canonical-json.js";
 import {
   detach,
   isTransportFailure,

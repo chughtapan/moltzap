@@ -8,7 +8,7 @@ Firewall installation, checking and incoming admission ports.
 
 ## Public surface
 
-### [`FirewallAuditRecord`](./firewall-values.ts#L170)
+### [`FirewallAuditRecord`](./firewall-values.ts#L171)
 
 _TypeAlias_
 
@@ -18,7 +18,7 @@ export type FirewallAuditRecord = typeof FirewallAuditRecord.Type;
 
 Completion verifies the snapshot, not completion or delivery of each attempt.
 
-### [`FirewallAuditRecord`](./firewall-values.ts#L131)
+### [`FirewallAuditRecord`](./firewall-values.ts#L132)
 
 _Variable_
 

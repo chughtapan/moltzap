@@ -2,7 +2,18 @@
 
 import { type AgentId, AgentName, WIRE_VERSION } from "@moltzap/identity";
 import canonicalize from "canonicalize";
-import { Either, Encoding, Schema } from "effect";
+import { Either, Schema } from "effect";
+import { exactStruct } from "../../encoding/exact.js";
+import {
+  compareAgentIds as compareAgentIdBytes,
+  compareAscii,
+  isCanonicalIdentifier,
+  isStrictlyAscending,
+} from "../../encoding/identifier.js";
+
+/** Order validated agent identities by their decoded key bytes. */
+export const compareAgentIds: (left: AgentId, right: AgentId) => number =
+  compareAgentIdBytes;
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Effect Schemas share their domain names with the nominal values they decode. */
 
@@ -20,40 +31,7 @@ export const wireProfiles = {
 /** The canonical JSON byte limit of one message's content. */
 export const maximumContentBytes =
   wireProfiles[WIRE_VERSION].maximumContentBytes;
-const HASH_BYTE_LENGTH = 32;
 const utf8Encoder = new TextEncoder();
-
-const exactOptions = {
-  exact: true,
-  onExcessProperty: "error" as const,
-};
-
-/**
- * A struct schema that rejects unknown and excess properties on decode, so a
- * wire value never carries fields its schema does not name.
- */
-export const exactStruct = <Fields extends Schema.Struct.Fields>(
-  fields: Fields,
-) => Schema.Struct(fields).annotations({ parseOptions: exactOptions });
-
-/**
- * Whether a value is the prefix followed by the canonical base64url of a
- * 32-byte hash, the shape of every minted Social Harness identifier.
- * @param prefix The identifier's kind prefix, such as `pst_`.
- * @param value The candidate identifier.
- * @returns Whether the value is canonical for that prefix.
- */
-export function isCanonicalIdentifier(prefix: string, value: string): boolean {
-  if (!value.startsWith(prefix)) {
-    return false;
-  }
-  return Either.match(Encoding.decodeBase64Url(value.slice(prefix.length)), {
-    onLeft: () => false,
-    onRight: (bytes) =>
-      bytes.byteLength === HASH_BYTE_LENGTH &&
-      `${prefix}${Encoding.encodeBase64Url(bytes)}` === value,
-  });
-}
 
 /** Opaque identity minted for one addressed-send invocation. */
 export const PostId = Schema.String.pipe(
@@ -157,43 +135,6 @@ function contentFits(
 /** The largest group membership a conversation address or descriptor admits. */
 export const maximumMembers = wireProfiles[WIRE_VERSION].maximumMembers;
 
-/**
- * Decode base64url only in its canonical encoding, so one key has one text form.
- * @param value The base64url text.
- * @returns The bytes, or undefined when the text is not canonical base64url.
- */
-export const decodeCanonicalBase64Url = (
-  value: string,
-): Uint8Array | undefined =>
-  Either.match(Encoding.decodeBase64Url(value), {
-    onLeft: () => undefined,
-    onRight: (bytes) =>
-      Encoding.encodeBase64Url(bytes) === value ? bytes : undefined,
-  });
-
-/**
- * Order agent ids by their decoded key bytes, the order membership
- * descriptors and group addresses use.
- * @param left One agent id.
- * @param right The other agent id.
- * @returns A negative, zero, or positive comparison result.
- */
-export const compareAgentIds = (left: AgentId, right: AgentId): number => {
-  const leftBytes = decodeCanonicalBase64Url(left.slice(4));
-  const rightBytes = decodeCanonicalBase64Url(right.slice(4));
-  if (leftBytes === undefined || rightBytes === undefined) {
-    return 0;
-  }
-  const length = Math.min(leftBytes.byteLength, rightBytes.byteLength);
-  for (let index = 0; index < length; index += 1) {
-    const difference = (leftBytes[index] ?? 0) - (rightBytes[index] ?? 0);
-    if (difference !== 0) {
-      return difference;
-    }
-  }
-  return leftBytes.byteLength - rightBytes.byteLength;
-};
-
 /** The scheme of an address naming one agent. */
 export const AGENT_ADDRESS_PREFIX = "agent:";
 /** The scheme of an address listing a group's members. */
@@ -267,23 +208,6 @@ export const MessageAddressInput = addressInput;
 /** A validated explicit destination input. */
 export type MessageAddressInput = typeof MessageAddressInput.Type;
 
-/**
- * Unsigned ASCII order, the order a canonical group address lists its names in.
- * @param left One name.
- * @param right The other name.
- * @returns Negative, zero, or positive as `left` sorts before, with, or after `right`.
- */
-export const compareAscii = (left: string, right: string): number => {
-  const sharedLength = Math.min(left.length, right.length);
-  for (let index = 0; index < sharedLength; index += 1) {
-    const difference = left.charCodeAt(index) - right.charCodeAt(index);
-    if (difference !== 0) {
-      return difference;
-    }
-  }
-  return left.length - right.length;
-};
-
 function isCanonicalGroupAddress(value: string): boolean {
   const names = parseGroupAddress(value);
   if (
@@ -293,18 +217,7 @@ function isCanonicalGroupAddress(value: string): boolean {
   ) {
     return false;
   }
-  for (let index = 1; index < names.length; index += 1) {
-    const previous = names[index - 1];
-    const current = names[index];
-    if (
-      previous === undefined ||
-      current === undefined ||
-      compareAscii(previous, current) >= 0
-    ) {
-      return false;
-    }
-  }
-  return true;
+  return isStrictlyAscending(names, compareAscii);
 }
 
 /* eslint-enable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Restore the package naming rules after the Schema/type pairs. */

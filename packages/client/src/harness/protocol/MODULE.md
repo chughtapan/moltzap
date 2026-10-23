@@ -8,7 +8,7 @@ Daemon MCP schemas and ports; hosts use the names and operations entrypoints.
 
 ## Public surface
 
-### [`decodeHarnessMessageReadyEvent`](./operations.ts#L247)
+### [`decodeHarnessMessageReadyEvent`](./operations.ts#L242)
 
 _Function_
 
@@ -22,7 +22,7 @@ Decode one exact pending-delivery notification payload.
 
 **Returns:** The validated pending delivery.
 
-### [`decodeHarnessReadInboxResult`](./operations.ts#L156)
+### [`decodeHarnessReadInboxResult`](./operations.ts#L151)
 
 _Variable_
 
@@ -33,7 +33,7 @@ export const decodeHarnessReadInboxResult =
 
 Decode a bounded inbox page received through the MCP transport.
 
-### [`decodeHarnessSendErrorData`](./operations.ts#L258)
+### [`decodeHarnessSendErrorData`](./operations.ts#L253)
 
 _Function_
 
@@ -47,7 +47,7 @@ Decode the error data of one refused `send_message` call.
 
 **Returns:** The collective failure or send reason it carries.
 
-### [`decodeHarnessSendResult`](./operations.ts#L280)
+### [`decodeHarnessSendResult`](./operations.ts#L275)
 
 _Function_
 

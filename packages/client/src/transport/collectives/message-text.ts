@@ -21,7 +21,8 @@
  */
 
 import { Data, Either, Option, Predicate, Schema } from "effect";
-import { exactStruct, type MessageAddressInput } from "../wire/values.js";
+import type { MessageAddressInput } from "../wire/values.js";
+import { exactStruct } from "../../encoding/exact.js";
 import {
   AcceptResponse,
   type CollectiveResponse,

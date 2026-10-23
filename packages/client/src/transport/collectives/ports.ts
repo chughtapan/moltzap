@@ -24,12 +24,9 @@ import type {
   SendInput,
 } from "./forms.js";
 import type { InboundItem } from "./inbound.js";
+import { exactStruct } from "../../encoding/exact.js";
 import { RecordHash } from "../wire/index.js";
-import {
-  AgentAddress,
-  exactStruct,
-  type MessageAddressInput,
-} from "../wire/values.js";
+import { AgentAddress, type MessageAddressInput } from "../wire/values.js";
 
 // safer-arch-ignore file-implicit-boundary-module: The operation layer and its received-request state run on these ports; transport/collectives/index.ts is the one boundary that exposes them.
 

@@ -3,7 +3,7 @@
 import { SignedMessage } from "@moltzap/identity";
 import { type Duration, Effect, Queue } from "effect";
 import type { EndpointStore } from "../store/index.js";
-import { decodeCanonical } from "../transport/wire/index.js";
+import { decodeCanonical } from "../encoding/canonical-json.js";
 
 /**
  * Transmit one outbox row the way the Router worker does: begin it, complete

@@ -12,6 +12,7 @@ import type {
   VerifiedAgentCard,
 } from "@moltzap/identity";
 import type { Deferred, Effect, Scope } from "effect";
+import type { ClientRepresentationError } from "../../../encoding/canonical-json.js";
 import type {
   EndpointStore,
   EndpointStoreError,
@@ -28,7 +29,6 @@ import type {
   ActionCore,
   ActionHash,
   CertifiedRecord,
-  ClientRepresentationError,
   ConversationId,
   DecodedOuterBody,
   DirectPacket,

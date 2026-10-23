@@ -7,7 +7,7 @@ import type { DaemonBootstrap } from "../bootstrap.js";
 import {
   decodeCanonical,
   encodeCanonical,
-} from "../../transport/wire/index.js";
+} from "../../encoding/canonical-json.js";
 
 /** Endpoint identity state could not be read or atomically committed. */
 export class DaemonRegistrationPersistenceError extends Data.TaggedError(

@@ -45,6 +45,10 @@ import { forwardStoredOutbound } from "../../../__tests__/forward-stored-outboun
 import { openOuterBody } from "../../../__tests__/outer-body-fixtures.js";
 import { pollCursor as fixturePollCursor } from "../../../__tests__/router-worker-fixtures.js";
 import {
+  decodeCanonical,
+  encodeCanonical,
+} from "../../../encoding/canonical-json.js";
+import {
   type EndpointStore,
   EndpointStoreError,
   openEndpointStore,
@@ -66,12 +70,10 @@ import {
   Content,
   ConversationId,
   type ConversationId as ConversationIdValue,
-  decodeCanonical,
   type DecodedOuterBody,
   decodeOuterBody,
   deriveConversationId,
   DirectPacket,
-  encodeCanonical,
   EvidenceStatement,
   hashAction,
   MembershipDescriptor,

@@ -14,18 +14,22 @@ import { Effect, Schema } from "effect";
 import {
   type ClientRepresentationError,
   decodeCanonical,
-  deriveConversationId,
-  deriveEvidenceMessageId,
   encodeCanonical,
   equalCanonical,
+  representationFailure,
+  sameBytes,
+} from "../../encoding/canonical-json.js";
+import { exactParseOptions } from "../../encoding/exact.js";
+import { isStrictlyAscending } from "../../encoding/identifier.js";
+import {
+  deriveConversationId,
+  deriveEvidenceMessageId,
   hashAction,
   hashAnchor,
   hashMembershipDescriptor,
   hashPostIntent,
   hashRecord,
   type OuterMembership,
-  representationFailure,
-  sameBytes,
 } from "./encoding/index.js";
 import {
   type ActionCertifiedRecord,
@@ -54,24 +58,8 @@ import { compareAgentIds } from "./values.js";
 
 /* eslint-disable jsdoc/require-jsdoc -- The package-private representation facade documents these closed verification operations. */
 
-const exactOptions = {
-  exact: true,
-  onExcessProperty: "error" as const,
-};
-
 const sortedDistinct = (agentIds: readonly AgentId[]): boolean => {
-  for (let index = 1; index < agentIds.length; index += 1) {
-    const previous = agentIds[index - 1];
-    const current = agentIds[index];
-    if (
-      previous === undefined ||
-      current === undefined ||
-      compareAgentIds(previous, current) >= 0
-    ) {
-      return false;
-    }
-  }
-  return true;
+  return isStrictlyAscending(agentIds, compareAgentIds);
 };
 
 export interface VerifiedMembership extends OuterMembership {
@@ -87,7 +75,7 @@ export const verifyMembershipDescriptor = (
     const verified = yield* Effect.forEach(
       descriptor.members,
       (representation) =>
-        Schema.decodeUnknown(AgentCard)(representation, exactOptions).pipe(
+        Schema.decodeUnknown(AgentCard)(representation, exactParseOptions).pipe(
           Effect.flatMap((agentCard) =>
             AgentCard.verify({ agentCard, registrySignerPublicKey }),
           ),
@@ -178,7 +166,7 @@ export const verifyStableEvidence = (input: {
   Effect.gen(function* () {
     const message = yield* Schema.decodeUnknown(SignedMessage)(
       input.representation,
-      exactOptions,
+      exactParseOptions,
     ).pipe(Effect.mapError(representationFailure));
     const card = memberCard(input.membership, message.senderAgentId);
     if (

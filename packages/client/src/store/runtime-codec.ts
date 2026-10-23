@@ -1,10 +1,9 @@
 /** @file Exact canonical serialization for daemon-owned runtime persistence. */
 
-import canonicalize from "canonicalize";
 import { Effect, Schema } from "effect";
+import { canonicalBytes } from "../encoding/canonical-json.js";
 import { EndpointStoreError } from "./database/index.js";
 
-const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
 /**
@@ -15,16 +14,11 @@ const decoder = new TextDecoder("utf-8", { fatal: true });
 export const encodeRuntimeValue = (
   value: unknown,
 ): Effect.Effect<Uint8Array, EndpointStoreError> =>
-  Effect.try({
-    try: () => {
-      const encoded = canonicalize(value);
-      if (encoded === undefined) {
-        throw new EndpointStoreError({ reason: "invalid-input" });
-      }
-      return encoder.encode(encoded);
-    },
-    catch: () => new EndpointStoreError({ reason: "invalid-input" }),
-  });
+  canonicalBytes(value).pipe(
+    Effect.catchTag("ClientRepresentationError", () =>
+      Effect.fail(new EndpointStoreError({ reason: "invalid-input" })),
+    ),
+  );
 
 /**
  * Validate stored bytes at their owning runtime boundary before reuse.

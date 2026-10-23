@@ -4,14 +4,10 @@
 /* eslint-disable jsdoc/require-jsdoc -- Re-exported private symbols retain their owning-module documentation. */
 
 export {
-  ClientRepresentationError,
-  decodeCanonical,
   type DecodedOuterBody,
   decodeOuterBody,
   deriveConversationId,
   deriveEvidenceMessageId,
-  encodeCanonical,
-  equalCanonical,
   hashAction,
   hashAnchor,
   hashMembershipDescriptor,
@@ -20,7 +16,6 @@ export {
   mintPostId,
   type OuterBodyReader,
   type OuterMembership,
-  sameBytes,
   signEvidenceMessage,
   signOuterEvidence,
   signOuterPacket,
@@ -65,12 +60,9 @@ export {
 export {
   AgentAddress,
   compareAgentIds,
-  compareAscii,
   Content,
   ContentPart,
-  exactStruct,
   GroupAddress,
-  isCanonicalIdentifier,
   JsonValue,
   maximumContentBytes,
   maximumMembers,
