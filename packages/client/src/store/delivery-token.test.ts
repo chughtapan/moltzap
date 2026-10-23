@@ -1,13 +1,13 @@
-/** @file Durable token minting bounds collision exhaustion with a persistence signal. */
+/** @file Delivery tokens decode only in canonical form, and minting bounds collision exhaustion with a persistence signal. */
 
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { mintDeliveryToken, StoreSignal } from "./database/index.js";
-import { DeliveryToken } from "./types.js";
+import { DeliveryToken } from "./index.js";
 
 const candidateIsRetained = () => true;
 
-describe("delivery token minting", () => {
+describe("delivery tokens", () => {
   it("rejects non-canonical base64url trailing bits", () => {
     const decode = Schema.decodeUnknownSync(DeliveryToken);
     const canonical = `dlv_${"A".repeat(43)}`;

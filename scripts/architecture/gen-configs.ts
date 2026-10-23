@@ -145,11 +145,6 @@ const clientDomains: readonly ClientDomain[] = [
         reason: "Closed struct decoding shared by host-loaded value schemas",
       },
       {
-        file: "canonical-json.ts",
-        host: true,
-        reason: "Canonical JSON encoding used by host-loaded content bounds",
-      },
-      {
         file: "identifier.ts",
         host: true,
         reason: "Canonical identifiers and ordering used by host-loaded values",

@@ -17,10 +17,6 @@
       "reason": "Closed struct decoding shared by host-loaded value schemas"
     },
     {
-      "file": "encoding/canonical-json.ts",
-      "reason": "Canonical JSON encoding used by host-loaded content bounds"
-    },
-    {
       "file": "encoding/identifier.ts",
       "reason": "Canonical identifiers and ordering used by host-loaded values"
     },
@@ -111,7 +107,6 @@
       ],
       "entrypoints": [
         "src/encoding/exact.ts",
-        "src/encoding/canonical-json.ts",
         "src/encoding/identifier.ts"
       ],
       "reason": "Leaf codecs depending only on Effect and canonicalize"
