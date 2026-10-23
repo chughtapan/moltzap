@@ -1,6 +1,6 @@
 /** @file Complete Registry-owned client, request, and representation contract. */
 
-import { Data, type Effect, type Redacted, Schema } from "effect";
+import { Data, Effect, type Redacted, Schema } from "effect";
 import type { HttpEnvelopeError } from "../http-errors.js";
 import type { AgentSigningError } from "../http-signature.js";
 import {
@@ -9,7 +9,11 @@ import {
   verifiedAgentCardSchema,
 } from "../agent-card.js";
 import { type AgentSigningAuthority, Ed25519PublicKey } from "../agent-key.js";
-import { exactStruct } from "../canonical-json.js";
+import {
+  decodeCanonicalJson,
+  encodeCanonicalJson,
+  exactStruct,
+} from "../canonical-json.js";
 import {
   AgentId,
   AgentName,
@@ -201,7 +205,7 @@ export const lookupResponseSchema = Schema.Union(
 );
 
 /** Exact list response representation used by both HTTP adapters. */
-export const listResponseSchema = exactStruct({
+const listResponseSchema = exactStruct({
   kind: Schema.Literal("page"),
   agentCards: Schema.Array(AgentCard),
   hasMore: Schema.Boolean,
@@ -268,3 +272,33 @@ export const LOOKUP_BODY_CAP = Math.max(
 export const LIST_BODY_CAP = byteLength({
   afterAgentId: maximumIdentifier,
 });
+
+/** Registration body, durable operation identity, and response share exact codecs. */
+export const registryRegisterCodec = {
+  request: canonicalCodec(RegistryRegisterRequest),
+  body: canonicalCodec(registrationBody),
+  response: canonicalCodec(registerResponseSchema),
+};
+
+/** Public lookup bytes use the same closed representations on both HTTP sides. */
+export const registryLookupCodec = {
+  request: canonicalCodec(RegistryLookupRequest),
+  response: canonicalCodec(lookupResponseSchema),
+};
+
+/** Public list bytes use the same closed representations on both HTTP sides. */
+export const registryListCodec = {
+  request: canonicalCodec(RegistryListRequest),
+  response: canonicalCodec(listResponseSchema),
+};
+
+/** Stored cards retain their complete canonical signed representation. */
+export const registryAgentCardCodec = canonicalCodec(AgentCard);
+
+function canonicalCodec<A, I>(schema: Schema.Schema<A, I>) {
+  return {
+    encode: (value: A) =>
+      Schema.encode(schema)(value).pipe(Effect.flatMap(encodeCanonicalJson)),
+    decode: (bytes: Uint8Array) => decodeCanonicalJson(schema, bytes),
+  };
+}

@@ -3,8 +3,8 @@
 import { live as it } from "@effect/vitest";
 import { ConfigError, ConfigProvider, Effect, Layer } from "effect";
 import { expect } from "vitest";
-import { configurationMessage } from "../../router.js";
 import { RouterServer } from "../../server.js";
+import { configurationMessage } from "../configuration.js";
 
 const registryOriginVariable = "SHARNESS_ROUTER_REGISTRY_ORIGIN";
 const rejectedValue =

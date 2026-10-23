@@ -17,7 +17,7 @@ package.
 
 ## Public surface
 
-### [`AgentCard (type)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/agent-card.ts#L107)
+### [`AgentCard (type)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/agent-card.ts#L100)
 
 _Interface_
 
@@ -33,7 +33,7 @@ export interface AgentCard {
 
 Immutable public identity fields carried by an AgentCard.
 
-### [`AgentCard (value)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/agent-card.ts#L412)
+### [`AgentCard (value)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/agent-card.ts#L328)
 
 _Variable_
 
@@ -50,7 +50,7 @@ export const AgentCard = Object.assign(agentCardSchema, {
 
 Verifies immutable Registry attestation without exposing JOSE mechanics.
 
-### [`AgentCardDigest (type)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/agent-card.ts#L68)
+### [`AgentCardDigest (type)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/agent-card.ts#L66)
 
 _TypeAlias_
 
@@ -60,7 +60,7 @@ export type AgentCardDigest = typeof AgentCardDigest.Type;
 
 Validated nominal value decoded by AgentCardDigest.
 
-### [`AgentCardDigest (value)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/agent-card.ts#L61)
+### [`AgentCardDigest (value)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/agent-card.ts#L59)
 
 _Variable_
 
@@ -74,7 +74,7 @@ export const AgentCardDigest = canonicalIdentifier(
 
 Digest binding a message to one complete immutable AgentCard.
 
-### [`AgentCardVerificationError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/agent-card.ts#L257)
+### [`AgentCardVerificationError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/agent-card.ts#L250)
 
 _Class_
 
@@ -176,7 +176,7 @@ export class AgentSigningError extends Data.TaggedError("AgentSigningError") {}
 
 An agent-owned HTTP request could not be signed.
 
-### [`AuthenticatedHttp`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/authenticated-http.ts#L66)
+### [`AuthenticatedHttp`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/authenticated-http.ts#L68)
 
 _Class_
 
@@ -587,7 +587,7 @@ export class UnsupportedMediaTypeError extends Schema.TaggedError<UnsupportedMed
 
 The selected route cannot consume the request content framing.
 
-### [`VerifiedAgentCard`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/agent-card.ts#L242)
+### [`VerifiedAgentCard`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/agent-card.ts#L235)
 
 _TypeAlias_
 
@@ -597,7 +597,7 @@ export type VerifiedAgentCard = AgentCard & Brand.Brand<"VerifiedAgentCard">;
 
 AgentCard verified against a deployment-pinned Registry signer.
 
-### [`VerifiedAgentRequest`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/authenticated-http.ts#L44)
+### [`VerifiedAgentRequest`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/authenticated-http.ts#L46)
 
 _TypeAlias_
 
@@ -723,7 +723,7 @@ export class Registry extends Context.Tag("@moltzap/identity/Registry")<
 
 Bootstrap registration and immutable identity resolution.
 
-#### [`RegistryConnectionError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L28)
+#### [`RegistryConnectionError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L32)
 
 _Class_
 
@@ -735,7 +735,7 @@ export class RegistryConnectionError extends Data.TaggedError(
 
 The Registry connection could not be established or used.
 
-#### [`RegistryInvalidResponseError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L38)
+#### [`RegistryInvalidResponseError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L42)
 
 _Class_
 
@@ -747,7 +747,7 @@ export class RegistryInvalidResponseError extends Data.TaggedError(
 
 A Registry response did not match the selected operation contract.
 
-#### [`RegistryRequestTimeoutError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L33)
+#### [`RegistryRequestTimeoutError`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L37)
 
 _Class_
 
@@ -759,7 +759,7 @@ export class RegistryRequestTimeoutError extends Data.TaggedError(
 
 The configured complete Registry call deadline expired.
 
-#### [`OperationId (type)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L25)
+#### [`OperationId (type)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L29)
 
 _TypeAlias_
 
@@ -769,7 +769,7 @@ export type OperationId = typeof OperationId.Type;
 
 Validated nominal value decoded by OperationId.
 
-#### [`RegistryListRequest (type)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L90)
+#### [`RegistryListRequest (type)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L94)
 
 _TypeAlias_
 
@@ -779,7 +779,7 @@ export type RegistryListRequest = typeof RegistryListRequest.Type;
 
 Validated Registry list continuation request.
 
-#### [`RegistryListResult`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L105)
+#### [`RegistryListResult`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L109)
 
 _TypeAlias_
 
@@ -793,7 +793,7 @@ export type RegistryListResult = Readonly<{
 
 One deterministic page of complete immutable AgentCards.
 
-#### [`RegistryLookupRequest (type)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L78)
+#### [`RegistryLookupRequest (type)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L82)
 
 _TypeAlias_
 
@@ -803,7 +803,7 @@ export type RegistryLookupRequest = typeof RegistryLookupRequest.Type;
 
 Validated Registry lookup selector.
 
-#### [`RegistryLookupResult`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L100)
+#### [`RegistryLookupResult`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L104)
 
 _TypeAlias_
 
@@ -815,7 +815,7 @@ export type RegistryLookupResult =
 
 Closed domain outcome from one public identity lookup.
 
-#### [`RegistryRegisterRequest (type)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L52)
+#### [`RegistryRegisterRequest (type)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L56)
 
 _TypeAlias_
 
@@ -825,7 +825,7 @@ export type RegistryRegisterRequest = typeof RegistryRegisterRequest.Type;
 
 Validated Registry bootstrap registration request.
 
-#### [`RegistryRegisterResult`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L93)
+#### [`RegistryRegisterResult`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L97)
 
 _TypeAlias_
 
@@ -839,7 +839,7 @@ export type RegistryRegisterResult =
 
 Closed domain outcome from one bootstrap registration attempt.
 
-#### [`OperationId (value)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L22)
+#### [`OperationId (value)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L26)
 
 _Variable_
 
@@ -849,7 +849,7 @@ export const OperationId = canonicalIdentifier("OperationId", "opn_", 16)
 
 Idempotency identity for a registration operation.
 
-#### [`RegistryListRequest (value)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L82)
+#### [`RegistryListRequest (value)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L86)
 
 _Variable_
 
@@ -864,7 +864,7 @@ export const RegistryListRequest = exactStruct({
 
 Closed Registry list continuation request.
 
-#### [`RegistryLookupRequest (value)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L56)
+#### [`RegistryLookupRequest (value)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L60)
 
 _Variable_
 
@@ -893,7 +893,7 @@ export const RegistryLookupRequest = Schema.Union(
 
 Closed Registry lookup selector.
 
-#### [`RegistryRegisterRequest (value)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L44)
+#### [`RegistryRegisterRequest (value)`](https://github.com/social-harness/moltzap/blob/main/packages/identity/src/registry/contract.ts#L48)
 
 _Variable_
 
@@ -996,6 +996,7 @@ Usage is generated from the same fields consumed by the process.
 - `registry/client.ts`
 - `registry/contract.ts`
 - `registry/http.ts`
+- `registry/issuance.ts`
 - `registry/migrations/0001_registry.ts`
 - `registry/README.md`
 - `registry/rpc.ts`

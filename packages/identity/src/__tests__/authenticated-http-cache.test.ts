@@ -3,8 +3,8 @@
 import { Array, Effect, Encoding, Ref, Schema } from "effect";
 import { expect, it } from "vitest";
 import type { RegistryClientService } from "../registry/contract.js";
-import { AgentCardIssuedAt, issueAgentCard } from "../agent-card.js";
 import { AgentId, AgentName } from "../identifiers.js";
+import { AgentCardIssuedAt, issueAgentCard } from "../registry/issuance.js";
 import {
   type IdentityFixture,
   makeIdentityFixture,

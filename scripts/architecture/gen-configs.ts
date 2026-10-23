@@ -410,7 +410,12 @@ const architectureConfigDefinitions: ReadonlyArray<{
           {
             file: "agent-card.ts",
             reason:
-              "Immutable Registry attestation boundary for issuance, verification, encoding, and digest operations",
+              "Immutable Registry attestation boundary for verification and digest operations",
+          },
+          {
+            file: "authenticated-http.ts",
+            reason:
+              "Identity-owned request signing and verification capability shared by registered-agent and Registry bootstrap admission",
           },
           {
             file: "agent-key.ts",

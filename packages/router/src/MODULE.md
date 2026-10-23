@@ -42,7 +42,7 @@ export const PollCursor = Schema.String.pipe(
 
 Opaque, authenticated continuation for one caller and Router instance.
 
-### [`Router`](./router.ts#L87)
+### [`Router`](./router.ts#L51)
 
 _Class_
 
@@ -329,6 +329,7 @@ flowchart LR
 
 - `index.ts`
 - `router.ts`
+- `router/configuration.ts`
 - `router/contract.ts`
 - `router/feed.ts`
 - `router/http.ts`

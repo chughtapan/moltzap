@@ -10,9 +10,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   AgentCard,
-  AgentCardIssuedAt,
   digestAgentCard,
-  issueAgentCard,
 } from "../packages/identity/dist/agent-card.js";
 import {
   AgentSigningAuthority,
@@ -24,6 +22,10 @@ import {
   AgentName,
   PrincipalId,
 } from "../packages/identity/dist/identifiers.js";
+import {
+  AgentCardIssuedAt,
+  issueAgentCard,
+} from "../packages/identity/dist/registry/issuance.js";
 import {
   MessageId,
   SignedMessage,

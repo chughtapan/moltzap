@@ -5,35 +5,30 @@ import * as Migrator from "@effect/sql/Migrator";
 import { SqlClient } from "@effect/sql/SqlClient";
 import { Clock, Data, Effect, Either, Encoding, Schema } from "effect";
 import { randomBytes } from "node:crypto";
-import {
-  AgentCard,
-  AgentCardIssuedAt,
-  encodeAgentCard,
-  issueAgentCard,
-  type VerifiedAgentCard,
-} from "../agent-card.js";
+import { AgentCard, type VerifiedAgentCard } from "../agent-card.js";
 import {
   type AgentSigningAuthority,
   type Ed25519PublicKey,
   ed25519PublicKeyThumbprintUri,
 } from "../agent-key.js";
-import {
-  decodeCanonicalJson,
-  encodeCanonicalJson,
-  exactStruct,
-  sameBytes,
-} from "../canonical-json.js";
+import { exactStruct, sameBytes } from "../canonical-json.js";
 import { InternalServerError, UnavailableError } from "../http-errors.js";
 import { AgentId, type AgentId as AgentIdValue } from "../identifiers.js";
 import {
-  registerResponseSchema,
+  registryAgentCardCodec,
   type RegistryListRequest,
   type RegistryListResult,
   type RegistryLookupRequest,
   type RegistryLookupResult,
+  registryRegisterCodec,
   type RegistryRegisterRequest,
   type RegistryRegisterResult,
 } from "./contract.js";
+import {
+  AgentCardIssuedAt,
+  encodeAgentCard,
+  issueAgentCard,
+} from "./issuance.js";
 import { registryMigration } from "./migrations/0001_registry.js";
 
 /** Storage initialization failed before the Registry became ready. */
@@ -204,21 +199,19 @@ const decodeStoredCard = (
   registrySignerPublicKey: Ed25519PublicKey,
 ): Effect.Effect<VerifiedAgentCard, InternalServerError> =>
   internalFailure(
-    decodeCanonicalJson(AgentCard, bytes).pipe(
-      Effect.flatMap((agentCard) =>
-        AgentCard.verify({ agentCard, registrySignerPublicKey }),
+    registryAgentCardCodec
+      .decode(bytes)
+      .pipe(
+        Effect.flatMap((agentCard) =>
+          AgentCard.verify({ agentCard, registrySignerPublicKey }),
+        ),
       ),
-    ),
   );
 
 const encodeResult = (
   result: RegistryRegisterResult,
 ): Effect.Effect<Uint8Array, InternalServerError> =>
-  internalFailure(
-    Schema.encode(registerResponseSchema)(result).pipe(
-      Effect.flatMap(encodeCanonicalJson),
-    ),
-  );
+  internalFailure(registryRegisterCodec.response.encode(result));
 
 const decodeResult = (
   bytes: Uint8Array,
@@ -226,7 +219,7 @@ const decodeResult = (
 ): Effect.Effect<RegistryRegisterResult, InternalServerError> =>
   internalFailure(
     Effect.gen(function* () {
-      const result = yield* decodeCanonicalJson(registerResponseSchema, bytes);
+      const result = yield* registryRegisterCodec.response.decode(bytes);
       if (result.kind !== "registered") {
         return Object.freeze({ kind: result.kind });
       }

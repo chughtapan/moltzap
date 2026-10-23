@@ -18,7 +18,6 @@ import {
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { RegistryStorage } from "../storage.js";
-import { AgentCardIssuedAt, issueAgentCard } from "../../agent-card.js";
 import { encodeCanonicalJson } from "../../canonical-json.js";
 import { UnavailableError } from "../../http-errors.js";
 import {
@@ -33,6 +32,7 @@ import {
   RegistryRegisterRequest,
 } from "../../registry.js";
 import { lookupResponseSchema, registerResponseSchema } from "../contract.js";
+import { AgentCardIssuedAt, issueAgentCard } from "../issuance.js";
 import {
   makeRegistryRpcClient,
   makeRegistryRpcHandlersLayer,

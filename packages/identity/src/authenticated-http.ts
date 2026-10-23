@@ -12,7 +12,7 @@ import {
   Ref,
   Schema,
 } from "effect";
-import type { AgentSigningAuthority } from "./agent-key.js";
+import type { AgentSigningAuthority, Ed25519PublicKey } from "./agent-key.js";
 import type { RegistryLookupResult } from "./registry/contract.js";
 import {
   type VerifiedAgentCard,
@@ -23,6 +23,7 @@ import {
   decodeCanonicalJson,
   encodeCanonicalJson,
   exactStruct,
+  parseCanonicalJson,
 } from "./canonical-json.js";
 import {
   AuthenticationFailedError,
@@ -34,6 +35,7 @@ import {
 import {
   AgentSigningError,
   signHttpRequest,
+  type VerifiedHttpSignature,
   verifyHttpRequestSignature,
 } from "./http-signature.js";
 import { AgentId, type AgentId as AgentIdValue } from "./identifiers.js";
@@ -86,6 +88,61 @@ export class AuthenticatedHttp extends Context.Tag(
     readonly registryLookupConcurrencyLimit: number;
   }): Layer.Layer<AuthenticatedHttp, never, Registry> =>
     Layer.effect(AuthenticatedHttp, makeService({ ...input }));
+}
+
+/**
+ * Verifies bootstrap HTTP proof between the Registry's key admission and durable
+ * nonce admission. The nonce is claimed before checking live wire compatibility,
+ * so an incompatible signed request still consumes its nonce.
+ */
+export function verifyBootstrapRequest<
+  KeyError,
+  KeyContext,
+  NonceError,
+  NonceContext,
+>(input: {
+  readonly httpRequest: HttpServerRequest.HttpServerRequest;
+  readonly bodyBytes: Uint8Array;
+  readonly admitPublicKey: (
+    parsedBody: unknown,
+  ) => Effect.Effect<Ed25519PublicKey, KeyError, KeyContext>;
+  readonly claimNonce: (
+    signature: VerifiedHttpSignature,
+  ) => Effect.Effect<void, NonceError, NonceContext>;
+}): Effect.Effect<
+  {
+    readonly parsedBody: unknown;
+    readonly signature: VerifiedHttpSignature;
+  },
+  | KeyError
+  | NonceError
+  | MalformedRequestError
+  | AuthenticationFailedError
+  | VersionMismatchError,
+  KeyContext | NonceContext
+> {
+  return Effect.gen(function* () {
+    const parsedBody = yield* parseCanonicalJson(
+      new Uint8Array(input.bodyBytes),
+    ).pipe(
+      Effect.catchTag("CanonicalJsonError", () =>
+        Effect.fail(new MalformedRequestError()),
+      ),
+    );
+    const publicKey = yield* input.admitPublicKey(parsedBody);
+    const signature = yield* verifyHttpRequestSignature({
+      httpRequest: input.httpRequest,
+      bodyBytes: input.bodyBytes,
+      publicKey,
+      profile: "registration",
+    });
+    yield* input.claimNonce(signature);
+    const version = input.httpRequest.headers["sharness-version"];
+    if (version === undefined || !(yield* WireVersions.live(version))) {
+      return yield* new VersionMismatchError();
+    }
+    return { parsedBody, signature };
+  }).pipe(Effect.withSpan("verifyBootstrapRequest"));
 }
 
 const brandVerifiedAgentRequest = Brand.nominal<VerifiedAgentRequest>();

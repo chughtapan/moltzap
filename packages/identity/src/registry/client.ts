@@ -12,7 +12,6 @@ import {
   type Ed25519PublicKey,
   sameEd25519PublicKey,
 } from "../agent-key.js";
-import { decodeCanonicalJson, encodeCanonicalJson } from "../canonical-json.js";
 import {
   AuthenticationFailedError,
   type HttpEnvelopeError,
@@ -31,21 +30,20 @@ import { type AgentId, compareAgentIds } from "../identifiers.js";
 import { WireVersions } from "../wire-versions.js";
 import {
   LIST_PATH,
-  listResponseSchema,
   LOOKUP_PATH,
-  lookupResponseSchema,
   REGISTER_PATH,
-  registerResponseSchema,
-  registrationBody,
   type RegistryClientService,
   RegistryConnectionError,
   RegistryInvalidResponseError,
+  registryListCodec,
   RegistryListRequest,
   type RegistryListResult,
+  registryLookupCodec,
   RegistryLookupRequest,
   type RegistryLookupResult,
   type RegistryPublicReadError,
   type RegistryRegisterCall,
+  registryRegisterCodec,
   RegistryRegisterRequest,
   type RegistryRegisterResult,
   RegistryRequestTimeoutError,
@@ -269,16 +267,6 @@ const requireJsonSuccess = (
     ? Effect.void
     : Effect.fail(invalidResponse());
 
-const encodeRequest = <A, I>(
-  schema: Schema.Schema<A, I>,
-  request: A,
-): Effect.Effect<Uint8Array, RegistryInvalidResponseError> =>
-  Schema.encode(schema)(request).pipe(
-    Effect.mapError(invalidResponse),
-    Effect.flatMap(encodeCanonicalJson),
-    Effect.mapError(invalidResponse),
-  );
-
 /**
  * One decoded copy of a caller's request record. Schema encoding reads members
  * directly and does not catch a throwing getter, so the record is read once
@@ -345,9 +333,11 @@ const makeSignedRegistrationRequest = (
     if (!sameKey) {
       return yield* new AgentSigningError();
     }
-    const bodyBytes = yield* encodeRequest(registrationBody, {
-      request: registerRequest,
-    });
+    const bodyBytes = yield* registryRegisterCodec.body
+      .encode({
+        request: registerRequest,
+      })
+      .pipe(Effect.mapError(invalidResponse));
     const httpRequest = makePost(
       input.origin,
       REGISTER_PATH,
@@ -389,10 +379,9 @@ const decodeRegistrationResult = (
   responseBytes: Uint8Array,
 ): Effect.Effect<RegistryRegisterResult, RegistryInvalidResponseError> =>
   Effect.gen(function* () {
-    const result = yield* decodeCanonicalJson(
-      registerResponseSchema,
-      responseBytes,
-    ).pipe(Effect.mapError(invalidResponse));
+    const result = yield* registryRegisterCodec.response
+      .decode(responseBytes)
+      .pipe(Effect.mapError(invalidResponse));
     if (result.kind !== "registered") {
       return Object.freeze({ kind: result.kind });
     }
@@ -470,22 +459,22 @@ function makeLookup(
         () => candidate,
         invalidResponse,
       );
-      const bodyBytes = yield* encodeRequest(RegistryLookupRequest, call);
       const [response, responseBytes] = yield* executePublicRead({
         client: input.client,
         request: makePost(
           input.origin,
           LOOKUP_PATH,
-          bodyBytes,
+          yield* registryLookupCodec.request
+            .encode(call)
+            .pipe(Effect.mapError(invalidResponse)),
           yield* WireVersions.emitted,
         ),
         operation: "lookup",
       });
       yield* requireJsonSuccess(response);
-      const result = yield* decodeCanonicalJson(
-        lookupResponseSchema,
-        responseBytes,
-      ).pipe(Effect.mapError(invalidResponse));
+      const result = yield* registryLookupCodec.response
+        .decode(responseBytes)
+        .pipe(Effect.mapError(invalidResponse));
       if (result.kind === "not_found") {
         return Object.freeze({ kind: "not_found" });
       }
@@ -521,7 +510,9 @@ function makeList(
         () => candidate,
         invalidResponse,
       );
-      const bodyBytes = yield* encodeRequest(RegistryListRequest, call);
+      const bodyBytes = yield* registryListCodec.request
+        .encode(call)
+        .pipe(Effect.mapError(invalidResponse));
       const [response, responseBytes] = yield* executePublicRead({
         client: input.client,
         request: makePost(
@@ -533,10 +524,9 @@ function makeList(
         operation: "list",
       });
       yield* requireJsonSuccess(response);
-      const result = yield* decodeCanonicalJson(
-        listResponseSchema,
-        responseBytes,
-      ).pipe(Effect.mapError(invalidResponse));
+      const result = yield* registryListCodec.response
+        .decode(responseBytes)
+        .pipe(Effect.mapError(invalidResponse));
       const agentCards = yield* Effect.forEach(
         result.agentCards,
         (card) => verifyCard(card, input.registrySignerPublicKey),

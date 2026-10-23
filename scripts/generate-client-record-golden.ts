@@ -35,10 +35,6 @@ import {
   signEvidenceMessage,
 } from "../packages/client/dist/transport/wire/index.js";
 import {
-  AgentCardIssuedAt,
-  issueAgentCard,
-} from "../packages/identity/dist/agent-card.js";
-import {
   AgentCard,
   AgentId,
   AgentName,
@@ -47,6 +43,10 @@ import {
   PrincipalId,
   SignedMessage,
 } from "../packages/identity/dist/index.js";
+import {
+  AgentCardIssuedAt,
+  issueAgentCard,
+} from "../packages/identity/dist/registry/issuance.js";
 import { WireVersions } from "../packages/identity/dist/wire-versions.js";
 import { RouterInstanceId } from "../packages/router/dist/index.js";
 import captured from "./client-record-golden-inputs.json" with { type: "json" };

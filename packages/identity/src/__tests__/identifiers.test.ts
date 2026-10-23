@@ -3,9 +3,10 @@
 import { Either, Schema } from "effect";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { AgentCardDigest, AgentCardIssuedAt } from "../agent-card.js";
+import { AgentCardDigest } from "../agent-card.js";
 import { AgentId, AgentName, PrincipalId } from "../identifiers.js";
 import { OperationId } from "../registry/contract.js";
+import { AgentCardIssuedAt } from "../registry/issuance.js";
 import { MessageId } from "../signed-message.js";
 
 const IDENTIFIER_BYTE_LENGTH = 16;
