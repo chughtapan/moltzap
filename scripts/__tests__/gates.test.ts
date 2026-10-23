@@ -553,15 +553,11 @@ function testPublicationGuardsWireSemver(): void {
 /** Each mutation runs the real gate in a fresh process so version sets are evaluated anew. */
 function testCalendarWireSets(): void {
   plantFile(WIRE_VERSION_SOURCE, (source) =>
-    source
-      .replace(
-        "const liveWindow = [WIRE_VERSION]",
-        'const liveWindow = [WIRE_VERSION, "2099.1023.1"]',
-      )
-      .replace(
-        "const RETIRED_WIRE_VERSIONS = []",
-        'const RETIRED_WIRE_VERSIONS = ["2098.1231.12"]',
-      ),
+    insertAfter(
+      insertAfter(source, LIVE_WINDOW_HEAD, ', "2099.1023.1"'),
+      RETIRED_HEAD,
+      '"2098.1231.12", ',
+    ),
   );
   const calendar = runBoundaries();
   test(
@@ -575,10 +571,7 @@ function testCalendarWireSets(): void {
 
 function testNonCalendarLiveEntry(): void {
   plantFile(WIRE_VERSION_SOURCE, (source) =>
-    source.replace(
-      "const liveWindow = [WIRE_VERSION]",
-      'const liveWindow = [WIRE_VERSION, "invalid"]',
-    ),
+    insertAfter(source, LIVE_WINDOW_HEAD, ', "invalid"'),
   );
   const live = runBoundaries();
   test(
@@ -596,10 +589,7 @@ function testNonCalendarLiveEntry(): void {
 
 function testNonCalendarRetainedEntry(): void {
   plantFile(WIRE_VERSION_SOURCE, (source) =>
-    source.replace(
-      "const RETIRED_WIRE_VERSIONS = []",
-      'const RETIRED_WIRE_VERSIONS = ["1.2.3"]',
-    ),
+    insertAfter(source, RETIRED_HEAD, '"1.2.3", '),
   );
   const retained = runBoundaries();
   test(
@@ -955,6 +945,30 @@ function readCompatibilityVersion(): string {
     throw new Error(read.error);
   }
   return read.value;
+}
+
+/** The head of version.ts's live window, after which planted entries go. */
+const LIVE_WINDOW_HEAD = /const liveWindow = \[WIRE_VERSION/u;
+/** The head of version.ts's retired list, after which planted entries go. */
+const RETIRED_HEAD = /const RETIRED_WIRE_VERSIONS = \[/u;
+/**
+ * Inserts text right after the first match of pattern in a planted source.
+ * @param source The source being planted.
+ * @param pattern The array head to insert after.
+ * @param insertion The entries to add at the head of that array.
+ * @returns The source with the entries inserted.
+ */
+function insertAfter(
+  source: string,
+  pattern: RegExp,
+  insertion: string,
+): string {
+  if (!pattern.test(source)) {
+    throw new Error(
+      `Plant target ${pattern} missing in ${WIRE_VERSION_SOURCE}`,
+    );
+  }
+  return source.replace(pattern, (head) => `${head}${insertion}`);
 }
 
 function plantFile(relPath: string, mutate: (s: string) => string): void {
