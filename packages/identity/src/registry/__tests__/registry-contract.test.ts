@@ -437,10 +437,10 @@ const lookupScenarios: readonly LookupScenario[] = [
     expected: INVALID_RESPONSE_TAG,
   },
   {
-    name: "legacy version mismatch without supported versions",
+    name: "version mismatch without supported versions",
     client: fixedResponse(() => '{"error":"version_mismatch"}', 412),
     request: matchingLookup,
-    expected: "VersionMismatchError",
+    expected: INVALID_RESPONSE_TAG,
   },
   {
     name: "version mismatch with supported versions",
@@ -450,6 +450,62 @@ const lookupScenarios: readonly LookupScenario[] = [
     ),
     request: matchingLookup,
     expected: "VersionMismatchError",
+  },
+  {
+    name: "reordered version mismatch",
+    client: fixedResponse(
+      () => '{"supported":["2099.101.0"],"error":"version_mismatch"}',
+      412,
+    ),
+    request: matchingLookup,
+    expected: INVALID_RESPONSE_TAG,
+  },
+  {
+    name: "whitespace in version mismatch",
+    client: fixedResponse(
+      () => '{ "error":"version_mismatch","supported":["2099.101.0"]}',
+      412,
+    ),
+    request: matchingLookup,
+    expected: INVALID_RESPONSE_TAG,
+  },
+  {
+    name: "duplicate version mismatch key",
+    client: fixedResponse(
+      () =>
+        '{"error":"version_mismatch","error":"version_mismatch","supported":["2099.101.0"]}',
+      412,
+    ),
+    request: matchingLookup,
+    expected: INVALID_RESPONSE_TAG,
+  },
+  {
+    name: "escaped version mismatch",
+    client: fixedResponse(
+      () => '{"error":"version\\u005fmismatch","supported":["2099.101.0"]}',
+      412,
+    ),
+    request: matchingLookup,
+    expected: INVALID_RESPONSE_TAG,
+  },
+  {
+    name: "excess version mismatch member",
+    client: fixedResponse(
+      () =>
+        '{"error":"version_mismatch","extra":true,"supported":["2099.101.0"]}',
+      412,
+    ),
+    request: matchingLookup,
+    expected: INVALID_RESPONSE_TAG,
+  },
+  {
+    name: "invalid supported versions",
+    client: fixedResponse(
+      () => '{"error":"version_mismatch","supported":[1]}',
+      412,
+    ),
+    request: matchingLookup,
+    expected: INVALID_RESPONSE_TAG,
   },
   {
     name: "declared server envelope",
@@ -519,6 +575,14 @@ const assertLookupScenarios = (fixture: ClientFixture) =>
       ).pipe(
         Effect.map((outcome) => {
           expect(outcomeName(outcome), scenario.name).toBe(scenario.expected);
+          Either.match(outcome, {
+            onLeft: (error) => {
+              if (error._tag === "VersionMismatchError") {
+                expect(error.supported).toEqual(["2099.101.0"]);
+              }
+            },
+            onRight: () => undefined,
+          });
           return outcome;
         }),
       ),
