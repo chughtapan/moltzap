@@ -93,6 +93,22 @@ type DaemonIdentity =
   | { readonly kind: "bound"; readonly card: VerifiedAgentCard }
   | { readonly kind: "running"; readonly protocol: ActiveProtocol };
 
+/**
+ * The identity of a daemon bound to its card and not yet running.
+ * @param card The card the store committed for this daemon.
+ * @returns The frozen bound identity.
+ */
+const boundIdentity = (card: VerifiedAgentCard): DaemonIdentity =>
+  Object.freeze({ kind: "bound", card });
+
+/**
+ * The identity of a daemon whose protocol runs.
+ * @param protocol The protocol resources acquired for the bound card.
+ * @returns The frozen running identity.
+ */
+const runningIdentity = (protocol: ActiveProtocol): DaemonIdentity =>
+  Object.freeze({ kind: "running", protocol });
+
 /** Mutable daemon state shared with supervised protocol resources. */
 interface DaemonState {
   identity: DaemonIdentity;
@@ -251,7 +267,7 @@ const initializeProtocol = (
           environment,
           {
             retain: (protocol) => {
-              environment.state.identity = { kind: "running", protocol };
+              environment.state.identity = runningIdentity(protocol);
               environment.state.handler?.notify.toolsChanged();
             },
             publishPending: Effect.ignore(reconciler),
@@ -298,7 +314,7 @@ const activateRegistered = (
 ): Effect.Effect<void, DaemonActivationError> =>
   Effect.sync(() => {
     if (environment.state.identity.kind !== "running") {
-      environment.state.identity = { kind: "bound", card: agentCard };
+      environment.state.identity = boundIdentity(agentCard);
     }
   }).pipe(
     Effect.zipRight(initialize(agentCard)),
@@ -393,7 +409,7 @@ export const makeDaemon = (
       identity:
         input.registration.kind === "unregistered"
           ? Object.freeze({ kind: "unregistered" })
-          : { kind: "bound", card: input.registration.agentCard },
+          : boundIdentity(input.registration.agentCard),
       subscriptionActive: false,
     };
     const delivery = yield* daemonDelivery(input, state, daemonScope);
