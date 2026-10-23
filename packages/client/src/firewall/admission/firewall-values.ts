@@ -2,15 +2,15 @@
 
 import { AgentId } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
-import { exactStruct } from "../../encoding/exact.js";
+import { InboundItem } from "../../communication/collectives/inbound.js";
+import { PostIntent } from "../../communication/records/index.js";
+import { PostId } from "../../communication/records/values.js";
 import {
   decodeRuntimeValue,
   EndpointStoreError,
   type FirewallAuditEntry,
-} from "../../store/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
-import { PostIntent } from "../../transport/wire/index.js";
-import { PostId } from "../../transport/wire/values.js";
+} from "../../communication/store/index.js";
+import { exactStruct } from "../../encoding/exact.js";
 import {
   decodeFrozen,
   firewallActivationSchema,

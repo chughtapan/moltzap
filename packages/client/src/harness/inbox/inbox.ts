@@ -2,8 +2,7 @@
 
 import { Effect, Encoding, Schema } from "effect";
 import { randomBytes } from "node:crypto";
-import { exactStruct } from "../../encoding/exact.js";
-import { localGuidanceSchema } from "../../firewall/outcome/index.js";
+import { InboundItem } from "../../communication/collectives/inbound.js";
 import {
   decodeRuntimeValue,
   DeliveryToken,
@@ -11,8 +10,9 @@ import {
   type EndpointStore,
   EndpointStoreError,
   type InboxEntry,
-} from "../../store/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
+} from "../../communication/store/index.js";
+import { exactStruct } from "../../encoding/exact.js";
+import { localGuidanceSchema } from "../../firewall/outcome/index.js";
 import {
   eventIdSchema,
   type HarnessMessageReadyEvent,

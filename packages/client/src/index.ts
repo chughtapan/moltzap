@@ -36,46 +36,46 @@ export {
   CollectiveError,
   SendInput,
   type SendResult,
-} from "./transport/collectives/forms.js";
+} from "./communication/collectives/forms.js";
 /** The items an endpoint delivers to its host. */
-export { InboundItem } from "./transport/collectives/inbound.js";
+export { InboundItem } from "./communication/collectives/inbound.js";
 /** The text a host's model reads for each delivered message, question and result. */
 export {
   groupMembers,
   renderCollectiveRequest,
   renderCollectiveResult,
   renderContent,
-} from "./transport/collectives/render.js";
+} from "./communication/collectives/render.js";
 /** The operation a native host's message text states. */
 export {
   MessageTextError,
   parseMessageText,
-} from "./transport/collectives/message-text.js";
+} from "./communication/collectives/message-text.js";
 /** Explicit direct and group addresses. */
 export {
   AgentAddress,
   GroupAddress,
   MessageAddressInput,
-} from "./transport/wire/values.js";
+} from "./communication/records/values.js";
 /** The closed errors of sending, listening, and acknowledging delivery. */
 export {
   DeliveryAcknowledgeError,
   ListenError,
   SendError,
-} from "./transport/messaging/errors.js";
+} from "./communication/conversations/errors.js";
 /** Certified inbound messages, direct or to a fixed group. */
 export {
   type DirectMessage,
   type GroupMessage,
   InboundMessage,
-} from "./transport/messaging/message.js";
+} from "./communication/conversations/message.js";
 /** Post ids and the closed semantic content of a message. */
 export {
   Content,
   ContentPart,
   JsonValue,
   PostId,
-} from "./transport/wire/values.js";
+} from "./communication/records/values.js";
 
 /** Host adapters reject retired environment keys before acquiring an endpoint. */
 export { legacyKeys } from "./environment.js";

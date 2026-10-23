@@ -1,7 +1,7 @@
 /** @file An endpoint store whose every operation dies, for tests that override the few they use. */
 
 import { Effect } from "effect";
-import type { EndpointStore } from "../store/index.js";
+import type { EndpointStore } from "../communication/store/index.js";
 
 /**
  * A store whose every operation dies naming `label`, so a test spreads it and

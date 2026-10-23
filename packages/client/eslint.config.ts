@@ -8,15 +8,15 @@ import { packageEslintConfig } from "../../eslint.shared.js";
 const testFiles = ["src/**/*.test.ts", "src/__tests__/**"];
 
 /**
- * Keeps `transport/messaging/outbox.ts` the one production module that signs
+ * Keeps `communication/conversations/outbox.ts` the one production module that signs
  * an outer envelope, which it stores before the Router worker sends it.
- * `transport/wire/` defines and re-exports the signers.
+ * `communication/records/` defines and re-exports the signers.
  */
 const soleOuterSigner = {
   files: ["src/**/*.ts"],
   ignores: [
-    "src/transport/messaging/outbox.ts",
-    "src/transport/wire/**",
+    "src/communication/conversations/outbox.ts",
+    "src/communication/records/**",
     ...testFiles,
   ],
   rules: {
@@ -25,10 +25,10 @@ const soleOuterSigner = {
       {
         patterns: [
           {
-            regex: "(^|/)wire/(encoding/)?(index|codec)\\.js$",
+            regex: "(^|/)records/(encoding/)?(index|codec)\\.js$",
             importNames: ["signOuterPacket", "signOuterEvidence"],
             message:
-              "Only transport/messaging/outbox.ts signs outer envelopes; queue the body through the engine outbox.",
+              "Only communication/conversations/outbox.ts signs outer envelopes; queue the body through the engine outbox.",
           },
         ],
       },
@@ -37,14 +37,14 @@ const soleOuterSigner = {
 };
 
 /**
- * Keeps `transport/wire/encoding/codec.ts` the one module that calls
+ * Keeps `communication/records/encoding/codec.ts` the one module that calls
  * Identity's `SignedMessage.sign`, which it does for an outer envelope only
  * after sealing its body. The guard covers who signs, not what the outbox
  * enqueues: its port accepts any `SignedMessage`.
  */
 const sealingSigner = {
   files: ["src/**/*.ts"],
-  ignores: ["src/transport/wire/encoding/codec.ts", ...testFiles],
+  ignores: ["src/communication/records/encoding/codec.ts", ...testFiles],
   rules: {
     "no-restricted-properties": [
       "error",
@@ -52,7 +52,7 @@ const sealingSigner = {
         object: "SignedMessage",
         property: "sign",
         message:
-          "Only transport/wire/encoding/codec.ts signs a SignedMessage, after sealing every outer body; queue the body through the engine outbox.",
+          "Only communication/records/encoding/codec.ts signs a SignedMessage, after sealing every outer body; queue the body through the engine outbox.",
       },
     ],
   },

@@ -2,13 +2,16 @@
 
 import { Effect, Queue, Schema } from "effect";
 import type { MiddlewareInput } from "../firewall/evaluator/values.js";
-import { SendInput } from "../transport/collectives/forms.js";
+import { SendInput } from "../communication/collectives/forms.js";
 import {
   collectiveIdOf,
   decodeCollectiveValue,
   encodeCollectiveContent,
-} from "../transport/collectives/part/index.js";
-import { AgentAddress, MessageAddressInput } from "../transport/wire/values.js";
+} from "../communication/collectives/part/index.js";
+import {
+  AgentAddress,
+  MessageAddressInput,
+} from "../communication/records/values.js";
 import { appendCertifiedPost } from "./certified-history-fixtures.js";
 import {
   block,

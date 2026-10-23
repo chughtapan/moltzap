@@ -4,25 +4,18 @@ import type { AgentCard, VerifiedAgentCard } from "@moltzap/identity";
 import { Effect, Option, Schema } from "effect";
 import { createHash } from "node:crypto";
 import type { FirewallSendError } from "../outcome/index.js";
-import { encodeCanonical } from "../../encoding/canonical-json.js";
-import {
-  decodeRuntimeValue,
-  encodeRuntimeValue,
-  EndpointStoreError,
-  type FirewallInboxEntry,
-} from "../../store/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
+import { InboundItem } from "../../communication/collectives/inbound.js";
 import {
   type AdmittedGather,
   type CollectiveAdmission,
   type GatherCandidate,
   readCollectiveValue,
-} from "../../transport/collectives/index.js";
+} from "../../communication/collectives/index.js";
 import {
   questionText,
   renderContent,
-} from "../../transport/collectives/render.js";
-import { SendError } from "../../transport/messaging/errors.js";
+} from "../../communication/collectives/render.js";
+import { SendError } from "../../communication/conversations/errors.js";
 import {
   type BindHold,
   type EndpointEngine,
@@ -30,9 +23,16 @@ import {
   type PreparedSend,
   type ResolvedConversation,
   untilFresh,
-} from "../../transport/messaging/index.js";
-import { Content } from "../../transport/wire/index.js";
-import { PostId } from "../../transport/wire/values.js";
+} from "../../communication/conversations/index.js";
+import { Content } from "../../communication/records/index.js";
+import { PostId } from "../../communication/records/values.js";
+import {
+  decodeRuntimeValue,
+  encodeRuntimeValue,
+  EndpointStoreError,
+  type FirewallInboxEntry,
+} from "../../communication/store/index.js";
+import { encodeCanonical } from "../../encoding/canonical-json.js";
 import {
   CheckInputError,
   type DecisionProvider,

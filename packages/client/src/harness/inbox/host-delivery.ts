@@ -4,34 +4,34 @@ import { DateTime, Deferred, Effect, Option, Queue, type Scope } from "effect";
 import type {
   CollectiveEmitError,
   SendInput,
-} from "../../transport/collectives/forms.js";
+} from "../../communication/collectives/forms.js";
 import type {
   CollectiveOperations,
   ResultProvenance,
-} from "../../transport/collectives/index.js";
-import type { EnginePendingMessage } from "../../transport/messaging/index.js";
+} from "../../communication/collectives/index.js";
+import type { EnginePendingMessage } from "../../communication/conversations/index.js";
 import type {
   HistoryExportPort,
   HistoryExportRecord,
 } from "./history-export.js";
+import { InboundItem } from "../../communication/collectives/inbound.js";
 import {
-  type AdmissionContext,
-  type FirewallEnvironment,
-  type InstalledFirewall,
-  runAdmission,
-} from "../../firewall/index.js";
+  DeliveryAcknowledgeError,
+  SendError,
+} from "../../communication/conversations/errors.js";
 import {
   decodeRuntimeValue,
   type DeliveryToken,
   encodeRuntimeValue,
   type EndpointStore,
   type EndpointStoreError,
-} from "../../store/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
+} from "../../communication/store/index.js";
 import {
-  DeliveryAcknowledgeError,
-  SendError,
-} from "../../transport/messaging/errors.js";
+  type AdmissionContext,
+  type FirewallEnvironment,
+  type InstalledFirewall,
+  runAdmission,
+} from "../../firewall/index.js";
 import {
   decodeHarnessSendRequest,
   type DeliveryOperations,

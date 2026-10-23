@@ -1,7 +1,19 @@
 /** @file The values harness operations take, return and persist: sends, inbox pages, events and acknowledgments. */
 
 import { Effect, type ParseResult, Schema } from "effect";
-import type { SendError } from "../../transport/messaging/errors.js";
+import type { SendError } from "../../communication/conversations/errors.js";
+import {
+  type CollectiveError,
+  CollectiveId,
+  decodeCollectiveFailure,
+  SendInput,
+} from "../../communication/collectives/forms.js";
+import { InboundItem } from "../../communication/collectives/inbound.js";
+import {
+  DeliveryToken,
+  type EndpointStore,
+  type InboxSummary,
+} from "../../communication/store/types.js";
 import { exactParseOptions, exactStruct } from "../../encoding/exact.js";
 import {
   checkedGuidanceSchema,
@@ -9,18 +21,6 @@ import {
   type FirewallSendError,
   localGuidanceSchema,
 } from "../../firewall/outcome/index.js";
-import {
-  DeliveryToken,
-  type EndpointStore,
-  type InboxSummary,
-} from "../../store/types.js";
-import {
-  type CollectiveError,
-  CollectiveId,
-  decodeCollectiveFailure,
-  SendInput,
-} from "../../transport/collectives/forms.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
 
 /** Canonical event identities reuse the immutable inbox binding's random bytes. */
 export const eventIdSchema = Schema.String.pipe(
@@ -334,6 +334,6 @@ export interface DeliveryOperations {
 }
 
 /** Store-owned delivery identity shared across the loopback boundary. */
-export { DeliveryToken } from "../../store/types.js";
+export { DeliveryToken } from "../../communication/store/types.js";
 /** Store-owned pending-inbox summary shared across the loopback boundary. */
-export type { InboxSummary } from "../../store/types.js";
+export type { InboxSummary } from "../../communication/store/types.js";

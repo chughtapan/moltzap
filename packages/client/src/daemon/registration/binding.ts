@@ -2,7 +2,10 @@
 
 import { AgentCard, type VerifiedAgentCard } from "@moltzap/identity";
 import { Data, Effect } from "effect";
-import type { EndpointStore, IdentityBinding } from "../../store/index.js";
+import type {
+  EndpointStore,
+  IdentityBinding,
+} from "../../communication/store/index.js";
 import type { DaemonBootstrap } from "../bootstrap.js";
 import {
   decodeCanonical,

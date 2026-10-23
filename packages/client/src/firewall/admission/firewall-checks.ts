@@ -11,6 +11,33 @@ import type {
   FirewallConfiguration,
   FirewallInstallation,
 } from "./firewall-values.js";
+import { InboundItem } from "../../communication/collectives/inbound.js";
+import {
+  type CollectiveValue,
+  readCollectiveValue,
+  withoutCollectivePart,
+} from "../../communication/collectives/index.js";
+import {
+  questionText,
+  renderCollectiveRequestBody,
+  renderContent,
+  renderOutcome,
+} from "../../communication/collectives/render.js";
+import { renderGroupAddress } from "../../communication/conversations/address.js";
+import {
+  exitOutcome,
+  markRetries,
+} from "../../communication/conversations/index.js";
+import {
+  type Content,
+  MembershipDescriptor,
+  type PostIntent,
+  RecordCore,
+} from "../../communication/records/index.js";
+import {
+  AgentAddress,
+  type MessageAddressInput,
+} from "../../communication/records/values.js";
 import {
   decodeRuntimeValue,
   encodeRuntimeValue,
@@ -21,31 +48,7 @@ import {
   type FirewallHistoryEntry,
   type FirewallLocalEntry,
   MAXIMUM_RUNTIME_ITEM_BYTES,
-} from "../../store/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
-import {
-  type CollectiveValue,
-  readCollectiveValue,
-  withoutCollectivePart,
-} from "../../transport/collectives/index.js";
-import {
-  questionText,
-  renderCollectiveRequestBody,
-  renderContent,
-  renderOutcome,
-} from "../../transport/collectives/render.js";
-import { renderGroupAddress } from "../../transport/messaging/address.js";
-import { exitOutcome, markRetries } from "../../transport/messaging/index.js";
-import {
-  type Content,
-  MembershipDescriptor,
-  type PostIntent,
-  RecordCore,
-} from "../../transport/wire/index.js";
-import {
-  AgentAddress,
-  type MessageAddressInput,
-} from "../../transport/wire/values.js";
+} from "../../communication/store/index.js";
 import {
   type Firewall,
   type FirewallCheck,

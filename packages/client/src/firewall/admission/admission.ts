@@ -9,8 +9,10 @@ import {
   Queue,
   type Scope,
 } from "effect";
-import type { CollectiveOperations } from "../../transport/collectives/index.js";
+import type { CollectiveOperations } from "../../communication/collectives/index.js";
 import type { FirewallEnvironment } from "./firewall-checks.js";
+import { InboundItem } from "../../communication/collectives/inbound.js";
+import { untilFresh } from "../../communication/conversations/index.js";
 import {
   decodeRuntimeValue,
   type DeliveryToken,
@@ -18,9 +20,7 @@ import {
   type EndpointStore,
   type EndpointStoreError,
   type FirewallInboxEntry,
-} from "../../store/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
-import { untilFresh } from "../../transport/messaging/index.js";
+} from "../../communication/store/index.js";
 import { checkLocalItem } from "./firewall-results.js";
 import { checkIncoming } from "./firewall.js";
 

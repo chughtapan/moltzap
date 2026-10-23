@@ -5,14 +5,19 @@
  */
 
 import { Effect, Array as EffectArray, Schema } from "effect";
-import type { InboundItem } from "../../transport/collectives/inbound.js";
-import type { RecordHash } from "../../transport/wire/index.js";
+import type { InboundItem } from "../../communication/collectives/inbound.js";
+import type { RecordHash } from "../../communication/records/index.js";
 import type {
   AgentAddress,
   MessageAddressInput,
-} from "../../transport/wire/values.js";
+} from "../../communication/records/values.js";
 import type { FirewallCheck, Message } from "../evaluator/index.js";
 import type { LocalGuidance } from "../outcome/index.js";
+import { ResultProvenance } from "../../communication/collectives/index.js";
+import {
+  renderCollectiveResult,
+  renderOutcome,
+} from "../../communication/collectives/render.js";
 import {
   decodeRuntimeValue,
   encodeRuntimeValue,
@@ -23,12 +28,7 @@ import {
   type FirewallLocalAdmission,
   type FirewallRequestAdmission,
   MAXIMUM_RUNTIME_ITEM_BYTES,
-} from "../../store/index.js";
-import { ResultProvenance } from "../../transport/collectives/index.js";
-import {
-  renderCollectiveResult,
-  renderOutcome,
-} from "../../transport/collectives/render.js";
+} from "../../communication/store/index.js";
 import {
   assess,
   attemptInput,

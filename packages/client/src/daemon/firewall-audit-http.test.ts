@@ -20,10 +20,10 @@ import {
   makeAuditFixture,
 } from "../__tests__/firewall-audit-fixtures.js";
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
+import { SendInput } from "../communication/collectives/forms.js";
+import { openEndpointStore } from "../communication/store/index.js";
 import { acquireHarnessEndpoint } from "../harness/endpoint/index.js";
 import { acquireHarnessMcpHttpServer } from "../harness/mcp/http.js";
-import { openEndpointStore } from "../store/index.js";
-import { SendInput } from "../transport/collectives/forms.js";
 
 const CHECK_ID = "request-check";
 

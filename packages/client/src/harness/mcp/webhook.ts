@@ -4,15 +4,18 @@ import { HttpClient } from "@effect/platform";
 import { ProtocolError } from "@modelcontextprotocol/server";
 import { type Clock, Effect, Schema, type Scope } from "effect";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { localGuidanceSchema } from "../../firewall/outcome/index.js";
+import { InboundItem } from "../../communication/collectives/inbound.js";
+import {
+  retryPending,
+  retrySettled,
+} from "../../communication/conversations/index.js";
 import {
   decodeRuntimeValue,
   DeliveryToken,
   encodeRuntimeValue,
   type InboxEntry,
-} from "../../store/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
-import { retryPending, retrySettled } from "../../transport/messaging/index.js";
+} from "../../communication/store/index.js";
+import { localGuidanceSchema } from "../../firewall/outcome/index.js";
 import {
   callbackReasons,
   type EventSubscribeInput,

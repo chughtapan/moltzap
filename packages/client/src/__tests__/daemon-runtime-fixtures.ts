@@ -8,13 +8,13 @@ import {
 } from "@moltzap/identity";
 import { Effect, Redacted, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
+import type { EnginePendingMessage } from "../communication/conversations/index.js";
 import type { DaemonBootstrap } from "../daemon/bootstrap.js";
-import type { EnginePendingMessage } from "../transport/messaging/index.js";
+import { InboundMessage } from "../communication/conversations/message.js";
+import { RecordHash } from "../communication/records/index.js";
+import { DeliveryToken } from "../communication/store/index.js";
 import { encodeCanonical } from "../encoding/canonical-json.js";
 import { managementRegisterRequestSchema } from "../harness/protocol/index.js";
-import { DeliveryToken } from "../store/index.js";
-import { InboundMessage } from "../transport/messaging/message.js";
-import { RecordHash } from "../transport/wire/index.js";
 import {
   digest,
   identifier,

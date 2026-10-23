@@ -16,13 +16,12 @@ import type {
   ProtocolEvidence,
   StoredAnchor,
   CertifiedRecord as StoredCertifiedRecord,
-} from "../store/index.js";
-import { encodeCanonical } from "../encoding/canonical-json.js";
+} from "../communication/store/index.js";
 import {
   inboundDelivery,
   protocolEvidence,
   stagedRecord,
-} from "../transport/messaging/history/index.js";
+} from "../communication/conversations/history/index.js";
 import {
   ActionCore,
   type ActionHash,
@@ -43,7 +42,8 @@ import {
   type RecordHash,
   signEvidenceMessage,
   type VerifiedMembership,
-} from "../transport/wire/index.js";
+} from "../communication/records/index.js";
+import { encodeCanonical } from "../encoding/canonical-json.js";
 
 /** One member's verified card and the authority that signs as it. */
 export interface SigningIdentity {

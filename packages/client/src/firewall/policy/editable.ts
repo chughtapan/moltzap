@@ -7,7 +7,7 @@ import {
   type EndpointStore,
   type FirewallActivation,
   type FirewallAuditEntry,
-} from "../../store/index.js";
+} from "../../communication/store/index.js";
 import {
   captureRegistration,
   decodeFirewallAuditEntry,

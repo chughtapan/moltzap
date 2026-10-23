@@ -4,7 +4,7 @@ import { NodeRuntime } from "@effect/platform-node";
 import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Config, ConfigProvider, Deferred, Effect } from "effect";
 import { join } from "node:path";
-import { openEndpointStore } from "../store/index.js";
+import { openEndpointStore } from "../communication/store/index.js";
 import { makeFixture } from "./daemon-runtime-fixtures.js";
 import { makeHarness, run } from "./daemon-runtime-harness.js";
 import { makeAuditFixture } from "./firewall-audit-fixtures.js";

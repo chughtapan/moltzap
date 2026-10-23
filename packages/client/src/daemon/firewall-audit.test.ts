@@ -19,7 +19,7 @@ import {
   makeAuditFixture,
 } from "../__tests__/firewall-audit-fixtures.js";
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
-import { openEndpointStore } from "../store/index.js";
+import { openEndpointStore } from "../communication/store/index.js";
 
 function auditKinds(text: string) {
   return decodeAudit(text).records.map((entry) => entry.kind);

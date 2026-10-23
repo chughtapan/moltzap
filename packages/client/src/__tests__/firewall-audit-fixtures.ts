@@ -3,11 +3,11 @@
 import { WIRE_VERSION } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import { createHash } from "node:crypto";
+import { InboundItem } from "../communication/collectives/inbound.js";
+import { PostIntent } from "../communication/records/index.js";
+import { encodeRuntimeValue } from "../communication/store/index.js";
 import { FirewallAuditRecord } from "../daemon/index.js";
 import { installFirewall, Message, MessageContext } from "../firewall/index.js";
-import { encodeRuntimeValue } from "../store/index.js";
-import { InboundItem } from "../transport/collectives/inbound.js";
-import { PostIntent } from "../transport/wire/index.js";
 import { digest, identifier } from "./agent-card-fixtures.js";
 
 const policy = {

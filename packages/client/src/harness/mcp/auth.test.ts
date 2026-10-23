@@ -18,7 +18,7 @@ import {
   input,
   scriptedWebhook,
 } from "../../__tests__/webhook-fixtures.js";
-import { openEndpointStore } from "../../store/index.js";
+import { openEndpointStore } from "../../communication/store/index.js";
 import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,

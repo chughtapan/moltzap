@@ -23,9 +23,9 @@ import {
 } from "effect";
 import { join } from "node:path";
 import { describe, expect, vi } from "vitest";
+import type { EnginePendingMessage } from "../communication/conversations/index.js";
 import type { HarnessMcpEventHandler } from "../harness/mcp/tools.js";
 import type { EventStore } from "../harness/protocol/operations.js";
-import type { EnginePendingMessage } from "../transport/messaging/index.js";
 import { digest } from "../__tests__/agent-card-fixtures.js";
 import {
   type Fixture,
@@ -52,17 +52,17 @@ import {
   SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION,
 } from "../__tests__/daemon-runtime-harness.js";
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
-import { HistoryExportRecord } from "../harness/inbox/history-export.js";
-import { INBOX_PENDING_EVENT } from "../harness/protocol/names.js";
-import { SendInput } from "../index.js";
+import { InboundItem } from "../communication/collectives/inbound.js";
+import { RouterWorkerTransportError } from "../communication/router/index.js";
 import {
   DeliveryToken,
   encodeRuntimeValue,
   type EndpointStore,
   EndpointStoreError,
-} from "../store/index.js";
-import { InboundItem } from "../transport/collectives/inbound.js";
-import { RouterWorkerTransportError } from "../transport/router/index.js";
+} from "../communication/store/index.js";
+import { HistoryExportRecord } from "../harness/inbox/history-export.js";
+import { INBOX_PENDING_EVENT } from "../harness/protocol/names.js";
+import { SendInput } from "../index.js";
 import { DaemonRuntimeError } from "./lifecycle.js";
 
 /**

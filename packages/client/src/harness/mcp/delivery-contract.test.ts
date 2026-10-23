@@ -4,24 +4,24 @@ import { scopedLive as it } from "@effect/vitest";
 import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Chunk, Effect, Schema, Scope, Stream } from "effect";
 import { describe, expect } from "vitest";
-import type { EndpointEngine } from "../../transport/messaging/index.js";
+import type { EndpointEngine } from "../../communication/conversations/index.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { makeToolCallRequest } from "../../__tests__/daemon-runtime-harness.js";
 import { loopbackMcpEndpoint } from "../../__tests__/mcp-http-fixtures.js";
 import { pendingMessage } from "../../__tests__/pending-delivery-fixtures.js";
 import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
-import { openEndpointStore } from "../../store/index.js";
 import {
   CollectiveEmitError,
   CollectiveId,
-} from "../../transport/collectives/forms.js";
+} from "../../communication/collectives/forms.js";
 import {
   type CollectiveOperations,
   makeCollectiveOperations,
-} from "../../transport/collectives/index.js";
-import { encodeCollectiveContent } from "../../transport/collectives/part/index.js";
-import { DeliveryAcknowledgeError } from "../../transport/messaging/errors.js";
-import { AgentAddress } from "../../transport/wire/index.js";
+} from "../../communication/collectives/index.js";
+import { encodeCollectiveContent } from "../../communication/collectives/part/index.js";
+import { DeliveryAcknowledgeError } from "../../communication/conversations/errors.js";
+import { AgentAddress } from "../../communication/records/index.js";
+import { openEndpointStore } from "../../communication/store/index.js";
 import { acquireHarnessEndpoint } from "../endpoint/index.js";
 import { type HostDelivery, makeHostDelivery } from "../inbox/host-delivery.js";
 import { decodeHarnessReadInboxResult } from "../protocol/operations.js";

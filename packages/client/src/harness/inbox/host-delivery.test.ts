@@ -9,7 +9,7 @@ import { scopedLive as it } from "@effect/vitest";
 import { LIVE_WIRE_VERSIONS } from "@moltzap/identity";
 import { Deferred, Effect, Exit, Fiber, Ref, Schema, Scope } from "effect";
 import { describe, expect } from "vitest";
-import type { CollectiveOperations } from "../../transport/collectives/index.js";
+import type { CollectiveOperations } from "../../communication/collectives/index.js";
 import type { HarnessMessageReadyEvent } from "../protocol/operations.js";
 import type { HistoryExportRecord } from "./history-export.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
@@ -21,19 +21,19 @@ import {
 } from "../../__tests__/pending-delivery-fixtures.js";
 import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
 import {
+  CollectiveEmitError,
+  CollectiveId,
+  SendInput,
+} from "../../communication/collectives/forms.js";
+import { InboundItem } from "../../communication/collectives/inbound.js";
+import { SendError } from "../../communication/conversations/errors.js";
+import { PostId } from "../../communication/records/index.js";
+import {
   DeliveryToken,
   type EndpointStore,
   EndpointStoreError,
   openEndpointStore,
-} from "../../store/index.js";
-import {
-  CollectiveEmitError,
-  CollectiveId,
-  SendInput,
-} from "../../transport/collectives/forms.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
-import { SendError } from "../../transport/messaging/errors.js";
-import { PostId } from "../../transport/wire/index.js";
+} from "../../communication/store/index.js";
 import { makeHostDelivery } from "./host-delivery.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Closed error reasons and export record kinds are the contract under test. */

@@ -21,9 +21,9 @@ import {
 } from "effect";
 import { randomUUID } from "node:crypto";
 import type { InboxSummary } from "../protocol/operations.js";
+import { InboundItem } from "../../communication/collectives/inbound.js";
 import { exactStruct } from "../../encoding/exact.js";
 import { localGuidanceSchema } from "../../firewall/outcome/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
 import {
   eventListInput,
   type EventStreamInput,

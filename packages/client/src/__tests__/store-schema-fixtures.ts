@@ -14,7 +14,7 @@ import {
   type EndpointStoreError,
   openEndpointStore,
   type OutboxTooOldError,
-} from "../store/index.js";
+} from "../communication/store/index.js";
 import { digest } from "./agent-card-fixtures.js";
 
 /**

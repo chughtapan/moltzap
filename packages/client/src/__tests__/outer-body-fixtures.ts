@@ -10,7 +10,7 @@ import type { SigningIdentity } from "./certified-history-fixtures.js";
 import {
   type DecodedOuterBody,
   decodeOuterBody,
-} from "../transport/wire/index.js";
+} from "../communication/records/index.js";
 
 /**
  * Verify an envelope against its sender's card and open its sealed body as

@@ -2,7 +2,7 @@
 
 import { SignedMessage } from "@moltzap/identity";
 import { type Duration, Effect, Queue } from "effect";
-import type { EndpointStore } from "../store/index.js";
+import type { EndpointStore } from "../communication/store/index.js";
 import { decodeCanonical } from "../encoding/canonical-json.js";
 
 /**

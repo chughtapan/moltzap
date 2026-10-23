@@ -174,7 +174,7 @@ const clientDomains: readonly ClientDomain[] = [
     root: "firewall/outcome",
     entrypoints: ["index.ts"],
     reason:
-      "Closed refusal and guidance schemas hosts and transport decode without loading policy evaluation or provider clients",
+      "Closed refusal and guidance schemas hosts and communication decode without loading policy evaluation or provider clients",
   },
 
   {
@@ -185,8 +185,8 @@ const clientDomains: readonly ClientDomain[] = [
       "Isolated code and English evaluation depends on encoding, runtime-safe outcomes and packages",
   },
   {
-    name: "wire",
-    root: "transport/wire",
+    name: "records",
+    root: "communication/records",
     entrypoints: [
       "index.ts",
       {
@@ -201,7 +201,7 @@ const clientDomains: readonly ClientDomain[] = [
   },
   {
     name: "store",
-    root: "store",
+    root: "communication/store",
     entrypoints: [
       "index.ts",
       {
@@ -216,13 +216,13 @@ const clientDomains: readonly ClientDomain[] = [
   },
   {
     name: "router",
-    root: "transport/router",
+    root: "communication/router",
     entrypoints: ["index.ts"],
     reason: "The Router attach, poll, send, and outage worker",
   },
   {
-    name: "messaging",
-    root: "transport/messaging",
+    name: "conversations",
+    root: "communication/conversations",
     entrypoints: [
       "index.ts",
       {
@@ -246,7 +246,7 @@ const clientDomains: readonly ClientDomain[] = [
   },
   {
     name: "collectives",
-    root: "transport/collectives",
+    root: "communication/collectives",
     entrypoints: [
       "index.ts",
       {
@@ -307,7 +307,7 @@ const clientDomains: readonly ClientDomain[] = [
     root: "firewall",
     entrypoints: ["index.ts"],
     reason:
-      "Personal firewall evaluation, rules, policy, admission and audit above the collective transport",
+      "Personal firewall evaluation, rules, policy, admission and audit above communication collectives",
   },
   {
     name: "harness-inbox",
@@ -413,24 +413,16 @@ const packageDefinitions: Readonly<Record<string, PackageDefinition>> = {
         },
       ],
       maxFolderCycles: 1,
-      folderChildCountOverrides: [
-        {
-          folder: ".",
-          maxChildren: 11,
-          reason:
-            "Client keeps leaf encoding alongside its runtime domains, environment values and package facade",
-        },
-      ],
       folderReadmeFileNames: ["README.md", "../README.md"],
       facadeFiles: [
         ...clientEntrypointFacades,
         {
-          file: "transport/wire/schemas.ts",
+          file: "communication/records/schemas.ts",
           reason:
-            "Closed Client wire grammar shared by encoding and verification within the wire domain",
+            "Closed Client wire grammar shared by encoding and verification within the records domain",
         },
         {
-          file: "store/database/values.ts",
+          file: "communication/store/database/values.ts",
           reason:
             "Closed store errors and row-value checks shared by database implementation modules",
         },

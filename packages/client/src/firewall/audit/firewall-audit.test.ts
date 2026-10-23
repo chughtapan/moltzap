@@ -23,7 +23,7 @@ import {
   type EndpointStore,
   EndpointStoreError,
   openEndpointStore,
-} from "../../store/index.js";
+} from "../../communication/store/index.js";
 import { MessageContext } from "../evaluator/index.js";
 import { installFirewall } from "../index.js";
 import { beginFirewallAudit } from "./firewall-audit.js";
