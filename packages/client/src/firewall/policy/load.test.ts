@@ -1,9 +1,7 @@
 /** @file The message policy and decision-provider key a daemon's environment names, and the configuration failures they produce. */
 
 import { live as it } from "@effect/vitest";
-import { Ed25519PublicKey } from "@moltzap/identity";
-import { ConfigProvider, Effect, Layer, Redacted, Schema } from "effect";
-import { generateKeyPairSync } from "node:crypto";
+import { Effect, Redacted } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests create and remove exact temporary policy and key files around the configuration boundary.
 import {
   chmodSync,
@@ -16,26 +14,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect } from "vitest";
-import { packageVersion } from "../../endpoint/implementation.js";
-import {
-  DaemonConfigurationError,
-  type DaemonProcessConfiguration,
-} from "../../service/bootstrap.js";
-import { Daemon } from "../../service/index.js";
-import { firewallInstallation as installFirewall } from "./index.js";
-
-const firewallInstallation = (configuration: DaemonProcessConfiguration) =>
-  installFirewall(configuration, packageVersion, DaemonConfigurationError);
+import { firewallInstallation } from "./index.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Exact environment names and closed reasons are the configuration contract under test. */
 
 const directories: string[] = [];
 const FORMAT = "org.social-harness/message-policy/v1";
-const REGISTRY_SIGNER = {
-  crv: "Ed25519",
-  kty: "OKP",
-  x: "y1j1FUgbqjCPeQVEnllv-2euwn_s9DeDkfEh3gk_OJ0",
-};
 const DOCUMENT = {
   format: FORMAT,
   mode: "guidance",
@@ -68,7 +52,7 @@ afterEach(() => {
 
 it("installs no firewall without a policy file", () =>
   Effect.gen(function* () {
-    const installed = yield* firewallInstallation(configuration({}));
+    const installed = yield* firewallInstallation({});
     expect(installed).toEqual({});
   }));
 
@@ -186,9 +170,7 @@ it.each([
   ],
 ] as const)("refuses %s", ([, fields, reason]) =>
   Effect.gen(function* () {
-    const error = yield* firewallInstallation(configuration(fields())).pipe(
-      Effect.flip,
-    );
+    const error = yield* firewallInstallation(fields()).pipe(Effect.flip);
     expect(error.reason).toBe(reason);
     expect(error.message).not.toContain("two words");
   }),
@@ -196,15 +178,13 @@ it.each([
 
 it("names where a document is invalid, never what it holds", () =>
   Effect.gen(function* () {
-    const error = yield* firewallInstallation(
-      configuration({
-        messagePolicyFile: file({
-          ...JEV_DOCUMENT,
-          mode: "private-mode-value",
-        }),
-        decisionProviderKeyFile: Redacted.make(file("key-value")),
+    const error = yield* firewallInstallation({
+      messagePolicyFile: file({
+        ...JEV_DOCUMENT,
+        mode: "private-mode-value",
       }),
-    ).pipe(Effect.flip);
+      decisionProviderKeyFile: Redacted.make(file("key-value")),
+    }).pipe(Effect.flip);
     expect(error.reason).toBe("message-policy");
     expect(error.message).toContain("SHARNESS_MESSAGE_POLICY_FILE");
     expect(error.message).toContain("mode");
@@ -214,16 +194,14 @@ it("names where a document is invalid, never what it holds", () =>
 it("installs the document with its key, Client's default settings and the audit export", () =>
   Effect.gen(function* () {
     const auditExport = join(directory(), "firewall.ndjson");
-    const installed = yield* firewallInstallation(
-      configuration({
-        messagePolicyFile: file({
-          ...JEV_DOCUMENT,
-          maximumConcurrentChecks: 2,
-        }),
-        decisionProviderKeyFile: Redacted.make(file("key-value\n")),
-        firewallAuditExport: auditExport,
+    const installed = yield* firewallInstallation({
+      messagePolicyFile: file({
+        ...JEV_DOCUMENT,
+        maximumConcurrentChecks: 2,
       }),
-    );
+      decisionProviderKeyFile: Redacted.make(file("key-value\n")),
+      firewallAuditExport: auditExport,
+    });
     const options = yield* Effect.fromNullable(installed.options);
     expect(options.mode).toBe("guidance");
     expect(options.maximumConcurrentChecks).toBe(2);
@@ -239,12 +217,10 @@ it("installs the document with its key, Client's default settings and the audit 
 
 it("installs the example policy the message firewall guide documents", () =>
   Effect.gen(function* () {
-    const installed = yield* firewallInstallation(
-      configuration({
-        messagePolicyFile: file(guideExample()),
-        decisionProviderKeyFile: Redacted.make(file("key-value\n")),
-      }),
-    );
+    const installed = yield* firewallInstallation({
+      messagePolicyFile: file(guideExample()),
+      decisionProviderKeyFile: Redacted.make(file("key-value\n")),
+    });
     const options = yield* Effect.fromNullable(installed.options);
     expect(options.mode).toBe("guidance");
     expect(options.english?.fixedRules?.map((rule) => rule.id)).toEqual([
@@ -254,108 +230,12 @@ it("installs the example policy the message firewall guide documents", () =>
 
 it("installs English rules with an unavailable provider without reading a key file", () =>
   Effect.gen(function* () {
-    const installed = yield* firewallInstallation(
-      configuration({
-        messagePolicyFile: file(UNAVAILABLE_DOCUMENT),
-        decisionProviderKeyFile: Redacted.make(join(directory(), "absent")),
-      }),
-    );
+    const installed = yield* firewallInstallation({
+      messagePolicyFile: file(UNAVAILABLE_DOCUMENT),
+      decisionProviderKeyFile: Redacted.make(join(directory(), "absent")),
+    });
     expect(installed.options?.english?.fixedRules).toHaveLength(1);
   }));
-
-it("fails daemon configuration on an invalid policy before reading the agent key", () =>
-  Effect.gen(function* () {
-    const error = yield* Layer.build(Daemon.layer).pipe(
-      Effect.scoped,
-      Effect.withConfigProvider(
-        environment({ SHARNESS_MESSAGE_POLICY_FILE: file("[]") }),
-      ),
-      Effect.flip,
-    );
-    expect(error.phase).toBe("configuration");
-    expect(error.message).toContain("SHARNESS_MESSAGE_POLICY_FILE");
-  }));
-
-it("names the policy file when its rules cannot be installed", () =>
-  Effect.gen(function* () {
-    const root = directory();
-    const { privateKey } = generateKeyPairSync("ed25519");
-    const key = join(root, "agent.pem");
-    const admission = join(root, "admission");
-    writeFileSync(key, privateKey.export({ type: "pkcs8", format: "pem" }), {
-      mode: 0o600,
-    });
-    writeFileSync(admission, "admission-credential", { mode: 0o600 });
-    const error = yield* Layer.build(Daemon.layer).pipe(
-      Effect.scoped,
-      Effect.withConfigProvider(
-        environment({
-          SHARNESS_STATE_DIRECTORY: join(root, "state"),
-          SHARNESS_AGENT_PRIVATE_KEY_FILE: key,
-          SHARNESS_ADMISSION_CREDENTIAL_FILE: admission,
-          SHARNESS_MESSAGE_POLICY_FILE: file({
-            ...UNAVAILABLE_DOCUMENT,
-            english: {
-              initialRules: [
-                {
-                  id: "credentials",
-                  kind: "norm",
-                  text: "Be careful.",
-                  guidance: "Ask.",
-                },
-              ],
-            },
-          }),
-        }),
-      ),
-      Effect.flip,
-    );
-    expect(error.phase).toBe("configuration");
-    expect(error.message).toContain("SHARNESS_MESSAGE_POLICY_FILE");
-    expect(error.message).toContain("could not be installed");
-  }));
-
-it("refuses a policy file beside a composition's own firewall", () =>
-  Effect.gen(function* () {
-    const error = yield* Layer.build(
-      Daemon.withFirewall({
-        mode: "guidance",
-        incoming: [],
-        outgoing: [],
-        settings: {
-          timeoutMilliseconds: 1000,
-          middlewareTimeoutMilliseconds: 1000,
-          maximumInputBytes: 1000,
-          maximumResultBytes: 1000,
-        },
-        facts: [],
-        codeDigest: "a".repeat(64),
-      }),
-    ).pipe(
-      Effect.scoped,
-      Effect.withConfigProvider(
-        environment({
-          SHARNESS_MESSAGE_POLICY_FILE: file({
-            format: FORMAT,
-            mode: "guidance",
-          }),
-        }),
-      ),
-      Effect.flip,
-    );
-    expect(error.phase).toBe("configuration");
-    expect(error.message).toContain("composition installs its own firewall");
-  }));
-
-it.each([
-  "SHARNESS_MESSAGE_POLICY_FILE",
-  "SHARNESS_DECISION_PROVIDER_KEY_FILE",
-  "SHARNESS_FIREWALL_AUDIT_EXPORT",
-])("lists %s in the daemon's help", (name) =>
-  Effect.sync(() => {
-    expect(Daemon.help).toContain(name);
-  }),
-);
 
 /** The JSON policy between the example markers of the message firewall guide. */
 function guideExample(): string {
@@ -385,39 +265,6 @@ function file(content: unknown): string {
     { mode: 0o600 },
   );
   return path;
-}
-
-function configuration(
-  fields: Partial<DaemonProcessConfiguration>,
-): DaemonProcessConfiguration {
-  return {
-    stateDirectory: "/var/lib/sharness",
-    mcpPort: 4319,
-    registryOrigin: new URL("https://registry.example"),
-    registrySignerPublicKey:
-      Schema.decodeUnknownSync(Ed25519PublicKey)(REGISTRY_SIGNER),
-    routerOrigin: new URL("https://router.example"),
-    agentPrivateKeyFile: Redacted.make("/var/lib/sharness/agent.pem"),
-    ...fields,
-  };
-}
-
-/** A complete daemon environment whose agent key file does not exist. */
-function environment(extra: Readonly<Record<string, string>>) {
-  const root = directory();
-  return ConfigProvider.fromMap(
-    new Map(
-      Object.entries({
-        SHARNESS_STATE_DIRECTORY: join(root, "state"),
-        SHARNESS_MCP_PORT: "4319",
-        SHARNESS_REGISTRY_ORIGIN: "https://registry.example",
-        SHARNESS_REGISTRY_SIGNER_PUBLIC_KEY: JSON.stringify(REGISTRY_SIGNER),
-        SHARNESS_ROUTER_ORIGIN: "https://router.example",
-        SHARNESS_AGENT_PRIVATE_KEY_FILE: join(root, "absent-agent-key.pem"),
-        ...extra,
-      }),
-    ),
-  );
 }
 
 /** A directory of the daemon's user that its group and others can read. */

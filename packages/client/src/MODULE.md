@@ -703,11 +703,11 @@ as a norm judgment the decision provider left unsettled.
 
 ### `@moltzap/client/service`
 
-#### [`Daemon`](./service/index.ts#L256)
+#### [`Daemon`](./service/index.ts#L241)
 
 _Namespace_
 
-#### [`Daemon.StartupError`](./service/index.ts#L270)
+#### [`Daemon.StartupError`](./service/index.ts#L255)
 
 _Class_
 
@@ -744,7 +744,7 @@ _Class_
 
 Closed startup phase with sanitized configuration details.
 
-#### [`Daemon.FirewallOptions`](./service/index.ts#L261)
+#### [`Daemon.FirewallOptions`](./service/index.ts#L246)
 
 _TypeAlias_
 
@@ -760,7 +760,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-#### [`Daemon.help`](./service/index.ts#L258)
+#### [`Daemon.help`](./service/index.ts#L243)
 
 _Variable_
 
@@ -770,7 +770,7 @@ _Variable_
 
 Usage text listing the daemon process's environment variables.
 
-#### [`Daemon.layer`](./service/index.ts#L358)
+#### [`Daemon.layer`](./service/index.ts#L344)
 
 _Variable_
 
@@ -783,7 +783,7 @@ _Variable_
 Complete production process composition for `sharnessd`, with the
 firewall `SHARNESS_MESSAGE_POLICY_FILE` describes when it is set.
 
-#### [`Daemon.withFirewall`](./service/index.ts#L368)
+#### [`Daemon.withFirewall`](./service/index.ts#L354)
 
 _Function_
 
@@ -1382,6 +1382,67 @@ provider, the collective norms with the `unavailable` provider, which would
 leave every one of their English checks unavailable, and an English rule
 id given twice across the fixed and initial rules are refused.
 
+#### [`messagePolicyFirewall`](./firewall/policy/compose.ts#L60)
+
+_Variable_
+
+```ts
+export const messagePolicyFirewall = Effect.fn("messagePolicyFirewall")(
+  function* (
+    policy: MessagePolicy,
+    provider: DecisionProvider,
+  ): Effect.fn.Return<FirewallOptions, CheckInputError> {
+    const bundle = yield* Effect.cached(
+      collectiveNorms(
+        provider,
+        policy.englishSettings,
+        policy.maximumHistoryRecords,
+      ),
+    );
+    const incomingChain = yield* Effect.forEach(
+      policy.incoming,
+      (entry) => incoming(entry, bundle),
+      { concurrency: 1 },
+    );
+    const outgoingChain = yield* Effect.forEach(
+      policy.outgoing,
+      (entry) => outgoing(entry, bundle),
+      { concurrency: 1 },
+    );
+    return {
+      mode: policy.mode,
+      incoming: incomingChain,
+      outgoing: outgoingChain,
+      settings: policy.settings,
+      facts: policy.facts,
+      codeDigest: armDigest(policy, [...incomingChain, ...outgoingChain]),
+      maximumHistoryRecords: policy.maximumHistoryRecords,
+      maximumConcurrentChecks: policy.maximumConcurrentChecks,
+      english:
+        policy.english === undefined
+          ? undefined
+          : {
+              fixedRules: policy.english.fixedRules,
+              initialRules: policy.english.initialRules,
+              provider,
+              settings: policy.englishSettings,
+            },
+    };
+  },
+)
+```
+
+The firewall installation of one message-policy document: its built-in
+middleware in chain order, its English rules assessed by `provider`, and
+its settings. This is the trusted-composition hook: a composition that
+brings its own decision provider installs the result with
+`Daemon.withFirewall`. `codeDigest` is the SHA-256 of the Client release,
+the mode, each registration's id and revision, the fixed English rules,
+the decision provider and the settings. It leaves out what differs between
+the agents of one arm: the facilitator role, which no revision holds, the
+allowed-sender list and the initial editable rules, so every member
+records the same digest.
+
 #### [`makeJevDecisionProvider`](./firewall/evaluator/jev.ts#L182)
 
 _Function_
@@ -1397,21 +1458,6 @@ Uses the fixed TypeSafe origin and an explicitly pinned model. No retry,
 environment lookup or credential serialization occurs here. The evaluator
 owns timeouts; the Effect is interruptible through response-body consumption.
 
-#### [`messagePolicyFirewall`](./service/index.ts#L223)
-
-_Function_
-
-```ts
-export const messagePolicyFirewall = (
-  policy: MessagePolicy,
-  provider: DecisionProvider,
-)
-```
-
-Trusted composition uses the running Client release for policy provenance.
-
-**Returns:** The fixed firewall options trusted composition installs.
-
 ## Files
 
 - `delivery/history-export.ts`
@@ -1425,7 +1471,6 @@ Trusted composition uses the running Client release for policy provenance.
 - `endpoint/harness-endpoint/capability.ts`
 - `endpoint/harness-endpoint/events.ts`
 - `endpoint/harness-endpoint/index.ts`
-- `endpoint/implementation.ts`
 - `endpoint/mcp/auth.ts`
 - `endpoint/mcp/event-schemas.ts`
 - `endpoint/mcp/event-signing.ts`
@@ -1487,6 +1532,8 @@ Trusted composition uses the running Client release for policy provenance.
 - `launcher/registry.ts`
 - `launcher/selection.ts`
 - `README.md`
+- `release/index.ts`
+- `release/README.md`
 - `service/bootstrap.ts`
 - `service/configuration.ts`
 - `service/daemon/index.ts`

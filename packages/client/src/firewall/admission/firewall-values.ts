@@ -23,7 +23,7 @@ import {
   UncertainNormGuidance,
 } from "../evaluator/index.js";
 
-// safer-arch-ignore file-implicit-boundary-module: Checking and audit projection share exact retained value schemas; only firewall/index.ts exposes these private implementations to service composition.
+// safer-arch-ignore file-implicit-boundary-module: Checking and audit projection share exact retained value schemas; only admission/index.ts exposes these private implementations to service composition.
 
 /** Operational evidence limits are part of the installed policy identity. */
 const firewallConfiguration = Schema.Struct({

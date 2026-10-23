@@ -11,17 +11,17 @@ import {
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Configuration reads the configured policy file before the daemon composes its platform services.
 import { lstat, readFile } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
-import type {
-  MessagePolicyConfigurationFailure,
-  PolicyConfiguration,
-  PolicyConfigurationErrorConstructor,
-} from "./configuration.js";
 import { readCredential } from "../../identity/index.js";
 import {
   type DecisionProvider,
   DecisionProviderError,
   makeJevDecisionProvider,
 } from "../evaluator/index.js";
+import {
+  MessagePolicyConfigurationError,
+  type MessagePolicyConfigurationFailure,
+  type PolicyConfiguration,
+} from "./configuration.js";
 import { decodeMessagePolicy, type MessagePolicy } from "./policy.js";
 
 /** Larger than any document of 256 editable rules and the fixed rules beside them. */
@@ -79,43 +79,35 @@ export interface LoadedMessagePolicy {
  * or invalid document, and a missing or invalid key fail configuration naming
  * no file content.
  * @param configuration The policy and provider file locations.
- * @param configurationError The daemon-owned configuration failure constructor.
  * @returns The document, its decision provider and its audit export path.
  */
-export const loadMessagePolicy = <E>(
+export const loadMessagePolicy = (
   configuration: PolicyConfiguration,
-  configurationError: PolicyConfigurationErrorConstructor<E>,
-): Effect.Effect<Option.Option<LoadedMessagePolicy>, E> =>
+): Effect.Effect<
+  Option.Option<LoadedMessagePolicy>,
+  MessagePolicyConfigurationError
+> =>
   Effect.gen(function* () {
     const path = configuration.messagePolicyFile;
     if (path === undefined) {
       return configuration.firewallAuditExport === undefined
         ? Option.none()
-        : yield* Effect.fail(
-            policyConfigurationError(
-              "message-policy-required",
-              configurationError,
-            ),
-          );
+        : yield* policyConfigurationError("message-policy-required");
     }
-    const policy = yield* readPolicyText(path, configurationError).pipe(
+    const policy = yield* readPolicyText(path).pipe(
       Effect.flatMap((text) =>
         decodeMessagePolicy(text).pipe(
-          Effect.mapError((error) => invalidPolicy(error, configurationError)),
+          Effect.mapError((error) => invalidPolicy(error)),
         ),
       ),
     );
     const auditExport = configuration.firewallAuditExport;
     if (auditExport !== undefined) {
-      yield* requirePrivateParent(auditExport, configurationError);
+      yield* requirePrivateParent(auditExport);
     }
     return Option.some({
       policy,
-      provider: yield* decisionProvider(
-        policy,
-        configuration,
-        configurationError,
-      ),
+      provider: yield* decisionProvider(policy, configuration),
       auditExport,
     });
   }).pipe(Effect.withSpan("loadMessagePolicy"));
@@ -124,26 +116,20 @@ export const loadMessagePolicy = <E>(
  * The configuration failure for a message-policy setting, with its fixed
  * operator message.
  * @param reason Why the setting cannot start the daemon.
- * @param configurationError The daemon-owned configuration failure constructor.
  * @returns The failure, naming no configured value.
  */
-export function policyConfigurationError<E>(
+export function policyConfigurationError(
   reason: MessagePolicyConfigurationFailure,
-  configurationError: PolicyConfigurationErrorConstructor<E>,
-): E {
-  return new configurationError({
+): MessagePolicyConfigurationError {
+  return new MessagePolicyConfigurationError({
     reason,
     message: failureMessages[reason],
   });
 }
 
 /** The audit export's directory exists, belongs to the daemon's user and admits no one else. */
-function requirePrivateParent<E>(
-  path: string,
-  configurationError: PolicyConfigurationErrorConstructor<E>,
-) {
-  const refused = () =>
-    policyConfigurationError("firewall-audit-export", configurationError);
+function requirePrivateParent(path: string) {
+  const refused = () => policyConfigurationError("firewall-audit-export");
   if (!isAbsolute(path)) {
     return Effect.fail(refused());
   }
@@ -162,28 +148,23 @@ function requirePrivateParent<E>(
   );
 }
 
-function readPolicyText<E>(
-  path: string,
-  configurationError: PolicyConfigurationErrorConstructor<E>,
-) {
+function readPolicyText(path: string) {
   return Effect.tryPromise({
     try: () => readFile(path),
-    catch: () =>
-      policyConfigurationError("message-policy-file", configurationError),
+    catch: () => policyConfigurationError("message-policy-file"),
   }).pipe(
     Effect.filterOrFail(
       (bytes) => bytes.byteLength <= MAXIMUM_POLICY_BYTES,
-      () => policyConfigurationError("message-policy-file", configurationError),
+      () => policyConfigurationError("message-policy-file"),
     ),
     Effect.map((bytes) => bytes.toString("utf8")),
   );
 }
 
 /** Names where the document is invalid, never what it holds there. */
-function invalidPolicy<E>(
+function invalidPolicy(
   error: ParseResult.ParseError,
-  configurationError: PolicyConfigurationErrorConstructor<E>,
-): E {
+): MessagePolicyConfigurationError {
   const paths = [
     ...new Set(
       ParseResult.ArrayFormatter.formatErrorSync(error).map((issue) =>
@@ -191,17 +172,16 @@ function invalidPolicy<E>(
       ),
     ),
   ];
-  return new configurationError({
+  return new MessagePolicyConfigurationError({
     reason: "message-policy",
     message: `${failureMessages["message-policy"]}; invalid at ${paths.join(", ")}`,
   });
 }
 
-function decisionProvider<E>(
+function decisionProvider(
   policy: MessagePolicy,
   configuration: PolicyConfiguration,
-  configurationError: PolicyConfigurationErrorConstructor<E>,
-): Effect.Effect<DecisionProvider, E> {
+): Effect.Effect<DecisionProvider, MessagePolicyConfigurationError> {
   const setting = policy.decisionProvider;
   switch (setting?.kind) {
     case undefined:
@@ -211,7 +191,7 @@ function decisionProvider<E>(
         "The message policy names no decision provider service; every English check is unavailable, which holds the message in enforcement mode and admits it in guidance mode.",
       ).pipe(Effect.as(unavailableProvider));
     case "jev":
-      return jevKey(configuration, configurationError).pipe(
+      return jevKey(configuration).pipe(
         Effect.map((apiKey) =>
           retryingTransientFailures(
             makeJevDecisionProvider({ apiKey, model: setting.model }),
@@ -223,25 +203,18 @@ function decisionProvider<E>(
   }
 }
 
-function jevKey<E>(
+function jevKey(
   configuration: PolicyConfiguration,
-  configurationError: PolicyConfigurationErrorConstructor<E>,
-): Effect.Effect<Redacted.Redacted, E> {
+): Effect.Effect<Redacted.Redacted, MessagePolicyConfigurationError> {
   const path = configuration.decisionProviderKeyFile;
   return path === undefined
-    ? Effect.fail(
-        policyConfigurationError(
-          "decision-provider-key-file",
-          configurationError,
-        ),
-      )
+    ? Effect.fail(policyConfigurationError("decision-provider-key-file"))
     : readCredential(path, decisionProviderKey).pipe(
         Effect.mapError((error) =>
           policyConfigurationError(
             error.stage === "file"
               ? "decision-provider-key-file"
               : "decision-provider-key",
-            configurationError,
           ),
         ),
       );

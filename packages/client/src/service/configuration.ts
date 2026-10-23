@@ -13,6 +13,7 @@ import {
   Redacted,
   Schema,
 } from "effect";
+import type { MessagePolicyConfigurationFailure } from "../firewall/index.js";
 import {
   credentialMatches,
   type HarnessMcpCredentials,
@@ -29,7 +30,6 @@ import {
   DaemonConfigurationError,
   type DaemonConfigurationFailure,
   type DaemonProcessConfiguration,
-  type MessagePolicyConfigurationFailure,
 } from "./bootstrap.js";
 
 const canonicalUnsignedDecimal = Schema.String.pipe(

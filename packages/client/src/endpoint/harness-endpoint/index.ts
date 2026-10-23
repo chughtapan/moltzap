@@ -16,6 +16,7 @@ import {
   decodeHarnessSendResult,
 } from "../../delivery/operations.js";
 import { FirewallSendError } from "../../firewall/outcome/index.js";
+import { packageVersion } from "../../release/index.js";
 import {
   CollectiveError,
   type SendResult,
@@ -27,7 +28,6 @@ import {
   SendError,
   sendFailureReasons,
 } from "../../transport/messaging/errors.js";
-import { packageVersion } from "../implementation.js";
 import {
   HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
   HARNESS_READ_INBOX_TOOL,

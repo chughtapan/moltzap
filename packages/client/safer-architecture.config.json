@@ -50,10 +50,6 @@
       "reason": "The history export line schema hosts decode, without loading the inbox or the store"
     },
     {
-      "file": "endpoint/implementation.ts",
-      "reason": "The package version both loopback MCP peers report"
-    },
-    {
       "file": "service/bootstrap.ts",
       "reason": "Loaded daemon configuration and closed bootstrap failures shared by service composition modules"
     }
@@ -74,6 +70,16 @@
   ],
   "domains": [
     {
+      "name": "release",
+      "roots": [
+        "src/release"
+      ],
+      "entrypoints": [
+        "src/release/index.ts"
+      ],
+      "reason": "Client package release metadata used by MCP peers, policy provenance and telemetry"
+    },
+    {
       "name": "firewall-outcome",
       "roots": [
         "src/firewall/outcome"
@@ -82,6 +88,16 @@
         "src/firewall/outcome/index.ts"
       ],
       "reason": "Closed refusal and guidance schemas hosts and transport decode without loading policy evaluation or provider clients"
+    },
+    {
+      "name": "firewall-evaluator",
+      "roots": [
+        "src/firewall/evaluator"
+      ],
+      "entrypoints": [
+        "src/firewall/evaluator/index.ts"
+      ],
+      "reason": "Isolated code and English evaluation depends only on runtime-safe outcomes and packages"
     },
     {
       "name": "identity",
@@ -181,8 +197,7 @@
       ],
       "entrypoints": [
         "src/endpoint/mcp/index.ts",
-        "src/endpoint/harness-endpoint/index.ts",
-        "src/endpoint/implementation.ts"
+        "src/endpoint/harness-endpoint/index.ts"
       ],
       "reason": "The loopback MCP, owner tools, and the HarnessEndpoint hosts connect to"
     },
@@ -286,11 +301,25 @@
       "reason": "The agent signing key and secret credential files, read exactly and failing closed"
     },
     {
+      "name": "firewall-evaluator",
+      "folders": [
+        "firewall/evaluator"
+      ],
+      "reason": "Isolated code and English evaluation depends only on runtime-safe outcomes and packages"
+    },
+    {
       "name": "firewall-outcome",
       "folders": [
         "firewall/outcome"
       ],
       "reason": "Closed refusal and guidance schemas hosts and transport decode without loading policy evaluation or provider clients"
+    },
+    {
+      "name": "release",
+      "folders": [
+        "release"
+      ],
+      "reason": "Client package release metadata used by MCP peers, policy provenance and telemetry"
     }
   ],
   "publicTypePackages": [

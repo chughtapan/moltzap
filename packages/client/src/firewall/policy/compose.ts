@@ -10,14 +10,11 @@ import type {
   MessageMiddleware,
 } from "../evaluator/index.js";
 import type {
-  PolicyConfiguration,
-  PolicyConfigurationErrorConstructor,
-} from "./configuration.js";
-import type {
   IncomingMiddlewareEntry,
   MessagePolicy,
   OutgoingMiddlewareEntry,
 } from "./policy.js";
+import { packageVersion } from "../../release/index.js";
 import {
   acknowledgementsPolicy,
   ALLOWED_SENDERS_ID,
@@ -27,6 +24,10 @@ import {
   credentialsPolicy,
   plainLanguagePolicy,
 } from "../rules/index.js";
+import {
+  MessagePolicyConfigurationError,
+  type PolicyConfiguration,
+} from "./configuration.js";
 import { loadMessagePolicy, policyConfigurationError } from "./load.js";
 
 /**
@@ -54,20 +55,17 @@ export interface FirewallInstallation {
  * @param policy The decoded document.
  * @param provider The service that assesses its English rules and the
  *     collective norms; unused when the document installs neither.
- * @param packageVersion The Client release used in policy provenance.
  * @returns The options `Daemon.withFirewall` installs.
  */
 export const messagePolicyFirewall = Effect.fn("messagePolicyFirewall")(
   function* (
     policy: MessagePolicy,
     provider: DecisionProvider,
-    packageVersion: string,
   ): Effect.fn.Return<FirewallOptions, CheckInputError> {
     const bundle = yield* Effect.cached(
       collectiveNorms(
         provider,
         policy.englishSettings,
-        packageVersion,
         policy.maximumHistoryRecords,
       ),
     );
@@ -87,11 +85,7 @@ export const messagePolicyFirewall = Effect.fn("messagePolicyFirewall")(
       outgoing: outgoingChain,
       settings: policy.settings,
       facts: policy.facts,
-      codeDigest: armDigest(
-        policy,
-        [...incomingChain, ...outgoingChain],
-        packageVersion,
-      ),
+      codeDigest: armDigest(policy, [...incomingChain, ...outgoingChain]),
       maximumHistoryRecords: policy.maximumHistoryRecords,
       maximumConcurrentChecks: policy.maximumConcurrentChecks,
       english:
@@ -111,30 +105,23 @@ export const messagePolicyFirewall = Effect.fn("messagePolicyFirewall")(
  * The firewall a composition installs, or else the one the environment's
  * message-policy file describes, which is logged with its registrations. A
  * composition with its own firewall refuses that file.
- * @param configuration The daemon's loaded process configuration.
- * @param packageVersion The Client release used in policy provenance.
- * @param configurationError The daemon-owned configuration failure constructor.
+ * @param configuration The policy and provider file locations.
  * @param composed The firewall the composition installs itself, if any.
  * @returns What the daemon installs; neither field is set without a firewall.
  */
-export const firewallInstallation = <E>(
+export const firewallInstallation = (
   configuration: PolicyConfiguration,
-  packageVersion: string,
-  configurationError: PolicyConfigurationErrorConstructor<E>,
   composed?: FirewallInstallation,
-): Effect.Effect<FirewallInstallation, E> =>
-  loadMessagePolicy(configuration, configurationError).pipe(
+): Effect.Effect<FirewallInstallation, MessagePolicyConfigurationError> =>
+  loadMessagePolicy(configuration).pipe(
     Effect.flatMap((configured) =>
       Option.match(configured, {
         onNone: () => Effect.succeed(composed ?? {}),
         onSome: ({ policy, provider, auditExport }) =>
           composed === undefined
-            ? messagePolicyFirewall(policy, provider, packageVersion).pipe(
+            ? messagePolicyFirewall(policy, provider).pipe(
                 Effect.mapError(() =>
-                  policyConfigurationError(
-                    "message-policy",
-                    configurationError,
-                  ),
+                  policyConfigurationError("message-policy"),
                 ),
                 Effect.tap(logInstalled),
                 Effect.map((options) => ({
@@ -143,12 +130,7 @@ export const firewallInstallation = <E>(
                   fromPolicyFile: true,
                 })),
               )
-            : Effect.fail(
-                policyConfigurationError(
-                  "message-policy-composed",
-                  configurationError,
-                ),
-              ),
+            : Effect.fail(policyConfigurationError("message-policy-composed")),
       }),
     ),
   );
@@ -158,17 +140,13 @@ export const firewallInstallation = <E>(
  * install against its store, such as an initial rule reusing a code rule's
  * id.
  * @param cause The closed installation failure.
- * @param configurationError The daemon-owned configuration failure constructor.
  * @returns The failure naming `SHARNESS_MESSAGE_POLICY_FILE` and the reason.
  */
-export function policyInstallationError<
-  E extends { readonly reason: string; readonly message: string },
->(
+export function policyInstallationError(
   cause: FirewallPolicyError,
-  configurationError: PolicyConfigurationErrorConstructor<E>,
-): E {
-  const base = policyConfigurationError("message-policy", configurationError);
-  return new configurationError({
+): MessagePolicyConfigurationError {
+  const base = policyConfigurationError("message-policy");
+  return new MessagePolicyConfigurationError({
     reason: "message-policy",
     message: `${base.message}; its rules could not be installed (${cause.reason})`,
   });
@@ -178,7 +156,6 @@ export function policyInstallationError<
 function armDigest(
   policy: MessagePolicy,
   registrations: readonly MessageMiddleware[],
-  packageVersion: string,
 ): string {
   return createHash("sha256")
     .update(

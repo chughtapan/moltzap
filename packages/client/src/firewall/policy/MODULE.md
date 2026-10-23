@@ -4,7 +4,7 @@ _`packages/client/src/firewall/policy`_
 
 ## Purpose
 
-The message-policy document `sharnessd` reads and the firewall it builds from one.
+Message-policy documents, configuration, composition and persisted owner edits.
 
 ## Public surface
 
@@ -71,6 +71,68 @@ provider, the collective norms with the `unavailable` provider, which would
 leave every one of their English checks unavailable, and an English rule
 id given twice across the fixed and initial rules are refused.
 
+### [`messagePolicyFirewall`](./compose.ts#L60)
+
+_Variable_
+
+```ts
+export const messagePolicyFirewall = Effect.fn("messagePolicyFirewall")(
+  function* (
+    policy: MessagePolicy,
+    provider: DecisionProvider,
+  ): Effect.fn.Return<FirewallOptions, CheckInputError> {
+    const bundle = yield* Effect.cached(
+      collectiveNorms(
+        provider,
+        policy.englishSettings,
+        policy.maximumHistoryRecords,
+      ),
+    );
+    const incomingChain = yield* Effect.forEach(
+      policy.incoming,
+      (entry) => incoming(entry, bundle),
+      { concurrency: 1 },
+    );
+    const outgoingChain = yield* Effect.forEach(
+      policy.outgoing,
+      (entry) => outgoing(entry, bundle),
+      { concurrency: 1 },
+    );
+    return {
+      mode: policy.mode,
+      incoming: incomingChain,
+      outgoing: outgoingChain,
+      settings: policy.settings,
+      facts: policy.facts,
+      codeDigest: armDigest(policy, [...incomingChain, ...outgoingChain]),
+      maximumHistoryRecords: policy.maximumHistoryRecords,
+      maximumConcurrentChecks: policy.maximumConcurrentChecks,
+      english:
+        policy.english === undefined
+          ? undefined
+          : {
+              fixedRules: policy.english.fixedRules,
+              initialRules: policy.english.initialRules,
+              provider,
+              settings: policy.englishSettings,
+            },
+    };
+  },
+)
+```
+
+The firewall installation of one message-policy document: its built-in
+middleware in chain order, its English rules assessed by `provider`, and
+its settings. This is the trusted-composition hook: a composition that
+brings its own decision provider installs the result with
+`Daemon.withFirewall`. `codeDigest` is the SHA-256 of the Client release,
+the mode, each registration's id and revision, the fixed English rules,
+the decision provider and the settings. It leaves out what differs between
+the agents of one arm: the facilitator role, which no revision holds, the
+allowed-sender list and the initial editable rules, so every member
+records the same digest.
+
 ## Files
 
+- `compose.ts`
 - `policy.ts`

@@ -2,22 +2,22 @@
 
 // safer-arch-ignore no-inventory-barrel: Admission exposes installation, the shared environment, retained check decoding and the incoming worker as the ports policy, audit and delivery consume.
 
-/** Admission and retained checks share one installation. */
+/** Trusted composition installs immutable chains and captures their registrations. */
 export {
   captureRegistration,
   collectiveAdmission,
   type FirewallOptions,
   installFirewall,
 } from "./firewall.js";
-/** Admission and retained checks share one installation. */
+/** Checking and delivery share the installed firewall and its execution environment. */
 export {
   type FirewallEnvironment,
   type InstalledFirewall,
 } from "./firewall-checks.js";
-/** Admission and retained checks share one installation. */
+/** Audit readers decode the retained checks independently of private storage. */
 export {
   decodeFirewallAuditEntry,
   FirewallAuditRecord,
 } from "./firewall-values.js";
-/** Admission and retained checks share one installation. */
+/** Delivery supplies verified context to the incoming admission worker. */
 export { type AdmissionContext, runAdmission } from "./admission.js";

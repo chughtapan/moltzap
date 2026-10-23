@@ -66,7 +66,7 @@ import {
   type FirewallInstallation,
 } from "./firewall-values.js";
 
-// safer-arch-ignore file-implicit-boundary-module: Firewall composition and its admission worker share one immutable installation and evidence pipeline; this private implementation is exposed only through firewall/index.ts.
+// safer-arch-ignore file-implicit-boundary-module: Firewall composition and its admission worker share one immutable installation and evidence pipeline; this private implementation is exposed only through admission/index.ts.
 
 /**
  * The post id a gather's question is rendered under before any of its posts

@@ -24,5 +24,6 @@ the outer store is still open. Request cancellation and handler closure join
 the same scoped work. The file path does not enter the firewall installation
 or its digest.
 
-The service supplies its release version, policy file locations and configuration
-error constructor to `firewall/`, which loads and composes personal policy.
+The service supplies policy file locations to `firewall/`, which loads and
+composes personal policy. It maps policy configuration failures to daemon
+configuration errors. Release metadata comes from `../release/`.

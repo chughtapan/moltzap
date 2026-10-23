@@ -9,6 +9,7 @@
 import { effect as it } from "@effect/vitest";
 import { Effect, FastCheck as fc } from "effect";
 import { expect } from "vitest";
+import { packageVersion } from "../../release/index.js";
 import {
   type DecisionProvider,
   DecisionProviderError,
@@ -311,6 +312,7 @@ it.each([true, false])(
       const { outgoing } = yield* chains(facilitator, firstChoiceProvider());
       const data: unknown = JSON.parse(outgoing[0]?.provenance?.data ?? "null");
       expect(data).toEqual(expect.objectContaining({ facilitator }));
+      expect(data).toMatchObject({ edition: { client: packageVersion } });
     }),
 );
 

@@ -42,19 +42,20 @@ export { beginFirewallAudit } from "./audit/firewall-audit.js";
 /** Retained judgments have a versioned operator representation. */
 export { FirewallAuditRecord } from "./admission/index.js";
 /** Owner edits preserve the daemon resource lifetime. */
-export { installEditableFirewall } from "./policy/editable.js";
+export { installEditableFirewall } from "./policy/index.js";
 /** Policy documents and their composition share one firewall boundary. */
 export {
   decodeMessagePolicy,
   type FirewallInstallation,
   firewallInstallation,
   MessagePolicy,
+  MessagePolicyConfigurationError,
   messagePolicyFirewall,
   policyInstallationError,
 } from "./policy/index.js";
 
 /** Policy loading requires no daemon bootstrap authority. */
-export type { MessagePolicyConfigurationFailure } from "./policy/configuration.js";
+export type { MessagePolicyConfigurationFailure } from "./policy/index.js";
 
 /** Delivery supplies context and drains the firewall's incoming queue. */
 export {

@@ -8,9 +8,6 @@ import { Data, type Effect, type Redacted } from "effect";
 import type { HarnessMcpCredentials } from "../endpoint/mcp/index.js";
 import type { MessagePolicyConfigurationFailure } from "../firewall/index.js";
 
-/** Policy settings contribute their closed reasons to daemon configuration. */
-export type { MessagePolicyConfigurationFailure } from "../firewall/index.js";
-
 /** Closed reason that daemon configuration cannot become startup authority. */
 export type DaemonConfigurationFailure =
   | "legacy-key"

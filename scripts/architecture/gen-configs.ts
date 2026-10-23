@@ -132,6 +132,13 @@ const sharedConfig: ArchitectureConfig = {
  */
 const clientDomains: readonly ClientDomain[] = [
   {
+    name: "release",
+    root: "release",
+    entrypoints: ["index.ts"],
+    reason:
+      "Client package release metadata used by MCP peers, policy provenance and telemetry",
+  },
+  {
     name: "firewall-outcome",
     root: "firewall/outcome",
     entrypoints: ["index.ts"],
@@ -139,6 +146,13 @@ const clientDomains: readonly ClientDomain[] = [
       "Closed refusal and guidance schemas hosts and transport decode without loading policy evaluation or provider clients",
   },
 
+  {
+    name: "firewall-evaluator",
+    root: "firewall/evaluator",
+    entrypoints: ["index.ts"],
+    reason:
+      "Isolated code and English evaluation depends only on runtime-safe outcomes and packages",
+  },
   {
     name: "identity",
     root: "identity",
@@ -259,14 +273,7 @@ const clientDomains: readonly ClientDomain[] = [
   {
     name: "endpoint",
     root: "endpoint",
-    entrypoints: [
-      "mcp/index.ts",
-      "harness-endpoint/index.ts",
-      {
-        file: "implementation.ts",
-        reason: "The package version both loopback MCP peers report",
-      },
-    ],
+    entrypoints: ["mcp/index.ts", "harness-endpoint/index.ts"],
     reason:
       "The loopback MCP, owner tools, and the HarnessEndpoint hosts connect to",
   },

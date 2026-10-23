@@ -5,6 +5,7 @@
  */
 
 import { Effect } from "effect";
+import { packageVersion } from "../../release/index.js";
 import {
   type CheckInputError,
   type DecisionProvider,
@@ -233,7 +234,7 @@ const ACKNOWLEDGEMENT_FILLER: ReadonlySet<string> = new Set([
  * the code rules' assessment, not part of the edition. A change to how a code
  * rule assesses that these fields do not show bumps `edition`.
  */
-const edition = (packageVersion: string) => ({
+const edition = () => ({
   edition: "org.social-harness/collective-norms/v1",
   client: packageVersion,
   acknowledgement: {
@@ -271,7 +272,6 @@ export interface CollectiveNorms {
  * provenance records, so every member of a run registers the same revision.
  * @param provider The service that assesses the English rules.
  * @param settings The English assessment bounds.
- * @param packageVersion The Client release used in edition provenance.
  * @param historyRecords The history window each check reads, if the policy
  *     sets one.
  * @returns The incoming registration and the outgoing one for a role.
@@ -279,7 +279,6 @@ export interface CollectiveNorms {
 export const collectiveNorms = Effect.fn("collectiveNorms")(function* (
   provider: DecisionProvider,
   settings: EnglishPolicySettings,
-  packageVersion: string,
   historyRecords?: number,
 ): Effect.fn.Return<CollectiveNorms, CheckInputError> {
   const incoming = yield* makeEnglishPolicy({
@@ -296,7 +295,7 @@ export const collectiveNorms = Effect.fn("collectiveNorms")(function* (
   });
   const revision = sha256(
     JSON.stringify({
-      edition: edition(packageVersion),
+      edition: edition(),
       english: { incoming: incoming.revision, outgoing: outgoing.revision },
       historyRecords: historyRecords ?? null,
       provider: provider.provenance ?? null,
@@ -304,11 +303,11 @@ export const collectiveNorms = Effect.fn("collectiveNorms")(function* (
   );
   return {
     incoming: {
-      ...registration(incoming, revision, {}, packageVersion),
+      ...registration(incoming, revision, {}),
       check: (input) => incoming.check(input),
     },
     outgoing: (facilitator) => ({
-      ...registration(outgoing, revision, { facilitator }, packageVersion),
+      ...registration(outgoing, revision, { facilitator }),
       rules: [...CODE_RULES.map((rule) => rule.description), ...outgoing.rules],
       check: (input) => checkOutgoing(input, outgoing, facilitator),
     }),
@@ -360,7 +359,6 @@ function registration(
   english: MessageMiddleware,
   revision: string,
   role: Readonly<Record<string, boolean>>,
-  packageVersion: string,
 ): Omit<MessageMiddleware, "check"> {
   return {
     id: COLLECTIVE_NORMS_ID,
@@ -369,7 +367,7 @@ function registration(
     provenance: {
       format: "org.social-harness/collective-norms.v1",
       data: JSON.stringify({
-        edition: edition(packageVersion),
+        edition: edition(),
         ...role,
         english: english.provenance ?? null,
       }),

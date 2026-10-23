@@ -1,6 +1,6 @@
 /** @file Built-in middleware registrations for policy composition. */
 
-/** Policy composition selects built-ins by their document entries. */
+/** Policy documents select deterministic credential, language, acknowledgement and sender checks. */
 export {
   acknowledgementsPolicy,
   ALLOWED_SENDERS_ID,
@@ -8,5 +8,5 @@ export {
   credentialsPolicy,
   plainLanguagePolicy,
 } from "./builtin.js";
-/** Policy composition selects built-ins by their document entries. */
+/** Collective participation composes code and English norms under one shared revision. */
 export { type CollectiveNorms, collectiveNorms } from "./collective-norms.js";

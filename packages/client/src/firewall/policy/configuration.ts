@@ -1,6 +1,6 @@
 /** @file Inputs the daemon supplies to policy loading without granting bootstrap authority. */
 
-import type { Redacted } from "effect";
+import { Data, type Redacted } from "effect";
 
 /** Closed reasons the policy settings cannot start the daemon. */
 export type MessagePolicyConfigurationFailure =
@@ -19,8 +19,10 @@ export interface PolicyConfiguration {
   readonly firewallAuditExport?: string;
 }
 
-/** The caller retains ownership of its configuration error representation. */
-export type PolicyConfigurationErrorConstructor<E> = new (fields: {
+/** Policy loading fails with a closed reason and a safe operator message. */
+export class MessagePolicyConfigurationError extends Data.TaggedError(
+  "MessagePolicyConfigurationError",
+)<{
   readonly reason: MessagePolicyConfigurationFailure;
   readonly message: string;
-}) => E;
+}> {}

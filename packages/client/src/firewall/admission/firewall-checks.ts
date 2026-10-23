@@ -57,7 +57,7 @@ import {
 } from "../evaluator/index.js";
 import { type CheckedGuidance, FirewallSendError } from "../outcome/index.js";
 
-// safer-arch-ignore file-implicit-boundary-module: Outgoing and incoming admission share this one projection and assessment pipeline; firewall/index.ts exposes only the installation and its admission ports.
+// safer-arch-ignore file-implicit-boundary-module: Outgoing and incoming admission share this one projection and assessment pipeline; admission/index.ts exposes only the installation and its admission ports.
 
 /** Private immutable installation with one inference limit shared by both directions. */
 export interface InstalledFirewall {
