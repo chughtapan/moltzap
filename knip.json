@@ -8,7 +8,6 @@
         "scripts/code/*.ts",
         "scripts/setup/*.ts",
         "scripts/test-*-package.ts",
-        "scripts/test-two-agents-example.ts",
         "examples/*/*.ts",
         "scripts/docs/check-mermaid.ts",
         "scripts/docs/generate-constants-snippets.ts",
@@ -23,7 +22,6 @@
         "scripts/build/**/*.ts",
         "scripts/code/**/*.ts",
         "scripts/setup/**/*.ts",
-        "scripts/test/packed-workspace.ts",
         "scripts/test-*-package.ts"
       ],
       "ignoreDependencies": [
@@ -122,7 +120,7 @@
     "packages/client/src/store/rows/index.ts": [
       "exports"
     ],
-    "packages/client/src/endpoint/mcp/owner-tools.ts": [
+    "packages/client/src/harness/protocol/owner-tools.ts": [
       "exports"
     ]
   }

@@ -93,7 +93,7 @@ export function hostCodeHashOfDirectories(
 
 /**
  * Modules reachable from a package's production root export, including its
- * manifest. The packed-consumer gate and release hash use the same resolver.
+ * manifest. The release hash follows the same production export conditions.
  * @param root Package directory containing its manifest and built exports.
  * @returns Package-relative files loaded by the root entry.
  */

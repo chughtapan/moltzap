@@ -87,6 +87,7 @@
               "modules/client/firewall/policy",
               "modules/client/harness/endpoint",
               "modules/client/harness/inbox",
+              "modules/client/harness/protocol",
               "modules/client/service",
               "modules/client/src",
               "modules/client/transport/collectives",

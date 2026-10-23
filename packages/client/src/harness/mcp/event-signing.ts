@@ -10,7 +10,7 @@ import { Data, Effect, Layer, Option, type Scope } from "effect";
 import { createHmac } from "node:crypto";
 import { lookup } from "node:dns";
 import { BlockList, isIP, type LookupFunction } from "node:net";
-import { maximumEventBytes } from "../protocol/event-schemas.js";
+import { maximumEventBytes } from "../protocol/index.js";
 
 /** Closed callback diagnostics, never an upstream body, header or network address. */
 export type WebhookFailureReason =

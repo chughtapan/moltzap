@@ -34,12 +34,12 @@ import {
   eventUnsubscribeInput,
   type HarnessWebhookEvents,
   type WebhookStatus,
-} from "../protocol/event-schemas.js";
+} from "../protocol/index.js";
 import { INBOX_ITEM_EVENT, INBOX_PENDING_EVENT } from "../protocol/names.js";
 /** Durable callback delivery shares this consumer boundary. */
 export { makeWebhookEvents } from "./webhook.js";
 /** Owner-only diagnostics use the same closed status schema. */
-export { webhookStatusJsonSchema } from "../protocol/event-schemas.js";
+export { webhookStatusJsonSchema } from "../protocol/index.js";
 /** Effect HTTP connection policy for callback delivery. */
 export { webhookHttpClientLayer } from "./event-signing.js";
 

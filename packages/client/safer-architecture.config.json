@@ -50,18 +50,6 @@
       "reason": "Tool and event names shared by the host and daemon"
     },
     {
-      "file": "harness/protocol/schemas.ts",
-      "reason": "MCP request and result schema projections"
-    },
-    {
-      "file": "harness/protocol/event-schemas.ts",
-      "reason": "Event schemas and callback ports shared by MCP transports"
-    },
-    {
-      "file": "harness/protocol/owner-tools.ts",
-      "reason": "Private owner-management request and result schemas"
-    },
-    {
       "file": "harness/inbox/history-export.ts",
       "reason": "History export values hosts decode without loading inbox state or SQLite"
     },
@@ -77,7 +65,7 @@
     },
     {
       "path": "src/environment.ts",
-      "reason": "Host and daemon configuration check for retired environment names"
+      "reason": "Host configuration check for retired environment names re-exported by the package facade"
     },
     {
       "path": "src/index.types-check.ts",
@@ -189,26 +177,14 @@
       "reason": "Gather and all_gather carried in posts"
     },
     {
-      "name": "firewall",
-      "roots": [
-        "src/firewall"
-      ],
-      "entrypoints": [
-        "src/firewall/index.ts"
-      ],
-      "reason": "Personal firewall evaluation, rules, policy, admission and audit above the collective transport"
-    },
-    {
       "name": "harness-protocol",
       "roots": [
         "src/harness/protocol"
       ],
       "entrypoints": [
+        "src/harness/protocol/index.ts",
         "src/harness/protocol/operations.ts",
-        "src/harness/protocol/names.ts",
-        "src/harness/protocol/schemas.ts",
-        "src/harness/protocol/event-schemas.ts",
-        "src/harness/protocol/owner-tools.ts"
+        "src/harness/protocol/names.ts"
       ],
       "reason": "The loopback MCP tools, events and results both peers speak"
     },
@@ -221,6 +197,16 @@
         "src/harness/endpoint/index.ts"
       ],
       "reason": "The HarnessEndpoint library an agent host loads"
+    },
+    {
+      "name": "firewall",
+      "roots": [
+        "src/firewall"
+      ],
+      "entrypoints": [
+        "src/firewall/index.ts"
+      ],
+      "reason": "Personal firewall evaluation, rules, policy, admission and audit above the collective transport"
     },
     {
       "name": "harness-inbox",
@@ -294,6 +280,13 @@
       "reason": "The classified host inbox, delivery pass and history export"
     },
     {
+      "name": "firewall",
+      "folders": [
+        "firewall"
+      ],
+      "reason": "Personal firewall evaluation, rules, policy, admission and audit above the collective transport"
+    },
+    {
       "name": "harness-endpoint",
       "folders": [
         "harness/endpoint"
@@ -306,13 +299,6 @@
         "harness/protocol"
       ],
       "reason": "The loopback MCP tools, events and results both peers speak"
-    },
-    {
-      "name": "firewall",
-      "folders": [
-        "firewall"
-      ],
-      "reason": "Personal firewall evaluation, rules, policy, admission and audit above the collective transport"
     },
     {
       "name": "collectives",

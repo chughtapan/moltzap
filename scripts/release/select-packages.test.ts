@@ -20,7 +20,6 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
 import {
   contentHashOfDirectory,
   contentHashOfTarball,
@@ -407,11 +406,18 @@ function packedDirectory(
   return root;
 }
 
-await test("the Client root reaches its host endpoint", () => {
-  const root = fileURLToPath(
-    new URL("../../packages/client/", import.meta.url),
-  );
-  const modules = hostModulesOfDirectory(root);
-  assert.ok(modules.size > 0);
-  assert.ok(modules.has("dist/harness/endpoint/index.js"));
+await test("the root module walk excludes modules reached only by the service export", () => {
+  const root = packedDirectory(CLIENT_MANIFEST, {
+    "dist/index.js": 'export { endpoint } from "./endpoint.js";\n',
+    "dist/endpoint.js": "export const endpoint = 1;\n",
+    "dist/service/index.js": 'export { daemon } from "./daemon.js";\n',
+    "dist/service/daemon.js": "export const daemon = 1;\n",
+  });
+  try {
+    const modules = hostModulesOfDirectory(root);
+    assert.ok(modules.has("dist/endpoint.js"));
+    assert.ok(!modules.has("dist/service/daemon.js"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

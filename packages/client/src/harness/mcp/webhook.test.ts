@@ -24,7 +24,7 @@ import {
 } from "../../__tests__/webhook-fixtures.js";
 import { encodeRuntimeValue, openEndpointStore } from "../../store/index.js";
 import { readRuntimeEvent } from "../inbox/inbox.js";
-import { maximumEventBytes } from "../protocol/event-schemas.js";
+import { maximumEventBytes } from "../protocol/index.js";
 import { eventIdOf } from "../protocol/operations.js";
 import {
   isPublicWebhookAddress,

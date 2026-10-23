@@ -10,7 +10,7 @@ import { Effect, Redacted, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import type { DaemonBootstrap } from "../service/bootstrap.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";
-import { managementRegisterRequestSchema } from "../harness/protocol/owner-tools.js";
+import { managementRegisterRequestSchema } from "../harness/protocol/index.js";
 import { DeliveryToken } from "../store/index.js";
 import { InboundMessage } from "../transport/messaging/message.js";
 import { encodeCanonical, RecordHash } from "../transport/wire/index.js";

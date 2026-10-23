@@ -20,11 +20,13 @@ interface TestSubpath {
 }
 
 interface FacadeFile {
+  readonly host?: boolean;
   readonly file: string;
   readonly reason: string;
 }
 
 interface ClientDomain {
+  readonly host?: boolean;
   readonly name: string;
   /** Domain folder relative to `src/`. */
   readonly root: string;
@@ -133,6 +135,7 @@ const sharedConfig: ArchitectureConfig = {
 const clientDomains: readonly ClientDomain[] = [
   {
     name: "release",
+    host: true,
     root: "release",
     entrypoints: ["index.ts"],
     reason:
@@ -140,6 +143,7 @@ const clientDomains: readonly ClientDomain[] = [
   },
   {
     name: "firewall-outcome",
+    host: true,
     root: "firewall/outcome",
     entrypoints: ["index.ts"],
     reason:
@@ -167,6 +171,7 @@ const clientDomains: readonly ClientDomain[] = [
       "index.ts",
       {
         file: "values.ts",
+        host: true,
         reason:
           "Addresses, post ids, content, and member limits hosts decode without loading signing, verification, or the Router client",
       },
@@ -181,6 +186,7 @@ const clientDomains: readonly ClientDomain[] = [
       "index.ts",
       {
         file: "types.ts",
+        host: true,
         reason:
           "Store value schemas hosts read without loading the SQLite store",
       },
@@ -206,11 +212,13 @@ const clientDomains: readonly ClientDomain[] = [
       },
       {
         file: "errors.ts",
+        host: true,
         reason:
           "Closed send, listen, and acknowledgment errors, read without loading the engine",
       },
       {
         file: "message.ts",
+        host: true,
         reason: "Inbound message schemas, read without loading the engine",
       },
     ],
@@ -223,26 +231,56 @@ const clientDomains: readonly ClientDomain[] = [
       "index.ts",
       {
         file: "forms.ts",
+        host: true,
         reason:
           "Send forms and collective errors, read without loading the operation layer",
       },
       {
         file: "inbound.ts",
+        host: true,
         reason:
           "Inbound item schemas, read without loading the operation layer",
       },
       {
         file: "message-text.ts",
+        host: true,
         reason:
           "The message-text parser native hosts call, without loading the operation layer",
       },
       {
         file: "render.ts",
+        host: true,
         reason:
           "Complete message rendering shared by hosts and policy evidence without loading collective operations",
       },
     ],
     reason: "Gather and all_gather carried in posts",
+  },
+  {
+    name: "harness-protocol",
+    root: "harness/protocol",
+    entrypoints: [
+      "index.ts",
+      {
+        file: "operations.ts",
+        host: true,
+        reason:
+          "Harness operation values and decoders shared by the host and daemon",
+      },
+      {
+        file: "names.ts",
+        host: true,
+        reason: "Tool and event names shared by the host and daemon",
+      },
+    ],
+    reason: "The loopback MCP tools, events and results both peers speak",
+  },
+  {
+    name: "harness-endpoint",
+    host: true,
+    root: "harness/endpoint",
+    entrypoints: ["index.ts"],
+    reason: "The HarnessEndpoint library an agent host loads",
   },
   {
     name: "firewall",
@@ -252,46 +290,13 @@ const clientDomains: readonly ClientDomain[] = [
       "Personal firewall evaluation, rules, policy, admission and audit above the collective transport",
   },
   {
-    name: "harness-protocol",
-    root: "harness/protocol",
-    entrypoints: [
-      {
-        file: "operations.ts",
-        reason:
-          "Harness operation values and decoders shared by the host and daemon",
-      },
-      {
-        file: "names.ts",
-        reason: "Tool and event names shared by the host and daemon",
-      },
-      {
-        file: "schemas.ts",
-        reason: "MCP request and result schema projections",
-      },
-      {
-        file: "event-schemas.ts",
-        reason: "Event schemas and callback ports shared by MCP transports",
-      },
-      {
-        file: "owner-tools.ts",
-        reason: "Private owner-management request and result schemas",
-      },
-    ],
-    reason: "The loopback MCP tools, events and results both peers speak",
-  },
-  {
-    name: "harness-endpoint",
-    root: "harness/endpoint",
-    entrypoints: ["index.ts"],
-    reason: "The HarnessEndpoint library an agent host loads",
-  },
-  {
     name: "harness-inbox",
     root: "harness/inbox",
     entrypoints: [
       "index.ts",
       {
         file: "history-export.ts",
+        host: true,
         reason:
           "History export values hosts decode without loading inbox state or SQLite",
       },
@@ -332,6 +337,51 @@ const clientEntrypointFacades: readonly FacadeFile[] = clientDomains.flatMap(
       .map(({ file, reason }) => ({ file: `${root}/${file}`, reason })),
 );
 
+const clientCompositionRoots = [
+  {
+    path: "src/index.ts",
+    host: true,
+    reason:
+      "Package facade: re-exports the adapter-facing values each domain owns",
+  },
+  {
+    path: "src/environment.ts",
+    host: true,
+    reason:
+      "Host configuration check for retired environment names re-exported by the package facade",
+  },
+  {
+    path: "src/index.types-check.ts",
+    reason: "Type canary for the package facade's public types",
+  },
+  {
+    path: "package.json",
+    host: true,
+    reason: "Package metadata whose version the loopback MCP peers report",
+  },
+] as const;
+
+/**
+ * Reviewed host paths, independent of the modules a root happens to reach.
+ * Whole domains require host approval; other domains admit only flagged values.
+ */
+export const clientHostModules: ReadonlySet<string> = new Set(
+  [
+    ...clientCompositionRoots
+      .filter((entry) => "host" in entry && entry.host)
+      .map(({ path }) => path),
+    ...clientDomains.flatMap(({ root, host, entrypoints }) =>
+      host
+        ? [`src/${root}/`]
+        : entrypoints.flatMap((entry) =>
+            typeof entry !== "string" && entry.host
+              ? [`src/${root}/${entry.file}`]
+              : [],
+          ),
+    ),
+  ].map((path) => path.replace(/^src\//u, "dist/").replace(/\.ts$/u, ".js")),
+);
+
 const packageDefinitions: Readonly<Record<string, PackageDefinition>> = {
   client: {
     beforeShared: {
@@ -345,27 +395,10 @@ const packageDefinitions: Readonly<Record<string, PackageDefinition>> = {
             "Loaded daemon configuration and closed bootstrap failures shared by service composition modules",
         },
       ],
-      compositionRoots: [
-        {
-          path: "src/index.ts",
-          reason:
-            "Package facade: re-exports the adapter-facing values each domain owns",
-        },
-        {
-          path: "src/environment.ts",
-          reason:
-            "Host and daemon configuration check for retired environment names",
-        },
-        {
-          path: "src/index.types-check.ts",
-          reason: "Type canary for the package facade's public types",
-        },
-        {
-          path: "package.json",
-          reason:
-            "Package metadata whose version the loopback MCP peers report",
-        },
-      ],
+      compositionRoots: clientCompositionRoots.map(({ path, reason }) => ({
+        path,
+        reason,
+      })),
       domains: clientDomains.map(({ name, root, entrypoints, reason }) => ({
         name,
         roots: [`src/${root}`],
@@ -555,43 +588,45 @@ const architectureConfigDefinitions: ReadonlyArray<{
   },
 ];
 
-const resolved = architectureConfigDefinitions.map(
-  ({ packageRoot, definition }) => ({
-    packageRoot,
-    config: definition.config ?? {
-      ...definition.beforeShared,
-      ...sharedConfig,
-      ...definition.afterShared,
-    },
-  }),
-);
-
-const danglingClaims = resolved.flatMap(({ packageRoot, config }) =>
-  pathClaims(config)
-    .map((claim) => `${packageRoot}/${claim}`)
-    .filter((claim) => !existsSync(new URL(claim, workspaceRoot))),
-);
-
-if (danglingClaims.length > 0) {
-  process.stderr.write(
-    `${[
-      "Architecture config names paths that do not exist:",
-      ...danglingClaims.map((claim) => `  ${claim}`),
-      "",
-      "Every facadeFiles.file, folderChildCountOverrides.folder,",
-      "layers[].folders, compositionRoots.path, and domains root or",
-      "entrypoint must name a real path. Fix the entry in",
-      "scripts/architecture/gen-configs.ts or restore the path it claims.",
-    ].join("\n")}\n`,
+if (import.meta.main) {
+  const resolved = architectureConfigDefinitions.map(
+    ({ packageRoot, definition }) => ({
+      packageRoot,
+      config: definition.config ?? {
+        ...definition.beforeShared,
+        ...sharedConfig,
+        ...definition.afterShared,
+      },
+    }),
   );
-  process.exit(1);
-}
 
-for (const { packageRoot, config } of resolved) {
-  writeFileSync(
-    new URL(`${packageRoot}/safer-architecture.config.json`, workspaceRoot),
-    `${JSON.stringify(config, null, 2)}\n`,
+  const danglingClaims = resolved.flatMap(({ packageRoot, config }) =>
+    pathClaims(config)
+      .map((claim) => `${packageRoot}/${claim}`)
+      .filter((claim) => !existsSync(new URL(claim, workspaceRoot))),
   );
+
+  if (danglingClaims.length > 0) {
+    process.stderr.write(
+      `${[
+        "Architecture config names paths that do not exist:",
+        ...danglingClaims.map((claim) => `  ${claim}`),
+        "",
+        "Every facadeFiles.file, folderChildCountOverrides.folder,",
+        "layers[].folders, compositionRoots.path, and domains root or",
+        "entrypoint must name a real path. Fix the entry in",
+        "scripts/architecture/gen-configs.ts or restore the path it claims.",
+      ].join("\n")}\n`,
+    );
+    process.exit(1);
+  }
+
+  for (const { packageRoot, config } of resolved) {
+    writeFileSync(
+      new URL(`${packageRoot}/safer-architecture.config.json`, workspaceRoot),
+      `${JSON.stringify(config, null, 2)}\n`,
+    );
+  }
 }
 
 function entrypointFile(entry: string | FacadeFile): string {

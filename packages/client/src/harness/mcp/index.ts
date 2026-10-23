@@ -12,7 +12,7 @@ export type {
   ManagementSearchConversationsRequest,
   ManagementSearchConversationsResult,
   ManagementStatusResult,
-} from "../protocol/owner-tools.js";
+} from "../protocol/index.js";
 /** The tool catalog that projects Harness operations and owner tools. */
 export {
   type HarnessMcpEventHandler,

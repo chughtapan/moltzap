@@ -19,7 +19,7 @@ import {
   type HarnessWebhookEvents,
   maximumEventBytes,
   type WebhookStatus,
-} from "../protocol/event-schemas.js";
+} from "../protocol/index.js";
 import { INBOX_ITEM_EVENT } from "../protocol/names.js";
 import { eventIdOf, type EventStore } from "../protocol/operations.js";
 import {
