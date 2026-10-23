@@ -24,7 +24,6 @@ import {
   Fiber,
   Layer,
   Redacted,
-  Ref,
   Schema,
 } from "effect";
 import { generateKeyPairSync } from "node:crypto";
@@ -55,7 +54,6 @@ import {
   type EndpointRecovery,
   type EndpointStore,
   EndpointStoreError,
-  type IdentityBinding,
   openEndpointStore,
 } from "../store/index.js";
 import { verifyStoredMembership } from "../transport/messaging/index.js";
@@ -644,40 +642,30 @@ describe("owner history read over stored rows", () => {
   );
 });
 
-/** What a register call left behind: the bound identity rows and activations. */
-interface RegistrationEffects {
-  readonly bound: Ref.Ref<readonly IdentityBinding[]>;
-  readonly activated: Ref.Ref<readonly VerifiedAgentCard[]>;
-}
-
-const makeRegistrationEffects: Effect.Effect<RegistrationEffects> = Effect.all({
-  bound: Ref.make<readonly IdentityBinding[]>([]),
-  activated: Ref.make<readonly VerifiedAgentCard[]>([]),
-});
-
-/**
- * Management for an unregistered daemon whose store records each identity
- * bind and whose registration port records each activation.
- */
-function makeRegisteringOperations(
-  fixture: IdentityFixture,
-  effects: RegistrationEffects,
-) {
-  return makeDaemonManagementOperations({
-    store: {
-      ...unusedEndpointStore("management registration test"),
-      bindIdentity: (binding) =>
-        Ref.update(effects.bound, (rows) => [...rows, binding]).pipe(
-          Effect.as("inserted" as const),
-        ),
-    },
-    bootstrap: fixture.bootstrap,
-    registration: {
-      readRegistration: () => ({ kind: "unregistered" }) as const,
-      activateRegistered: (card) =>
-        Ref.update(effects.activated, (cards) => [...cards, card]),
-    },
-  });
+/** A durable store and registration port whose status follows activation. */
+function makeRegisteringOperations(fixture: IdentityFixture) {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const store = yield* openEndpointStore(
+      yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "sharness-registration-",
+      }),
+      { liveWireVersions: LIVE_WIRE_VERSIONS },
+    );
+    let registration: DaemonRegistrationState = { kind: "unregistered" };
+    const operations = yield* makeDaemonManagementOperations({
+      store,
+      bootstrap: fixture.bootstrap,
+      registration: {
+        readRegistration: () => registration,
+        activateRegistered: (agentCard) =>
+          Effect.sync(() => {
+            registration = { kind: "active", agentCard };
+          }),
+      },
+    });
+    return { store, operations };
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 }
 
 /** The register tool request for the fixture's local card. */
@@ -765,11 +753,10 @@ const failureAtTheRegistryDeadline = <A, E>(input: {
 const failsAtTheRegistryDeadline = () =>
   Effect.gen(function* () {
     const fixture = yield* makeIdentityFixture;
-    const effects = yield* makeRegistrationEffects;
     const requested = yield* Deferred.make<undefined>();
-    const operations = yield* makeRegisteringOperations(fixture, effects).pipe(
-      Effect.provide(silentRegistryLayer(fixture, requested)),
-    );
+    const { store, operations } = yield* makeRegisteringOperations(
+      fixture,
+    ).pipe(Effect.provide(silentRegistryLayer(fixture, requested)));
 
     const error = yield* failureAtTheRegistryDeadline({
       operation: operations.register(localRegisterRequest(fixture)),
@@ -782,8 +769,8 @@ const failsAtTheRegistryDeadline = () =>
       "the register reached the Registry's HTTP client",
     ).toBe(true);
     expect(error).toMatchObject({ reason: "dependency-unavailable" });
-    expect(yield* Ref.get(effects.bound)).toEqual([]);
-    expect(yield* Ref.get(effects.activated)).toEqual([]);
+    expect((yield* store.recover()).identity).toBeUndefined();
+    expect(yield* operations.readStatus()).toEqual({ kind: "unregistered" });
   });
 
 /** A lookup and a list, the two Registry calls `search_agents` makes. */
@@ -849,12 +836,11 @@ function heldRegistry(
 const bindsWhenCancelledDuringTheRegistryCall = () =>
   Effect.gen(function* () {
     const fixture = yield* makeIdentityFixture;
-    const effects = yield* makeRegistrationEffects;
     const entered = yield* Deferred.make<undefined>();
     const release = yield* Deferred.make<undefined>();
-    const operations = yield* makeRegisteringOperations(fixture, effects).pipe(
-      Effect.provide(heldRegistry(fixture, entered, release)),
-    );
+    const { store, operations } = yield* makeRegisteringOperations(
+      fixture,
+    ).pipe(Effect.provide(heldRegistry(fixture, entered, release)));
     const registration = yield* Effect.fork(
       operations.register(localRegisterRequest(fixture)),
     );
@@ -872,10 +858,14 @@ const bindsWhenCancelledDuringTheRegistryCall = () =>
       AgentCard,
       fixture.cards[0],
     );
-    expect(yield* Ref.get(effects.bound)).toEqual([
-      { agentId: fixture.cards[0].agentId, canonicalAgentCard },
-    ]);
-    expect(yield* Ref.get(effects.activated)).toEqual([fixture.cards[0]]);
+    expect((yield* store.recover()).identity).toEqual({
+      agentId: fixture.cards[0].agentId,
+      canonicalAgentCard,
+    });
+    expect(yield* operations.readStatus()).toEqual({
+      kind: "active",
+      agentCard: yield* Schema.encode(AgentCard)(fixture.cards[0]),
+    });
   });
 
 // @agent-code-guard/regression-only: these cases pin the register tool's cancellation and Registry deadline contract.
