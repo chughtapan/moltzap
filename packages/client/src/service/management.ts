@@ -44,7 +44,7 @@ import {
   deriveConversationId,
   type VerifiedMembership,
 } from "../transport/wire/index.js";
-import { AgentAddress } from "../transport/wire/values.js";
+import { AgentAddress, compareAscii } from "../transport/wire/values.js";
 import {
   type DaemonRegistrationPersistenceError,
   type DaemonRegistrationRepresentationError,
@@ -106,7 +106,6 @@ export type DaemonManagementOperations = Pick<
   ManagementOperation
 >;
 
-const utf8Encoder = new TextEncoder();
 /** The one signature a verified signer message's JWS representation carries. */
 const representationSignature = Schema.Struct({
   signatures: Schema.Tuple(Schema.Struct({ signature: Schema.String })),
@@ -233,21 +232,6 @@ function mapRegistryFailure(error: unknown): DaemonManagementError {
     : managementFailure("dependency-unavailable");
 }
 
-function compareAddresses(left: string, right: string): number {
-  return compareBytes(utf8Encoder.encode(left), utf8Encoder.encode(right));
-}
-
-function compareBytes(left: Uint8Array, right: Uint8Array): number {
-  const sharedLength = Math.min(left.byteLength, right.byteLength);
-  for (let index = 0; index < sharedLength; index += 1) {
-    const difference = (left[index] ?? 0) - (right[index] ?? 0);
-    if (difference !== 0) {
-      return difference;
-    }
-  }
-  return left.byteLength - right.byteLength;
-}
-
 function validateAddressForLocalAgent(
   address: MessageAddress,
   localAgentCard: VerifiedAgentCard,
@@ -341,7 +325,7 @@ function searchConversationAddresses(
       },
       { concurrency: 1 },
     );
-    addresses.sort(compareAddresses);
+    addresses.sort(compareAscii);
     for (let index = 1; index < addresses.length; index += 1) {
       if (addresses[index - 1] === addresses[index]) {
         return yield* Effect.fail(persistenceFailure());
@@ -351,7 +335,7 @@ function searchConversationAddresses(
     const remaining =
       after === undefined
         ? addresses
-        : addresses.filter((address) => compareAddresses(address, after) > 0);
+        : addresses.filter((address) => compareAscii(address, after) > 0);
     const page = remaining.slice(0, 50);
     return Object.freeze({
       kind: "page" as const,
@@ -380,12 +364,11 @@ function resolvedConversationId(input: {
       registry: input.registry,
       to: input.address,
     }).pipe(Effect.mapError(mapAddressResolutionFailure));
-    const first = resolved.memberCards[0];
-    const second = resolved.memberCards[1];
+    const [first, second, ...rest] = resolved.memberCards;
     return yield* deriveConversationId([
       first.agentId,
       second.agentId,
-      ...resolved.memberCards.slice(2).map((card) => card.agentId),
+      ...rest.map((card) => card.agentId),
     ]).pipe(Effect.mapError(persistenceFailure));
   });
 }

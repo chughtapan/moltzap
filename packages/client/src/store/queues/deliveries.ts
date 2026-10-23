@@ -5,7 +5,6 @@ import { Either, Schema } from "effect";
 import {
   copyBytes,
   mintDeliveryToken,
-  readText,
   requireBytes,
   requireEqual,
   requireSameBytes,
@@ -152,7 +151,7 @@ export function retainDeliveryInTransaction(
     return "existing";
   }
   const deliveryToken = Schema.decodeUnknownSync(DeliveryToken)(
-    mintDeliveryToken(readDeliveryTokens(database)),
+    mintDeliveryToken((token) => hasDeliveryToken(database, token)),
   );
   database
     .prepare(
@@ -185,11 +184,10 @@ function findRetainedDelivery(
   return row === undefined ? undefined : readPendingDelivery(row);
 }
 
-function readDeliveryTokens(database: DatabaseSync): ReadonlySet<string> {
-  return new Set(
+function hasDeliveryToken(database: DatabaseSync, token: string): boolean {
+  return (
     database
-      .prepare("SELECT delivery_token FROM pending_deliveries")
-      .all()
-      .map((row) => readText(row, "delivery_token")),
+      .prepare("SELECT 1 FROM pending_deliveries WHERE delivery_token = ?")
+      .get(token) !== undefined
   );
 }

@@ -70,21 +70,6 @@ export interface EngineSentPost {
   readonly recordHash: RecordHash;
 }
 
-const sendReasonByStoreReason = {
-  closed: "persistence-failed",
-  conflict: "persistence-failed",
-  corrupt: "persistence-failed",
-  incompatible: "persistence-failed",
-  "pre-reset": "persistence-failed",
-  "newer-schema": "persistence-failed",
-  "invalid-continuation": "persistence-failed",
-  "invalid-input": "persistence-failed",
-  "not-found": "persistence-failed",
-  persistence: "persistence-failed",
-} as const satisfies Readonly<
-  Record<EndpointStoreError["reason"], SendError["reason"]>
->;
-
 /**
  * Fail a send whose intent bind did not complete. A store refusal is raised
  * before the bind commits and rolls it back, so nothing was queued. A raw
@@ -116,8 +101,9 @@ function failBind(
     : Effect.fail(storeFailure(error));
 }
 
-function storeFailure(error: EndpointStoreError): SendError {
-  return new SendError({ reason: sendReasonByStoreReason[error.reason] });
+function storeFailure(error: EndpointStoreError): SendError;
+function storeFailure(): SendError {
+  return new SendError({ reason: "persistence-failed" });
 }
 
 const representationFailure = (): SendError =>
@@ -146,14 +132,12 @@ type ResolvedAddress = Effect.Effect.Success<
 
 /** The conversation id a resolved address's members derive, in AgentId order. */
 const conversationIdOf = (resolved: ResolvedAddress) => {
-  const [first, second, ...rest] = resolved.memberCards.map(
-    (card) => card.agentId,
-  );
-  return first === undefined || second === undefined
-    ? Effect.fail(new SendError({ reason: "membership-invalid" }))
-    : deriveConversationId([first, second, ...rest]).pipe(
-        Effect.mapError(representationFailure),
-      );
+  const [first, second, ...rest] = resolved.memberCards;
+  return deriveConversationId([
+    first.agentId,
+    second.agentId,
+    ...rest.map((card) => card.agentId),
+  ]).pipe(Effect.mapError(representationFailure));
 };
 
 /** The first canonical member’s signed card fixes the foundation version for every peer. */
@@ -164,28 +148,17 @@ const membershipFor = (runtime: EngineRuntime, resolved: ResolvedAddress) =>
     if (stored !== undefined) {
       return stored.membership;
     }
+    const [firstMember] = resolved.memberCards;
     const encodedCards = yield* Effect.forEach(
       resolved.memberCards,
       (card) => Schema.encode(AgentCard)(card),
       { concurrency: 1 },
     ).pipe(Effect.mapError(representationFailure));
-    const firstMember = resolved.memberCards[0];
-    const firstCard = encodedCards[0];
-    const secondCard = encodedCards[1];
-    if (
-      firstMember === undefined ||
-      firstCard === undefined ||
-      secondCard === undefined
-    ) {
-      return yield* Effect.fail(
-        new SendError({ reason: "membership-invalid" }),
-      );
-    }
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptorSchema)({
       sharnessVersion: AgentCard.wireVersion(firstMember),
       kind: "membership_descriptor",
       conversationId,
-      members: [firstCard, secondCard, ...encodedCards.slice(2)],
+      members: encodedCards,
     }).pipe(Effect.mapError(representationFailure));
     const membership = yield* verifyMembershipDescriptor(
       descriptor,
@@ -247,47 +220,39 @@ const resolveMembership = (runtime: EngineRuntime, input: EngineSendInput) =>
 const proposalAction = (
   conversation: EngineConversation,
   intent: PostIntent,
-): Effect.Effect<ActionCore, SendError> => {
-  const head = conversation.head;
-  if (head === undefined) {
-    const anchor = conversation.currentAnchor;
-    if (anchor.kind !== "genesis_anchor_body") {
-      return Effect.fail(representationFailure());
-    }
-    return hashPostIntent(intent).pipe(
+): Effect.Effect<ActionCore, SendError> =>
+  Effect.gen(function* () {
+    const postIntentHash = yield* hashPostIntent(intent).pipe(
       Effect.mapError(representationFailure),
-      Effect.map((postIntentHash) => {
-        const action: ActionCore = {
-          sharnessVersion: intent.sharnessVersion,
-          kind: "GENESIS",
-          conversationId: conversation.conversationId,
-          membership: conversation.membership.descriptor,
-          anchor,
-          previousRecordHash: null,
-          postIntent: intent,
-          postIntentHash,
-        };
-        return action;
-      }),
     );
-  }
-  return hashPostIntent(intent).pipe(
-    Effect.mapError(representationFailure),
-    Effect.map((postIntentHash) => {
-      const action: ActionCore = {
+    const head = conversation.head;
+    if (head === undefined) {
+      const anchor = conversation.currentAnchor;
+      if (anchor.kind !== "genesis_anchor_body") {
+        return yield* Effect.fail(representationFailure());
+      }
+      return {
         sharnessVersion: intent.sharnessVersion,
-        kind: "POST",
+        kind: "GENESIS",
         conversationId: conversation.conversationId,
-        membershipHash: conversation.membership.hash,
-        anchorHash: anchorHashAtHead(conversation, head),
-        previousRecordHash: head.recordHash,
+        membership: conversation.membership.descriptor,
+        anchor,
+        previousRecordHash: null,
         postIntent: intent,
         postIntentHash,
       };
-      return action;
-    }),
-  );
-};
+    }
+    return {
+      sharnessVersion: intent.sharnessVersion,
+      kind: "POST",
+      conversationId: conversation.conversationId,
+      membershipHash: conversation.membership.hash,
+      anchorHash: anchorHashAtHead(conversation, head),
+      previousRecordHash: head.recordHash,
+      postIntent: intent,
+      postIntentHash,
+    };
+  });
 
 /**
  * Rebase one unchanged local intent against the conversation's current head.
@@ -1022,15 +987,12 @@ function activateBoundIntent(
       completion,
     };
     const completedRecordHash = runtime.completedPosts.get(intent.postId);
+    yield* Effect.sync(() => {
+      runtime.intents.set(intent.postId, localIntent);
+    });
     if (completedRecordHash !== undefined) {
-      yield* Effect.sync(() => {
-        runtime.intents.set(intent.postId, localIntent);
-      });
       yield* Deferred.succeed(completion, completedRecordHash);
     } else {
-      yield* Effect.sync(() => {
-        runtime.intents.set(intent.postId, localIntent);
-      });
       yield* proposeIntent(runtime, localIntent);
     }
     return { kind: "ready", completion } satisfies IntentActivation;

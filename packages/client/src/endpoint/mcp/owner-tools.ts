@@ -15,6 +15,7 @@ import {
   RecordHash,
   RouterAnchor,
 } from "../../transport/wire/index.js";
+import { compareAscii } from "../../transport/wire/values.js";
 
 const exactOptions = {
   exact: true,
@@ -22,7 +23,6 @@ const exactOptions = {
 };
 
 const encodedAgentCard = Schema.encodedSchema(AgentCard);
-const utf8Encoder = new TextEncoder();
 
 const messageAddress = Schema.Union(AgentAddress, GroupAddress).annotations({
   identifier: "MessageAddress",
@@ -35,8 +35,7 @@ function addressesAreOrdered(addresses: readonly string[]): boolean {
     if (
       previous === undefined ||
       current === undefined ||
-      compareBytes(utf8Encoder.encode(previous), utf8Encoder.encode(current)) >=
-        0
+      compareAscii(previous, current) >= 0
     ) {
       return false;
     }
