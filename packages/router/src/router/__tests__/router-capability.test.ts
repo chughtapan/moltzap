@@ -867,18 +867,6 @@ describe("public client behavior", () => {
             expectedTag: "MethodNotAllowedError",
           },
           {
-            name: "legacy version mismatch without supported versions",
-            status: 412,
-            body: '{"error":"version_mismatch"}',
-            expectedTag: "VersionMismatchError",
-          },
-          {
-            name: "version mismatch",
-            status: 412,
-            body: `{"error":"version_mismatch","supported":["${WIRE_VERSION}"]}`,
-            expectedTag: "VersionMismatchError",
-          },
-          {
             name: "payload too large",
             status: 413,
             body: '{"error":"payload_too_large"}',

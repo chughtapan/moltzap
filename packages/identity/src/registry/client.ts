@@ -12,6 +12,7 @@ import {
   type Ed25519PublicKey,
   sameEd25519PublicKey,
 } from "../agent-key.js";
+import { decodeCanonicalJson } from "../canonical-json.js";
 import {
   AuthenticationFailedError,
   type HttpEnvelopeError,
@@ -200,21 +201,18 @@ const decodeEnvelope = (
     return Effect.fail(invalidResponse());
   }
   if (response.status === 412) {
-    return Schema.decodeUnknown(
-      Schema.parseJson(
-        Schema.Struct({
-          error: Schema.Literal("version_mismatch"),
-          supported: Schema.optional(Schema.Array(Schema.String)),
-        }),
-      ),
-    )(exactText(bytes), { onExcessProperty: "error" }).pipe(
+    return decodeCanonicalJson(
+      Schema.Struct({
+        error: Schema.Literal("version_mismatch"),
+        supported: Schema.NonEmptyArray(
+          Schema.String.pipe(Schema.pattern(/^\d{4}\.\d{3,4}\.\d+$/)),
+        ),
+      }),
+      bytes,
+    ).pipe(
       Effect.mapError(invalidResponse),
       Effect.flatMap(({ supported }) =>
-        Effect.fail(
-          new VersionMismatchError(
-            supported === undefined ? {} : { supported },
-          ),
-        ),
+        Effect.fail(new VersionMismatchError({ supported })),
       ),
     );
   }

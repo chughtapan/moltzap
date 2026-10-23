@@ -160,7 +160,7 @@ export const AgentSigningAuthority = Object.freeze({
 Loads and identifies one Ed25519 signing authority without exposing its
 private keys or a generic signing or decryption operation.
 
-### [`AgentSigningError`](./http-signature.ts#L32)
+### [`AgentSigningError`](./http-signature.ts#L37)
 
 _Class_
 
@@ -170,7 +170,7 @@ export class AgentSigningError extends Data.TaggedError("AgentSigningError") {}
 
 An agent-owned HTTP request could not be signed.
 
-### [`AuthenticatedHttp`](./authenticated-http.ts#L68)
+### [`AuthenticatedHttp`](./authenticated-http.ts#L66)
 
 _Class_
 
@@ -591,7 +591,7 @@ export type VerifiedAgentCard = AgentCard & Brand.Brand<"VerifiedAgentCard">;
 
 AgentCard verified against a deployment-pinned Registry signer.
 
-### [`VerifiedAgentRequest`](./authenticated-http.ts#L46)
+### [`VerifiedAgentRequest`](./authenticated-http.ts#L44)
 
 _TypeAlias_
 

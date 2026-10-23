@@ -3,10 +3,8 @@
 import type { HttpServerRequest } from "@effect/platform";
 import { Effect, Redacted, Schema } from "effect";
 import { createHash, timingSafeEqual } from "node:crypto";
-import type { VerifiedHttpSignature } from "../http-signature.js";
 import type { RegistryStorage } from "./storage.js";
 import { Ed25519PublicKey } from "../agent-key.js";
-import { verifyBootstrapRequest } from "../authenticated-http.js";
 import {
   AuthenticationFailedError,
   type InternalServerError,
@@ -15,6 +13,10 @@ import {
   type UnavailableError,
   type VersionMismatchError,
 } from "../http-errors.js";
+import {
+  type VerifiedHttpSignature,
+  verifyBootstrapRequest,
+} from "../http-signature.js";
 import { hasCanonicalBase64UrlLength } from "../identifiers.js";
 import {
   registrationBody,

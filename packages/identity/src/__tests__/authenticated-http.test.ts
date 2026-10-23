@@ -1,12 +1,7 @@
 /** @file Authenticated HTTP proof, replay, cache, concurrency, and cancellation contract tests. */
 
+import type { Headers, HttpServerRequest } from "@effect/platform";
 import {
-  Headers,
-  HttpClientRequest,
-  type HttpServerRequest,
-} from "@effect/platform";
-import {
-  Clock,
   Deferred,
   Duration,
   Effect,
@@ -18,13 +13,11 @@ import {
 } from "effect";
 import { httpbis, type VerifyingKey } from "http-message-signatures";
 import { importJWK } from "jose";
-import { randomBytes, webcrypto } from "node:crypto";
+import { webcrypto } from "node:crypto";
 import { expect, it } from "vitest";
 import type { VerifiedAgentCard } from "../agent-card.js";
 import {
   AgentSigningAuthority,
-  type AgentSigningAuthority as AgentSigningAuthorityValue,
-  agentSigningPrivateKey,
   ed25519PublicKeyThumbprintUri,
 } from "../agent-key.js";
 import {
@@ -50,38 +43,26 @@ import {
 } from "./authenticated-http-fixtures.js";
 import {
   authenticatedHttpLayerWithRegistry,
+  clockAt,
   type PreparedRequest,
   prepareRequest,
   registryWithLookup,
-  toServerRequest,
+  signatureExpiry,
   unreadable,
   verifyAgentRequest,
   verifyThroughLookupResult,
 } from "./authenticated-http-requests.js";
+import {
+  NORMAL_FIELDS,
+  resignWithVersion,
+  SIGNATURE_PARAMETERS,
+} from "./authenticated-http-signing.js";
 
 /* eslint-disable agent-code-guard/no-example-only-tests -- regression-only suite: each case exercises a distinct HTTP proof, replay-ordering, cache, or cancellation contract. The concurrency timelines are not an input domain to generate over. */
 
-const NORMAL_FIELDS = Object.freeze([
-  "@method",
-  "@authority",
-  "@path",
-  "@query",
-  "content-digest",
-  "content-type",
-  "sharness-version",
-]);
-const SIGNATURE_PARAMETERS = Object.freeze([
-  "created",
-  "expires",
-  "keyid",
-  "nonce",
-  "alg",
-  "tag",
-]);
 const WRONG_VERSION = "wrong-version";
 /** Fictional history-only version, never emitted by a release. */
 const PRIOR_WIRE_VERSION = "2099.101.0";
-const SIGNATURE_INTERVAL_MILLISECONDS = 300_000;
 const CONCURRENT_REQUEST_COUNT = 4;
 const REGISTRY_LOOKUP_DEADLINE = Duration.millis(20);
 const RESOLVER_REGRESSION_DEADLINE = Duration.seconds(2);
@@ -94,13 +75,6 @@ const VERIFIED_PROOF_FIELDS = Object.freeze([
 interface RequestMutation {
   readonly name: string;
   readonly prepared: PreparedRequest;
-}
-
-interface TestSignatureParameters {
-  readonly created: Date;
-  readonly expires: Date;
-  readonly keyid: string;
-  readonly nonce: string;
 }
 
 interface ResolverRequests {
@@ -149,18 +123,6 @@ const makeLookupController = (mode: LookupMode) =>
       started,
     } satisfies LookupController;
   });
-
-const clockAt = (milliseconds: number): Clock.Clock => {
-  const live = Clock.make();
-  return {
-    [Clock.ClockTypeId]: Clock.ClockTypeId,
-    unsafeCurrentTimeMillis: () => milliseconds,
-    currentTimeMillis: Effect.succeed(milliseconds),
-    unsafeCurrentTimeNanos: () => BigInt(milliseconds) * 1_000_000n,
-    currentTimeNanos: Effect.succeed(BigInt(milliseconds) * 1_000_000n),
-    sleep: (duration) => live.sleep(duration),
-  };
-};
 
 const lookupAgentCard = (controller: LookupController, agentId: AgentIdValue) =>
   Effect.gen(function* () {
@@ -353,23 +315,6 @@ const requiredHeader = (headers: Headers.Headers, name: string): string => {
   return value;
 };
 
-const signatureExpiry = (prepared: PreparedRequest): number => {
-  const signatureInput = requiredHeader(
-    prepared.serverRequest.headers,
-    "signature-input",
-  );
-  const match = /;expires=(\d+)/u.exec(signatureInput);
-  const encodedExpiry = match?.[1];
-  if (encodedExpiry === undefined) {
-    throw new Error("signed request is missing its expiry");
-  }
-  const expiry = Schema.NumberFromString.pipe(
-    Schema.int(),
-    Schema.nonNegative(),
-  );
-  return Schema.decodeUnknownSync(expiry)(encodedExpiry);
-};
-
 const structuredFieldDuplicateMutations = (
   prepared: PreparedRequest,
 ): readonly RequestMutation[] => {
@@ -471,108 +416,6 @@ const assertAuthenticationMutationRejected = (mutation: RequestMutation) =>
     );
   });
 
-const signStandardBytes = (
-  authority: AgentSigningAuthorityValue,
-  bytes: Buffer,
-) =>
-  Effect.runPromise(
-    Effect.tryPromise({
-      try: () =>
-        webcrypto.subtle.sign(
-          "Ed25519",
-          agentSigningPrivateKey(authority),
-          Uint8Array.from(bytes),
-        ),
-      catch: (cause) =>
-        new Error("could not sign RFC 9421 test request", { cause }),
-    }).pipe(Effect.map((signature) => Buffer.from(signature))),
-  );
-
-const makeSignatureParameters = (fixture: IdentityFixture) =>
-  Effect.gen(function* () {
-    const now = Math.floor((yield* Clock.currentTimeMillis) / 1_000) * 1_000;
-    const keyid = yield* ed25519PublicKeyThumbprintUri(
-      AgentSigningAuthority.publicKey(fixture.signingAuthority),
-    );
-    const nonce = yield* Effect.try({
-      try: () => randomBytes(16).toString("base64url"),
-      catch: (cause) =>
-        new Error("could not create RFC 9421 test nonce", { cause }),
-    });
-    return {
-      created: new Date(now),
-      expires: new Date(now + SIGNATURE_INTERVAL_MILLISECONDS),
-      keyid,
-      nonce,
-    } satisfies TestSignatureParameters;
-  });
-
-const signVersionedRequest = (
-  request: HttpClientRequest.HttpClientRequest,
-  fixture: IdentityFixture,
-  parameters: TestSignatureParameters,
-) =>
-  Effect.tryPromise({
-    try: () =>
-      httpbis.signMessage(
-        {
-          name: "sharness",
-          fields: [...NORMAL_FIELDS],
-          params: [...SIGNATURE_PARAMETERS],
-          paramValues: {
-            ...parameters,
-            alg: "ed25519",
-            tag: "sharness-request-v1",
-          },
-          key: {
-            id: parameters.keyid,
-            alg: "ed25519",
-            sign: (bytes) => signStandardBytes(fixture.signingAuthority, bytes),
-          },
-        },
-        {
-          method: request.method,
-          url: request.url,
-          headers: { ...request.headers },
-        },
-      ),
-    catch: (cause) =>
-      new Error("could not re-sign version test request", { cause }),
-  });
-
-const resignWithVersion = (
-  prepared: PreparedRequest,
-  fixture: IdentityFixture,
-  version: string,
-) =>
-  Effect.gen(function* () {
-    const unsignedHeaders = Headers.remove(prepared.clientRequest.headers, [
-      "signature",
-      "signature-input",
-    ]);
-    const request = HttpClientRequest.post(prepared.clientRequest.url, {
-      body: prepared.clientRequest.body,
-      headers: unsignedHeaders,
-    }).pipe(HttpClientRequest.setHeader("sharness-version", version));
-    const parameters = yield* makeSignatureParameters(fixture);
-    const signed = yield* signVersionedRequest(request, fixture, parameters);
-    const clientRequest = request.pipe(
-      HttpClientRequest.setHeader(
-        "signature-input",
-        String(signed.headers["Signature-Input"]),
-      ),
-      HttpClientRequest.setHeader(
-        "signature",
-        String(signed.headers.Signature),
-      ),
-    );
-    return {
-      bodyBytes: prepared.bodyBytes,
-      clientRequest,
-      serverRequest: toServerRequest(clientRequest),
-    } satisfies PreparedRequest;
-  });
-
 it("produces an RFC 9421 proof and rejects covered-field mutations", () =>
   Effect.runPromise(
     Effect.gen(function* () {
@@ -631,6 +474,51 @@ it("rejects duplicate structured signature members without claiming the nonce", 
         Effect.provide(authenticatedHttpLayer(controller)),
       );
       expect(proof.callerAgentId).toBe(fixture.agentCard.agentId);
+    }),
+  ));
+
+it("refuses a validly signed request tagged for the registration profile", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const prepared = yield* prepareRequest({ fixture });
+      const signed = yield* resignWithVersion(prepared, fixture, WIRE_VERSION, {
+        tag: "sharness-registration-v1",
+      });
+      const refusal = yield* verifyAgentRequest(signed).pipe(
+        Effect.flip,
+        Effect.provide(
+          authenticatedHttpLayerWithRegistry(
+            registryWithLookup(() =>
+              Effect.succeed({ kind: "found", agentCard: fixture.agentCard }),
+            ),
+          ),
+        ),
+      );
+      expect(refusal).toStrictEqual(new AuthenticationFailedError());
+    }),
+  ));
+
+/** The signature library also refuses a foreign alg even without the package guard. */
+it("refuses a validly signed request whose alg is not ed25519", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const prepared = yield* prepareRequest({ fixture });
+      const signed = yield* resignWithVersion(prepared, fixture, WIRE_VERSION, {
+        alg: "rsa-pss-sha512",
+      });
+      const refusal = yield* verifyAgentRequest(signed).pipe(
+        Effect.flip,
+        Effect.provide(
+          authenticatedHttpLayerWithRegistry(
+            registryWithLookup(() =>
+              Effect.succeed({ kind: "found", agentCard: fixture.agentCard }),
+            ),
+          ),
+        ),
+      );
+      expect(refusal).toStrictEqual(new AuthenticationFailedError());
     }),
   ));
 
@@ -797,41 +685,50 @@ it("authenticates a body whose bytes carry their own iterator", () =>
     }),
   ));
 
-it.each([
-  { offsetSeconds: -1, outcome: "accepted" },
-  { offsetSeconds: 0, outcome: "accepted" },
-  { offsetSeconds: 1, outcome: "refused" },
-])(
-  "$outcome at $offsetSeconds s from the signature expiry",
-  ({ offsetSeconds, outcome }) =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const fixture = yield* makeIdentityFixture;
-        const prepared = yield* prepareRequest({ fixture });
-        const verification = verifyAgentRequest(prepared).pipe(
-          Effect.provide(
-            authenticatedHttpLayerWithRegistry(
-              registryWithLookup(() =>
-                Effect.succeed({ kind: "found", agentCard: fixture.agentCard }),
-              ),
+it.each([-1, 0])("accepts at %i s from the signature expiry", (offsetSeconds) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const prepared = yield* prepareRequest({ fixture });
+      const verification = verifyAgentRequest(prepared).pipe(
+        Effect.provide(
+          authenticatedHttpLayerWithRegistry(
+            registryWithLookup(() =>
+              Effect.succeed({ kind: "found", agentCard: fixture.agentCard }),
             ),
           ),
-          Effect.withClock(
-            clockAt((signatureExpiry(prepared) + offsetSeconds) * 1_000),
-          ),
-        );
-        if (outcome === "accepted") {
-          expect((yield* verification).callerAgentId).toBe(
-            fixture.agentCard.agentId,
-          );
-        } else {
-          expect(yield* Effect.flip(verification)).toStrictEqual(
-            new AuthenticationFailedError(),
-          );
-        }
-      }),
-    ),
+        ),
+        Effect.withClock(
+          clockAt((signatureExpiry(prepared) + offsetSeconds) * 1_000),
+        ),
+      );
+      expect((yield* verification).callerAgentId).toBe(
+        fixture.agentCard.agentId,
+      );
+    }),
+  ),
 );
+
+it("refuses one second after the signature expiry", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const prepared = yield* prepareRequest({ fixture });
+      const verification = verifyAgentRequest(prepared).pipe(
+        Effect.provide(
+          authenticatedHttpLayerWithRegistry(
+            registryWithLookup(() =>
+              Effect.succeed({ kind: "found", agentCard: fixture.agentCard }),
+            ),
+          ),
+        ),
+        Effect.withClock(clockAt((signatureExpiry(prepared) + 1) * 1_000)),
+      );
+      expect(yield* Effect.flip(verification)).toStrictEqual(
+        new AuthenticationFailedError(),
+      );
+    }),
+  ));
 
 it("refuses a nonce replay at exactly the signature expiry second", () =>
   Effect.runPromise(
@@ -1005,7 +902,7 @@ it("propagates Registry lookup deadlines and releases resolver state", () =>
         Effect.provide(
           authenticatedHttpLayerWithRegistry(
             deadlineRegistryService(controller),
-            1,
+            { registryLookupConcurrencyLimit: 1 },
           ),
         ),
         Effect.timeoutFail({
@@ -1018,18 +915,25 @@ it("propagates Registry lookup deadlines and releases resolver state", () =>
 
 const increment = (count: number) => count + 1;
 
+const registryThrowingOnFirstLookup = (
+  agentCard: VerifiedAgentCard,
+  calls: Ref.Ref<number>,
+) => {
+  return registryWithLookup(() => {
+    const call = Effect.runSync(Ref.getAndUpdate(calls, increment));
+    if (call === 0) {
+      throw new Error("lookup threw before returning an Effect");
+    }
+    return Effect.succeed({ kind: "found", agentCard });
+  });
+};
+
 it("resolves a caller again after a Registry lookup throws synchronously", () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const fixture = yield* makeIdentityFixture;
       const calls = yield* Ref.make(0);
-      const registry = registryWithLookup(() => {
-        const call = Effect.runSync(Ref.getAndUpdate(calls, increment));
-        if (call === 0) {
-          throw new Error("lookup threw before returning an Effect");
-        }
-        return Effect.succeed({ kind: "found", agentCard: fixture.agentCard });
-      });
+      const registry = registryThrowingOnFirstLookup(fixture.agentCard, calls);
       const [first, second] = yield* Effect.all([
         prepareRequest({ fixture }),
         prepareRequest({ fixture }),

@@ -1,6 +1,8 @@
 /** @file Identity primitives stay independent of request authentication and Registry execution. */
 
 import { readFileSync } from "node:fs";
+import { relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { expect, it } from "vitest";
 
@@ -13,13 +15,35 @@ it.each(["identifiers", "agent-key", "agent-card"])(
       true,
       true,
     ).importedFiles;
+    expect(imports.length).toBeGreaterThan(0);
+    const localModules = new Set([
+      "agent-key.js",
+      "bounded-cache.js",
+      "canonical-json.js",
+      "identifiers.js",
+      "version.js",
+      "wire-profile.js",
+      "wire-versions.js",
+    ]);
     const forbidden = imports
-      .map((entry) => new URL(entry.fileName, source).pathname)
-      .filter((file) =>
-        /\/(?:authenticated-http|http-signature|signed-message|registry[^/]*)(?:\.[jt]s|\/)/u.test(
-          file,
-        ),
-      );
+      .map((entry) => entry.fileName)
+      .filter((specifier) => {
+        if (/^@moltzap\/identity(?:\/|$)/u.test(specifier)) {
+          return true;
+        }
+        if (!specifier.startsWith(".")) {
+          return false;
+        }
+        const file = relative(
+          fileURLToPath(new URL("../", import.meta.url)),
+          fileURLToPath(new URL(specifier, source)),
+        );
+        return (
+          /^(?:authenticated-http|http-signature|signed-message|registry)(?:[./]|$)/u.test(
+            file,
+          ) || !localModules.has(file)
+        );
+      });
 
     expect(forbidden).toStrictEqual([]);
   },

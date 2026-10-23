@@ -24,11 +24,7 @@ import {
   type RegistryRegisterRequest,
   type RegistryRegisterResult,
 } from "./contract.js";
-import {
-  AgentCardIssuedAt,
-  encodeAgentCard,
-  issueAgentCard,
-} from "./issuance.js";
+import { AgentCardIssuedAt, issueAgentCard } from "./issuance.js";
 import { registryMigration } from "./migrations/0001_registry.js";
 
 /** Storage initialization failed before the Registry became ready. */
@@ -500,7 +496,9 @@ const insertNewAgent = (
         registrySigningAuthority: call.registrySigningAuthority,
       }),
     );
-    const agentCardBytes = yield* internalFailure(encodeAgentCard(agentCard));
+    const agentCardBytes = yield* internalFailure(
+      registryAgentCardCodec.encode(agentCard),
+    );
     const agentIdBytes = yield* decodeAgentIdBytes(agentId);
     yield* input.sql`
       INSERT INTO sharness_registry_agents

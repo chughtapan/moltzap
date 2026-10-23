@@ -12,7 +12,7 @@ import {
   Ref,
   Schema,
 } from "effect";
-import type { AgentSigningAuthority, Ed25519PublicKey } from "./agent-key.js";
+import type { AgentSigningAuthority } from "./agent-key.js";
 import type { RegistryLookupResult } from "./registry/contract.js";
 import {
   type VerifiedAgentCard,
@@ -23,7 +23,6 @@ import {
   decodeCanonicalJson,
   encodeCanonicalJson,
   exactStruct,
-  parseCanonicalJson,
 } from "./canonical-json.js";
 import {
   AuthenticationFailedError,
@@ -35,7 +34,6 @@ import {
 import {
   AgentSigningError,
   signHttpRequest,
-  type VerifiedHttpSignature,
   verifyHttpRequestSignature,
 } from "./http-signature.js";
 import { AgentId, type AgentId as AgentIdValue } from "./identifiers.js";
@@ -88,61 +86,6 @@ export class AuthenticatedHttp extends Context.Tag(
     readonly registryLookupConcurrencyLimit: number;
   }): Layer.Layer<AuthenticatedHttp, never, Registry> =>
     Layer.effect(AuthenticatedHttp, makeService({ ...input }));
-}
-
-/**
- * Verifies bootstrap HTTP proof between the Registry's key admission and durable
- * nonce admission. The nonce is claimed before checking live wire compatibility,
- * so an incompatible signed request still consumes its nonce.
- */
-export function verifyBootstrapRequest<
-  KeyError,
-  KeyContext,
-  NonceError,
-  NonceContext,
->(input: {
-  readonly httpRequest: HttpServerRequest.HttpServerRequest;
-  readonly bodyBytes: Uint8Array;
-  readonly admitPublicKey: (
-    parsedBody: unknown,
-  ) => Effect.Effect<Ed25519PublicKey, KeyError, KeyContext>;
-  readonly claimNonce: (
-    signature: VerifiedHttpSignature,
-  ) => Effect.Effect<void, NonceError, NonceContext>;
-}): Effect.Effect<
-  {
-    readonly parsedBody: unknown;
-    readonly signature: VerifiedHttpSignature;
-  },
-  | KeyError
-  | NonceError
-  | MalformedRequestError
-  | AuthenticationFailedError
-  | VersionMismatchError,
-  KeyContext | NonceContext
-> {
-  return Effect.gen(function* () {
-    const parsedBody = yield* parseCanonicalJson(
-      new Uint8Array(input.bodyBytes),
-    ).pipe(
-      Effect.catchTag("CanonicalJsonError", () =>
-        Effect.fail(new MalformedRequestError()),
-      ),
-    );
-    const publicKey = yield* input.admitPublicKey(parsedBody);
-    const signature = yield* verifyHttpRequestSignature({
-      httpRequest: input.httpRequest,
-      bodyBytes: input.bodyBytes,
-      publicKey,
-      profile: "registration",
-    });
-    yield* input.claimNonce(signature);
-    const version = input.httpRequest.headers["sharness-version"];
-    if (version === undefined || !(yield* WireVersions.live(version))) {
-      return yield* new VersionMismatchError();
-    }
-    return { parsedBody, signature };
-  }).pipe(Effect.withSpan("verifyBootstrapRequest"));
 }
 
 const brandVerifiedAgentRequest = Brand.nominal<VerifiedAgentRequest>();
@@ -253,17 +196,16 @@ function verifyRequest(
   });
 }
 
-type CardCache = Readonly<{
-  readonly pending: ReadonlyMap<
-    AgentIdValue,
-    Deferred.Deferred<VerifiedAgentCard, CardResolutionError>
-  >;
-}>;
-
 type CardResolutionError =
   | AuthenticationFailedError
   | OverloadedError
   | UnavailableError;
+
+/** In-flight card lookups, keyed by agent, each awaited by later callers. */
+type PendingResolutions = ReadonlyMap<
+  AgentIdValue,
+  Deferred.Deferred<VerifiedAgentCard, CardResolutionError>
+>;
 
 type RegistryLookup = (request: {
   readonly agentId: AgentIdValue;
@@ -296,7 +238,7 @@ interface CardResolutionSettings {
 }
 
 interface CardResolverDependencies {
-  readonly cache: Ref.Ref<CardCache>;
+  readonly pendingResolutions: Ref.Ref<PendingResolutions>;
   readonly cards: BoundedCache<AgentIdValue, VerifiedAgentCard>;
   readonly lookup: RegistryLookup;
   readonly lookupPermits: Effect.Semaphore;
@@ -311,14 +253,12 @@ function makeCardResolver(
   ) => Effect.Effect<VerifiedAgentCard, CardResolutionError>
 > {
   return Effect.gen(function* () {
-    const cache = yield* Ref.make<CardCache>({
-      pending: new Map(),
-    });
+    const pendingResolutions = yield* Ref.make<PendingResolutions>(new Map());
     const lookupPermits = yield* Effect.makeSemaphore(
       settings.lookupConcurrencyLimit,
     );
     const dependencies: CardResolverDependencies = {
-      cache,
+      pendingResolutions,
       cards: makeBoundedCache<AgentIdValue, VerifiedAgentCard>(
         settings.cacheCapacity,
       ),
@@ -347,7 +287,7 @@ function resolveCard(
       CardResolutionError
     >();
     const access = yield* beginCardResolution(
-      dependencies.cache,
+      dependencies.pendingResolutions,
       dependencies.cards,
       agentId,
       candidate,
@@ -393,13 +333,13 @@ function runLeadingResolution(
 ): Effect.Effect<VerifiedAgentCard, CardResolutionError> {
   return lookupCard(dependencies, agentId).pipe(
     Effect.tap((card) =>
-      retainResolvedCard(dependencies.cache, dependencies.cards, {
+      retainResolvedCard(dependencies.cards, {
         agentId,
         card,
       }),
     ),
     Effect.onExit((exit) =>
-      removePendingResolution(dependencies.cache, agentId).pipe(
+      removePendingResolution(dependencies.pendingResolutions, agentId).pipe(
         Effect.zipRight(Deferred.done(deferred, exit)),
       ),
     ),
@@ -467,53 +407,55 @@ function resolveLookupAttempt(
   );
 }
 
+/**
+ * Bounded-cache reads and writes are synchronous and never span a yield, so
+ * cache access and pending-resolution decisions cannot interleave.
+ */
 function beginCardResolution(
-  cache: Ref.Ref<CardCache>,
+  pendingResolutions: Ref.Ref<PendingResolutions>,
   cards: BoundedCache<AgentIdValue, VerifiedAgentCard>,
   agentId: AgentIdValue,
   candidate: Deferred.Deferred<VerifiedAgentCard, CardResolutionError>,
 ): Effect.Effect<CacheAccess> {
-  return Ref.modify(cache, (current): readonly [CacheAccess, CardCache] => {
-    const card = cards.get(agentId);
-    if (Option.isSome(card)) {
-      return [{ kind: "cached", card: card.value }, current] as const;
-    }
-    const pending = current.pending.get(agentId);
-    if (pending !== undefined) {
-      return [{ kind: "join", deferred: pending }, current] as const;
-    }
-    return [
-      { kind: "lead", deferred: candidate },
-      {
-        ...current,
-        pending: new Map(current.pending).set(agentId, candidate),
-      },
-    ] as const;
-  });
+  return Ref.modify(
+    pendingResolutions,
+    (current): readonly [CacheAccess, PendingResolutions] => {
+      const card = cards.get(agentId);
+      if (Option.isSome(card)) {
+        return [{ kind: "cached", card: card.value }, current] as const;
+      }
+      const pending = current.get(agentId);
+      if (pending !== undefined) {
+        return [{ kind: "join", deferred: pending }, current] as const;
+      }
+      return [
+        { kind: "lead", deferred: candidate },
+        new Map(current).set(agentId, candidate),
+      ] as const;
+    },
+  );
 }
 
 function removePendingResolution(
-  cache: Ref.Ref<CardCache>,
+  pendingResolutions: Ref.Ref<PendingResolutions>,
   agentId: AgentIdValue,
 ): Effect.Effect<void> {
-  return Ref.update(cache, (current) => {
-    const pending = new Map(current.pending);
+  return Ref.update(pendingResolutions, (current) => {
+    const pending = new Map(current);
     pending.delete(agentId);
-    return { ...current, pending };
+    return pending;
   });
 }
 
 function retainResolvedCard(
-  cache: Ref.Ref<CardCache>,
   cards: BoundedCache<AgentIdValue, VerifiedAgentCard>,
   input: {
     readonly agentId: AgentIdValue;
     readonly card: VerifiedAgentCard;
   },
 ): Effect.Effect<void> {
-  return Ref.modify(cache, (current) => {
+  return Effect.sync(() => {
     cards.set(input.agentId, input.card);
-    return [undefined, current] as const;
   });
 }
 

@@ -275,8 +275,8 @@ export const LIST_BODY_CAP = byteLength({
 
 /** Registration body, durable operation identity, and response share exact codecs. */
 export const registryRegisterCodec = {
-  request: canonicalCodec(RegistryRegisterRequest),
-  body: canonicalCodec(registrationBody),
+  request: { encode: canonicalCodec(RegistryRegisterRequest).encode },
+  body: { encode: canonicalCodec(registrationBody).encode },
   response: canonicalCodec(registerResponseSchema),
 };
 

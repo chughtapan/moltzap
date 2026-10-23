@@ -1,4 +1,4 @@
-/** @file Registry-owned immutable AgentCard issuance and storage encoding. */
+/** @file Registry-owned immutable AgentCard issuance. */
 
 import { Effect, Schema } from "effect";
 import { GeneralSign } from "jose";
@@ -23,7 +23,6 @@ import { encodeCanonicalJson } from "../canonical-json.js";
 import { WIRE_VERSION } from "../version.js";
 import { WIRE_PROFILES } from "../wire-profile.js";
 import { WireVersions } from "../wire-versions.js";
-import { registryAgentCardCodec } from "./contract.js";
 
 /** Whole-second UTC issuance evidence carried by an AgentCard. */
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Effect Schemas share the package-owned domain name they decode.
@@ -89,17 +88,3 @@ export const issueAgentCard = (
       ),
     });
   }).pipe(Effect.withSpan("issueAgentCard"));
-
-/**
- * JCS representation bytes retained by a parsed AgentCard.
- *
- * @param agentCard Parsed AgentCard whose retained bytes are requested.
- * @returns The complete canonical General JWS bytes.
- */
-export const encodeAgentCard = (
-  agentCard: AgentCard,
-): Effect.Effect<Uint8Array, AgentCardVerificationError> => {
-  return registryAgentCardCodec
-    .encode(agentCard)
-    .pipe(Effect.mapError(verificationFailure));
-};

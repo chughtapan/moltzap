@@ -8,17 +8,14 @@ import {
   PostgreSqlContainer,
   type StartedPostgreSqlContainer,
 } from "@testcontainers/postgresql";
-import {
-  Clock,
-  Duration,
-  Effect,
-  Either,
-  Match,
-  Redacted,
-  Schema,
-} from "effect";
+import { Duration, Effect, Either, Match, Redacted, Schema } from "effect";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import type {
+  RegistryLookupResult,
+  RegistryRegisterResult,
+} from "../contract.js";
+import { clockAt } from "../../__tests__/authenticated-http-requests.js";
 import { encodeCanonicalJson } from "../../canonical-json.js";
 import { AuthenticationFailedError } from "../../http-errors.js";
 import {
@@ -31,6 +28,7 @@ import { WIRE_VERSION } from "../../version.js";
 import { verifyBootstrapRegistration } from "../admission.js";
 import { initializeRegistryStorage, makeRegistryStorage } from "../storage.js";
 import {
+  BOOTSTRAP_SIGNATURE_INTERVAL_SECONDS,
   LOOPBACK_HOST,
   makePrivateKeyPem,
   makeRegistryRunner,
@@ -110,6 +108,15 @@ const makePostgreSqlRegistrySetup = Effect.gen(function* () {
   };
 });
 
+const issuedCard = (result: RegistryLookupResult | RegistryRegisterResult) =>
+  Match.value(result).pipe(
+    Match.when({ kind: "registered" }, ({ agentCard }) =>
+      Effect.succeed(agentCard),
+    ),
+    Match.when({ kind: "found" }, ({ agentCard }) => Effect.succeed(agentCard)),
+    Match.orElse(() => Effect.dieMessage("Registry did not return a card")),
+  );
+
 const expectExactCard = (
   actual: VerifiedAgentCard,
   expected: VerifiedAgentCard,
@@ -155,9 +162,7 @@ const realPostgreSqlBehavior = Effect.gen(function* () {
     setup.registrySignerPublicKey,
   )(Registry.lookup({ agentId: registered.agentCard.agentId }));
   expect(lookup.kind).toBe(FOUND_KIND);
-  if (lookup.kind === FOUND_KIND) {
-    yield* expectExactCard(lookup.agentCard, registered.agentCard);
-  }
+  yield* expectExactCard(yield* issuedCard(lookup), registered.agentCard);
 
   yield* stopPostgreSql(setup.container);
   const unhealthy = yield* waitForHealthStatus({
@@ -219,9 +224,10 @@ it("reopens a known ledger and serves the same card", () => {
         agentName: prepared.request.agentName,
       });
       expect(lookup.kind).toBe(FOUND_KIND);
-      if (lookup.kind === FOUND_KIND && registered.kind === REGISTERED_KIND) {
-        yield* expectExactCard(lookup.agentCard, registered.agentCard);
-      }
+      yield* expectExactCard(
+        yield* issuedCard(lookup),
+        yield* issuedCard(registered),
+      );
     }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
   );
 }, 180_000);
@@ -359,19 +365,6 @@ it.each(["moltzap_registry_migrations", "sharness_registry_migrations"])(
   180_000,
 );
 
-/** Keeps signature time fixed while storage deadlines use live timers. */
-const clockAt = (milliseconds: number): Clock.Clock => {
-  const live = Clock.make();
-  return {
-    [Clock.ClockTypeId]: Clock.ClockTypeId,
-    unsafeCurrentTimeMillis: () => milliseconds,
-    currentTimeMillis: Effect.succeed(milliseconds),
-    unsafeCurrentTimeNanos: () => BigInt(milliseconds) * 1_000_000n,
-    currentTimeNanos: Effect.succeed(BigInt(milliseconds) * 1_000_000n),
-    sleep: (duration) => live.sleep(duration),
-  };
-};
-
 const prepareBootstrapAdmission = (origin: URL) =>
   Effect.gen(function* () {
     const prepared = yield* prepareAgent("concurrent-bootstrap");
@@ -389,7 +382,7 @@ const prepareBootstrapAdmission = (origin: URL) =>
     );
     return {
       request: prepared.request,
-      expiresAt: signedAt + 300_000,
+      expiresAt: signedAt + BOOTSTRAP_SIGNATURE_INTERVAL_SECONDS * 1_000,
       input: {
         httpRequest: HttpServerRequest.fromWeb(
           new Request(signed.url, {
