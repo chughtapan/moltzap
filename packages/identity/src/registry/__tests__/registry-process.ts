@@ -584,6 +584,9 @@ const signBootstrapMessage = (input: {
       processTestError("could not sign bootstrap request", cause),
   });
 
+/** The signed bootstrap proof's validity interval in seconds. */
+const BOOTSTRAP_SIGNATURE_INTERVAL_SECONDS = 300;
+
 const makeVersionedBootstrapRequest = (
   origin: URL,
   prepared: Pick<RegisteredAgent, "request" | "signingAuthority">,
@@ -614,7 +617,7 @@ const makeVersionedBootstrapRequest = (
       request,
       signingAuthority: prepared.signingAuthority,
       created: new Date(now * 1_000),
-      expires: new Date((now + 300) * 1_000),
+      expires: new Date((now + BOOTSTRAP_SIGNATURE_INTERVAL_SECONDS) * 1_000),
       keyid,
       nonce: randomIdentifierPayload(),
     });
@@ -694,6 +697,7 @@ const startReadyRegistry = (
 
 /** Shared process and Registry fixtures for executable acceptance tests. */
 export {
+  BOOTSTRAP_SIGNATURE_INTERVAL_SECONDS,
   callRegister,
   canConnect,
   LOOPBACK_HOST,
