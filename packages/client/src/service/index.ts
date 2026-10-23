@@ -9,12 +9,16 @@ import { diag, DiagConsoleLogger, DiagLogLevel } from "@opentelemetry/api";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { Config, Data, Duration, Effect, Either, Layer, Option } from "effect";
-import type { FirewallPolicyError } from "../firewall/index.js";
 import {
+  type FirewallInstallation,
+  firewallInstallation,
+  type FirewallPolicyError,
   type FirewallOptions as InstalledFirewallOptions,
   installEditableFirewall,
-} from "../delivery/index.js";
-import { packageVersion } from "../endpoint/implementation.js";
+  type MessagePolicyConfigurationError,
+  policyInstallationError,
+} from "../firewall/index.js";
+import { packageVersion } from "../release/index.js";
 import {
   type EndpointStoreError,
   inspectEndpointStore,
@@ -31,11 +35,6 @@ import {
   processHelp,
 } from "./configuration.js";
 import { type DaemonRuntimeError, runDaemonRuntime } from "./lifecycle.js";
-import {
-  type FirewallInstallation,
-  firewallInstallation,
-  policyInstallationError,
-} from "./message-policy/index.js";
 import {
   type DaemonRegistrationPersistenceError,
   type DaemonRegistrationRepresentationError,
@@ -203,19 +202,13 @@ const spanExport: Layer.Layer<never, DaemonConfigurationError> =
   );
 
 /** Trusted operators decode retained checks without reading private storage schemas. */
-export { FirewallAuditRecord } from "../delivery/index.js";
+export { FirewallAuditRecord } from "../firewall/index.js";
 
-/**
- * Writers build a daemon's message-policy document with `MessagePolicy`;
- * `messagePolicyFirewall` is the trusted-composition hook that installs a
- * decoded document through `Daemon.withFirewall` with a decision provider of
- * the composition's own.
- */
-export {
-  decodeMessagePolicy,
-  MessagePolicy,
-  messagePolicyFirewall,
-} from "./message-policy/index.js";
+/** Writers build policy documents with the schema the daemon decodes them with. */
+export { decodeMessagePolicy, MessagePolicy } from "../firewall/index.js";
+
+/** Trusted composition installs a decoded document with its own decision provider. */
+export { messagePolicyFirewall } from "../firewall/index.js";
 
 /** Checking factories have no daemon execution authority. */
 export {
@@ -296,7 +289,10 @@ export namespace Daemon {
       const installation = yield* firewallInstallation(
         configuration,
         composed,
-      ).pipe(Effect.mapError(configurationFailure));
+      ).pipe(
+        Effect.mapError(daemonPolicyConfigurationError),
+        Effect.mapError(configurationFailure),
+      );
       const bootstrap = yield* loadDaemonBootstrap(configuration).pipe(
         Effect.mapError(configurationFailure),
       );
@@ -386,11 +382,26 @@ export namespace Daemon {
     installation: FirewallInstallation,
     cause: FirewallPolicyError,
   ): StartupError {
-    return configurationFailure(
-      installation.fromPolicyFile === true
-        ? policyInstallationError(cause)
-        : cause,
-    );
+    if (installation.fromPolicyFile === true) {
+      return configurationFailure(
+        daemonPolicyConfigurationError(policyInstallationError(cause)),
+      );
+    }
+    return configurationFailure(cause);
+  }
+
+  /**
+   * Policy startup failures retain their exact reason and message at the daemon boundary.
+   * @param cause The policy loader's closed configuration failure.
+   * @returns The daemon configuration error with the same reason and message.
+   */
+  function daemonPolicyConfigurationError(
+    cause: MessagePolicyConfigurationError,
+  ): DaemonConfigurationError {
+    return new DaemonConfigurationError({
+      reason: cause.reason,
+      message: cause.message,
+    });
   }
 
   function configurationFailure(cause: unknown): StartupError {

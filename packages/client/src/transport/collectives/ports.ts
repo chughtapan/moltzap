@@ -7,7 +7,7 @@ import { type Effect, type Option, Schema, type Scope } from "effect";
 import type {
   CheckedGuidance,
   FirewallSendError,
-} from "../../firewall/runtime.js";
+} from "../../firewall/outcome/index.js";
 import type { SendError } from "../messaging/errors.js";
 import type {
   BindHold,

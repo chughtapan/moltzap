@@ -51,7 +51,7 @@ import {
   policyUpdateResultSchema,
   policyUpdateSchema,
 } from "../../firewall/index.js";
-import { FirewallSendError } from "../../firewall/runtime.js";
+import { FirewallSendError } from "../../firewall/outcome/index.js";
 import {
   authenticateHarnessRequest,
   type HarnessMcpCredentials,

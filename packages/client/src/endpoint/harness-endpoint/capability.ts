@@ -4,7 +4,7 @@ import { Data, type Effect, type Stream } from "effect";
 import type {
   FirewallSendError,
   LocalGuidance,
-} from "../../firewall/runtime.js";
+} from "../../firewall/outcome/index.js";
 import type {
   CollectiveError,
   FailureDelivery,

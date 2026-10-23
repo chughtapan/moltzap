@@ -45,7 +45,7 @@ import { localGuidance } from "../../__tests__/message-policy-fixtures.js";
 import {
   type CheckedGuidance,
   FirewallSendError,
-} from "../../firewall/runtime.js";
+} from "../../firewall/outcome/index.js";
 import { SendError } from "../messaging/errors.js";
 import { InboundMessage } from "../messaging/message.js";
 import { collectiveIdOf } from "./part/index.js";

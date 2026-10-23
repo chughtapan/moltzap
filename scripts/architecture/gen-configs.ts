@@ -132,20 +132,27 @@ const sharedConfig: ArchitectureConfig = {
  */
 const clientDomains: readonly ClientDomain[] = [
   {
-    name: "firewall",
-    root: "firewall",
-    entrypoints: [
-      "index.ts",
-      {
-        file: "runtime.ts",
-        reason:
-          "Closed refusal and guidance schemas hosts decode without loading policy evaluation or provider clients",
-      },
-    ],
+    name: "release",
+    root: "release",
+    entrypoints: ["index.ts"],
     reason:
-      "Message middleware and optional decision providers, without storage, host or protocol capabilities",
+      "Client package release metadata used by MCP peers, policy provenance and telemetry",
+  },
+  {
+    name: "firewall-outcome",
+    root: "firewall/outcome",
+    entrypoints: ["index.ts"],
+    reason:
+      "Closed refusal and guidance schemas hosts and transport decode without loading policy evaluation or provider clients",
   },
 
+  {
+    name: "firewall-evaluator",
+    root: "firewall/evaluator",
+    entrypoints: ["index.ts"],
+    reason:
+      "Isolated code and English evaluation depends only on runtime-safe outcomes and packages",
+  },
   {
     name: "identity",
     root: "identity",
@@ -238,6 +245,13 @@ const clientDomains: readonly ClientDomain[] = [
     reason: "Gather and all_gather carried in posts",
   },
   {
+    name: "firewall",
+    root: "firewall",
+    entrypoints: ["index.ts"],
+    reason:
+      "Personal firewall evaluation, rules, policy, admission and audit above the collective transport",
+  },
+  {
     name: "delivery",
     root: "delivery",
     entrypoints: [
@@ -259,14 +273,7 @@ const clientDomains: readonly ClientDomain[] = [
   {
     name: "endpoint",
     root: "endpoint",
-    entrypoints: [
-      "mcp/index.ts",
-      "harness-endpoint/index.ts",
-      {
-        file: "implementation.ts",
-        reason: "The package version both loopback MCP peers report",
-      },
-    ],
+    entrypoints: ["mcp/index.ts", "harness-endpoint/index.ts"],
     reason:
       "The loopback MCP, owner tools, and the HarnessEndpoint hosts connect to",
   },
@@ -302,15 +309,14 @@ const packageDefinitions: Readonly<Record<string, PackageDefinition>> = {
     beforeShared: {
       maxFolderCycles: 1,
       folderReadmeFileNames: ["README.md", "../README.md"],
-      folderChildCountOverrides: [
+      facadeFiles: [
+        ...clientEntrypointFacades,
         {
-          folder: "delivery",
-          maxChildren: 12,
+          file: "service/bootstrap.ts",
           reason:
-            "Firewall admission keeps outgoing checks, the shared projection, result checks and the admission worker as separate deep modules beside the inbox and delivery pass, each within the file-size limit; a delivery/firewall subfolder would need its own barrel waiver and still keep three boundary waivers",
+            "Loaded daemon configuration and closed bootstrap failures shared by service composition modules",
         },
       ],
-      facadeFiles: clientEntrypointFacades,
       compositionRoots: [
         {
           path: "src/index.ts",

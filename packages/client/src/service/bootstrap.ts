@@ -6,16 +6,7 @@ import type {
 } from "@moltzap/identity";
 import { Data, type Effect, type Redacted } from "effect";
 import type { HarnessMcpCredentials } from "../endpoint/mcp/index.js";
-
-/** Closed reason that a message-policy setting cannot start the daemon. */
-export type MessagePolicyConfigurationFailure =
-  | "message-policy-file"
-  | "message-policy"
-  | "message-policy-required"
-  | "message-policy-composed"
-  | "firewall-audit-export"
-  | "decision-provider-key-file"
-  | "decision-provider-key";
+import type { MessagePolicyConfigurationFailure } from "../firewall/index.js";
 
 /** Closed reason that daemon configuration cannot become startup authority. */
 export type DaemonConfigurationFailure =

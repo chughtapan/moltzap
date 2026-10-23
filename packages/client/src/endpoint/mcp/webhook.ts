@@ -5,7 +5,7 @@ import { ProtocolError } from "@modelcontextprotocol/server";
 import { type Clock, Effect, Schema, type Scope } from "effect";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { eventIdOf, type EventStore } from "../../delivery/operations.js";
-import { localGuidanceSchema } from "../../firewall/runtime.js";
+import { localGuidanceSchema } from "../../firewall/outcome/index.js";
 import {
   decodeRuntimeValue,
   DeliveryToken,

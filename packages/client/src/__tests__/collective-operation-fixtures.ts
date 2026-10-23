@@ -1,7 +1,7 @@
 /** @file Recording ports, post builders and send helpers shared by the collective operation tests. */
 
 import { Duration, Effect, Schema, type Scope } from "effect";
-import type { FirewallSendError } from "../firewall/runtime.js";
+import type { FirewallSendError } from "../firewall/outcome/index.js";
 import type { InboundItem } from "../transport/collectives/inbound.js";
 import type {
   CollectiveAdmission,

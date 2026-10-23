@@ -4,18 +4,7 @@
     "README.md",
     "../README.md"
   ],
-  "folderChildCountOverrides": [
-    {
-      "folder": "delivery",
-      "maxChildren": 12,
-      "reason": "Firewall admission keeps outgoing checks, the shared projection, result checks and the admission worker as separate deep modules beside the inbox and delivery pass, each within the file-size limit; a delivery/firewall subfolder would need its own barrel waiver and still keep three boundary waivers"
-    }
-  ],
   "facadeFiles": [
-    {
-      "file": "firewall/runtime.ts",
-      "reason": "Closed refusal and guidance schemas hosts decode without loading policy evaluation or provider clients"
-    },
     {
       "file": "transport/wire/values.ts",
       "reason": "Addresses, post ids, content, and member limits hosts decode without loading signing, verification, or the Router client"
@@ -61,8 +50,8 @@
       "reason": "The history export line schema hosts decode, without loading the inbox or the store"
     },
     {
-      "file": "endpoint/implementation.ts",
-      "reason": "The package version both loopback MCP peers report"
+      "file": "service/bootstrap.ts",
+      "reason": "Loaded daemon configuration and closed bootstrap failures shared by service composition modules"
     }
   ],
   "compositionRoots": [
@@ -81,15 +70,34 @@
   ],
   "domains": [
     {
-      "name": "firewall",
+      "name": "release",
       "roots": [
-        "src/firewall"
+        "src/release"
       ],
       "entrypoints": [
-        "src/firewall/index.ts",
-        "src/firewall/runtime.ts"
+        "src/release/index.ts"
       ],
-      "reason": "Message middleware and optional decision providers, without storage, host or protocol capabilities"
+      "reason": "Client package release metadata used by MCP peers, policy provenance and telemetry"
+    },
+    {
+      "name": "firewall-outcome",
+      "roots": [
+        "src/firewall/outcome"
+      ],
+      "entrypoints": [
+        "src/firewall/outcome/index.ts"
+      ],
+      "reason": "Closed refusal and guidance schemas hosts and transport decode without loading policy evaluation or provider clients"
+    },
+    {
+      "name": "firewall-evaluator",
+      "roots": [
+        "src/firewall/evaluator"
+      ],
+      "entrypoints": [
+        "src/firewall/evaluator/index.ts"
+      ],
+      "reason": "Isolated code and English evaluation depends only on runtime-safe outcomes and packages"
     },
     {
       "name": "identity",
@@ -161,6 +169,16 @@
       "reason": "Gather and all_gather carried in posts"
     },
     {
+      "name": "firewall",
+      "roots": [
+        "src/firewall"
+      ],
+      "entrypoints": [
+        "src/firewall/index.ts"
+      ],
+      "reason": "Personal firewall evaluation, rules, policy, admission and audit above the collective transport"
+    },
+    {
       "name": "delivery",
       "roots": [
         "src/delivery"
@@ -179,8 +197,7 @@
       ],
       "entrypoints": [
         "src/endpoint/mcp/index.ts",
-        "src/endpoint/harness-endpoint/index.ts",
-        "src/endpoint/implementation.ts"
+        "src/endpoint/harness-endpoint/index.ts"
       ],
       "reason": "The loopback MCP, owner tools, and the HarnessEndpoint hosts connect to"
     },
@@ -235,6 +252,13 @@
       "reason": "The host inbox, send invocations, the delivery pass, the history export, and the operations hosts call on them"
     },
     {
+      "name": "firewall",
+      "folders": [
+        "firewall"
+      ],
+      "reason": "Personal firewall evaluation, rules, policy, admission and audit above the collective transport"
+    },
+    {
       "name": "collectives",
       "folders": [
         "transport/collectives"
@@ -277,11 +301,25 @@
       "reason": "The agent signing key and secret credential files, read exactly and failing closed"
     },
     {
-      "name": "firewall",
+      "name": "firewall-evaluator",
       "folders": [
-        "firewall"
+        "firewall/evaluator"
       ],
-      "reason": "Message middleware and optional decision providers, without storage, host or protocol capabilities"
+      "reason": "Isolated code and English evaluation depends only on runtime-safe outcomes and packages"
+    },
+    {
+      "name": "firewall-outcome",
+      "folders": [
+        "firewall/outcome"
+      ],
+      "reason": "Closed refusal and guidance schemas hosts and transport decode without loading policy evaluation or provider clients"
+    },
+    {
+      "name": "release",
+      "folders": [
+        "release"
+      ],
+      "reason": "Client package release metadata used by MCP peers, policy provenance and telemetry"
     }
   ],
   "publicTypePackages": [

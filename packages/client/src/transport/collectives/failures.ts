@@ -15,7 +15,7 @@ import type { CollectiveSendError } from "./ports.js";
 import {
   type CheckedGuidance,
   FirewallSendError,
-} from "../../firewall/runtime.js";
+} from "../../firewall/outcome/index.js";
 
 /**
  * A refused collective send, with the address its failure item routes to.

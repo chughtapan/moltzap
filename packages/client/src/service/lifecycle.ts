@@ -11,14 +11,14 @@ import {
   makeHistoryExport,
   noHistoryExport,
 } from "../delivery/history-export.js";
-import { beginFirewallAudit } from "../delivery/index.js";
-import { packageVersion } from "../endpoint/implementation.js";
 import {
   acquireHarnessMcpHttpServer,
   type HarnessMcpEventHandler,
   LOOPBACK_HOST,
   makeHarnessMcpHttpHandler,
 } from "../endpoint/mcp/index.js";
+import { beginFirewallAudit } from "../firewall/index.js";
+import { packageVersion } from "../release/index.js";
 import { makeEndpointEngine } from "../transport/messaging/index.js";
 import { makeRouterWorker } from "../transport/router/index.js";
 import {

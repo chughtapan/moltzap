@@ -9,7 +9,7 @@ import {
   wireVersions,
 } from "@moltzap/identity";
 import { Data, Deferred, Duration, Effect, Schema, type Scope } from "effect";
-import type { FirewallSendError } from "../../firewall/runtime.js";
+import type { FirewallSendError } from "../../firewall/outcome/index.js";
 import type { DeliveryToken, EndpointStoreError } from "../../store/index.js";
 import type {
   RouterDiscontinuityReason,

@@ -35,7 +35,7 @@ import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { localGuidance } from "../../__tests__/message-policy-fixtures.js";
 import { readRuntimeEvent } from "../../delivery/inbox.js";
 import { eventIdOf } from "../../delivery/operations.js";
-import { FirewallSendError } from "../../firewall/runtime.js";
+import { FirewallSendError } from "../../firewall/outcome/index.js";
 import {
   DeliveryToken,
   encodeRuntimeValue,

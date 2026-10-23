@@ -7,7 +7,7 @@ import {
   firewallRefusalSchema,
   type FirewallSendError,
   localGuidanceSchema,
-} from "../firewall/runtime.js";
+} from "../firewall/outcome/index.js";
 import {
   DeliveryToken,
   type EndpointStore,
