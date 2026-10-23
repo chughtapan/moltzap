@@ -6,15 +6,15 @@
  */
 
 import { DateTime, Effect, Option } from "effect";
-import type { EndpointStoreError } from "../../store/index.js";
-import type { DeliveryToken } from "../../store/types.js";
-import type { CollectiveEmitError } from "../../transport/collectives/forms.js";
-import type { InboundItem } from "../../transport/collectives/inbound.js";
-import type { CollectiveOperations } from "../../transport/collectives/index.js";
+import type { CollectiveEmitError } from "../../communication/collectives/forms.js";
+import type { InboundItem } from "../../communication/collectives/inbound.js";
+import type { CollectiveOperations } from "../../communication/collectives/index.js";
 import type {
   EndpointEngine,
   EnginePendingMessage,
-} from "../../transport/messaging/index.js";
+} from "../../communication/conversations/index.js";
+import type { EndpointStoreError } from "../../communication/store/index.js";
+import type { DeliveryToken } from "../../communication/store/types.js";
 import type { HarnessMessageReadyEvent } from "../protocol/operations.js";
 import type { HistoryExportPort } from "./history-export.js";
 

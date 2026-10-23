@@ -2,7 +2,7 @@
 
 import { DateTime, Effect, Schema } from "effect";
 import { createHash, type Hash, randomBytes } from "node:crypto";
-import type { EndpointStore } from "../../store/index.js";
+import type { EndpointStore } from "../../communication/store/index.js";
 import {
   decodeFirewallAuditEntry,
   FirewallAuditRecord,

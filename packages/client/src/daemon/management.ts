@@ -13,6 +13,13 @@ import {
   type RegistryRegisterResult,
 } from "@moltzap/identity/registry";
 import { type Context, Data, Effect, Schema } from "effect";
+import type { SendError } from "../communication/conversations/errors.js";
+import type {
+  EndpointRecovery,
+  EndpointStore,
+  EndpointStoreError,
+  HistoryPage,
+} from "../communication/store/index.js";
 import type {
   HarnessMcpOperations,
   ManagementReadConversationResult,
@@ -22,30 +29,23 @@ import type {
   ManagementSearchConversationsResult,
   ManagementStatusResult,
 } from "../harness/mcp/index.js";
-import type {
-  EndpointRecovery,
-  EndpointStore,
-  EndpointStoreError,
-  HistoryPage,
-} from "../store/index.js";
-import type { SendError } from "../transport/messaging/errors.js";
 import type { DaemonBootstrap, DaemonConfigurationError } from "./bootstrap.js";
 import type { DaemonActivationError } from "./errors.js";
-import { compareAscii } from "../encoding/identifier.js";
 import {
   renderGroupAddress,
   resolveMessageAddress,
-} from "../transport/messaging/address.js";
+} from "../communication/conversations/address.js";
 import {
   readStoredHistory,
   verifyStoredMembership,
-} from "../transport/messaging/index.js";
+} from "../communication/conversations/index.js";
 import {
   type CertifiedRecord,
   deriveConversationId,
   type VerifiedMembership,
-} from "../transport/wire/index.js";
-import { AgentAddress } from "../transport/wire/values.js";
+} from "../communication/records/index.js";
+import { AgentAddress } from "../communication/records/values.js";
+import { compareAscii } from "../encoding/identifier.js";
 import {
   type DaemonRegistrationPersistenceError,
   type DaemonRegistrationRepresentationError,

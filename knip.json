@@ -92,34 +92,34 @@
     }
   },
   "ignoreIssues": {
-    "packages/client/src/transport/messaging/runtime/index.ts": [
+    "packages/client/src/communication/conversations/runtime/index.ts": [
       "types"
     ],
-    "packages/client/src/transport/messaging/index.ts": [
+    "packages/client/src/communication/conversations/index.ts": [
       "exports",
       "types"
     ],
-    "packages/client/src/transport/wire/schemas.ts": [
+    "packages/client/src/communication/records/schemas.ts": [
       "exports"
     ],
-    "packages/client/src/transport/wire/verification.ts": [
+    "packages/client/src/communication/records/verification.ts": [
       "exports"
     ],
-    "packages/client/src/transport/wire/index.ts": [
+    "packages/client/src/communication/records/index.ts": [
       "exports",
       "types"
     ],
-    "packages/client/src/store/index.ts": [
+    "packages/client/src/communication/store/index.ts": [
       "types"
     ],
-    "packages/client/src/store/database/index.ts": [
+    "packages/client/src/communication/store/database/index.ts": [
       "exports",
       "types"
     ],
-    "packages/client/src/store/database/schema.ts": [
+    "packages/client/src/communication/store/database/schema.ts": [
       "types"
     ],
-    "packages/client/src/store/rows/index.ts": [
+    "packages/client/src/communication/store/rows/index.ts": [
       "exports"
     ],
     "packages/client/src/harness/protocol/owner-tools.ts": [

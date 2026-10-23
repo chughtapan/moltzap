@@ -10,7 +10,6 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect, Redacted, Schema } from "effect";
 import { fileURLToPath } from "node:url";
-import { encodeCanonical } from "../packages/client/dist/encoding/canonical-json.js";
 import {
   ActionCertifiedRecord,
   ActionCore,
@@ -33,7 +32,8 @@ import {
   RecordCore,
   RecordHash,
   signEvidenceMessage,
-} from "../packages/client/dist/transport/wire/index.js";
+} from "../packages/client/dist/communication/records/index.js";
+import { encodeCanonical } from "../packages/client/dist/encoding/canonical-json.js";
 import {
   AgentCard,
   AgentId,
@@ -430,7 +430,7 @@ await Effect.runPromise(
           fs.writeFileString(
             fileURLToPath(
               new URL(
-                "../packages/client/src/transport/wire/record-golden.json",
+                "../packages/client/src/communication/records/record-golden.json",
                 import.meta.url,
               ),
             ),

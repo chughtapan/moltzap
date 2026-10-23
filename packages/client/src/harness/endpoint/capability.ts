@@ -2,21 +2,21 @@
 
 import { Data, type Effect, type Stream } from "effect";
 import type {
-  FirewallSendError,
-  LocalGuidance,
-} from "../../firewall/outcome/index.js";
-import type {
   CollectiveError,
   FailureDelivery,
   SendInput,
   SendResult,
-} from "../../transport/collectives/forms.js";
-import type { InboundItem } from "../../transport/collectives/inbound.js";
+} from "../../communication/collectives/forms.js";
+import type { InboundItem } from "../../communication/collectives/inbound.js";
 import type {
   DeliveryAcknowledgeError,
   ListenError,
   SendError,
-} from "../../transport/messaging/errors.js";
+} from "../../communication/conversations/errors.js";
+import type {
+  FirewallSendError,
+  LocalGuidance,
+} from "../../firewall/outcome/index.js";
 
 type ConnectFailure =
   | "transport-failed"

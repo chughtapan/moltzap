@@ -400,7 +400,7 @@ function testPublicationGuardsTestOnly(): void {
   );
   restoreAllPlants();
   plantFile(
-    "packages/client/src/transport/messaging/index.ts",
+    "packages/client/src/communication/conversations/index.ts",
     (source) =>
       'import { WireVersions } from "@moltzap/identity/test";\n' + source,
   );

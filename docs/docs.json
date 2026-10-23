@@ -81,6 +81,9 @@
           {
             "group": "Modules",
             "pages": [
+              "modules/client/communication/collectives",
+              "modules/client/communication/conversations",
+              "modules/client/communication/records",
               "modules/client/daemon",
               "modules/client/firewall/admission",
               "modules/client/firewall/evaluator",
@@ -90,9 +93,6 @@
               "modules/client/harness/inbox",
               "modules/client/harness/protocol",
               "modules/client/src",
-              "modules/client/transport/collectives",
-              "modules/client/transport/messaging",
-              "modules/client/transport/wire",
               "modules/identity/src",
               "modules/openclaw-channel/src",
               "modules/router/src"

@@ -25,8 +25,8 @@ import {
   Schema,
   Scope,
 } from "effect";
-import type { CollectiveError } from "../../transport/collectives/forms.js";
-import type { SendError } from "../../transport/messaging/errors.js";
+import type { CollectiveError } from "../../communication/collectives/forms.js";
+import type { SendError } from "../../communication/conversations/errors.js";
 import {
   firewallDecisionsRequestSchema,
   firewallDecisionsSchema,

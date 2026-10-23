@@ -3,10 +3,10 @@
 import { scopedLive as it } from "@effect/vitest";
 import { Deferred, Duration, Effect, Fiber, Queue, Schema } from "effect";
 import { describe, expect } from "vitest";
-import type { AnswerContent } from "../../transport/collectives/forms.js";
-import type { ResultProvenance } from "../../transport/collectives/index.js";
-import type { CertifiedRecord } from "../../transport/wire/index.js";
-import type { MessageAddressInput } from "../../transport/wire/values.js";
+import type { AnswerContent } from "../../communication/collectives/forms.js";
+import type { ResultProvenance } from "../../communication/collectives/index.js";
+import type { CertifiedRecord } from "../../communication/records/index.js";
+import type { MessageAddressInput } from "../../communication/records/values.js";
 import type {
   MessageMiddleware,
   MiddlewareInput,
@@ -47,15 +47,18 @@ import {
   seedIncoming,
   settings,
 } from "../../__tests__/firewall-runtime-fixtures.js";
-import { eventIdOf } from "../../harness/protocol/operations.js";
-import { type DeliveryToken, encodeRuntimeValue } from "../../store/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
-import { collectiveIdOf } from "../../transport/collectives/part/index.js";
+import { InboundItem } from "../../communication/collectives/inbound.js";
+import { collectiveIdOf } from "../../communication/collectives/part/index.js";
 import {
   renderCollectiveRequest,
   renderCollectiveRequestBody,
   renderOutcome,
-} from "../../transport/collectives/render.js";
+} from "../../communication/collectives/render.js";
+import {
+  type DeliveryToken,
+  encodeRuntimeValue,
+} from "../../communication/store/index.js";
+import { eventIdOf } from "../../harness/protocol/operations.js";
 import { installEditableFirewall } from "../policy/editable.js";
 
 // @agent-code-guard/regression-only: Exercises collective admission, refusal and evidence through SQLite and the protocol engine.

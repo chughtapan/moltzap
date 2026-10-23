@@ -6,15 +6,15 @@ import {
   HttpClientResponse,
 } from "@effect/platform";
 import { Effect, Match, Schema } from "effect";
-import { localGuidanceSchema } from "../firewall/outcome/index.js";
-import { makeWebhookEvents } from "../harness/mcp/webhook.js";
-import { INBOX_ITEM_EVENT } from "../harness/protocol/names.js";
+import { InboundItem } from "../communication/collectives/inbound.js";
 import {
   DeliveryToken,
   encodeRuntimeValue,
   type EndpointStore,
-} from "../store/index.js";
-import { InboundItem } from "../transport/collectives/inbound.js";
+} from "../communication/store/index.js";
+import { localGuidanceSchema } from "../firewall/outcome/index.js";
+import { makeWebhookEvents } from "../harness/mcp/webhook.js";
+import { INBOX_ITEM_EVENT } from "../harness/protocol/names.js";
 import { digest } from "./agent-card-fixtures.js";
 
 /** The signing secret of the scripted subscription. */

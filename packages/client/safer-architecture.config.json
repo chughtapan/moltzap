@@ -6,13 +6,6 @@
     }
   ],
   "maxFolderCycles": 1,
-  "folderChildCountOverrides": [
-    {
-      "folder": ".",
-      "maxChildren": 11,
-      "reason": "Client keeps leaf encoding alongside its runtime domains, environment values and package facade"
-    }
-  ],
   "folderReadmeFileNames": [
     "README.md",
     "../README.md"
@@ -31,39 +24,39 @@
       "reason": "Canonical identifiers and ordering used by host-loaded values"
     },
     {
-      "file": "transport/wire/values.ts",
+      "file": "communication/records/values.ts",
       "reason": "Addresses, post ids, content, and member limits hosts decode without loading signing, verification, or the Router client"
     },
     {
-      "file": "store/types.ts",
+      "file": "communication/store/types.ts",
       "reason": "Store value schemas hosts read without loading the SQLite store"
     },
     {
-      "file": "transport/messaging/address.ts",
+      "file": "communication/conversations/address.ts",
       "reason": "Registry resolution of a validated address, read without loading the engine"
     },
     {
-      "file": "transport/messaging/errors.ts",
+      "file": "communication/conversations/errors.ts",
       "reason": "Closed send, listen, and acknowledgment errors, read without loading the engine"
     },
     {
-      "file": "transport/messaging/message.ts",
+      "file": "communication/conversations/message.ts",
       "reason": "Inbound message schemas, read without loading the engine"
     },
     {
-      "file": "transport/collectives/forms.ts",
+      "file": "communication/collectives/forms.ts",
       "reason": "Send forms and collective errors, read without loading the operation layer"
     },
     {
-      "file": "transport/collectives/inbound.ts",
+      "file": "communication/collectives/inbound.ts",
       "reason": "Inbound item schemas, read without loading the operation layer"
     },
     {
-      "file": "transport/collectives/message-text.ts",
+      "file": "communication/collectives/message-text.ts",
       "reason": "The message-text parser native hosts call, without loading the operation layer"
     },
     {
-      "file": "transport/collectives/render.ts",
+      "file": "communication/collectives/render.ts",
       "reason": "Complete message rendering shared by hosts and policy evidence without loading collective operations"
     },
     {
@@ -79,11 +72,11 @@
       "reason": "History export values hosts decode without loading inbox state or SQLite"
     },
     {
-      "file": "transport/wire/schemas.ts",
-      "reason": "Closed Client wire grammar shared by encoding and verification within the wire domain"
+      "file": "communication/records/schemas.ts",
+      "reason": "Closed Client wire grammar shared by encoding and verification within the records domain"
     },
     {
-      "file": "store/database/values.ts",
+      "file": "communication/store/database/values.ts",
       "reason": "Closed store errors and row-value checks shared by database implementation modules"
     },
     {
@@ -153,61 +146,61 @@
       "reason": "Isolated code and English evaluation depends on encoding, runtime-safe outcomes and packages"
     },
     {
-      "name": "wire",
+      "name": "records",
       "roots": [
-        "src/transport/wire"
+        "src/communication/records"
       ],
       "entrypoints": [
-        "src/transport/wire/index.ts",
-        "src/transport/wire/values.ts"
+        "src/communication/records/index.ts",
+        "src/communication/records/values.ts"
       ],
       "reason": "Canonical protocol encoding, verification, and the message values every layer encodes"
     },
     {
       "name": "store",
       "roots": [
-        "src/store"
+        "src/communication/store"
       ],
       "entrypoints": [
-        "src/store/index.ts",
-        "src/store/types.ts"
+        "src/communication/store/index.ts",
+        "src/communication/store/types.ts"
       ],
       "reason": "The one SQLite replica: certified history, outbox, deliveries, and the host inbox and send records as opaque bytes"
     },
     {
       "name": "router",
       "roots": [
-        "src/transport/router"
+        "src/communication/router"
       ],
       "entrypoints": [
-        "src/transport/router/index.ts"
+        "src/communication/router/index.ts"
       ],
       "reason": "The Router attach, poll, send, and outage worker"
     },
     {
-      "name": "messaging",
+      "name": "conversations",
       "roots": [
-        "src/transport/messaging"
+        "src/communication/conversations"
       ],
       "entrypoints": [
-        "src/transport/messaging/index.ts",
-        "src/transport/messaging/address.ts",
-        "src/transport/messaging/errors.ts",
-        "src/transport/messaging/message.ts"
+        "src/communication/conversations/index.ts",
+        "src/communication/conversations/address.ts",
+        "src/communication/conversations/errors.ts",
+        "src/communication/conversations/message.ts"
       ],
       "reason": "Addressed send, GENESIS and POST certification, and recovery"
     },
     {
       "name": "collectives",
       "roots": [
-        "src/transport/collectives"
+        "src/communication/collectives"
       ],
       "entrypoints": [
-        "src/transport/collectives/index.ts",
-        "src/transport/collectives/forms.ts",
-        "src/transport/collectives/inbound.ts",
-        "src/transport/collectives/message-text.ts",
-        "src/transport/collectives/render.ts"
+        "src/communication/collectives/index.ts",
+        "src/communication/collectives/forms.ts",
+        "src/communication/collectives/inbound.ts",
+        "src/communication/collectives/message-text.ts",
+        "src/communication/collectives/render.ts"
       ],
       "reason": "Gather and all_gather carried in posts"
     },
@@ -338,35 +331,35 @@
     {
       "name": "collectives",
       "folders": [
-        "transport/collectives"
+        "communication/collectives"
       ],
       "reason": "Gather and all_gather carried in posts"
     },
     {
-      "name": "messaging",
+      "name": "conversations",
       "folders": [
-        "transport/messaging"
+        "communication/conversations"
       ],
       "reason": "Addressed send, GENESIS and POST certification, and recovery"
     },
     {
       "name": "router",
       "folders": [
-        "transport/router"
+        "communication/router"
       ],
       "reason": "The Router attach, poll, send, and outage worker"
     },
     {
       "name": "store",
       "folders": [
-        "store"
+        "communication/store"
       ],
       "reason": "The one SQLite replica: certified history, outbox, deliveries, and the host inbox and send records as opaque bytes"
     },
     {
-      "name": "wire",
+      "name": "records",
       "folders": [
-        "transport/wire"
+        "communication/records"
       ],
       "reason": "Canonical protocol encoding, verification, and the message values every layer encodes"
     },

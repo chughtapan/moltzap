@@ -2,12 +2,18 @@
 
 import { Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import type { InboundMessage } from "../../transport/messaging/message.js";
+import type { InboundMessage } from "../../communication/conversations/message.js";
+import {
+  CollectiveId,
+  SendInput,
+} from "../../communication/collectives/forms.js";
+import { Content, PostId } from "../../communication/records/index.js";
+import {
+  AgentAddress,
+  GroupAddress,
+} from "../../communication/records/values.js";
+import { DeliveryToken } from "../../communication/store/index.js";
 import { exactParseOptions } from "../../encoding/exact.js";
-import { DeliveryToken } from "../../store/index.js";
-import { CollectiveId, SendInput } from "../../transport/collectives/forms.js";
-import { Content, PostId } from "../../transport/wire/index.js";
-import { AgentAddress, GroupAddress } from "../../transport/wire/values.js";
 import {
   decodeHarnessAcknowledgeDeliveryRequest,
   decodeHarnessMessageReadyEvent,

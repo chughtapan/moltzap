@@ -10,7 +10,7 @@ import {
   run,
   type RuntimeHarness,
 } from "../../__tests__/daemon-runtime-harness.js";
-import { EndpointStoreError } from "../../store/index.js";
+import { EndpointStoreError } from "../../communication/store/index.js";
 import { DaemonRuntimeError } from "../lifecycle.js";
 
 /**

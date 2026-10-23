@@ -9,7 +9,7 @@ import {
 } from "@modelcontextprotocol/client";
 import { Deferred, Effect, Queue, Schema, Stream, Take } from "effect";
 import { randomUUID } from "node:crypto";
-import { ListenError } from "../../transport/messaging/errors.js";
+import { ListenError } from "../../communication/conversations/errors.js";
 import { INBOX_PENDING_EVENT } from "../protocol/names.js";
 
 const protocolVersion = "2026-07-28";

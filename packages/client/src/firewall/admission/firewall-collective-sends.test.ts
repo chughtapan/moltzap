@@ -38,7 +38,7 @@ import {
   policy,
   rule,
 } from "../../__tests__/firewall-runtime-fixtures.js";
-import { renderOutcome } from "../../transport/collectives/render.js";
+import { renderOutcome } from "../../communication/collectives/render.js";
 import { FirewallSendError } from "../outcome/index.js";
 
 // @agent-code-guard/regression-only: Exercises collective refusal and binding through SQLite and the protocol engine.

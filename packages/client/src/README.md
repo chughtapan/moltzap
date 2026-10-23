@@ -10,20 +10,21 @@ domains below it, which `pnpm arch:check` enforces.
 entrypoints: usually its `index.ts`, plus schema files that hosts can load
 without the domain's runtime. `harness/` groups the protocol, host endpoint,
 inbox and daemon MCP server; each has its own declared entrypoints.
+`communication/` groups the client's Layer 2 domains.
 
 - `encoding/`: exact struct decoding, canonical JSON and byte equality, canonical
   identifiers and ordering; depends only on Effect and canonicalize.
 - `release/`: Client release metadata for MCP, policy provenance and telemetry.
 - `firewall/outcome/`: runtime-safe refusal and guidance values.
 - `firewall/evaluator/`: isolated code and English policy evaluation.
-- `transport/wire/`: canonical encoding, verification, and the message values
+- `communication/records/`: canonical encoding, verification, and the message values
   every layer encodes.
-- `store/`: the one SQLite replica: certified history, outbox, deliveries,
+- `communication/store/`: the one SQLite replica: certified history, outbox, deliveries,
   and the host inbox and send records as opaque bytes.
-- `transport/router/`: the Router attach, poll, send, and outage worker.
-- `transport/messaging/`: addressed send, GENESIS/POST certification, and
+- `communication/router/`: the Router attach, poll, send, and outage worker.
+- `communication/conversations/`: addressed send, GENESIS/POST certification, and
   recovery.
-- `transport/collectives/`: gather and all_gather carried in posts, and the
+- `communication/collectives/`: gather and all_gather carried in posts, and the
   inbound items the endpoint delivers.
 - `firewall/`: built-in rules, policy loading and editing, admission and audit.
 - `harness/protocol/`: shared MCP tools, events, operation values and schemas.

@@ -1,30 +1,30 @@
 /** @file Recording ports, post builders and send helpers shared by the collective operation tests. */
 
 import { Duration, Effect, Schema, type Scope } from "effect";
-import type { FirewallSendError } from "../firewall/outcome/index.js";
-import type { InboundItem } from "../transport/collectives/inbound.js";
+import type { InboundItem } from "../communication/collectives/inbound.js";
 import type {
   CollectiveAdmission,
   CollectiveOperations,
   CollectivePorts,
-} from "../transport/collectives/ports.js";
-import type { EngineSendInput } from "../transport/messaging/index.js";
+} from "../communication/collectives/ports.js";
+import type { EngineSendInput } from "../communication/conversations/index.js";
+import type { FirewallSendError } from "../firewall/outcome/index.js";
 import {
   CollectiveEmitError,
   CollectiveError,
   type CollectiveId,
   type FailureDelivery,
   SendInput,
-} from "../transport/collectives/forms.js";
-import { makeCollectiveOperations } from "../transport/collectives/operation.js";
+} from "../communication/collectives/forms.js";
+import { makeCollectiveOperations } from "../communication/collectives/operation.js";
 import {
   collectiveIdOf,
   readCollectiveValue,
-} from "../transport/collectives/part/index.js";
-import { SendError } from "../transport/messaging/errors.js";
-import { InboundMessage } from "../transport/messaging/message.js";
-import { PostId, RecordHash } from "../transport/wire/index.js";
-import { AgentAddress } from "../transport/wire/values.js";
+} from "../communication/collectives/part/index.js";
+import { SendError } from "../communication/conversations/errors.js";
+import { InboundMessage } from "../communication/conversations/message.js";
+import { PostId, RecordHash } from "../communication/records/index.js";
+import { AgentAddress } from "../communication/records/values.js";
 import { digest } from "./agent-card-fixtures.js";
 
 /** The agent a layer `makeLayer` builds runs as unless told otherwise. */

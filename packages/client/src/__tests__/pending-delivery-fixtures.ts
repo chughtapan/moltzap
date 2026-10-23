@@ -1,14 +1,14 @@
 /** @file Pending durable deliveries and the classify, engine and subscriber ports a delivery pass runs over. */
 
 import { Effect, Schema } from "effect";
+import type { InboundItem } from "../communication/collectives/inbound.js";
+import type { CollectiveOperations } from "../communication/collectives/index.js";
+import type { EnginePendingMessage } from "../communication/conversations/index.js";
 import type { PendingOffer } from "../harness/inbox/pass.js";
 import type { HarnessMessageReadyEvent } from "../harness/protocol/operations.js";
-import type { InboundItem } from "../transport/collectives/inbound.js";
-import type { CollectiveOperations } from "../transport/collectives/index.js";
-import type { EnginePendingMessage } from "../transport/messaging/index.js";
-import { DeliveryToken } from "../store/index.js";
-import { InboundMessage } from "../transport/messaging/message.js";
-import { RecordHash } from "../transport/wire/index.js";
+import { InboundMessage } from "../communication/conversations/message.js";
+import { RecordHash } from "../communication/records/index.js";
+import { DeliveryToken } from "../communication/store/index.js";
 import { digest } from "./agent-card-fixtures.js";
 
 /**

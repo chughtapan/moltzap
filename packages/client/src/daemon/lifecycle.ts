@@ -6,6 +6,8 @@ import type { Router } from "@moltzap/router";
 import { NodeFileSystem } from "@effect/platform-node";
 import { WIRE_VERSION } from "@moltzap/identity";
 import { Console, Effect, type Scope } from "effect";
+import { makeEndpointEngine } from "../communication/conversations/index.js";
+import { makeRouterWorker } from "../communication/router/index.js";
 import { beginFirewallAudit } from "../firewall/index.js";
 import {
   type HistoryExportPort,
@@ -19,8 +21,6 @@ import {
   makeHarnessMcpHttpHandler,
 } from "../harness/mcp/index.js";
 import { packageVersion } from "../release/index.js";
-import { makeEndpointEngine } from "../transport/messaging/index.js";
-import { makeRouterWorker } from "../transport/router/index.js";
 import { DaemonRuntimeError, runtimeFailure } from "./errors.js";
 import { makeDaemonManagementOperations } from "./management.js";
 import {

@@ -22,7 +22,7 @@ Acquire one real MCP-backed endpoint and its scoped connection.
 
 **Returns:** An endpoint whose resources remain live for the caller's scope.
 
-### [`AgentAddress (type)`](./transport/wire/values.ts#L195)
+### [`AgentAddress (type)`](./communication/records/values.ts#L195)
 
 _TypeAlias_
 
@@ -32,7 +32,7 @@ export type AgentAddress = typeof AgentAddress.Type;
 
 A validated direct destination.
 
-### [`AgentAddress (value)`](./transport/wire/values.ts#L189)
+### [`AgentAddress (value)`](./communication/records/values.ts#L189)
 
 _Variable_
 
@@ -56,7 +56,7 @@ export type CheckedGuidance = typeof checkedGuidanceSchema.Type;
 
 The guidance of one checked text: a message, a request, an answer, a question or a send.
 
-### [`CollectiveError`](./transport/collectives/forms.ts#L357)
+### [`CollectiveError`](./communication/collectives/forms.ts#L357)
 
 _Class_
 
@@ -92,7 +92,7 @@ export class ConnectError extends Data.TaggedError("ConnectError")<{
 
 Acquiring the endpoint connection failed.
 
-### [`Content (type)`](./transport/wire/values.ts#L94)
+### [`Content (type)`](./communication/records/values.ts#L94)
 
 _TypeAlias_
 
@@ -102,7 +102,7 @@ export type Content = typeof Content.Type;
 
 Validated nonempty semantic content.
 
-### [`Content (value)`](./transport/wire/values.ts#L89)
+### [`Content (value)`](./communication/records/values.ts#L89)
 
 _Variable_
 
@@ -115,7 +115,7 @@ export const Content = contentStructure.pipe(
 
 Nonempty semantic content whose canonical JSON is at most 32,768 bytes.
 
-### [`ContentPart (type)`](./transport/wire/values.ts#L84)
+### [`ContentPart (type)`](./communication/records/values.ts#L84)
 
 _TypeAlias_
 
@@ -125,7 +125,7 @@ export type ContentPart = typeof ContentPart.Type;
 
 A validated semantic message part.
 
-### [`ContentPart (value)`](./transport/wire/values.ts#L79)
+### [`ContentPart (value)`](./communication/records/values.ts#L79)
 
 _Variable_
 
@@ -193,7 +193,7 @@ name.
 **Returns:** The operation id a gather names and the local firewall's guidance
 on the admitted send, each if any.
 
-### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L95)
+### [`DeliveryAcknowledgeError`](./communication/conversations/errors.ts#L95)
 
 _Class_
 
@@ -211,7 +211,7 @@ export class DeliveryAcknowledgeError extends Data.TaggedError(
 
 Transport acknowledgment could not complete for one delivery.
 
-### [`DirectMessage`](./transport/messaging/message.ts#L68)
+### [`DirectMessage`](./communication/conversations/message.ts#L68)
 
 _TypeAlias_
 
@@ -242,7 +242,7 @@ export class FirewallSendError extends Data.TaggedError("FirewallSendError")<
 A refusal is returned only before an application invocation creates any intent.
 Its opaque check reference survives hosts that retain only the error message.
 
-### [`GroupAddress (type)`](./transport/wire/values.ts#L204)
+### [`GroupAddress (type)`](./communication/records/values.ts#L204)
 
 _TypeAlias_
 
@@ -252,7 +252,7 @@ export type GroupAddress = typeof GroupAddress.Type;
 
 A validated canonical complete group destination.
 
-### [`GroupAddress (value)`](./transport/wire/values.ts#L198)
+### [`GroupAddress (value)`](./communication/records/values.ts#L198)
 
 _Variable_
 
@@ -266,7 +266,7 @@ export const GroupAddress = addressInput.pipe(
 
 A complete fixed-member group address in unsigned ASCII name order.
 
-### [`groupMembers`](./transport/collectives/render.ts#L49)
+### [`groupMembers`](./communication/collectives/render.ts#L49)
 
 _Function_
 
@@ -279,7 +279,7 @@ direct address names none. Hosts list them on a group turn.
 
 **Returns:** The group's member addresses, or an empty list.
 
-### [`GroupMessage`](./transport/messaging/message.ts#L70)
+### [`GroupMessage`](./communication/conversations/message.ts#L70)
 
 _TypeAlias_
 
@@ -319,7 +319,7 @@ stream. A multicast has no operation id, so its failure is always returned.
 A firewall refusal always returns on the send call before creating an intent,
 including when inbound failure delivery was requested.
 
-### [`HistoryExportRecord (type)`](./harness/inbox/history-export.ts#L51)
+### [`HistoryExportRecord (type)`](./harness/inbox/history-export.ts#L54)
 
 _TypeAlias_
 
@@ -329,7 +329,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord (value)`](./harness/inbox/history-export.ts#L32)
+### [`HistoryExportRecord (value)`](./harness/inbox/history-export.ts#L35)
 
 _Variable_
 
@@ -373,7 +373,7 @@ export interface InboundDelivery {
 
 One inbound item plus its transport-only acknowledgment.
 
-### [`InboundItem (type)`](./transport/collectives/inbound.ts#L118)
+### [`InboundItem (type)`](./communication/collectives/inbound.ts#L118)
 
 _TypeAlias_
 
@@ -383,7 +383,7 @@ export type InboundItem = typeof InboundItem.Type;
 
 A validated inbound item.
 
-### [`InboundItem (value)`](./transport/collectives/inbound.ts#L109)
+### [`InboundItem (value)`](./communication/collectives/inbound.ts#L109)
 
 _Variable_
 
@@ -404,7 +404,7 @@ or duplicated, and multicasts that carry nothing besides that part; every
 other certified post becomes one item, and the endpoint itself emits
 results and failures.
 
-### [`InboundMessage (type)`](./transport/messaging/message.ts#L78)
+### [`InboundMessage (type)`](./communication/conversations/message.ts#L78)
 
 _TypeAlias_
 
@@ -414,7 +414,7 @@ export type InboundMessage = typeof InboundMessage.Type;
 
 A validated direct or group post.
 
-### [`InboundMessage (value)`](./transport/messaging/message.ts#L73)
+### [`InboundMessage (value)`](./communication/conversations/message.ts#L73)
 
 _Variable_
 
@@ -427,7 +427,7 @@ export const InboundMessage = Schema.Union(
 
 One certified remote-authored post, direct or to a fixed group.
 
-### [`JsonValue (type)`](./transport/wire/values.ts#L57)
+### [`JsonValue (type)`](./communication/records/values.ts#L57)
 
 _TypeAlias_
 
@@ -443,7 +443,7 @@ export type JsonValue =
 
 A value accepted by the closed semantic content boundary.
 
-### [`JsonValue (value)`](./transport/wire/values.ts#L67)
+### [`JsonValue (value)`](./communication/records/values.ts#L67)
 
 _Variable_
 
@@ -474,7 +474,7 @@ export function legacyKeys(
 
 Returns retired key names, including empty settings, without exposing values.
 
-### [`ListenError`](./transport/messaging/errors.ts#L74)
+### [`ListenError`](./communication/conversations/errors.ts#L74)
 
 _Class_
 
@@ -500,7 +500,7 @@ export type LocalGuidance = typeof localGuidanceSchema.Type;
 
 Local advice accompanies the envelope and never changes a certified item.
 
-### [`MessageAddressInput (type)`](./transport/wire/values.ts#L209)
+### [`MessageAddressInput (type)`](./communication/records/values.ts#L209)
 
 _TypeAlias_
 
@@ -510,7 +510,7 @@ export type MessageAddressInput = typeof MessageAddressInput.Type;
 
 A validated explicit destination input.
 
-### [`MessageAddressInput (value)`](./transport/wire/values.ts#L207)
+### [`MessageAddressInput (value)`](./communication/records/values.ts#L207)
 
 _Variable_
 
@@ -520,7 +520,7 @@ export const MessageAddressInput = addressInput
 
 Either accepted destination input, including noncanonical group order.
 
-### [`MessageTextError`](./transport/collectives/message-text.ts#L51)
+### [`MessageTextError`](./communication/collectives/message-text.ts#L51)
 
 _Class_
 
@@ -540,7 +540,7 @@ A message text states an operation it does not validly carry, or is plain
 text that is not well-formed Unicode. The message names each failing field
 so a host can hand it to its model as the tool error.
 
-### [`parseMessageText`](./transport/collectives/message-text.ts#L94)
+### [`parseMessageText`](./communication/collectives/message-text.ts#L94)
 
 _Function_
 
@@ -556,7 +556,7 @@ Read one message text as the send it states.
 **Returns:** The send input, or an error naming each field a stated operation
   gets wrong.
 
-### [`PostId (type)`](./transport/wire/values.ts#L46)
+### [`PostId (type)`](./communication/records/values.ts#L46)
 
 _TypeAlias_
 
@@ -566,7 +566,7 @@ export type PostId = typeof PostId.Type;
 
 A validated author-scoped post identity.
 
-### [`PostId (value)`](./transport/wire/values.ts#L37)
+### [`PostId (value)`](./communication/records/values.ts#L37)
 
 _Variable_
 
@@ -583,7 +583,7 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
-### [`renderCollectiveRequest`](./transport/collectives/render.ts#L66)
+### [`renderCollectiveRequest`](./communication/collectives/render.ts#L66)
 
 _Function_
 
@@ -600,7 +600,7 @@ by host, since each host's model sends the answer through its own tool.
 
 **Returns:** The text of the model's turn.
 
-### [`renderCollectiveResult`](./transport/collectives/render.ts#L105)
+### [`renderCollectiveResult`](./communication/collectives/render.ts#L105)
 
 _Function_
 
@@ -614,7 +614,7 @@ lines that read as other members' outcomes.
 
 **Returns:** The text of the model's turn.
 
-### [`renderContent`](./transport/collectives/render.ts#L22)
+### [`renderContent`](./communication/collectives/render.ts#L22)
 
 _Function_
 
@@ -627,7 +627,7 @@ each data part as JSON, one part per line.
 
 **Returns:** The text a host puts in the model's turn.
 
-### [`SendError`](./transport/messaging/errors.ts#L54)
+### [`SendError`](./communication/conversations/errors.ts#L54)
 
 _Class_
 
@@ -651,7 +651,7 @@ names the specific cause when the failing step knows it, such as which
 agent is unknown; the message is what a host hands its model.
 Validation issues expose only field paths and schema expectations.
 
-### [`SendInput (type)`](./transport/collectives/forms.ts#L165)
+### [`SendInput (type)`](./communication/collectives/forms.ts#L165)
 
 _TypeAlias_
 
@@ -661,7 +661,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput (value)`](./transport/collectives/forms.ts#L153)
+### [`SendInput (value)`](./communication/collectives/forms.ts#L153)
 
 _Variable_
 
@@ -684,7 +684,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./transport/collectives/forms.ts#L188)
+### [`SendResult`](./communication/collectives/forms.ts#L188)
 
 _Interface_
 
@@ -1460,6 +1460,79 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 
 ## Files
 
+- `communication/collectives/answer-formats.ts`
+- `communication/collectives/failures.ts`
+- `communication/collectives/forms.ts`
+- `communication/collectives/inbound.ts`
+- `communication/collectives/index.ts`
+- `communication/collectives/message-text.ts`
+- `communication/collectives/operation.ts`
+- `communication/collectives/part/grammar.ts`
+- `communication/collectives/part/index.ts`
+- `communication/collectives/ports.ts`
+- `communication/collectives/README.md`
+- `communication/collectives/received-request.ts`
+- `communication/collectives/render.ts`
+- `communication/collectives/request-sends.ts`
+- `communication/collectives/shared-answers.ts`
+- `communication/collectives/validation.ts`
+- `communication/conversations/address.ts`
+- `communication/conversations/certification/dissemination.ts`
+- `communication/conversations/certification/index.ts`
+- `communication/conversations/certification/README.md`
+- `communication/conversations/errors.ts`
+- `communication/conversations/history/build.ts`
+- `communication/conversations/history/certificate.ts`
+- `communication/conversations/history/index.ts`
+- `communication/conversations/history/README.md`
+- `communication/conversations/history/stored.ts`
+- `communication/conversations/index.ts`
+- `communication/conversations/message.ts`
+- `communication/conversations/outbox.ts`
+- `communication/conversations/README.md`
+- `communication/conversations/reanchor/empty.ts`
+- `communication/conversations/reanchor/index.ts`
+- `communication/conversations/reanchor/votes.ts`
+- `communication/conversations/recovery/barrier.ts`
+- `communication/conversations/recovery/catch-up.ts`
+- `communication/conversations/recovery/index.ts`
+- `communication/conversations/recovery/README.md`
+- `communication/conversations/recovery/successor.ts`
+- `communication/conversations/retry-markers.ts`
+- `communication/conversations/runtime/index.ts`
+- `communication/conversations/send.ts`
+- `communication/conversations/startup.ts`
+- `communication/README.md`
+- `communication/records/encoding/codec.ts`
+- `communication/records/encoding/index.ts`
+- `communication/records/index.ts`
+- `communication/records/README.md`
+- `communication/records/schemas.ts`
+- `communication/records/values.ts`
+- `communication/records/verification.ts`
+- `communication/router/index.ts`
+- `communication/router/outage.ts`
+- `communication/router/types.ts`
+- `communication/store/anchors.ts`
+- `communication/store/database/index.ts`
+- `communication/store/database/migrations.ts`
+- `communication/store/database/schema.ts`
+- `communication/store/database/values.ts`
+- `communication/store/firewall.ts`
+- `communication/store/inbox.ts`
+- `communication/store/index.ts`
+- `communication/store/queues/deliveries.ts`
+- `communication/store/queues/dissemination.ts`
+- `communication/store/queues/index.ts`
+- `communication/store/queues/outbound.ts`
+- `communication/store/queues/README.md`
+- `communication/store/README.md`
+- `communication/store/reads.ts`
+- `communication/store/records.ts`
+- `communication/store/rows/index.ts`
+- `communication/store/runtime-codec.ts`
+- `communication/store/store.ts`
+- `communication/store/types.ts`
 - `daemon/bootstrap.ts`
 - `daemon/configuration.ts`
 - `daemon/credentials.ts`
@@ -1554,75 +1627,3 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `README.md`
 - `release/index.ts`
 - `release/README.md`
-- `store/anchors.ts`
-- `store/database/index.ts`
-- `store/database/migrations.ts`
-- `store/database/schema.ts`
-- `store/database/values.ts`
-- `store/firewall.ts`
-- `store/inbox.ts`
-- `store/index.ts`
-- `store/queues/deliveries.ts`
-- `store/queues/dissemination.ts`
-- `store/queues/index.ts`
-- `store/queues/outbound.ts`
-- `store/queues/README.md`
-- `store/README.md`
-- `store/reads.ts`
-- `store/records.ts`
-- `store/rows/index.ts`
-- `store/runtime-codec.ts`
-- `store/store.ts`
-- `store/types.ts`
-- `transport/collectives/answer-formats.ts`
-- `transport/collectives/failures.ts`
-- `transport/collectives/forms.ts`
-- `transport/collectives/inbound.ts`
-- `transport/collectives/index.ts`
-- `transport/collectives/message-text.ts`
-- `transport/collectives/operation.ts`
-- `transport/collectives/part/grammar.ts`
-- `transport/collectives/part/index.ts`
-- `transport/collectives/ports.ts`
-- `transport/collectives/README.md`
-- `transport/collectives/received-request.ts`
-- `transport/collectives/render.ts`
-- `transport/collectives/request-sends.ts`
-- `transport/collectives/shared-answers.ts`
-- `transport/collectives/validation.ts`
-- `transport/messaging/address.ts`
-- `transport/messaging/certification/dissemination.ts`
-- `transport/messaging/certification/index.ts`
-- `transport/messaging/certification/README.md`
-- `transport/messaging/errors.ts`
-- `transport/messaging/history/build.ts`
-- `transport/messaging/history/certificate.ts`
-- `transport/messaging/history/index.ts`
-- `transport/messaging/history/README.md`
-- `transport/messaging/history/stored.ts`
-- `transport/messaging/index.ts`
-- `transport/messaging/message.ts`
-- `transport/messaging/outbox.ts`
-- `transport/messaging/README.md`
-- `transport/messaging/reanchor/empty.ts`
-- `transport/messaging/reanchor/index.ts`
-- `transport/messaging/reanchor/votes.ts`
-- `transport/messaging/recovery/barrier.ts`
-- `transport/messaging/recovery/catch-up.ts`
-- `transport/messaging/recovery/index.ts`
-- `transport/messaging/recovery/README.md`
-- `transport/messaging/recovery/successor.ts`
-- `transport/messaging/retry-markers.ts`
-- `transport/messaging/runtime/index.ts`
-- `transport/messaging/send.ts`
-- `transport/messaging/startup.ts`
-- `transport/router/index.ts`
-- `transport/router/outage.ts`
-- `transport/router/types.ts`
-- `transport/wire/encoding/codec.ts`
-- `transport/wire/encoding/index.ts`
-- `transport/wire/index.ts`
-- `transport/wire/README.md`
-- `transport/wire/schemas.ts`
-- `transport/wire/values.ts`
-- `transport/wire/verification.ts`

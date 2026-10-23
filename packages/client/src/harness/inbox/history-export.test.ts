@@ -7,9 +7,9 @@ import { DateTime, Effect, Schema } from "effect";
 import { join } from "node:path";
 import { describe, expect } from "vitest";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
-import { SendInput } from "../../transport/collectives/forms.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
-import { PostId } from "../../transport/wire/index.js";
+import { SendInput } from "../../communication/collectives/forms.js";
+import { InboundItem } from "../../communication/collectives/inbound.js";
+import { PostId } from "../../communication/records/index.js";
 import { HistoryExportRecord, makeHistoryExport } from "./history-export.js";
 
 const decodeLine = Schema.decodeUnknownSync(

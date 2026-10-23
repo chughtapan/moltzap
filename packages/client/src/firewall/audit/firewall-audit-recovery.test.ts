@@ -16,7 +16,7 @@ import {
   stateDirectory,
   withStore,
 } from "../../__tests__/store-schema-fixtures.js";
-import { openEndpointStore } from "../../store/index.js";
+import { openEndpointStore } from "../../communication/store/index.js";
 import { beginFirewallAudit } from "./firewall-audit.js";
 
 type UnsafeStaging = "symlink" | "hardlink" | "directory" | "public-file";

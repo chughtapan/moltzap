@@ -33,15 +33,21 @@ import {
 import { describe, expect } from "vitest";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { localGuidance } from "../../__tests__/message-policy-fixtures.js";
-import { FirewallSendError } from "../../firewall/outcome/index.js";
+import {
+  CollectiveId,
+  SendInput,
+} from "../../communication/collectives/forms.js";
+import { InboundItem } from "../../communication/collectives/inbound.js";
+import {
+  ListenError,
+  SendError,
+} from "../../communication/conversations/errors.js";
 import {
   DeliveryToken,
   encodeRuntimeValue,
   openEndpointStore,
-} from "../../store/index.js";
-import { CollectiveId, SendInput } from "../../transport/collectives/forms.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
-import { ListenError, SendError } from "../../transport/messaging/errors.js";
+} from "../../communication/store/index.js";
+import { FirewallSendError } from "../../firewall/outcome/index.js";
 import { acquireHarnessEndpoint } from "../endpoint/index.js";
 import { readRuntimeEvent } from "../inbox/inbox.js";
 import {

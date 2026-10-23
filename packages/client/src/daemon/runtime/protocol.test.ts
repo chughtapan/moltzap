@@ -22,7 +22,7 @@ import {
 } from "effect";
 import { describe, expect } from "vitest";
 import type { SigningIdentity } from "../../__tests__/certified-history-fixtures.js";
-import type { EndpointEngine } from "../../transport/messaging/index.js";
+import type { EndpointEngine } from "../../communication/conversations/index.js";
 import type { DaemonRuntimeError } from "../errors.js";
 import { digest, identifier } from "../../__tests__/agent-card-fixtures.js";
 import { makeFixture } from "../../__tests__/daemon-runtime-fixtures.js";
@@ -35,11 +35,6 @@ import {
   registryLayer,
   routerInstanceId,
 } from "../../__tests__/router-worker-fixtures.js";
-import { encodeCanonical } from "../../encoding/canonical-json.js";
-import {
-  makeRouterWorker,
-  type RouterWorker,
-} from "../../transport/router/index.js";
 import {
   type CatchUpRequest,
   ConversationId,
@@ -47,7 +42,12 @@ import {
   DirectPacket,
   MembershipHash,
   signOuterPacket,
-} from "../../transport/wire/index.js";
+} from "../../communication/records/index.js";
+import {
+  makeRouterWorker,
+  type RouterWorker,
+} from "../../communication/router/index.js";
+import { encodeCanonical } from "../../encoding/canonical-json.js";
 import { acquireProtocol } from "./protocol.js";
 
 /** The daemon's identity, the peer it shares a conversation with, and an agent outside it. */

@@ -7,8 +7,8 @@ import {
   type RegistryRegisterResult,
 } from "@moltzap/identity/registry";
 import { Data, Effect, Fiber, Schema } from "effect";
+import type { StoreOpening } from "../../communication/store/index.js";
 import type { HarnessMcpOperations } from "../../harness/mcp/index.js";
-import type { StoreOpening } from "../../store/index.js";
 import type {
   DaemonBootstrap,
   DaemonConfigurationError,

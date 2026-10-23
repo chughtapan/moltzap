@@ -16,12 +16,12 @@ import {
   stateDirectory,
   withStore,
 } from "../../__tests__/store-schema-fixtures.js";
+import { InboundItem } from "../../communication/collectives/inbound.js";
 import {
   DeliveryToken,
   encodeRuntimeValue,
   openEndpointStore,
-} from "../../store/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
+} from "../../communication/store/index.js";
 import {
   eventIdOf,
   type HarnessMessageReadyEvent,

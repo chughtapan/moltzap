@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { verifyHostImportGraph } from "./client-host-imports.ts";
 
 for (const module of [
-  "dist/transport/messaging/address.js",
+  "dist/communication/conversations/address.js",
   "dist/harness/protocol/schemas.js",
 ]) {
   await test(`the host gate rejects a root reaching ${module}`, () =>

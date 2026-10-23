@@ -23,7 +23,7 @@ import {
 } from "@moltzap/router";
 import { type Context, Effect, Encoding, Layer, Ref, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
-import type { RouterWorkerInput } from "../transport/router/index.js";
+import type { RouterWorkerInput } from "../communication/router/index.js";
 import {
   identifier,
   issueTestCard,

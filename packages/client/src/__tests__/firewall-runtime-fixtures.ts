@@ -12,12 +12,33 @@ import { RouterInstanceId } from "@moltzap/router";
 import { Deferred, Effect, Queue, Schema, Scope } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { join } from "node:path";
+import type { InboundItem } from "../communication/collectives/inbound.js";
 import type {
   MessageMiddleware,
   MiddlewareResult,
 } from "../firewall/evaluator/values.js";
 import type { HarnessMessageReadyEvent } from "../harness/protocol/operations.js";
-import type { InboundItem } from "../transport/collectives/inbound.js";
+import {
+  makeCollectiveOperations,
+  type ResultProvenance,
+} from "../communication/collectives/index.js";
+import { makeEndpointEngine } from "../communication/conversations/index.js";
+import { InboundMessage } from "../communication/conversations/message.js";
+import {
+  AgentAddress,
+  deriveConversationId,
+  MembershipDescriptor,
+  RecordHash,
+  verifyMembershipDescriptor,
+} from "../communication/records/index.js";
+import {
+  decodeRuntimeValue,
+  DeliveryToken,
+  encodeRuntimeValue,
+  type EndpointStore,
+  EndpointStoreError,
+  openEndpointStore,
+} from "../communication/store/index.js";
 import { encodeCanonical } from "../encoding/canonical-json.js";
 import {
   collectiveAdmission,
@@ -28,27 +49,6 @@ import {
 import { beginFirewallAudit } from "../firewall/audit/firewall-audit.js";
 import { noHistoryExport } from "../harness/inbox/history-export.js";
 import { makeHostDelivery } from "../harness/inbox/host-delivery.js";
-import {
-  decodeRuntimeValue,
-  DeliveryToken,
-  encodeRuntimeValue,
-  type EndpointStore,
-  EndpointStoreError,
-  openEndpointStore,
-} from "../store/index.js";
-import {
-  makeCollectiveOperations,
-  type ResultProvenance,
-} from "../transport/collectives/index.js";
-import { makeEndpointEngine } from "../transport/messaging/index.js";
-import { InboundMessage } from "../transport/messaging/message.js";
-import {
-  AgentAddress,
-  deriveConversationId,
-  MembershipDescriptor,
-  RecordHash,
-  verifyMembershipDescriptor,
-} from "../transport/wire/index.js";
 import {
   digest,
   identifier,

@@ -9,6 +9,12 @@ import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Data, Duration, Effect, Layer } from "effect";
 import {
+  type EndpointStoreError,
+  inspectEndpointStore,
+  openEndpointStore,
+  type OutboxTooOldError,
+} from "../communication/store/index.js";
+import {
   type FirewallInstallation,
   firewallInstallation,
   type FirewallPolicyError,
@@ -17,12 +23,6 @@ import {
   type MessagePolicyConfigurationError,
   policyInstallationError,
 } from "../firewall/index.js";
-import {
-  type EndpointStoreError,
-  inspectEndpointStore,
-  openEndpointStore,
-  type OutboxTooOldError,
-} from "../store/index.js";
 import {
   DaemonConfigurationError,
   type DaemonProcessConfiguration,

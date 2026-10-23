@@ -8,45 +8,45 @@ import {
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Cause, type Context, Deferred, Effect, Schema, Scope } from "effect";
+import type { ListenError } from "../../communication/conversations/errors.js";
 import type {
   EndpointStore,
   EndpointStoreError,
   StoredMembership,
-} from "../../store/index.js";
-import type { ListenError } from "../../transport/messaging/errors.js";
+} from "../../communication/store/index.js";
 import type { DaemonBootstrap } from "../bootstrap.js";
-import { encodeCanonical, sameBytes } from "../../encoding/canonical-json.js";
-import { compareAscii } from "../../encoding/identifier.js";
-import {
-  collectiveAdmission,
-  type InstalledFirewall,
-} from "../../firewall/index.js";
 import {
   type CollectiveEmitError,
   type CollectiveOperations,
   type InboundItem,
   makeCollectiveOperations,
   type ResultProvenance,
-} from "../../transport/collectives/index.js";
+} from "../../communication/collectives/index.js";
 import {
   type EndpointEngine,
   type EndpointEngineInput,
   type EngineInitializationError,
   verifyStoredMembership,
-} from "../../transport/messaging/index.js";
+} from "../../communication/conversations/index.js";
+import {
+  type DecodedOuterBody,
+  decodeOuterBody,
+  type OuterBodyReader,
+} from "../../communication/records/index.js";
+import { AgentAddress } from "../../communication/records/values.js";
 import {
   type RouterWorker,
   type RouterWorkerInput,
   RouterWorkerPayloadInvalidError,
   type RouterWorkerProtocolError,
   type RouterWorkerTransportError,
-} from "../../transport/router/index.js";
+} from "../../communication/router/index.js";
+import { encodeCanonical, sameBytes } from "../../encoding/canonical-json.js";
+import { compareAscii } from "../../encoding/identifier.js";
 import {
-  type DecodedOuterBody,
-  decodeOuterBody,
-  type OuterBodyReader,
-} from "../../transport/wire/index.js";
-import { AgentAddress } from "../../transport/wire/values.js";
+  collectiveAdmission,
+  type InstalledFirewall,
+} from "../../firewall/index.js";
 import {
   activationFailure,
   type DaemonActivationError,

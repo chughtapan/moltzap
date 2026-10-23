@@ -9,19 +9,19 @@ import {
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import { Data, Effect, Ref, type Scope, Stream } from "effect";
-import { FirewallSendError } from "../../firewall/outcome/index.js";
-import { packageVersion } from "../../release/index.js";
 import {
   CollectiveError,
   type SendResult,
-} from "../../transport/collectives/forms.js";
+} from "../../communication/collectives/forms.js";
 import {
   DeliveryAcknowledgeError,
   deliveryAcknowledgeFailureReasons,
   ListenError,
   SendError,
   sendFailureReasons,
-} from "../../transport/messaging/errors.js";
+} from "../../communication/conversations/errors.js";
+import { FirewallSendError } from "../../firewall/outcome/index.js";
+import { packageVersion } from "../../release/index.js";
 import {
   HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
   HARNESS_READ_INBOX_TOOL,

@@ -7,12 +7,6 @@ import {
   RegistryLookupRequest,
 } from "@moltzap/identity/registry";
 import { Schema } from "effect";
-import { exactParseOptions, exactStruct } from "../../encoding/exact.js";
-import {
-  compareAscii,
-  decodeCanonicalBase64Url,
-  isStrictlyAscending,
-} from "../../encoding/identifier.js";
 import {
   AgentAddress,
   compareAgentIds,
@@ -20,7 +14,13 @@ import {
   RecordCore,
   RecordHash,
   RouterAnchor,
-} from "../../transport/wire/index.js";
+} from "../../communication/records/index.js";
+import { exactParseOptions, exactStruct } from "../../encoding/exact.js";
+import {
+  compareAscii,
+  decodeCanonicalBase64Url,
+  isStrictlyAscending,
+} from "../../encoding/identifier.js";
 
 const encodedAgentCard = Schema.encodedSchema(AgentCard);
 

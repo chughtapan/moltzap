@@ -12,6 +12,26 @@ import { type Context, Deferred, Duration, Effect } from "effect";
 import type { EventStore } from "../harness/protocol/operations.js";
 import type { Fixture } from "./daemon-runtime-fixtures.js";
 import {
+  DeliveryAcknowledgeError,
+  ListenError,
+} from "../communication/conversations/errors.js";
+import {
+  type EndpointEngine,
+  EngineOutboundError,
+  type EnginePendingMessage,
+} from "../communication/conversations/index.js";
+import {
+  type RouterWorker,
+  RouterWorkerPersistenceError,
+} from "../communication/router/index.js";
+import {
+  type DeliveryToken,
+  type EndpointRecovery,
+  type EndpointStore,
+  EndpointStoreError,
+  type IdentityBinding,
+} from "../communication/store/index.js";
+import {
   type DaemonRuntimeDependencies,
   DaemonRuntimeError,
   runDaemonRuntime,
@@ -25,26 +45,6 @@ import {
   makeHarnessMcpHttpHandler,
 } from "../harness/mcp/tools.js";
 import { INBOX_PENDING_EVENT } from "../harness/protocol/names.js";
-import {
-  type DeliveryToken,
-  type EndpointRecovery,
-  type EndpointStore,
-  EndpointStoreError,
-  type IdentityBinding,
-} from "../store/index.js";
-import {
-  DeliveryAcknowledgeError,
-  ListenError,
-} from "../transport/messaging/errors.js";
-import {
-  type EndpointEngine,
-  EngineOutboundError,
-  type EnginePendingMessage,
-} from "../transport/messaging/index.js";
-import {
-  type RouterWorker,
-  RouterWorkerPersistenceError,
-} from "../transport/router/index.js";
 import { unusedEndpointStore } from "./unused-endpoint-store.js";
 
 /** The MCP handler the daemon installed; throws before installation. */
