@@ -22,7 +22,6 @@ import {
   OverloadedError,
   PayloadTooLargeError,
   RouteNotFoundError,
-  supportedWireVersionsSchema,
   UnavailableError,
   UnsupportedMediaTypeError,
   VersionMismatchError,
@@ -206,7 +205,7 @@ const decodeEnvelope = (
     return decodeCanonicalJson(
       Schema.Struct({
         error: Schema.Literal("version_mismatch"),
-        supported: supportedWireVersionsSchema,
+        supported: VersionMismatchError.supportedSchema,
       }),
       bytes,
     ).pipe(

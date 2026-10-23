@@ -263,7 +263,7 @@ export const Ed25519PublicKey = Schema.transform(
 
 Exact immutable Ed25519 public JWK.
 
-### [`HISTORY_WIRE_VERSIONS`](./version.ts#L40)
+### [`HISTORY_WIRE_VERSIONS`](./version.ts#L43)
 
 _Variable_
 
@@ -317,7 +317,7 @@ Returns only retired key names so startup diagnostics cannot expose values.
 
 **Returns:** Sorted legacy keys, including keys with empty values.
 
-### [`LIVE_WIRE_VERSIONS`](./version.ts#L34)
+### [`LIVE_WIRE_VERSIONS`](./version.ts#L37)
 
 _Variable_
 
@@ -555,18 +555,6 @@ export class SignedMessageVerificationError extends Data.TaggedError(
 
 A SignedMessage does not bind to the supplied verified AgentCard.
 
-### [`supportedWireVersionsSchema`](./http-errors.ts#L31)
-
-_Variable_
-
-```ts
-export const supportedWireVersionsSchema = Schema.NonEmptyArray(
-  Schema.String.pipe(Schema.pattern(/^\d{4}\.\d{3,4}\.\d+$/)),
-)
-```
-
-A mismatch response advertises at least one calendar wire version.
-
 ### [`UnavailableError`](./http-errors.ts#L64)
 
 _Class_
@@ -629,7 +617,7 @@ export type VerifiedSignedMessage = SignedMessage &
 
 SignedMessage whose sender attribution and signature are verified.
 
-### [`VersionMismatchError`](./http-errors.ts#L36)
+### [`VersionMismatchError`](./http-errors.ts#L31)
 
 _Class_
 
@@ -641,12 +629,17 @@ export class VersionMismatchError extends Schema.TaggedError<VersionMismatchErro
       default: () => LIVE_WIRE_VERSIONS,
     }),
   },
-) {}
+) {
+  /** A mismatch response advertises at least one calendar wire version. */
+  static readonly supportedSchema = Schema.NonEmptyArray(
+    Schema.String.pipe(Schema.pattern(WIRE_VERSION_PATTERN)),
+  );
+}
 ```
 
 The request carries a different wire compatibility value.
 
-### [`WIRE_VERSION`](./version.ts#L8)
+### [`WIRE_VERSION`](./version.ts#L11)
 
 _Variable_
 
@@ -658,7 +651,7 @@ Every newly signed artifact carries this wire value. Live admission accepts
 no other value, so a peer that emits a different one fails with
 `version-mismatch`; package publication never determines wire compatibility.
 
-### [`WireVersion`](./version.ts#L46)
+### [`WireVersion`](./version.ts#L49)
 
 _TypeAlias_
 

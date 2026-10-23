@@ -25,12 +25,11 @@ import {
   Duration,
   Effect,
   Encoding,
-  Layer,
   Option,
   Redacted,
   Schema,
 } from "effect";
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { createConnection, createServer } from "node:net";
 import { dirname, join } from "node:path";
@@ -43,7 +42,12 @@ import {
   type RouterSendRequest,
   type RouterSendResult,
 } from "../../index.js";
-import { testVersionMismatchRoundTrips } from "./integration/client-version-roundtrip.js";
+import {
+  makeRegistryRunner,
+  makeRouterRunner,
+  type RegistryInfrastructure,
+  testVersionMismatchRoundTrips,
+} from "./integration/client-version-roundtrip.js";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const ADMISSION_CREDENTIAL = "registry-router-e2e-admission";
@@ -86,7 +90,10 @@ const ROUTER_BINARY = join(
   "packages/router/bin/sharness-router",
 );
 
-type RunningProcess = ReturnType<typeof startProcess>;
+interface RunningProcess {
+  readonly child: ChildProcess;
+  readonly logs: () => string;
+}
 
 interface RegisteredAgent {
   readonly signingAuthority: AgentSigningAuthorityValue;
@@ -100,7 +107,11 @@ interface RegisteredAgents {
   readonly nonRecipient: RegisteredAgent;
 }
 
-type Infrastructure = Effect.Effect.Success<typeof startInfrastructure>;
+interface Infrastructure extends RegistryInfrastructure {
+  readonly registryProcess: RunningProcess;
+  readonly routerOrigin: URL;
+  readonly routerPort: number;
+}
 
 type BatchResult = Extract<RouterPollResult, { readonly kind: "batch" }>;
 type AcceptedResult = Extract<RouterSendResult, { readonly kind: "accepted" }>;
@@ -123,7 +134,11 @@ interface SentMessage {
   readonly firstRecipientDelivery: BatchResult;
 }
 
-type HttpResult = Effect.Effect.Success<ReturnType<typeof observeHttpRequest>>;
+interface HttpObservation {
+  readonly status: number;
+  readonly contentType: string;
+  readonly body: string;
+}
 
 class ProcessTestError extends Data.TaggedError("ProcessTestError")<{
   readonly message: string;
@@ -170,7 +185,7 @@ const startProcess = (
   executable: string,
   processArguments: readonly string[],
   environment: Readonly<Record<string, string>> = {},
-) => {
+): RunningProcess => {
   const child = spawn(executable, processArguments, {
     cwd: WORKSPACE_ROOT,
     env: {
@@ -359,27 +374,6 @@ const makePrincipalId = () =>
 const makeMessageId = () =>
   Schema.decodeUnknownSync(MessageId)(`msg_${randomIdentifierPayload()}`);
 
-const makeRegistryRunner = (
-  origin: URL,
-  registrySignerPublicKey: Infrastructure["registrySignerPublicKey"],
-): RegistryRunner => {
-  const registryLayer = Registry.layer({
-    origin,
-    registrySignerPublicKey,
-    requestTimeout: Duration.seconds(5),
-  }).pipe(Layer.provide(NodeHttpClient.layer));
-  return (effect) => effect.pipe(Effect.provide(registryLayer));
-};
-
-const makeRouterRunner = (origin: URL): RouterRunner => {
-  const routerLayer = Router.layer({
-    origin,
-    sendTimeout: Duration.seconds(5),
-    pollTimeout: Duration.seconds(35),
-  }).pipe(Layer.provide(NodeHttpClient.layer));
-  return (effect) => effect.pipe(Effect.provide(routerLayer));
-};
-
 const signAuthenticatedRequest = (
   origin: URL,
   path: string,
@@ -402,11 +396,11 @@ const observeHttpRequest = (request: HttpClientRequest.HttpClientRequest) =>
       status: response.status,
       contentType: response.headers["content-type"] ?? "",
       body,
-    };
+    } satisfies HttpObservation;
   });
 
 const expectHttpObservation = (
-  observation: HttpResult,
+  observation: HttpObservation,
   status: number,
   body: string,
 ): void => {
@@ -523,7 +517,7 @@ const startInfrastructure = Effect.gen(function* () {
     ...registry,
     routerOrigin: new URL(`http://${LOOPBACK_HOST}:${routerPort}`),
     routerPort,
-  };
+  } satisfies Infrastructure;
 });
 
 const startRouterAt = (

@@ -1,5 +1,8 @@
 /** @file Emitted, live-admission, and retained-history wire compatibility sets. */
 
+/** Calendar wire syntax shared by HTTP mismatch decoders and release admission. */
+export const WIRE_VERSION_PATTERN = /^\d{4}\.\d{3,4}\.\d+$/;
+
 /**
  * Every newly signed artifact carries this wire value. Live admission accepts
  * no other value, so a peer that emits a different one fails with

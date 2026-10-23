@@ -11,7 +11,6 @@ import {
   PayloadTooLargeError,
   RouteNotFoundError,
   SignedMessage,
-  supportedWireVersionsSchema,
   UnavailableError,
   UnsupportedMediaTypeError,
   VersionMismatchError,
@@ -360,7 +359,7 @@ export const routerHttpErrorFromResponse = (
       Schema.parseJson(
         closedStruct({
           error: Schema.Literal("version_mismatch"),
-          supported: supportedWireVersionsSchema,
+          supported: VersionMismatchError.supportedSchema,
         }),
       ),
     )(body).pipe(

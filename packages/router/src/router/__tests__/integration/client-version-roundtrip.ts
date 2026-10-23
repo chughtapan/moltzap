@@ -9,12 +9,13 @@ import {
 } from "@moltzap/identity";
 import { OperationId, Registry } from "@moltzap/identity/registry";
 import { WireVersions } from "@moltzap/identity/test";
-import { Duration, Effect, Redacted, Schema, type Scope } from "effect";
+import { Duration, Effect, Layer, Redacted, Schema, type Scope } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { expect, it } from "vitest";
 import { Router } from "../../../router.js";
 
-interface RegistryInfrastructure {
+/** Registry setup shared by the independent process round trips. */
+export interface RegistryInfrastructure {
   readonly registryOrigin: URL;
   readonly registrySignerPublicKey: ReturnType<
     typeof AgentSigningAuthority.publicKey
@@ -172,4 +173,29 @@ export const testVersionMismatchRoundTrips = (
       ),
     60_000,
   );
+};
+
+/** Process tests share the public Router client's production HTTP transport. */
+export const makeRouterRunner = (origin: URL) => {
+  const routerLayer = Router.layer({
+    origin,
+    sendTimeout: Duration.seconds(5),
+    pollTimeout: Duration.seconds(35),
+  }).pipe(Layer.provide(NodeHttpClient.layer));
+  return <A, E>(effect: Effect.Effect<A, E, Router>) =>
+    effect.pipe(Effect.provide(routerLayer));
+};
+
+/** Process tests share the Registry signer pin and production HTTP transport. */
+export const makeRegistryRunner = (
+  origin: URL,
+  registrySignerPublicKey: RegistryInfrastructure["registrySignerPublicKey"],
+) => {
+  const registryLayer = Registry.layer({
+    origin,
+    registrySignerPublicKey,
+    requestTimeout: Duration.seconds(5),
+  }).pipe(Layer.provide(NodeHttpClient.layer));
+  return <A, E>(effect: Effect.Effect<A, E, Registry>) =>
+    effect.pipe(Effect.provide(registryLayer));
 };

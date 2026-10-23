@@ -9,6 +9,7 @@ import path from "node:path";
 import {
   HISTORY_WIRE_VERSIONS,
   LIVE_WIRE_VERSIONS,
+  WIRE_VERSION_PATTERN,
 } from "../../packages/identity/src/version.ts";
 import {
   CALENDAR_VERSION,
@@ -56,7 +57,8 @@ const PRODUCTION_SECTIONS = [
 /**
  * Identity owns emission and the live and retained wire sets. Every entry must
  * be a calendar version so servers advertise values that clients can decode;
- * package release versions remain independent.
+ * package release versions remain independent. The sets come from the evaluated
+ * version module; the emitted literal is read from its source text.
  * @param run Run collecting failures.
  * @returns The literal when it is a calendar version, otherwise null.
  */
@@ -64,10 +66,7 @@ export function checkCompatibilityVersion(run: BoundaryRun): string | null {
   const identitySource = path.join(run.packagesRoot, "identity", "src");
   const versionPath = path.join(identitySource, "version.ts");
   const compatibilityVersion = readCompatibilityVersion(run, versionPath);
-  checkWireVersionSets(run, {
-    live: LIVE_WIRE_VERSIONS,
-    history: HISTORY_WIRE_VERSIONS,
-  });
+  checkWireVersionSets(run);
   const identityIndex = path.join(identitySource, "index.ts");
   if (!existsSync(identityIndex)) {
     run.failures.push(
@@ -83,28 +82,6 @@ export function checkCompatibilityVersion(run: BoundaryRun): string | null {
     );
   }
   return compatibilityVersion;
-}
-
-/**
- * Release admission checks every advertised and retained version against the
- * same calendar shape as the emitted literal.
- */
-export function checkWireVersionSets(
-  run: BoundaryRun,
-  sets: {
-    readonly live: readonly string[];
-    readonly history: readonly string[];
-  },
-): void {
-  for (const [name, values] of Object.entries(sets)) {
-    for (const version of values.filter(
-      (value) => !CALENDAR_VERSION.test(value),
-    )) {
-      run.failures.push(
-        `packages/identity/src/version.ts: ${name === "live" ? "LIVE_WIRE_VERSIONS" : "HISTORY_WIRE_VERSIONS"} entry "${version}" is not a YYYY.MDD.N CalVer`,
-      );
-    }
-  }
 }
 
 /**
@@ -192,16 +169,29 @@ export function checkReleaseSet(
   checkReleaseWorkflow(run);
 }
 
+/**
+ * Release admission checks every advertised and retained version against the
+ * same calendar shape as the emitted literal.
+ */
+function checkWireVersionSets(run: BoundaryRun): void {
+  for (const [name, values] of Object.entries({
+    LIVE_WIRE_VERSIONS,
+    HISTORY_WIRE_VERSIONS,
+  })) {
+    for (const version of values.filter(
+      (value) => !WIRE_VERSION_PATTERN.test(value),
+    )) {
+      run.failures.push(
+        `packages/identity/src/version.ts: ${name} entry "${version}" is not a YYYY.MDD.N CalVer`,
+      );
+    }
+  }
+}
+
 function readCompatibilityVersion(
   run: BoundaryRun,
   identityVersion: string,
 ): string | null {
-  if (!existsSync(identityVersion)) {
-    run.failures.push(
-      "packages/identity/src/version.ts: missing; it owns the Social Harness wire compatibility value",
-    );
-    return null;
-  }
   const literal = /export\s+const\s+WIRE_VERSION\s*=\s*["']([^"']*)["']/.exec(
     readFileSync(identityVersion, "utf8"),
   )?.[1];
@@ -211,7 +201,7 @@ function readCompatibilityVersion(
     );
     return null;
   }
-  if (!CALENDAR_VERSION.test(literal)) {
+  if (!WIRE_VERSION_PATTERN.test(literal)) {
     run.failures.push(
       `packages/identity/src/version.ts: WIRE_VERSION "${literal}" is not a YYYY.MDD.N CalVer`,
     );

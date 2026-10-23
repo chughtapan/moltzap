@@ -22,6 +22,7 @@ import {
 } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   readCompatibilityVersion as readCompatibilityVersionSource,
@@ -59,6 +60,9 @@ function main(): void {
     testCompatibilityVersionFile();
     testBakeFailureFailClosed();
     testPublicationGuards();
+    testCalendarWireSets();
+    testNonCalendarLiveEntry();
+    testNonCalendarRetainedEntry();
     testDependencyVersions();
     testMalformedBoundaryInputs();
   } finally {
@@ -542,6 +546,70 @@ function testPublicationGuardsWireSemver(): void {
         wireSemver.stderr,
       ),
     `expected wire-literal failure. exit=${wireSemver.code}, stderr=${wireSemver.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+}
+
+/** Each mutation runs the real gate in a fresh process so version sets are evaluated anew. */
+function testCalendarWireSets(): void {
+  plantFile(WIRE_VERSION_SOURCE, (source) =>
+    source
+      .replace(
+        "const liveWindow = [WIRE_VERSION]",
+        'const liveWindow = [WIRE_VERSION, "2099.1023.1"]',
+      )
+      .replace(
+        "const RETIRED_WIRE_VERSIONS = []",
+        'const RETIRED_WIRE_VERSIONS = ["2098.1231.12"]',
+      ),
+  );
+  const calendar = runBoundaries();
+  test(
+    "accepts calendar live and retained entries",
+    calendar.code === 0 &&
+      isDeepStrictEqual(calendar.stderr.trim().split("\n").filter(Boolean), []),
+    `expected no failures. exit=${calendar.code}, stderr=${calendar.stderr}`,
+  );
+  restoreAllPlants();
+}
+
+function testNonCalendarLiveEntry(): void {
+  plantFile(WIRE_VERSION_SOURCE, (source) =>
+    source.replace(
+      "const liveWindow = [WIRE_VERSION]",
+      'const liveWindow = [WIRE_VERSION, "invalid"]',
+    ),
+  );
+  const live = runBoundaries();
+  test(
+    "rejects a non-calendar live entry",
+    live.code === 1 &&
+      isDeepStrictEqual(live.stderr.trim().split("\n"), [
+        "[check-architecture-boundaries] FAIL",
+        '  packages/identity/src/version.ts: LIVE_WIRE_VERSIONS entry "invalid" is not a YYYY.MDD.N CalVer',
+        '  packages/identity/src/version.ts: HISTORY_WIRE_VERSIONS entry "invalid" is not a YYYY.MDD.N CalVer',
+      ]),
+    `expected exactly the live and inherited history failures. exit=${live.code}, stderr=${live.stderr}`,
+  );
+  restoreAllPlants();
+}
+
+function testNonCalendarRetainedEntry(): void {
+  plantFile(WIRE_VERSION_SOURCE, (source) =>
+    source.replace(
+      "const RETIRED_WIRE_VERSIONS = []",
+      'const RETIRED_WIRE_VERSIONS = ["1.2.3"]',
+    ),
+  );
+  const retained = runBoundaries();
+  test(
+    "rejects a non-calendar retained entry",
+    retained.code === 1 &&
+      isDeepStrictEqual(retained.stderr.trim().split("\n"), [
+        "[check-architecture-boundaries] FAIL",
+        '  packages/identity/src/version.ts: HISTORY_WIRE_VERSIONS entry "1.2.3" is not a YYYY.MDD.N CalVer',
+      ]),
+    `expected exactly the retained history failure. exit=${retained.code}, stderr=${retained.stderr}`,
   );
   restoreAllPlants();
 }
