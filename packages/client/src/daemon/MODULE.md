@@ -1,11 +1,6 @@
----
-title: "client/service"
-description: "Production composition for one explicitly configured endpoint daemon."
----
+# client/daemon
 
-# client/service
-
-_`packages/client/src/service`_
+_`packages/client/src/daemon`_
 
 ## Purpose
 
@@ -13,11 +8,11 @@ Production composition for one explicitly configured endpoint daemon.
 
 ## Public surface
 
-### [`Daemon`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/service/index.ts#L241)
+### [`Daemon`](./index.ts#L91)
 
 _Namespace_
 
-### [`FirewallOptions`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/service/index.ts#L246)
+### [`FirewallOptions`](./index.ts#L96)
 
 _TypeAlias_
 
@@ -33,7 +28,7 @@ _TypeAlias_
 
 Trusted process composition fixes code and evidence while owner tools edit English rules.
 
-### [`help`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/service/index.ts#L243)
+### [`help`](./index.ts#L93)
 
 _Variable_
 
@@ -43,7 +38,7 @@ _Variable_
 
 Usage text listing the daemon process's environment variables.
 
-### [`layer`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/service/index.ts#L344)
+### [`layer`](./index.ts#L195)
 
 _Variable_
 
@@ -56,7 +51,7 @@ _Variable_
 Complete production process composition for `sharnessd`, with the
 firewall `SHARNESS_MESSAGE_POLICY_FILE` describes when it is set.
 
-### [`StartupError`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/service/index.ts#L255)
+### [`StartupError`](./index.ts#L105)
 
 _Class_
 
@@ -93,7 +88,7 @@ _Class_
 
 Closed startup phase with sanitized configuration details.
 
-### [`withFirewall`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/service/index.ts#L354)
+### [`withFirewall`](./index.ts#L205)
 
 _Function_
 

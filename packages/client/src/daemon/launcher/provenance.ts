@@ -15,8 +15,8 @@ import { createHash } from "node:crypto";
 import { verify } from "sigstore";
 import { launcherError, type LauncherError } from "./errors.js";
 import { integrityOf } from "./integrity.js";
+import { downloadJson, type PublishedPackage } from "./npm.js";
 import { type PackedManifest, readPackedManifest } from "./packed-manifest.js";
-import { downloadJson, type PublishedPackage } from "./registry.js";
 
 /**
  * The repositories whose release workflow the launcher trusts. The project

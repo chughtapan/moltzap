@@ -19,18 +19,18 @@ import {
   type HarnessMcpCredentials,
 } from "../harness/mcp/index.js";
 import {
-  type CredentialError,
-  credentialText,
-  loadAdmissionCredential,
-  loadSigningAuthority,
-  readCredential,
-} from "../identity/index.js";
-import {
   type DaemonBootstrap,
   DaemonConfigurationError,
   type DaemonConfigurationFailure,
   type DaemonProcessConfiguration,
 } from "./bootstrap.js";
+import {
+  type CredentialError,
+  credentialText,
+  loadAdmissionCredential,
+  loadSigningAuthority,
+  readCredential,
+} from "./credentials.js";
 
 const canonicalUnsignedDecimal = Schema.String.pipe(
   Schema.pattern(/^(?:0|[1-9]\d*)$/u),

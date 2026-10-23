@@ -3,7 +3,7 @@
 import { scopedLive as it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Queue } from "effect";
 import { expect } from "vitest";
-import type { MiddlewareInput } from "../../service/index.js";
+import type { MiddlewareInput } from "../../daemon/index.js";
 import type { CertifiedRecord } from "../../transport/wire/index.js";
 import { appendCertifiedPost } from "../../__tests__/certified-history-fixtures.js";
 import {

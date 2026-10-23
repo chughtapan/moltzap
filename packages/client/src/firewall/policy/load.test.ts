@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect } from "vitest";
+import { readCredential } from "../../daemon/credentials.js";
 import { firewallInstallation } from "./index.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Exact environment names and closed reasons are the configuration contract under test. */
@@ -52,7 +53,7 @@ afterEach(() => {
 
 it("installs no firewall without a policy file", () =>
   Effect.gen(function* () {
-    const installed = yield* firewallInstallation({});
+    const installed = yield* firewallInstallation({}, readCredential);
     expect(installed).toEqual({});
   }));
 
@@ -170,7 +171,9 @@ it.each([
   ],
 ] as const)("refuses %s", ([, fields, reason]) =>
   Effect.gen(function* () {
-    const error = yield* firewallInstallation(fields()).pipe(Effect.flip);
+    const error = yield* firewallInstallation(fields(), readCredential).pipe(
+      Effect.flip,
+    );
     expect(error.reason).toBe(reason);
     expect(error.message).not.toContain("two words");
   }),
@@ -178,13 +181,16 @@ it.each([
 
 it("names where a document is invalid, never what it holds", () =>
   Effect.gen(function* () {
-    const error = yield* firewallInstallation({
-      messagePolicyFile: file({
-        ...JEV_DOCUMENT,
-        mode: "private-mode-value",
-      }),
-      decisionProviderKeyFile: Redacted.make(file("key-value")),
-    }).pipe(Effect.flip);
+    const error = yield* firewallInstallation(
+      {
+        messagePolicyFile: file({
+          ...JEV_DOCUMENT,
+          mode: "private-mode-value",
+        }),
+        decisionProviderKeyFile: Redacted.make(file("key-value")),
+      },
+      readCredential,
+    ).pipe(Effect.flip);
     expect(error.reason).toBe("message-policy");
     expect(error.message).toContain("SHARNESS_MESSAGE_POLICY_FILE");
     expect(error.message).toContain("mode");
@@ -194,14 +200,17 @@ it("names where a document is invalid, never what it holds", () =>
 it("installs the document with its key, Client's default settings and the audit export", () =>
   Effect.gen(function* () {
     const auditExport = join(directory(), "firewall.ndjson");
-    const installed = yield* firewallInstallation({
-      messagePolicyFile: file({
-        ...JEV_DOCUMENT,
-        maximumConcurrentChecks: 2,
-      }),
-      decisionProviderKeyFile: Redacted.make(file("key-value\n")),
-      firewallAuditExport: auditExport,
-    });
+    const installed = yield* firewallInstallation(
+      {
+        messagePolicyFile: file({
+          ...JEV_DOCUMENT,
+          maximumConcurrentChecks: 2,
+        }),
+        decisionProviderKeyFile: Redacted.make(file("key-value\n")),
+        firewallAuditExport: auditExport,
+      },
+      readCredential,
+    );
     const options = yield* Effect.fromNullable(installed.options);
     expect(options.mode).toBe("guidance");
     expect(options.maximumConcurrentChecks).toBe(2);
@@ -217,10 +226,13 @@ it("installs the document with its key, Client's default settings and the audit 
 
 it("installs the example policy the message firewall guide documents", () =>
   Effect.gen(function* () {
-    const installed = yield* firewallInstallation({
-      messagePolicyFile: file(guideExample()),
-      decisionProviderKeyFile: Redacted.make(file("key-value\n")),
-    });
+    const installed = yield* firewallInstallation(
+      {
+        messagePolicyFile: file(guideExample()),
+        decisionProviderKeyFile: Redacted.make(file("key-value\n")),
+      },
+      readCredential,
+    );
     const options = yield* Effect.fromNullable(installed.options);
     expect(options.mode).toBe("guidance");
     expect(options.english?.fixedRules?.map((rule) => rule.id)).toEqual([
@@ -230,10 +242,13 @@ it("installs the example policy the message firewall guide documents", () =>
 
 it("installs English rules with an unavailable provider without reading a key file", () =>
   Effect.gen(function* () {
-    const installed = yield* firewallInstallation({
-      messagePolicyFile: file(UNAVAILABLE_DOCUMENT),
-      decisionProviderKeyFile: Redacted.make(join(directory(), "absent")),
-    });
+    const installed = yield* firewallInstallation(
+      {
+        messagePolicyFile: file(UNAVAILABLE_DOCUMENT),
+        decisionProviderKeyFile: Redacted.make(join(directory(), "absent")),
+      },
+      readCredential,
+    );
     expect(installed.options?.english?.fixedRules).toHaveLength(1);
   }));
 

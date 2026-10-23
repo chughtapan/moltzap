@@ -11,6 +11,12 @@ import { Router } from "@moltzap/router";
 import { type Context, Deferred, Duration, Effect } from "effect";
 import type { EventStore } from "../harness/protocol/operations.js";
 import type { Fixture } from "./daemon-runtime-fixtures.js";
+import {
+  type DaemonRuntimeDependencies,
+  DaemonRuntimeError,
+  runDaemonRuntime,
+} from "../daemon/lifecycle.js";
+import { readDaemonRegistrationState } from "../daemon/registration/index.js";
 import { sameBytes } from "../encoding/canonical-json.js";
 import { makeHistoryExport } from "../harness/inbox/history-export.js";
 import {
@@ -19,12 +25,6 @@ import {
   makeHarnessMcpHttpHandler,
 } from "../harness/mcp/tools.js";
 import { INBOX_PENDING_EVENT } from "../harness/protocol/names.js";
-import {
-  type DaemonRuntimeDependencies,
-  DaemonRuntimeError,
-  runDaemonRuntime,
-} from "../service/lifecycle.js";
-import { readDaemonRegistrationState } from "../service/registration/index.js";
 import {
   type DeliveryToken,
   type EndpointRecovery,

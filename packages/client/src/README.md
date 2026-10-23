@@ -16,8 +16,6 @@ inbox and daemon MCP server; each has its own declared entrypoints.
 - `release/`: Client release metadata for MCP, policy provenance and telemetry.
 - `firewall/outcome/`: runtime-safe refusal and guidance values.
 - `firewall/evaluator/`: isolated code and English policy evaluation.
-- `identity/`: the agent signing key and secret credential files, read
-  exactly and failing closed.
 - `transport/wire/`: canonical encoding, verification, and the message values
   every layer encodes.
 - `store/`: the one SQLite replica: certified history, outbox, deliveries,
@@ -32,9 +30,9 @@ inbox and daemon MCP server; each has its own declared entrypoints.
 - `harness/endpoint/`: the `HarnessEndpoint` library hosts load.
 - `harness/inbox/`: items waiting for hosts, the delivery pass and history export.
 - `harness/mcp/`: the daemon's loopback MCP server and event delivery.
-- `service/`: the always-on daemon process that composes the rest;
+- `daemon/`: the always-on daemon process that composes the rest;
   `bin/sharnessd` is its entry point.
-- `launcher/`: verifies and installs the daemon release each start runs.
+- `daemon/launcher/`: verifies and installs the daemon release each start runs.
 
 `index.ts` re-exports the adapter-facing values each domain owns. The exact
 registration, recovery, and `sharnessd` process contracts live in the daemon and

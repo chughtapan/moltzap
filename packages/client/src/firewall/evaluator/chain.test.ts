@@ -21,7 +21,7 @@ import {
   type MiddlewareInput,
   type MiddlewareResult,
   type RuleDescription,
-} from "../../service/index.js";
+} from "../../daemon/index.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Public judgments, findings and feedback are the behavior under test. */
 

@@ -2,9 +2,10 @@
 /**
  * @file Non-vacuous package architecture check. It proves the package
  * TypeScript project contains analyzable root files before delegating to the
- * architecture analyzer with the package-local configuration.
+ * architecture analyzer with the package-local configuration. It also reports
+ * isolated-folder imports that reach another package source domain.
  *
- * Exit codes: 0 when the analyzer reports nothing, 1 when it reports a
+ * Exit codes: 0 when neither check reports anything, 1 when either reports a
  * finding, and 2 when the package cannot be analyzed at all, so an empty or
  * misconfigured project never passes as clean.
  */
@@ -20,7 +21,7 @@ const requestedRoot = process.argv[2] ?? ".";
 const projectRoot = path.resolve(requestedRoot);
 
 const parsed = readPackageProject();
-const options = readArchitectureOptions();
+const { options, isolatedFolders } = readArchitectureOptions();
 const program = createAnalysisProgram(parsed);
 const analyzedFileCount = program
   .getSourceFiles()
@@ -34,6 +35,7 @@ if (analyzedFileCount === 0) {
 report(
   analyzeResolvedArchitecture(options, () => program),
   analyzedFileCount,
+  isolatedImports(program, isolatedFolders),
 );
 
 /**
@@ -80,9 +82,7 @@ function readPackageProject(): ts.ParsedCommandLine {
  * root. The analyzer validates the raw value itself, so it stays `unknown`
  * until then.
  */
-function readArchitectureOptions(): ReturnType<
-  typeof resolveArchitectureOptions
-> {
+function readArchitectureOptions() {
   const configPath = path.join(projectRoot, "safer-architecture.config.json");
   if (!existsSync(configPath)) {
     return cannotAnalyze([
@@ -94,7 +94,10 @@ function readArchitectureOptions(): ReturnType<
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
       return cannotAnalyze(["invalid architecture config: not a JSON object"]);
     }
-    return resolveArchitectureOptions({ ...raw, projectRoot }, projectRoot);
+    return {
+      options: resolveArchitectureOptions({ ...raw, projectRoot }, projectRoot),
+      isolatedFolders: readIsolatedFolders(raw),
+    };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     return cannotAnalyze([`invalid architecture config: ${detail}`]);
@@ -127,6 +130,7 @@ function createAnalysisProgram(project: ts.ParsedCommandLine): ts.Program {
 function report(
   architecture: ReturnType<typeof analyzeResolvedArchitecture>,
   analyzedFiles: number,
+  isolated: readonly string[],
 ): never {
   const unavailable = architecture.diagnostics.filter(
     (diagnostic) => diagnostic.ruleId === "architecture-analysis-unavailable",
@@ -140,10 +144,14 @@ function report(
       `${diagnostic.severity} ${diagnostic.ruleId} ${relativePath}: ${diagnostic.message}\n`,
     );
   }
+  for (const diagnostic of isolated) {
+    process.stdout.write(`error isolated-folder-import ${diagnostic}\n`);
+  }
+  const findingCount = architecture.diagnostics.length + isolated.length;
   process.stdout.write(
-    `package architecture check: ${architecture.diagnostics.length} finding(s) across ${analyzedFiles} analyzed file(s), ${architecture.waivers.length} waiver(s), options from file — ${projectRoot}\n`,
+    `package architecture check: ${findingCount} finding(s) across ${analyzedFiles} analyzed file(s), ${architecture.waivers.length} waiver(s), options from file — ${projectRoot}\n`,
   );
-  return process.exit(architecture.diagnostics.length > 0 ? 1 : 0);
+  return process.exit(findingCount > 0 ? 1 : 0);
 }
 
 function isPackageSourceFile(fileName: string): boolean {
@@ -161,6 +169,104 @@ function isPackageFile(fileName: string): boolean {
 
 function flatten(diagnostic: ts.Diagnostic): string {
   return ts.flattenDiagnosticMessageText(diagnostic.messageText, "; ");
+}
+
+/** Isolation paths carry a reason just like the analyzer's other explicit boundary declarations. */
+function readIsolatedFolders(raw: object): readonly string[] {
+  const entries = "isolatedFolders" in raw ? raw.isolatedFolders : [];
+  if (!Array.isArray(entries)) {
+    return cannotAnalyze(["isolatedFolders must be an array"]);
+  }
+  return entries.map((entry: unknown) => {
+    if (typeof entry !== "object" || entry === null) {
+      return cannotAnalyze(["isolatedFolders entries must be objects"]);
+    }
+    if (!("folder" in entry) || !nonEmptyText(entry.folder)) {
+      return cannotAnalyze(["isolatedFolders entries require a folder"]);
+    }
+    if (!("reason" in entry) || !nonEmptyText(entry.reason)) {
+      return cannotAnalyze(["isolatedFolders entries require a reason"]);
+    }
+    return entry.folder;
+  });
+}
+
+function nonEmptyText(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+/**
+ * Isolated programs can import packages and their own files, never another source domain.
+ * A self-import of `@moltzap/client` resolves to dist and is not covered.
+ */
+function isolatedImports(
+  program: ts.Program,
+  folders: readonly string[],
+): readonly string[] {
+  return folders.flatMap((folder) => {
+    const root = path.resolve(projectRoot, folder);
+    return program
+      .getSourceFiles()
+      .filter((source) => source.fileName.startsWith(`${root}${path.sep}`))
+      .flatMap((source) => importsOutside(program, source, root, folder));
+  });
+}
+
+/** Resolve actual TypeScript targets so aliases cannot bypass a program's isolation. */
+function importsOutside(
+  program: ts.Program,
+  source: ts.SourceFile,
+  root: string,
+  folder: string,
+): readonly string[] {
+  const findings: string[] = [];
+  const visit = (node: ts.Node): void => {
+    ts.forEachChild(node, visit);
+    const specifier = moduleSpecifier(node);
+    if (
+      specifier === undefined ||
+      !(
+        ts.isStringLiteral(specifier) ||
+        ts.isNoSubstitutionTemplateLiteral(specifier)
+      )
+    ) {
+      return;
+    }
+    const resolved = ts.resolveModuleName(
+      specifier.text,
+      source.fileName,
+      program.getCompilerOptions(),
+      ts.sys,
+    ).resolvedModule?.resolvedFileName;
+    if (
+      resolved !== undefined &&
+      resolved.startsWith(`${projectRoot}${path.sep}src${path.sep}`) &&
+      !resolved.startsWith(`${root}${path.sep}`)
+    ) {
+      findings.push(
+        `${path.relative(projectRoot, source.fileName)} imports ${path.relative(projectRoot, resolved)} outside ${folder}`,
+      );
+    }
+  };
+  visit(source);
+  return findings;
+}
+
+/** Static declarations, dynamic imports and import types all name source dependencies. */
+function moduleSpecifier(node: ts.Node): ts.Node | undefined {
+  if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+    return node.moduleSpecifier;
+  }
+  if (
+    ts.isCallExpression(node) &&
+    node.expression.kind === ts.SyntaxKind.ImportKeyword
+  ) {
+    return node.arguments[0];
+  }
+  if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+    return node.argument.literal;
+  }
+  return undefined;
 }
 
 function cannotAnalyze(details: readonly string[]): never {

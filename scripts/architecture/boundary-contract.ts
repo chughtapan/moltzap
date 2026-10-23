@@ -112,8 +112,8 @@ export const FINAL_PACKAGES: Readonly<Record<PackageDir, PackageContract>> = {
     exports: {
       ".": ROOT_EXPORT,
       "./service": {
-        types: "./dist/service/index.d.ts",
-        import: "./dist/service/index.js",
+        types: "./dist/daemon/index.d.ts",
+        import: "./dist/daemon/index.js",
       },
     },
     bin: {

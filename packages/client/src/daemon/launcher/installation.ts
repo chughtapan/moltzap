@@ -16,7 +16,7 @@ import {
 import { Effect, Option, Schema, Stream } from "effect";
 import { launcherError, type LauncherError } from "./errors.js";
 import { integrityOf } from "./integrity.js";
-import { DAEMON_PACKAGE, IDENTITY_PACKAGE } from "./registry.js";
+import { DAEMON_PACKAGE, IDENTITY_PACKAGE } from "./npm.js";
 
 const RECORD_FORMAT = "org.social-harness/launcher-record/v1";
 

@@ -21,13 +21,13 @@ import {
 import { packageVersion } from "../release/index.js";
 import { makeEndpointEngine } from "../transport/messaging/index.js";
 import { makeRouterWorker } from "../transport/router/index.js";
+import { DaemonRuntimeError, runtimeFailure } from "./errors.js";
+import { makeDaemonManagementOperations } from "./management.js";
 import {
   type DaemonStartup,
   makeDaemon,
   type ProtocolEdges,
-} from "./daemon/index.js";
-import { DaemonRuntimeError, runtimeFailure } from "./errors.js";
-import { makeDaemonManagementOperations } from "./management.js";
+} from "./runtime/index.js";
 
 /** Closed daemon startup and supervision failure. */
 export { DaemonRuntimeError };

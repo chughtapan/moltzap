@@ -14,7 +14,7 @@ loading and editing, incoming and outgoing admission, and operator audit.
 | `audit/` | Operator audit snapshots and private file publication. |
 
 Rules, policy, admission and audit sit above collective transport. `outcome/`
-and the isolated `evaluator/` sit below identity and wire. Client release
+and the isolated `evaluator/` sit below wire. Client release
 metadata comes from `../release/`. Store owns persistence in
 `store/firewall.ts`, and MCP owner tools live in `harness/mcp/tools.ts`.
 

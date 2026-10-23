@@ -60,8 +60,8 @@ const CLIENT_MANIFEST = {
   exports: {
     ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
     "./service": {
-      types: "./dist/service/index.d.ts",
-      import: "./dist/service/index.js",
+      types: "./dist/daemon/index.d.ts",
+      import: "./dist/daemon/index.js",
     },
   },
   bin: { sharnessd: "./bin/sharnessd" },
@@ -234,7 +234,7 @@ await test("the host-code hash ignores Client modules the channel cannot reach",
   const packages = hostPackages();
   const base = hostHash(packages);
   writeFileSync(
-    path.join(packages.client, "dist/service/index.js"),
+    path.join(packages.client, "dist/daemon/index.js"),
     "export const daemon = 2;\n",
   );
   writeFileSync(path.join(packages.client, "bin/sharnessd"), "changed\n");
@@ -369,8 +369,8 @@ function hostPackages(): HostPackages {
       "dist/index.js":
         'export { endpoint as acquireHarnessEndpoint } from "./endpoint.js";\n',
       "dist/endpoint.js": "export const endpoint = 1;\n",
-      "dist/service/index.js": "export const daemon = 1;\n",
-      "bin/sharnessd": 'import "../dist/service/index.js";\n',
+      "dist/daemon/index.js": "export const daemon = 1;\n",
+      "bin/sharnessd": 'import "../dist/daemon/index.js";\n',
     }),
   };
 }

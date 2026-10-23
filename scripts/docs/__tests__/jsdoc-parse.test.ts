@@ -91,3 +91,34 @@ export {};
     expect(readLeadingJsDoc(source)).toBe("Line one.\n  Line two indented.");
   });
 });
+
+describe("readLeadingJsDoc block tags", () => {
+  it.each([
+    { label: "plain", prefix: "" },
+    { label: "@file", prefix: "@file " },
+  ])("stops the $label summary at a block tag", ({ prefix }) => {
+    const purpose = "Production composition for one endpoint daemon.";
+    const source = `/**
+ * ${prefix}${purpose}
+ *
+ * @module service
+ * Tag continuation is not summary prose.
+ * @see Other composition
+ */
+export {};
+`;
+    expect(readLeadingJsDoc(source)).toBe(purpose);
+  });
+
+  it("preserves a prose line beginning with a scoped package name", () => {
+    const lines = ["Public endpoint composition.", "@moltzap/client owns it."];
+    const source = `/**
+ * @file ${lines[0]}
+ * ${lines[1]}
+ * @module client
+ */
+export {};
+`;
+    expect(readLeadingJsDoc(source)).toBe(lines.join("\n"));
+  });
+});

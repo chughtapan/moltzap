@@ -15,11 +15,15 @@
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
@@ -70,6 +74,7 @@ function main(): void {
     testNonCalendarRetainedEntry();
     testDependencyVersions();
     testMalformedBoundaryInputs();
+    testIsolatedFolderImports();
   } finally {
     restoreAllPlants();
   }
@@ -786,6 +791,57 @@ function testDependencyVersionsActionRefs(): void {
     `expected action ref failure. exit=${action.code}, stderr=${action.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
+}
+
+/** Real TypeScript resolution distinguishes sibling escapes from imports within an isolated folder. */
+function testIsolatedFolderImports(): void {
+  console.log("\n# isolated-folder-import");
+  const fixture = mkdtempSync(resolve(tmpdir(), "architecture-isolation-"));
+  try {
+    mkdirSync(resolve(fixture, "src/launcher"), { recursive: true });
+    writeFileSync(
+      resolve(fixture, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: { module: "NodeNext", moduleResolution: "NodeNext" },
+        include: ["src/**/*.ts"],
+      }),
+    );
+    writeFileSync(
+      resolve(fixture, "safer-architecture.config.json"),
+      JSON.stringify({
+        isolatedFolders: [
+          { folder: "src/launcher", reason: "Independent launcher" },
+        ],
+      }),
+    );
+    const dependency = "/** Shared value. */\nexport const value = 1;\n";
+    writeFileSync(resolve(fixture, "src/sibling.ts"), dependency);
+    writeFileSync(resolve(fixture, "src/launcher/local.ts"), dependency);
+    const entry = resolve(fixture, "src/launcher/index.ts");
+    const command = resolve(
+      workspaceRoot,
+      "scripts/architecture/check-package.ts",
+    );
+    writeFileSync(entry, 'export { value } from "../sibling.js";\n');
+    const outside = runNode([command, fixture]);
+    test(
+      "rejects an isolated folder import of a sibling outside it",
+      outside.code === 1 &&
+        outside.stdout.includes(
+          "error isolated-folder-import src/launcher/index.ts imports src/sibling.ts outside src/launcher",
+        ),
+      `expected isolated-folder finding. exit=${outside.code}, stdout=${outside.stdout}, stderr=${outside.stderr}`,
+    );
+    writeFileSync(entry, 'export { value } from "./local.js";\n');
+    const inside = runNode([command, fixture]);
+    test(
+      "accepts imports confined to the isolated folder",
+      inside.code === 0 && inside.stdout.includes("0 finding(s)"),
+      `expected no findings. exit=${inside.code}, stdout=${inside.stdout}, stderr=${inside.stderr}`,
+    );
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
 }
 
 function runDependencyVersions(): {

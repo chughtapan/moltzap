@@ -1,11 +1,11 @@
 /**
  * @file Proves the packed `@moltzap/client` exposes exactly its public entry
- * points and executable, keeps its root entry inside the host import
+ * points and executables, keeps its root entry inside the host import
  * allowlists, and imports cleanly from an isolated consumer.
  */
 import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
-import { dirname, join } from "node:path";
+import { Effect, Schema } from "effect";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FINAL_PACKAGES } from "./architecture/boundary-contract.ts";
 import { verifyHostImportGraph } from "./test/client-host-imports.ts";
@@ -243,6 +243,7 @@ function verifyConsumerImports(
       archives,
       dependencies: { effect: effectDependency },
     });
+    yield* verifyConsumerExecutables(consumerRoot, temporaryRoot);
     const checkPath = join(consumerRoot, "check.mjs");
     const fs = yield* FileSystem.FileSystem;
     yield* fs.writeFileString(
@@ -259,5 +260,83 @@ function verifyConsumerImports(
       cwd: consumerRoot,
       env: { NODE_PATH: "" },
     });
+  });
+}
+
+/**
+ * Installed entrypoints load, and offline preparation reports `upgrade-off`
+ * with an existing daemon path under the consumer root.
+ */
+function verifyConsumerExecutables(
+  consumerRoot: string,
+  temporaryRoot: string,
+): Effect.Effect<void, GateError, GateServices> {
+  return Effect.gen(function* () {
+    yield* Effect.forEach(
+      ["sharnessd", "sharnessd-launcher"],
+      (name) =>
+        runCommand(
+          join(consumerRoot, "node_modules", ".bin", name),
+          ["--help"],
+          {
+            cwd: consumerRoot,
+            env: { NODE_PATH: "" },
+          },
+        ),
+      { concurrency: 1, discard: true },
+    );
+    const output = yield* runCommand(
+      "env",
+      [
+        "-u",
+        "SHARNESS_LAUNCHER_SEED",
+        "-u",
+        "SHARNESS_LAUNCHER_VERSION",
+        join(consumerRoot, "node_modules", ".bin", "sharnessd-launcher"),
+        "prepare",
+      ],
+      {
+        cwd: consumerRoot,
+        env: {
+          NODE_PATH: "",
+          SHARNESS_LAUNCHER_DIRECTORY: join(temporaryRoot, "launcher"),
+          SHARNESS_LAUNCHER_PACKAGE: "@moltzap/client",
+          SHARNESS_LAUNCHER_UPGRADE: "off",
+        },
+      },
+    );
+    yield* verifyPreparedDaemon(output, consumerRoot);
+  });
+}
+
+/** Requires the offline choice to keep `upgrade-off` and name an existing daemon under the consumer root. */
+function verifyPreparedDaemon(
+  output: string,
+  consumerRoot: string,
+): Effect.Effect<void, GateError, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const choice = yield* Schema.decodeUnknown(
+      Schema.parseJson(
+        Schema.Struct({
+          kept: Schema.Literal("upgrade-off"),
+          daemon: Schema.NonEmptyString,
+        }),
+      ),
+    )(output.trim());
+    yield* requireCondition(
+      isAbsolute(choice.daemon),
+      `Prepared daemon path must be absolute: ${choice.daemon}`,
+    );
+    const fs = yield* FileSystem.FileSystem;
+    const daemonPath = relative(
+      yield* fs.realPath(consumerRoot),
+      yield* fs.realPath(choice.daemon),
+    );
+    yield* requireCondition(
+      daemonPath !== "" &&
+        !isAbsolute(daemonPath) &&
+        !daemonPath.split(sep).includes(".."),
+      `Prepared daemon must be under the consumer root: ${choice.daemon}`,
+    );
   });
 }

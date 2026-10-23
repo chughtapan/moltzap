@@ -39,7 +39,7 @@
         "src/**/*.types-check.ts",
         "integration/**/*.integration.test.ts",
         "integration/firewall-daemon.ts",
-        "src/launcher/index.ts",
+        "src/daemon/launcher/index.ts",
         "vitest*.config.ts"
       ],
       "project": [

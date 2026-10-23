@@ -13,7 +13,7 @@ import {
   type Message,
   type MessageContext,
   messagePolicyFirewall,
-} from "../../service/index.js";
+} from "../../daemon/index.js";
 
 const FORMAT = "org.social-harness/message-policy/v1";
 

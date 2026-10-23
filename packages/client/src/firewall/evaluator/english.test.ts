@@ -25,7 +25,7 @@ import {
   type Message,
   type MessageContext,
   type MessageMiddleware,
-} from "../../service/index.js";
+} from "../../daemon/index.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Closed judgments, stages and next actions are the public contract under test. */
 

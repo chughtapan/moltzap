@@ -31,8 +31,8 @@
       "import": "./dist/index.js"
     },
     "./service": {
-      "types": "./dist/service/index.d.ts",
-      "import": "./dist/service/index.js"
+      "types": "./dist/daemon/index.d.ts",
+      "import": "./dist/daemon/index.js"
     }
   },
   "bin": {

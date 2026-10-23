@@ -1,4 +1,4 @@
-# Daemon service
+# Endpoint daemon
 
 This folder composes one registered endpoint daemon: configuration, identity
 registration, the protocol engine and Router worker, the collective layer, and
@@ -13,7 +13,7 @@ configuration and bootstrap material from the environment into the types
 production process edges. It joins the owner tools in `management.ts` with the
 daemon's delivery operations into the MCP operations the loopback listener
 serves. `registration/` owns the durable identity and Registry registration,
-`daemon/` owns the running daemon and its protocol, and `errors.ts`
+`runtime/` owns the running daemon and its protocol, and `errors.ts`
 holds the closed failures they share. None of these modules crosses the public Client
 boundary.
 
@@ -24,6 +24,10 @@ the outer store is still open. Request cancellation and handler closure join
 the same scoped work. The file path does not enter the firewall installation
 or its digest.
 
-The service supplies policy file locations to `firewall/`, which loads and
+`telemetry.ts` configures opt-in OTLP span export. `credentials.ts` reads the
+daemon's key and credential files. `launcher/` chooses and installs a release
+and starts its daemon without importing other Client source.
+
+The daemon supplies policy file locations and its credential reader to `firewall/`, which loads and
 composes personal policy. It maps policy configuration failures to daemon
 configuration errors. Release metadata comes from `../release/`.
