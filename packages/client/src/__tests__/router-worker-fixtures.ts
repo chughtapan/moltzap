@@ -35,10 +35,6 @@ export interface TestPayload {
   readonly text: string;
 }
 
-interface PollCall {
-  readonly hasCursor: boolean;
-}
-
 interface SendCall {
   readonly request: RouterSendRequest;
 }
@@ -53,7 +49,7 @@ type ScriptedSend = RouterSendResult | ScriptedSendAnswer;
 interface ScriptedRouter {
   readonly polls: Ref.Ref<RouterPollResult[]>;
   readonly sends: Ref.Ref<ScriptedSend[]>;
-  readonly pollCalls: Ref.Ref<PollCall[]>;
+  readonly cursorInvalid: Ref.Ref<boolean>;
   readonly sendCalls: Ref.Ref<SendCall[]>;
   readonly fallbackPoll?: Effect.Effect<RouterPollResult>;
 }
@@ -197,7 +193,7 @@ export const makeScriptedRouter = (input: ScriptedRouterInput) =>
     const scripted: ScriptedRouter = {
       polls: yield* Ref.make([...input.polls]),
       sends: yield* Ref.make([...(input.sends ?? [])]),
-      pollCalls: yield* Ref.make<PollCall[]>([]),
+      cursorInvalid: yield* Ref.make(false),
       sendCalls: yield* Ref.make<SendCall[]>([]),
       fallbackPoll: input.fallbackPoll,
     };
@@ -286,14 +282,18 @@ function scriptedPoll(
 ): Context.Tag.Service<typeof Router>["poll"] {
   return (call) =>
     Effect.gen(function* () {
-      yield* Ref.update(scripted.pollCalls, (calls) => [
-        ...calls,
-        { hasCursor: call.request.pollCursor !== undefined },
-      ]);
+      if (
+        call.request.pollCursor !== undefined &&
+        (yield* Ref.get(scripted.cursorInvalid))
+      ) {
+        return { kind: "cursor_invalid" };
+      }
+      yield* Ref.set(scripted.cursorInvalid, false);
       const result = yield* Ref.modify(scripted.polls, (results) => {
         const [head, ...tail] = results;
         return [head, tail] as const;
       });
+      yield* Ref.set(scripted.cursorInvalid, result?.kind === "cursor_invalid");
       return (
         result ??
         (scripted.fallbackPoll === undefined

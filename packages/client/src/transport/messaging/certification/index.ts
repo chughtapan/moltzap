@@ -4,7 +4,7 @@
  */
 
 import type { SignedMessage } from "@moltzap/identity";
-import { Deferred, Effect } from "effect";
+import { absurd, Deferred, Effect } from "effect";
 import type { SendError } from "../errors.js";
 import {
   type ConversationFoundation,
@@ -240,29 +240,30 @@ const foldFor = (
 const mergeEvidence = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
-  kind: "action" | "durability",
+  role: "action" | "durability",
   message: SignedMessage,
 ): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
   Effect.gen(function* () {
-    const subjectId = kind === "action" ? fold.actionHash : fold.recordHash;
+    const subjectId = role === "action" ? fold.actionHash : fold.recordHash;
     if (subjectId === undefined) {
       return;
     }
     const row = yield* protocolEvidence(
       fold.conversation.conversationId,
-      kind,
+      role,
       subjectId,
       message,
     ).pipe(Effect.mapError(localRepresentationFailure));
     yield* runtime.input.store.mergeEvidence(row);
     const evidence =
-      kind === "action" ? fold.actionEvidence : fold.durabilityEvidence;
+      role === "action" ? fold.actionEvidence : fold.durabilityEvidence;
     yield* Effect.sync(() => {
       evidence.set(message.senderAgentId, message);
     });
   });
 
 /**
+ * Merge unless the evidence is already retained, then queue and flag it.
  * Queueing and its flag share an interruption boundary after evidence is durable.
  * @param runtime Engine whose store and outbox retain the evidence.
  * @param fold Fold that owes the local evidence.
@@ -287,10 +288,15 @@ const completeLocalEvidence = (
         Effect.mapError(() => persistenceFailure()),
         Effect.zipRight(
           Effect.sync(() => {
-            if (role === "action") {
-              fold.localActionEvidenceQueued = true;
-            } else {
-              fold.localDurabilityEvidenceQueued = true;
+            switch (role) {
+              case "action":
+                fold.localActionEvidenceQueued = true;
+                return;
+              case "durability":
+                fold.localDurabilityEvidenceQueued = true;
+                return;
+              default:
+                return absurd(role);
             }
           }),
         ),

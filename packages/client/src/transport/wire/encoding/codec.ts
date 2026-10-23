@@ -80,10 +80,8 @@ const domainHash = <A, I, R, Hash>(input: {
         .update(bytes)
         .digest(),
     ),
-    Effect.flatMap((digest) =>
-      digest.byteLength === HASH_BYTE_LENGTH
-        ? Effect.succeed(`${input.prefix}${Encoding.encodeBase64Url(digest)}`)
-        : Effect.fail(representationFailure()),
+    Effect.map(
+      (digest) => `${input.prefix}${Encoding.encodeBase64Url(digest)}`,
     ),
     Effect.flatMap(Schema.decodeUnknown(input.output)),
     Effect.mapError(representationFailure),

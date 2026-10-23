@@ -2193,7 +2193,58 @@ function reappendedOuterMessagesYieldOnePost() {
   });
 }
 
+/** A lossless N4 POST spends the specified traffic budget without sending its completed record. */
+function postTrafficMatchesTheSpec() {
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness();
+    const predecessor = yield* certifyGenesis(harness);
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const sending = yield* Effect.fork(
+      author.send(yield* sendInput(harness, "counted post")),
+    );
+    const messages = yield* pump(harness, yield* takeReadyBatch(harness));
+    yield* Fiber.join(sending).pipe(Effect.orDie);
+    const kinds = yield* Effect.forEach(
+      messages,
+      (message) => protocolMessageKind(harness, message),
+      { concurrency: 1 },
+    );
+    expect(
+      kinds.reduce<Record<string, number>>((counts, kind) => {
+        counts[kind] = (counts[kind] ?? 0) + 1;
+        return counts;
+      }, {}),
+    ).toEqual({
+      certified_record: 1,
+      action_proposal: 1,
+      action_signature: 4,
+      action_certified_record: 4,
+      durability_vote: 4,
+    });
+    expect(messages).toHaveLength(2 + 3 * MEMBER_COUNT);
+    const headCopies = yield* messagesOfKind(
+      harness,
+      messages,
+      "certified_record",
+    );
+    const headCopy = yield* requireAt(headCopies, 0, "predecessor record");
+    expect(yield* openAsSender(harness, headCopy)).toMatchObject({
+      kind: "direct",
+      packet: {
+        kind: "certified_record",
+        actionCertifiedRecord: { recordHash: predecessor },
+      },
+    });
+    expect(yield* certifiedRecordCounts(harness)).toEqual([2, 2, 2, 2]);
+  });
+}
+
 describe("fixed-post endpoint protocol", () => {
+  itOnTestClock(
+    "spends 2 + 3n outer messages on an N4 POST, with only its predecessor certified record",
+    postTrafficMatchesTheSpec,
+    TEST_TIMEOUT_MS,
+  );
   it.each([2, 4])(
     "seals every outer body of a %i-member post to its members, each of which opens it",
     sealsEveryOuterBodyOfAPost,

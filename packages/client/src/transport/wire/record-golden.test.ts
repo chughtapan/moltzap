@@ -1,10 +1,16 @@
-/** @file Canonical GENESIS and POST record bytes and hashes. */
+/**
+ * @file Fixed GENESIS and POST records keep canonical bytes and hashes and verify
+ * under the retained wire. A failure is a wire break requiring a protocol reset.
+ * Reproduce with node scripts/generate-client-record-golden.ts after pnpm build.
+ */
 
 import { live as it } from "@effect/vitest";
 import { Ed25519PublicKey } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import { describe, expect } from "vitest";
 import {
+  ActionCertifiedRecord,
+  CertifiedRecord,
   decodeCanonical,
   DirectPacket,
   encodeCanonical,
@@ -19,39 +25,54 @@ import golden from "./record-golden.json" with { type: "json" };
 
 const utf8 = new TextEncoder();
 
+/** Each fixture holds the Registry key and membership needed to verify it offline. */
+function membershipOf(form: (typeof golden.forms)[number]) {
+  return Effect.gen(function* () {
+    const key = yield* Schema.decodeUnknown(Ed25519PublicKey)(
+      form.registrySignerPublicKey,
+    );
+    const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)(
+      form.membership,
+    );
+    return yield* verifyMembershipDescriptor(descriptor, key);
+  });
+}
+
 describe("canonical record golden bytes", () => {
-  for (const [index, form] of golden.forms.entries()) {
-    it(`preserves record form ${index + 1}`, () =>
+  it.each(
+    golden.forms.filter((form) => form.kind === "action_certified_record"),
+  )("preserves $name", (form) =>
+    Effect.gen(function* () {
+      const bytes = utf8.encode(form.bytes);
+      const record = yield* decodeCanonical(ActionCertifiedRecord, bytes);
+      expect(record.kind).toBe(form.kind);
+      expect(yield* encodeCanonical(DirectPacket, record)).toEqual(bytes);
+      expect(yield* hashRecord(record.recordCore)).toBe(form.recordHash);
+      expect(yield* hashAction(record.recordCore.action)).toBe(form.actionHash);
+      yield* verifyActionCertifiedRecord({
+        record,
+        membership: yield* membershipOf(form),
+      });
+    }),
+  );
+  it.each(golden.forms.filter((form) => form.kind === "certified_record"))(
+    "preserves $name",
+    (form) =>
       Effect.gen(function* () {
-        const key = yield* Schema.decodeUnknown(Ed25519PublicKey)(
-          golden.registrySignerPublicKey,
-        );
-        const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)(
-          golden.membership,
-        );
-        const membership = yield* verifyMembershipDescriptor(descriptor, key);
         const bytes = utf8.encode(form.bytes);
-        const packet = yield* decodeCanonical(DirectPacket, bytes);
-        if (
-          packet.kind !== "action_certified_record" &&
-          packet.kind !== "certified_record"
-        ) {
-          return yield* Effect.dieMessage("expected a golden record");
-        }
-        const record =
-          packet.kind === "certified_record"
-            ? packet.actionCertifiedRecord
-            : packet;
-        if (packet.kind === "certified_record") {
-          yield* verifyCertifiedRecord({ record: packet, membership });
-        } else {
-          yield* verifyActionCertifiedRecord({ record: packet, membership });
-        }
-        expect(yield* encodeCanonical(DirectPacket, packet)).toEqual(bytes);
-        expect(yield* hashRecord(record.recordCore)).toBe(form.recordHash);
-        expect(yield* hashAction(record.recordCore.action)).toBe(
-          form.actionHash,
+        const record = yield* decodeCanonical(CertifiedRecord, bytes);
+        expect(record.kind).toBe(form.kind);
+        expect(yield* encodeCanonical(DirectPacket, record)).toEqual(bytes);
+        expect(yield* hashRecord(record.actionCertifiedRecord.recordCore)).toBe(
+          form.recordHash,
         );
-      }));
-  }
+        expect(
+          yield* hashAction(record.actionCertifiedRecord.recordCore.action),
+        ).toBe(form.actionHash);
+        yield* verifyCertifiedRecord({
+          record,
+          membership: yield* membershipOf(form),
+        });
+      }),
+  );
 });

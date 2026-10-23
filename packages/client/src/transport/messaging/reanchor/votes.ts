@@ -224,9 +224,7 @@ export function persistCompletedReanchor(
  * certificates for one scope would need an honest member to vote twice. The
  * store refuses a completion that does not extend this endpoint's durable
  * position; that refusal comes from the member's input, not a failed store,
- * so the completion does not count. The durable change and its adoption in
- * memory happen together, so an interruption cannot leave the store past an
- * anchor the engine still holds.
+ * so the completion does not count.
  * @param runtime Engine whose store and conversation take the anchor.
  * @param completed Verified completed re-anchor from a member.
  * @returns Whether the anchor was applied; false when the store refused it.
@@ -250,11 +248,18 @@ export function applyCompletedReanchor(
   );
 }
 
-/** The durable row and its in-memory adoption form one interruption boundary. */
+type WriteReanchor =
+  | EndpointStore["completeReanchor"]
+  | EndpointStore["applyCatchUpReanchor"];
+
+/**
+ * The durable row and its in-memory adoption form one interruption boundary,
+ * so interruption cannot leave the store past an anchor the engine still holds.
+ */
 function storeAndAdoptReanchor(
   runtime: EngineRuntime,
   completed: CompletedReanchorValue,
-  store: EndpointStore["completeReanchor"],
+  write: WriteReanchor,
 ) {
   const body = completed.reanchor;
   return Effect.all({
@@ -263,7 +268,7 @@ function storeAndAdoptReanchor(
   }).pipe(
     Effect.mapError(persistenceFailure),
     Effect.flatMap((canonical) =>
-      store({
+      write({
         conversationId: body.conversationId,
         anchorHash: completed.anchorHash,
         previousAnchorHash: body.previousAnchorHash,

@@ -257,6 +257,7 @@ const verifyEvidenceSet = <Kind extends EvidenceKind>(input: {
   readonly representations: readonly unknown[];
   readonly expectedKind: Kind;
   readonly membership: VerifiedMembership;
+  /** At least this many distinct member signers, at most one per member; all-member requirements are exact. */
   readonly requiredCount: number;
   readonly statementMatches: (
     statement: Extract<EvidenceStatementValue, { readonly kind: Kind }>,
@@ -385,16 +386,15 @@ export const verifyActionProposal = (input: {
     return verifiedAction;
   }).pipe(Effect.withSpan("verifyActionProposal"));
 
-const verifyActionCertificateEvidence = (
-  input: {
-    readonly certificate: ActionCertifiedRecord["actionCertificate"];
-    readonly action: ActionCore;
-    readonly membership: VerifiedMembership;
-  },
-  actionHash: ActionHash,
-): Effect.Effect<ActionHash, ClientRepresentationError> =>
+/** The caller has verified `actionHash` against `action`. */
+const verifyActionCertificateEvidence = (input: {
+  readonly actionHash: ActionHash;
+  readonly certificate: ActionCertifiedRecord["actionCertificate"];
+  readonly action: ActionCore;
+  readonly membership: VerifiedMembership;
+}): Effect.Effect<ActionHash, ClientRepresentationError> =>
   Effect.gen(function* () {
-    if (input.certificate.actionHash !== actionHash) {
+    if (input.certificate.actionHash !== input.actionHash) {
       return yield* representationFailure();
     }
     const requiredCount =
@@ -407,7 +407,7 @@ const verifyActionCertificateEvidence = (
       membership: input.membership,
       requiredCount,
       statementMatches: (statement) =>
-        Effect.succeed(statement.actionHash === actionHash),
+        Effect.succeed(statement.actionHash === input.actionHash),
     });
     const authorAgentId = input.action.postIntent.authorAgentId;
     if (
@@ -417,20 +417,8 @@ const verifyActionCertificateEvidence = (
     ) {
       return yield* representationFailure();
     }
-    return actionHash;
-  });
-
-export const verifyActionCertificate = (input: {
-  readonly certificate: ActionCertifiedRecord["actionCertificate"];
-  readonly action: ActionCore;
-  readonly membership: VerifiedMembership;
-}): Effect.Effect<ActionHash, ClientRepresentationError> =>
-  verifyActionCore(input).pipe(
-    Effect.flatMap(({ actionHash }) =>
-      verifyActionCertificateEvidence(input, actionHash),
-    ),
-    Effect.withSpan("verifyActionCertificate"),
-  );
+    return input.actionHash;
+  }).pipe(Effect.withSpan("verifyActionCertificate"));
 
 export const verifyCompletedReanchor = (input: {
   readonly completed: CompletedReanchor;
@@ -572,14 +560,12 @@ export const verifyActionCertifiedRecord = (input: {
     if (input.record.recordHash !== recordHash) {
       return yield* representationFailure();
     }
-    yield* verifyActionCertificateEvidence(
-      {
-        certificate: input.record.actionCertificate,
-        action: input.record.recordCore.action,
-        membership: input.membership,
-      },
-      input.record.recordCore.actionHash,
-    );
+    yield* verifyActionCertificateEvidence({
+      certificate: input.record.actionCertificate,
+      action: input.record.recordCore.action,
+      membership: input.membership,
+      actionHash: input.record.recordCore.actionHash,
+    });
     yield* verifyRecordRouterAnchor({
       record: input.record,
       membership: input.membership,
