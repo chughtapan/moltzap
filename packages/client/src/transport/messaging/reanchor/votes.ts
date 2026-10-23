@@ -13,6 +13,7 @@ import { Effect, Schema } from "effect";
 import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
 import {
   type EndpointRecovery,
+  type EndpointStore,
   isSemanticStoreRejection,
 } from "../../../store/index.js";
 import { RouterWorkerPersistenceError } from "../../router/index.js";
@@ -208,33 +209,11 @@ export function persistCompletedReanchor(
   runtime: EngineRuntime,
   completed: CompletedReanchorValue,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
-  const body = completed.reanchor;
-  return Effect.all({
-    canonicalBody: encodeCanonical(ReanchorBody, body),
-    canonicalCompletedReanchor: encodeCanonical(CompletedReanchor, completed),
-  }).pipe(
-    Effect.mapError(persistenceFailure),
-    Effect.flatMap((canonical) =>
-      runtime.input.store
-        .completeReanchor({
-          conversationId: body.conversationId,
-          anchorHash: completed.anchorHash,
-          previousAnchorHash: body.previousAnchorHash,
-          routerInstanceId: body.routerInstanceId,
-          selectedRecordHash: body.selectedRecordHash,
-          ...canonical,
-        })
-        .pipe(
-          Effect.zipRight(
-            Effect.sync(() => {
-              adoptCompletedReanchor(runtime, completed);
-            }),
-          ),
-          Effect.uninterruptible,
-        ),
-    ),
-    Effect.mapError(persistenceFailure),
-  );
+  return storeAndAdoptReanchor(
+    runtime,
+    completed,
+    runtime.input.store.completeReanchor,
+  ).pipe(Effect.mapError(persistenceFailure));
 }
 
 /**
@@ -256,6 +235,27 @@ export function applyCompletedReanchor(
   runtime: EngineRuntime,
   completed: CompletedReanchorValue,
 ): Effect.Effect<boolean, RouterWorkerPersistenceError> {
+  return storeAndAdoptReanchor(
+    runtime,
+    completed,
+    runtime.input.store.applyCatchUpReanchor,
+  ).pipe(
+    Effect.as(true),
+    Effect.catchTag("EndpointStoreError", (error) =>
+      isSemanticStoreRejection(error)
+        ? Effect.succeed(false)
+        : Effect.fail(persistenceFailure()),
+    ),
+    Effect.withSpan("applyCompletedReanchor"),
+  );
+}
+
+/** The durable row and its in-memory adoption form one interruption boundary. */
+function storeAndAdoptReanchor(
+  runtime: EngineRuntime,
+  completed: CompletedReanchorValue,
+  store: EndpointStore["completeReanchor"],
+) {
   const body = completed.reanchor;
   return Effect.all({
     canonicalBody: encodeCanonical(ReanchorBody, body),
@@ -263,31 +263,22 @@ export function applyCompletedReanchor(
   }).pipe(
     Effect.mapError(persistenceFailure),
     Effect.flatMap((canonical) =>
-      runtime.input.store
-        .applyCatchUpReanchor({
-          conversationId: body.conversationId,
-          anchorHash: completed.anchorHash,
-          previousAnchorHash: body.previousAnchorHash,
-          routerInstanceId: body.routerInstanceId,
-          selectedRecordHash: body.selectedRecordHash,
-          ...canonical,
-        })
-        .pipe(
-          Effect.zipRight(
-            Effect.sync(() => {
-              adoptCompletedReanchor(runtime, completed);
-            }),
-          ),
-          Effect.as(true),
-          Effect.catchTag("EndpointStoreError", (error) =>
-            isSemanticStoreRejection(error)
-              ? Effect.succeed(false)
-              : Effect.fail(persistenceFailure()),
-          ),
-          Effect.uninterruptible,
+      store({
+        conversationId: body.conversationId,
+        anchorHash: completed.anchorHash,
+        previousAnchorHash: body.previousAnchorHash,
+        routerInstanceId: body.routerInstanceId,
+        selectedRecordHash: body.selectedRecordHash,
+        ...canonical,
+      }).pipe(
+        Effect.zipRight(
+          Effect.sync(() => {
+            adoptCompletedReanchor(runtime, completed);
+          }),
         ),
+        Effect.uninterruptible,
+      ),
     ),
-    Effect.withSpan("applyCompletedReanchor"),
   );
 }
 

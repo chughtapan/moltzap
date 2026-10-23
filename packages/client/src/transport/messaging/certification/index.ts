@@ -262,33 +262,55 @@ const mergeEvidence = (
     });
   });
 
-const localActionEvidence = (
+/**
+ * Queueing and its flag share an interruption boundary after evidence is durable.
+ * @param runtime Engine whose store and outbox retain the evidence.
+ * @param fold Fold that owes the local evidence.
+ * @param role The evidence obligation being completed.
+ * @param evidence Local signature or vote selected by the caller.
+ * @returns Completion once the evidence is durable and queued.
+ */
+const completeLocalEvidence = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
+  role: "action" | "durability",
+  evidence: SignedMessage,
 ): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
   Effect.gen(function* () {
-    const localAgentId = runtime.input.localAgentCard.agentId;
-    if (fold.localActionEvidenceQueued) {
-      return;
-    }
-    const retained = fold.actionEvidence.has(localAgentId);
-    const evidence = yield* selectLocalActionEvidence(runtime, fold);
-    if (evidence === undefined) {
-      return;
-    }
-    if (!retained) {
-      yield* mergeEvidence(runtime, fold, "action", evidence);
+    const retained =
+      role === "action" ? fold.actionEvidence : fold.durabilityEvidence;
+    if (!retained.has(runtime.input.localAgentCard.agentId)) {
+      yield* mergeEvidence(runtime, fold, role, evidence);
     }
     yield* Effect.uninterruptible(
       runtime.outbox.queueEvidence(fold.conversation, evidence).pipe(
         Effect.mapError(() => persistenceFailure()),
         Effect.zipRight(
           Effect.sync(() => {
-            fold.localActionEvidenceQueued = true;
+            if (role === "action") {
+              fold.localActionEvidenceQueued = true;
+            } else {
+              fold.localDurabilityEvidenceQueued = true;
+            }
           }),
         ),
       ),
     );
+  });
+
+const localActionEvidence = (
+  runtime: EngineRuntime,
+  fold: EngineActionFold,
+): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
+  Effect.gen(function* () {
+    if (fold.localActionEvidenceQueued) {
+      return;
+    }
+    const evidence = yield* selectLocalActionEvidence(runtime, fold);
+    if (evidence === undefined) {
+      return;
+    }
+    yield* completeLocalEvidence(runtime, fold, "action", evidence);
   });
 
 /**
@@ -395,19 +417,7 @@ const localDurabilityEvidence = (
         agentCard: runtime.input.localAgentCard,
         signingAuthority: runtime.input.signingAuthority,
       }).pipe(Effect.mapError(localRepresentationFailure)));
-    if (retained === undefined) {
-      yield* mergeEvidence(runtime, fold, "durability", evidence);
-    }
-    yield* Effect.uninterruptible(
-      runtime.outbox.queueEvidence(fold.conversation, evidence).pipe(
-        Effect.mapError(() => persistenceFailure()),
-        Effect.zipRight(
-          Effect.sync(() => {
-            fold.localDurabilityEvidenceQueued = true;
-          }),
-        ),
-      ),
-    );
+    yield* completeLocalEvidence(runtime, fold, "durability", evidence);
   });
 
 const applyPromotionState = (

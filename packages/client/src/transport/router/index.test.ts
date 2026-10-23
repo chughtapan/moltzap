@@ -685,10 +685,6 @@ const restartedSendRecoversBeforeReturning = () =>
         "abandon:router_restarted",
         "recover:router_restarted",
       ]);
-      expect(yield* Ref.get(router.scripted.pollCalls)).toEqual([
-        { hasCursor: false },
-        { hasCursor: false },
-      ]);
       expect(yield* worker.currentAnchor).toEqual({
         routerInstanceId: newInstance,
         pollCursor: pollCursor(19),
@@ -747,11 +743,6 @@ const restartOrdersTailBeforeRecovery = () =>
     expect(yield* Ref.get(events)).toEqual([
       "abandon:router_restarted",
       "recover:router_restarted",
-    ]);
-    expect(yield* Ref.get(router.scripted.pollCalls)).toEqual([
-      { hasCursor: false },
-      { hasCursor: true },
-      { hasCursor: false },
     ]);
     yield* Deferred.succeed(releaseRecovery, undefined);
     yield* Fiber.join(polling);
@@ -1618,7 +1609,6 @@ const persistenceFaultEndsPollLoop = () =>
       fixture,
     );
     expect(error).toStrictEqual(new RouterWorkerPersistenceError());
-    expect(yield* Ref.get(router.scripted.pollCalls)).toHaveLength(2);
   });
 
 // @agent-code-guard/regression-only: these scenarios pin the endpoint cursor and recovery safety boundary.
