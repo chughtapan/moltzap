@@ -58,19 +58,25 @@ const lookupCards =
     );
   };
 
+const makeCacheFixtures = Effect.gen(function* () {
+  const cacheCapacity = 8;
+  const fixtures = yield* Effect.all(
+    Array.makeBy(cacheCapacity + 1, (index) => makeDistinctFixture(index)),
+  );
+  const first = fixtures[0];
+  const second = fixtures[1];
+  const newest = fixtures[cacheCapacity];
+  if (first === undefined || second === undefined || newest === undefined) {
+    return yield* Effect.dieMessage("LRU fixtures are missing");
+  }
+  return { cacheCapacity, fixtures, first, second, newest };
+});
+
 it("retains a recently used card and looks up the least recently used card after eviction", () =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const cacheCapacity = 8;
-      const fixtures = yield* Effect.all(
-        Array.makeBy(cacheCapacity + 1, (index) => makeDistinctFixture(index)),
-      );
-      const first = fixtures[0];
-      const second = fixtures[1];
-      const newest = fixtures[cacheCapacity];
-      if (first === undefined || second === undefined || newest === undefined) {
-        return yield* Effect.dieMessage("LRU fixtures are missing");
-      }
+      const { cacheCapacity, fixtures, first, second, newest } =
+        yield* makeCacheFixtures;
       const lookups = yield* Ref.make<readonly AgentId[]>([]);
       const verifyFresh = (fixture: IdentityFixture) =>
         prepareRequest({ fixture }).pipe(Effect.flatMap(verifyAgentRequest));
@@ -91,8 +97,7 @@ it("retains a recently used card and looks up the least recently used card after
         Effect.provide(
           authenticatedHttpLayerWithRegistry(
             registryWithLookup(lookupCards(fixtures, lookups)),
-            undefined,
-            cacheCapacity,
+            { agentCardCacheCapacity: cacheCapacity },
           ),
         ),
       );

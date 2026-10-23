@@ -89,13 +89,15 @@ export const registryWithLookup = (
 /** AuthenticatedHttp over `registry`, with small test capacities. */
 export const authenticatedHttpLayerWithRegistry = (
   registry: RegistryClientService,
-  registryLookupConcurrencyLimit = 4,
-  agentCardCacheCapacity = 8,
+  options: {
+    readonly registryLookupConcurrencyLimit?: number;
+    readonly agentCardCacheCapacity?: number;
+  } = {},
 ) =>
   AuthenticatedHttp.layer({
     liveNonceCapacity: 64,
-    agentCardCacheCapacity,
-    registryLookupConcurrencyLimit,
+    agentCardCacheCapacity: options.agentCardCacheCapacity ?? 8,
+    registryLookupConcurrencyLimit: options.registryLookupConcurrencyLimit ?? 4,
   }).pipe(Layer.provide(Layer.succeed(Registry, registry)));
 
 /** Verifies `prepared` as the server would. */

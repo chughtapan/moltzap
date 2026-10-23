@@ -196,13 +196,6 @@ function verifyRequest(
   });
 }
 
-type PendingCardResolutions = Readonly<{
-  readonly pending: ReadonlyMap<
-    AgentIdValue,
-    Deferred.Deferred<VerifiedAgentCard, CardResolutionError>
-  >;
-}>;
-
 type CardResolutionError =
   | AuthenticationFailedError
   | OverloadedError
@@ -239,7 +232,12 @@ interface CardResolutionSettings {
 }
 
 interface CardResolverDependencies {
-  readonly pendingResolutions: Ref.Ref<PendingCardResolutions>;
+  readonly pendingResolutions: Ref.Ref<
+    ReadonlyMap<
+      AgentIdValue,
+      Deferred.Deferred<VerifiedAgentCard, CardResolutionError>
+    >
+  >;
   readonly cards: BoundedCache<AgentIdValue, VerifiedAgentCard>;
   readonly lookup: RegistryLookup;
   readonly lookupPermits: Effect.Semaphore;
@@ -254,9 +252,12 @@ function makeCardResolver(
   ) => Effect.Effect<VerifiedAgentCard, CardResolutionError>
 > {
   return Effect.gen(function* () {
-    const pendingResolutions = yield* Ref.make<PendingCardResolutions>({
-      pending: new Map(),
-    });
+    const pendingResolutions = yield* Ref.make<
+      ReadonlyMap<
+        AgentIdValue,
+        Deferred.Deferred<VerifiedAgentCard, CardResolutionError>
+      >
+    >(new Map());
     const lookupPermits = yield* Effect.makeSemaphore(
       settings.lookupConcurrencyLimit,
     );
@@ -336,7 +337,7 @@ function runLeadingResolution(
 ): Effect.Effect<VerifiedAgentCard, CardResolutionError> {
   return lookupCard(dependencies, agentId).pipe(
     Effect.tap((card) =>
-      retainResolvedCard(dependencies.pendingResolutions, dependencies.cards, {
+      retainResolvedCard(dependencies.cards, {
         agentId,
         card,
       }),
@@ -410,61 +411,73 @@ function resolveLookupAttempt(
   );
 }
 
+/**
+ * Bounded-cache reads and writes are synchronous and never span a yield, so
+ * cache access and pending-resolution decisions cannot interleave.
+ */
 function beginCardResolution(
-  pendingResolutions: Ref.Ref<PendingCardResolutions>,
+  pendingResolutions: Ref.Ref<
+    ReadonlyMap<
+      AgentIdValue,
+      Deferred.Deferred<VerifiedAgentCard, CardResolutionError>
+    >
+  >,
   cards: BoundedCache<AgentIdValue, VerifiedAgentCard>,
   agentId: AgentIdValue,
   candidate: Deferred.Deferred<VerifiedAgentCard, CardResolutionError>,
 ): Effect.Effect<CacheAccess> {
   return Ref.modify(
     pendingResolutions,
-    (current): readonly [CacheAccess, PendingCardResolutions] => {
+    (
+      current,
+    ): readonly [
+      CacheAccess,
+      ReadonlyMap<
+        AgentIdValue,
+        Deferred.Deferred<VerifiedAgentCard, CardResolutionError>
+      >,
+    ] => {
       const card = cards.get(agentId);
       if (Option.isSome(card)) {
         return [{ kind: "cached", card: card.value }, current] as const;
       }
-      const pending = current.pending.get(agentId);
+      const pending = current.get(agentId);
       if (pending !== undefined) {
         return [{ kind: "join", deferred: pending }, current] as const;
       }
       return [
         { kind: "lead", deferred: candidate },
-        {
-          ...current,
-          pending: new Map(current.pending).set(agentId, candidate),
-        },
+        new Map(current).set(agentId, candidate),
       ] as const;
     },
   );
 }
 
 function removePendingResolution(
-  pendingResolutions: Ref.Ref<PendingCardResolutions>,
+  pendingResolutions: Ref.Ref<
+    ReadonlyMap<
+      AgentIdValue,
+      Deferred.Deferred<VerifiedAgentCard, CardResolutionError>
+    >
+  >,
   agentId: AgentIdValue,
 ): Effect.Effect<void> {
   return Ref.update(pendingResolutions, (current) => {
-    const pending = new Map(current.pending);
+    const pending = new Map(current);
     pending.delete(agentId);
-    return { ...current, pending };
+    return pending;
   });
 }
 
-/**
- * All bounded card cache access runs inside a pending-resolution Ref.modify
- * callback so retention is atomic with beginCardResolution's cache and
- * single-flight decisions, even when the pending state stays unchanged.
- */
 function retainResolvedCard(
-  pendingResolutions: Ref.Ref<PendingCardResolutions>,
   cards: BoundedCache<AgentIdValue, VerifiedAgentCard>,
   input: {
     readonly agentId: AgentIdValue;
     readonly card: VerifiedAgentCard;
   },
 ): Effect.Effect<void> {
-  return Ref.modify(pendingResolutions, (current) => {
+  return Effect.sync(() => {
     cards.set(input.agentId, input.card);
-    return [undefined, current] as const;
   });
 }
 
