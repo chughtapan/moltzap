@@ -398,7 +398,7 @@ const packageDefinitions: Readonly<Record<string, PackageDefinition>> = {
         {
           file: "daemon/bootstrap.ts",
           reason:
-            "Loaded daemon configuration and closed bootstrap failures shared by service composition modules",
+            "Loaded daemon configuration and closed bootstrap failures shared by daemon composition modules",
         },
       ],
       compositionRoots: clientCompositionRoots.map(({ path, reason }) => ({

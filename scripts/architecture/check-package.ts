@@ -2,9 +2,10 @@
 /**
  * @file Non-vacuous package architecture check. It proves the package
  * TypeScript project contains analyzable root files before delegating to the
- * architecture analyzer with the package-local configuration.
+ * architecture analyzer with the package-local configuration. It also reports
+ * isolated-folder imports that reach another package source domain.
  *
- * Exit codes: 0 when the analyzer reports nothing, 1 when it reports a
+ * Exit codes: 0 when neither check reports anything, 1 when either reports a
  * finding, and 2 when the package cannot be analyzed at all, so an empty or
  * misconfigured project never passes as clean.
  */
@@ -194,7 +195,10 @@ function nonEmptyText(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
 }
 
-/** Isolated programs can import packages and their own files, never another source domain. */
+/**
+ * Isolated programs can import packages and their own files, never another source domain.
+ * A self-import of `@moltzap/client` resolves to dist and is not covered.
+ */
 function isolatedImports(
   program: ts.Program,
   folders: readonly string[],

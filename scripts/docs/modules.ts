@@ -185,8 +185,8 @@ export function resolveExportDeclaration(
  * whitespace normalized) or null if the source has no leading JSDoc.
  *
  * If the block starts with the &amp;#64;file tag, the prose after that tag
- * becomes the summary. Otherwise the whole block (minus the asterisk
- * markup) becomes the summary.
+ * becomes the summary. The summary ends before the first subsequent block
+ * tag, with asterisk markup removed.
  */
 export function readLeadingJsDoc(source: string): string | null {
   const trimmed = source.trimStart();
@@ -203,10 +203,10 @@ export function readLeadingJsDoc(source: string): string | null {
     .split("\n")
     .map((l) => l.replace(/^\s*\*\s?/, "").trimEnd());
   const stripped = lines.join("\n").trim();
-  if (stripped.startsWith("@file ")) {
-    return stripped.slice("@file ".length).trim();
-  }
-  return stripped;
+  const summary = stripped.startsWith("@file ")
+    ? stripped.slice("@file ".length).trim()
+    : stripped;
+  return summary.split(/^@\w+/m, 1)[0]?.trim() ?? "";
 }
 
 /**

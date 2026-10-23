@@ -61,7 +61,7 @@
     },
     {
       "file": "daemon/bootstrap.ts",
-      "reason": "Loaded daemon configuration and closed bootstrap failures shared by service composition modules"
+      "reason": "Loaded daemon configuration and closed bootstrap failures shared by daemon composition modules"
     }
   ],
   "compositionRoots": [

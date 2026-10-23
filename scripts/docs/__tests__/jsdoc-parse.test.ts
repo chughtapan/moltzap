@@ -91,3 +91,19 @@ export {};
     expect(readLeadingJsDoc(source)).toBe("Line one.\n  Line two indented.");
   });
 });
+
+describe("readLeadingJsDoc block tags", () => {
+  it.each(["", "@file "])("stops the %s summary at a block tag", (prefix) => {
+    const purpose = "Production composition for one endpoint daemon.";
+    const source = `/**
+ * ${prefix}${purpose}
+ *
+ * @module service
+ * Tag continuation is not summary prose.
+ * @see Other composition
+ */
+export {};
+`;
+    expect(readLeadingJsDoc(source)).toBe(purpose);
+  });
+});

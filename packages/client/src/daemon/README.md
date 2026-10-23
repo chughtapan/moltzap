@@ -25,7 +25,7 @@ the same scoped work. The file path does not enter the firewall installation
 or its digest.
 
 `telemetry.ts` configures opt-in OTLP span export. `credentials.ts` reads the
-daemon’s key and credential files. `launcher/` chooses and installs a release
+daemon's key and credential files. `launcher/` chooses and installs a release
 and starts its daemon without importing other Client source.
 
 The daemon supplies policy file locations and its credential reader to `firewall/`, which loads and

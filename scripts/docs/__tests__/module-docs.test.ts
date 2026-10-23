@@ -68,7 +68,7 @@ beforeAll(async () => {
   );
   writeFixture(
     "packages/identity/src/index.ts",
-    "/** @file Public identity values. */\nexport interface AgentCard {}\n",
+    "/**\n * @file Public identity values.\n * @module identity\n */\nexport interface AgentCard {}\n",
   );
   writeFixture(
     "packages/identity/src/registry.ts",
@@ -145,7 +145,7 @@ beforeAll(async () => {
                   id: 4,
                   name: "AgentCard",
                   kind: ReflectionKind.Interface,
-                  sources: source("packages/identity/src/index.ts", 2),
+                  sources: source("packages/identity/src/index.ts", 5),
                 },
               ],
             },
@@ -471,6 +471,12 @@ describe("module documentation", () => {
       readFileSync(join(sandbox, "packages/client/src/MODULE.md"), "utf8"),
       // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
     ).toContain("### `@moltzap/client/service`");
+    expect(identityModule).toMatch(
+      /## Purpose\n\nPublic identity values\.\n\n/u,
+    );
+    expect(identityMdx).toMatch(/## Purpose\n\nPublic identity values\.\n\n/u);
+    expect(identityModule).not.toMatch(/@module/u);
+    expect(identityMdx).not.toMatch(/@module/u);
     // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
     expect(identityModule).toContain("# identity/src\n");
     // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.

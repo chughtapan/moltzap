@@ -5,7 +5,7 @@ activation gate, the MCP subscription, the delivery passes, and the fatal
 signal that stops the process.
 
 Start with `index.ts`. The daemon starts from the registration state the
-service read at startup. A registration switches it to active as soon as the
+daemon read at startup. A registration switches it to active as soon as the
 binding commits, before the protocol finishes activating, so status reports
 the binding at once. The MCP catalog reads whether the protocol is up, so the
 post-registration tools appear once activation acquires it, and the daemon

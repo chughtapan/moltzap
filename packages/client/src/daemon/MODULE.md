@@ -5,7 +5,6 @@ _`packages/client/src/daemon`_
 ## Purpose
 
 Production composition for one explicitly configured endpoint daemon.
-@module service
 
 ## Public surface
 

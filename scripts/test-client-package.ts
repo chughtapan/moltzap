@@ -1,6 +1,6 @@
 /**
  * @file Proves the packed `@moltzap/client` exposes exactly its public entry
- * points and executable, keeps its root entry inside the host import
+ * points and executables, keeps its root entry inside the host import
  * allowlists, and imports cleanly from an isolated consumer.
  */
 import { FileSystem } from "@effect/platform";
@@ -243,6 +243,7 @@ function verifyConsumerImports(
       archives,
       dependencies: { effect: effectDependency },
     });
+    yield* verifyConsumerExecutables(consumerRoot, temporaryRoot);
     const checkPath = join(consumerRoot, "check.mjs");
     const fs = yield* FileSystem.FileSystem;
     yield* fs.writeFileString(
@@ -259,5 +260,47 @@ function verifyConsumerImports(
       cwd: consumerRoot,
       env: { NODE_PATH: "" },
     });
+  });
+}
+
+/** Installed entrypoints must load, and offline preparation must discover the consumer as its seed. */
+function verifyConsumerExecutables(
+  consumerRoot: string,
+  temporaryRoot: string,
+): Effect.Effect<void, GateError, GateServices> {
+  return Effect.gen(function* () {
+    yield* Effect.forEach(
+      ["sharnessd", "sharnessd-launcher"],
+      (name) =>
+        runCommand(
+          join(consumerRoot, "node_modules", ".bin", name),
+          ["--help"],
+          {
+            cwd: consumerRoot,
+            env: { NODE_PATH: "" },
+          },
+        ),
+      { concurrency: 1, discard: true },
+    );
+    yield* runCommand(
+      "env",
+      [
+        "-u",
+        "SHARNESS_LAUNCHER_SEED",
+        "-u",
+        "SHARNESS_LAUNCHER_VERSION",
+        join(consumerRoot, "node_modules", ".bin", "sharnessd-launcher"),
+        "prepare",
+      ],
+      {
+        cwd: consumerRoot,
+        env: {
+          NODE_PATH: "",
+          SHARNESS_LAUNCHER_DIRECTORY: join(temporaryRoot, "launcher"),
+          SHARNESS_LAUNCHER_PACKAGE: "@moltzap/client",
+          SHARNESS_LAUNCHER_UPGRADE: "off",
+        },
+      },
+    );
   });
 }

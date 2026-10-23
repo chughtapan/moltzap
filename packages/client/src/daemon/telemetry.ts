@@ -140,7 +140,7 @@ const exportDiagnostics = Layer.effectDiscard(
  * exporter and batch processor read the rest of their standard variables
  * themselves, and the resource takes `OTEL_RESOURCE_ATTRIBUTES`.
  */
-// eslint-disable-next-line agent-code-guard/require-span-on-exported-effect -- The exporter installs tracing; tracing its acquisition changes the daemon’s exported spans.
+// eslint-disable-next-line agent-code-guard/require-span-on-exported-effect -- The exporter installs tracing; tracing its acquisition changes the daemon's exported spans.
 export const spanExport: Layer.Layer<never, DaemonConfigurationError> =
   Layer.unwrapEffect(
     Effect.gen(function* () {
