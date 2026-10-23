@@ -50,9 +50,11 @@ import {
 } from "./authenticated-http-fixtures.js";
 import {
   authenticatedHttpLayerWithRegistry,
+  clockAt,
   type PreparedRequest,
   prepareRequest,
   registryWithLookup,
+  signatureExpiry,
   toServerRequest,
   unreadable,
   verifyAgentRequest,
@@ -149,18 +151,6 @@ const makeLookupController = (mode: LookupMode) =>
       started,
     } satisfies LookupController;
   });
-
-const clockAt = (milliseconds: number): Clock.Clock => {
-  const live = Clock.make();
-  return {
-    [Clock.ClockTypeId]: Clock.ClockTypeId,
-    unsafeCurrentTimeMillis: () => milliseconds,
-    currentTimeMillis: Effect.succeed(milliseconds),
-    unsafeCurrentTimeNanos: () => BigInt(milliseconds) * 1_000_000n,
-    currentTimeNanos: Effect.succeed(BigInt(milliseconds) * 1_000_000n),
-    sleep: (duration) => live.sleep(duration),
-  };
-};
 
 const lookupAgentCard = (controller: LookupController, agentId: AgentIdValue) =>
   Effect.gen(function* () {
@@ -353,30 +343,37 @@ const requiredHeader = (headers: Headers.Headers, name: string): string => {
   return value;
 };
 
-const signatureExpiry = (prepared: PreparedRequest): number => {
-  const signatureInput = requiredHeader(
-    prepared.serverRequest.headers,
-    "signature-input",
-  );
-  const match = /;expires=(\d+)/u.exec(signatureInput);
-  const encodedExpiry = match?.[1];
-  if (encodedExpiry === undefined) {
-    throw new Error("signed request is missing its expiry");
-  }
-  const expiry = Schema.NumberFromString.pipe(
-    Schema.int(),
-    Schema.nonNegative(),
-  );
-  return Schema.decodeUnknownSync(expiry)(encodedExpiry);
-};
+const profileParameterMutations = (
+  prepared: PreparedRequest,
+  signatureInput: string,
+): readonly RequestMutation[] => [
+  {
+    name: "non-ed25519 algorithm",
+    prepared: withSignatureInput(
+      prepared,
+      signatureInput.replace(';alg="ed25519"', ';alg="rsa-pss-sha512"'),
+    ),
+  },
+  {
+    name: "wrong-profile tag",
+    prepared: withSignatureInput(
+      prepared,
+      signatureInput.replace(
+        ';tag="sharness-request-v1"',
+        ';tag="sharness-registration-v1"',
+      ),
+    ),
+  },
+];
 
-const structuredFieldDuplicateMutations = (
+const signatureParameterMutations = (
   prepared: PreparedRequest,
 ): readonly RequestMutation[] => {
   const headers = prepared.serverRequest.headers;
   const signatureInput = requiredHeader(headers, "signature-input");
   const signature = requiredHeader(headers, "signature");
   return [
+    ...profileParameterMutations(prepared, signatureInput),
     {
       name: "created parameter",
       prepared: withSignatureInput(
@@ -609,7 +606,7 @@ it("produces an RFC 9421 proof and rejects covered-field mutations", () =>
     }),
   ));
 
-it("rejects duplicate structured signature members without claiming the nonce", () =>
+it("rejects invalid signature parameters and duplicate members without claiming the nonce", () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const fixture = yield* makeIdentityFixture;
@@ -621,7 +618,7 @@ it("rejects duplicate structured signature members without claiming the nonce", 
       const prepared = yield* prepareRequest({ fixture });
       const verifyDuplicates = Effect.gen(function* () {
         yield* Effect.forEach(
-          structuredFieldDuplicateMutations(prepared),
+          signatureParameterMutations(prepared),
           assertAuthenticationMutationRejected,
           { concurrency: 1, discard: true },
         );
@@ -797,40 +794,52 @@ it("authenticates a body whose bytes carry their own iterator", () =>
     }),
   ));
 
-it.each([
-  { offsetSeconds: -1, outcome: "accepted" },
-  { offsetSeconds: 0, outcome: "accepted" },
-  { offsetSeconds: 1, outcome: "refused" },
-])(
-  "$outcome at $offsetSeconds s from the signature expiry",
-  ({ offsetSeconds, outcome }) =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const fixture = yield* makeIdentityFixture;
-        const prepared = yield* prepareRequest({ fixture });
-        const verification = verifyAgentRequest(prepared).pipe(
-          Effect.provide(
-            authenticatedHttpLayerWithRegistry(
-              registryWithLookup(() =>
-                Effect.succeed({ kind: "found", agentCard: fixture.agentCard }),
-              ),
+it.each([-1, 0])("accepts at %i s from the signature expiry", (offsetSeconds) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const prepared = yield* prepareRequest({ fixture });
+      const verification = verifyAgentRequest(prepared).pipe(
+        Effect.provide(
+          authenticatedHttpLayerWithRegistry(
+            registryWithLookup(() =>
+              Effect.succeed({ kind: "found", agentCard: fixture.agentCard }),
             ),
           ),
-          Effect.withClock(
-            clockAt((signatureExpiry(prepared) + offsetSeconds) * 1_000),
+        ),
+        Effect.withClock(
+          clockAt((signatureExpiry(prepared) + offsetSeconds) * 1_000),
+        ),
+      );
+      expect((yield* verification).callerAgentId).toBe(
+        fixture.agentCard.agentId,
+      );
+    }),
+  ),
+);
+
+it.each([1])("refuses at %i s from the signature expiry", (offsetSeconds) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const prepared = yield* prepareRequest({ fixture });
+      const verification = verifyAgentRequest(prepared).pipe(
+        Effect.provide(
+          authenticatedHttpLayerWithRegistry(
+            registryWithLookup(() =>
+              Effect.succeed({ kind: "found", agentCard: fixture.agentCard }),
+            ),
           ),
-        );
-        if (outcome === "accepted") {
-          expect((yield* verification).callerAgentId).toBe(
-            fixture.agentCard.agentId,
-          );
-        } else {
-          expect(yield* Effect.flip(verification)).toStrictEqual(
-            new AuthenticationFailedError(),
-          );
-        }
-      }),
-    ),
+        ),
+        Effect.withClock(
+          clockAt((signatureExpiry(prepared) + offsetSeconds) * 1_000),
+        ),
+      );
+      expect(yield* Effect.flip(verification)).toStrictEqual(
+        new AuthenticationFailedError(),
+      );
+    }),
+  ),
 );
 
 it("refuses a nonce replay at exactly the signature expiry second", () =>

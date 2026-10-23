@@ -372,6 +372,19 @@ const clockAt = (milliseconds: number): Clock.Clock => {
   };
 };
 
+/** Reads the signed expiry so the admission clock follows the request's interval. */
+const signatureExpiry = (signatureInput: string): number => {
+  const encodedExpiry = /;expires=(\d+)/u.exec(signatureInput)?.[1];
+  if (encodedExpiry === undefined) {
+    throw new Error("signed request is missing its expiry");
+  }
+  const expiry = Schema.NumberFromString.pipe(
+    Schema.int(),
+    Schema.nonNegative(),
+  );
+  return Schema.decodeUnknownSync(expiry)(encodedExpiry);
+};
+
 const prepareBootstrapAdmission = (origin: URL) =>
   Effect.gen(function* () {
     const prepared = yield* prepareAgent("concurrent-bootstrap");
@@ -389,7 +402,8 @@ const prepareBootstrapAdmission = (origin: URL) =>
     );
     return {
       request: prepared.request,
-      expiresAt: signedAt + 300_000,
+      expiresAt:
+        signatureExpiry(signed.headers["signature-input"] ?? "") * 1_000,
       input: {
         httpRequest: HttpServerRequest.fromWeb(
           new Request(signed.url, {
