@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { verifyHostImportGraph } from "../test/client-host-imports.ts";
+import { verifyHostImportGraph } from "./client-host-imports.ts";
 
 for (const module of [
   "dist/transport/messaging/address.js",

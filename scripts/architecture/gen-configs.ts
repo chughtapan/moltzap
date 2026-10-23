@@ -20,12 +20,14 @@ interface TestSubpath {
 }
 
 interface FacadeFile {
+  /** Admits this file for loading by the packed root. */
   readonly host?: boolean;
   readonly file: string;
   readonly reason: string;
 }
 
 interface ClientDomain {
+  /** Admits the whole domain folder for loading by the packed root. */
   readonly host?: boolean;
   readonly name: string;
   /** Domain folder relative to `src/`. */

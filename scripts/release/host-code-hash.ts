@@ -82,45 +82,8 @@ export function hostCodeHashOfDirectories(
     name: host,
     relative,
   }));
-  return digestOf(
-    reachableModules(pending, roots).map(({ name, relative }) =>
-      fileEntry(roots.get(name) ?? "", relative, `${name}/${relative}`, {
-        siblingPins: "drop",
-      }),
-    ),
-  );
-}
-
-/**
- * Modules reachable from a package's production root export, including its
- * manifest. The release hash follows the same production export conditions.
- * @param root Package directory containing its manifest and built exports.
- * @returns Package-relative files loaded by the root entry.
- */
-export function hostModulesOfDirectory(root: string): ReadonlySet<string> {
-  const name = "host";
-  const entry = exportTarget(root, ".");
-  if (entry === undefined) {
-    return new Set();
-  }
-  return new Set(
-    reachableModules(
-      [
-        { name, relative: path.posix.normalize(entry) },
-        { name, relative: "package.json" },
-      ],
-      new Map([[name, root]]),
-    ).map(({ relative }) => relative),
-  );
-}
-
-function reachableModules(
-  entries: readonly Module[],
-  roots: ReadonlyMap<string, string>,
-): readonly Module[] {
-  const pending = [...entries];
   const seen = new Set<string>();
-  const modules: Module[] = [];
+  const entries: string[] = [];
   for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
     const root = roots.get(next.name) ?? "";
     const label = `${next.name}/${next.relative}`;
@@ -128,10 +91,12 @@ function reachableModules(
       continue;
     }
     seen.add(label);
-    modules.push(next);
+    entries.push(
+      fileEntry(root, next.relative, label, { siblingPins: "drop" }),
+    );
     pending.push(...importedModules(next, root, roots));
   }
-  return modules;
+  return digestOf(entries);
 }
 
 function workspaceDirectories(repo: string): ReadonlyMap<string, string> {

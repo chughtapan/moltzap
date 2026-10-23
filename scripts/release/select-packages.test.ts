@@ -24,10 +24,7 @@ import {
   contentHashOfDirectory,
   contentHashOfTarball,
 } from "./content-hash.ts";
-import {
-  hostCodeHashOfDirectories,
-  hostModulesOfDirectory,
-} from "./host-code-hash.ts";
+import { hostCodeHashOfDirectories } from "./host-code-hash.ts";
 import {
   classifyNpmView,
   type Manifest,
@@ -405,19 +402,3 @@ function packedDirectory(
   }
   return root;
 }
-
-await test("the root module walk excludes modules reached only by the service export", () => {
-  const root = packedDirectory(CLIENT_MANIFEST, {
-    "dist/index.js": 'export { endpoint } from "./endpoint.js";\n',
-    "dist/endpoint.js": "export const endpoint = 1;\n",
-    "dist/service/index.js": 'export { daemon } from "./daemon.js";\n',
-    "dist/service/daemon.js": "export const daemon = 1;\n",
-  });
-  try {
-    const modules = hostModulesOfDirectory(root);
-    assert.ok(modules.has("dist/endpoint.js"));
-    assert.ok(!modules.has("dist/service/daemon.js"));
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
