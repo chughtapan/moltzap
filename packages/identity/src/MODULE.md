@@ -11,7 +11,7 @@ package.
 
 ## Public surface
 
-### [`AgentCard (type)`](./agent-card.ts#L107)
+### [`AgentCard (type)`](./agent-card.ts#L100)
 
 _Interface_
 
@@ -27,7 +27,7 @@ export interface AgentCard {
 
 Immutable public identity fields carried by an AgentCard.
 
-### [`AgentCard (value)`](./agent-card.ts#L412)
+### [`AgentCard (value)`](./agent-card.ts#L328)
 
 _Variable_
 
@@ -44,7 +44,7 @@ export const AgentCard = Object.assign(agentCardSchema, {
 
 Verifies immutable Registry attestation without exposing JOSE mechanics.
 
-### [`AgentCardDigest (type)`](./agent-card.ts#L68)
+### [`AgentCardDigest (type)`](./agent-card.ts#L66)
 
 _TypeAlias_
 
@@ -54,7 +54,7 @@ export type AgentCardDigest = typeof AgentCardDigest.Type;
 
 Validated nominal value decoded by AgentCardDigest.
 
-### [`AgentCardDigest (value)`](./agent-card.ts#L61)
+### [`AgentCardDigest (value)`](./agent-card.ts#L59)
 
 _Variable_
 
@@ -68,7 +68,7 @@ export const AgentCardDigest = canonicalIdentifier(
 
 Digest binding a message to one complete immutable AgentCard.
 
-### [`AgentCardVerificationError`](./agent-card.ts#L257)
+### [`AgentCardVerificationError`](./agent-card.ts#L250)
 
 _Class_
 
@@ -160,7 +160,7 @@ export const AgentSigningAuthority = Object.freeze({
 Loads and identifies one Ed25519 signing authority without exposing its
 private keys or a generic signing or decryption operation.
 
-### [`AgentSigningError`](./http-signature.ts#L32)
+### [`AgentSigningError`](./http-signature.ts#L37)
 
 _Class_
 
@@ -581,7 +581,7 @@ export class UnsupportedMediaTypeError extends Schema.TaggedError<UnsupportedMed
 
 The selected route cannot consume the request content framing.
 
-### [`VerifiedAgentCard`](./agent-card.ts#L242)
+### [`VerifiedAgentCard`](./agent-card.ts#L235)
 
 _TypeAlias_
 
@@ -717,7 +717,7 @@ export class Registry extends Context.Tag("@moltzap/identity/Registry")<
 
 Bootstrap registration and immutable identity resolution.
 
-#### [`RegistryConnectionError`](./registry/contract.ts#L28)
+#### [`RegistryConnectionError`](./registry/contract.ts#L32)
 
 _Class_
 
@@ -729,7 +729,7 @@ export class RegistryConnectionError extends Data.TaggedError(
 
 The Registry connection could not be established or used.
 
-#### [`RegistryInvalidResponseError`](./registry/contract.ts#L38)
+#### [`RegistryInvalidResponseError`](./registry/contract.ts#L42)
 
 _Class_
 
@@ -741,7 +741,7 @@ export class RegistryInvalidResponseError extends Data.TaggedError(
 
 A Registry response did not match the selected operation contract.
 
-#### [`RegistryRequestTimeoutError`](./registry/contract.ts#L33)
+#### [`RegistryRequestTimeoutError`](./registry/contract.ts#L37)
 
 _Class_
 
@@ -753,7 +753,7 @@ export class RegistryRequestTimeoutError extends Data.TaggedError(
 
 The configured complete Registry call deadline expired.
 
-#### [`OperationId (type)`](./registry/contract.ts#L25)
+#### [`OperationId (type)`](./registry/contract.ts#L29)
 
 _TypeAlias_
 
@@ -763,7 +763,7 @@ export type OperationId = typeof OperationId.Type;
 
 Validated nominal value decoded by OperationId.
 
-#### [`RegistryListRequest (type)`](./registry/contract.ts#L90)
+#### [`RegistryListRequest (type)`](./registry/contract.ts#L94)
 
 _TypeAlias_
 
@@ -773,7 +773,7 @@ export type RegistryListRequest = typeof RegistryListRequest.Type;
 
 Validated Registry list continuation request.
 
-#### [`RegistryListResult`](./registry/contract.ts#L105)
+#### [`RegistryListResult`](./registry/contract.ts#L109)
 
 _TypeAlias_
 
@@ -787,7 +787,7 @@ export type RegistryListResult = Readonly<{
 
 One deterministic page of complete immutable AgentCards.
 
-#### [`RegistryLookupRequest (type)`](./registry/contract.ts#L78)
+#### [`RegistryLookupRequest (type)`](./registry/contract.ts#L82)
 
 _TypeAlias_
 
@@ -797,7 +797,7 @@ export type RegistryLookupRequest = typeof RegistryLookupRequest.Type;
 
 Validated Registry lookup selector.
 
-#### [`RegistryLookupResult`](./registry/contract.ts#L100)
+#### [`RegistryLookupResult`](./registry/contract.ts#L104)
 
 _TypeAlias_
 
@@ -809,7 +809,7 @@ export type RegistryLookupResult =
 
 Closed domain outcome from one public identity lookup.
 
-#### [`RegistryRegisterRequest (type)`](./registry/contract.ts#L52)
+#### [`RegistryRegisterRequest (type)`](./registry/contract.ts#L56)
 
 _TypeAlias_
 
@@ -819,7 +819,7 @@ export type RegistryRegisterRequest = typeof RegistryRegisterRequest.Type;
 
 Validated Registry bootstrap registration request.
 
-#### [`RegistryRegisterResult`](./registry/contract.ts#L93)
+#### [`RegistryRegisterResult`](./registry/contract.ts#L97)
 
 _TypeAlias_
 
@@ -833,7 +833,7 @@ export type RegistryRegisterResult =
 
 Closed domain outcome from one bootstrap registration attempt.
 
-#### [`OperationId (value)`](./registry/contract.ts#L22)
+#### [`OperationId (value)`](./registry/contract.ts#L26)
 
 _Variable_
 
@@ -843,7 +843,7 @@ export const OperationId = canonicalIdentifier("OperationId", "opn_", 16)
 
 Idempotency identity for a registration operation.
 
-#### [`RegistryListRequest (value)`](./registry/contract.ts#L82)
+#### [`RegistryListRequest (value)`](./registry/contract.ts#L86)
 
 _Variable_
 
@@ -858,7 +858,7 @@ export const RegistryListRequest = exactStruct({
 
 Closed Registry list continuation request.
 
-#### [`RegistryLookupRequest (value)`](./registry/contract.ts#L56)
+#### [`RegistryLookupRequest (value)`](./registry/contract.ts#L60)
 
 _Variable_
 
@@ -887,7 +887,7 @@ export const RegistryLookupRequest = Schema.Union(
 
 Closed Registry lookup selector.
 
-#### [`RegistryRegisterRequest (value)`](./registry/contract.ts#L44)
+#### [`RegistryRegisterRequest (value)`](./registry/contract.ts#L48)
 
 _Variable_
 
@@ -990,6 +990,7 @@ Usage is generated from the same fields consumed by the process.
 - `registry/client.ts`
 - `registry/contract.ts`
 - `registry/http.ts`
+- `registry/issuance.ts`
 - `registry/migrations/0001_registry.ts`
 - `registry/README.md`
 - `registry/rpc.ts`

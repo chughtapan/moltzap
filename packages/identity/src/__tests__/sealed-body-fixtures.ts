@@ -5,17 +5,14 @@
 
 import { Effect, Encoding, Redacted, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
-import {
-  AgentCardIssuedAt,
-  issueAgentCard,
-  type VerifiedAgentCard,
-} from "../agent-card.js";
+import type { VerifiedAgentCard } from "../agent-card.js";
 import {
   AgentSigningAuthority,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
   type Ed25519PublicKey,
 } from "../agent-key.js";
 import { AgentId, AgentName, PrincipalId } from "../identifiers.js";
+import { AgentCardIssuedAt, issueAgentCard } from "../registry/issuance.js";
 import { SealedBody } from "../sealed-body.js";
 import {
   MessageId,

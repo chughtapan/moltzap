@@ -5,21 +5,19 @@ import { Effect, Redacted, Schema } from "effect";
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { RegistryStorage } from "./storage.js";
 import { Ed25519PublicKey } from "../agent-key.js";
-import { parseCanonicalJson } from "../canonical-json.js";
 import {
   AuthenticationFailedError,
   type InternalServerError,
   MalformedRequestError,
   OverloadedError,
   type UnavailableError,
-  VersionMismatchError,
+  type VersionMismatchError,
 } from "../http-errors.js";
 import {
   type VerifiedHttpSignature,
-  verifyHttpRequestSignature,
+  verifyBootstrapRequest,
 } from "../http-signature.js";
 import { hasCanonicalBase64UrlLength } from "../identifiers.js";
-import { WireVersions } from "../wire-versions.js";
 import {
   registrationBody,
   type RegistryRegisterRequest as RegistryRegisterRequestValue,
@@ -73,25 +71,12 @@ export function verifyBootstrapRegistration(
   | InternalServerError
 > {
   return Effect.gen(function* () {
-    const parsedBody = yield* malformedRequest(
-      parseCanonicalJson(new Uint8Array(input.bodyBytes)),
-    );
-    const minimum = yield* malformedRequest(
-      Schema.decodeUnknown(minimumRegistrationBody)(parsedBody),
-    );
-    yield* requireAdmissionCredential(input);
-    const publicKey = yield* authenticatePublicKey(minimum.request.publicKey);
-    const signature = yield* verifyHttpRequestSignature({
+    const { parsedBody } = yield* verifyBootstrapRequest({
       httpRequest: input.httpRequest,
       bodyBytes: input.bodyBytes,
-      publicKey,
-      profile: "registration",
+      admitPublicKey: (body) => admitPublicKey(input, body),
+      claimNonce: (signature) => claimNonce(input, signature),
     });
-    yield* claimNonce(input, signature);
-    const version = input.httpRequest.headers["sharness-version"];
-    if (version === undefined || !(yield* WireVersions.live(version))) {
-      return yield* new VersionMismatchError();
-    }
     const complete = yield* malformedRequest(
       Schema.decodeUnknown(registrationBody)(parsedBody, {
         exact: true,
@@ -100,6 +85,19 @@ export function verifyBootstrapRegistration(
     );
     return complete.request;
   }).pipe(Effect.withSpan("verifyBootstrapRegistration"));
+}
+
+function admitPublicKey(
+  input: BootstrapRegistrationInput,
+  parsedBody: unknown,
+) {
+  return Effect.gen(function* () {
+    const minimum = yield* malformedRequest(
+      Schema.decodeUnknown(minimumRegistrationBody)(parsedBody),
+    );
+    yield* requireAdmissionCredential(input);
+    return yield* authenticatePublicKey(minimum.request.publicKey);
+  });
 }
 
 function malformedRequest<A, E, R>(

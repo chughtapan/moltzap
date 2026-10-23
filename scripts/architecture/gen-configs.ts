@@ -478,7 +478,7 @@ const architectureConfigDefinitions: ReadonlyArray<{
           {
             file: "agent-card.ts",
             reason:
-              "Immutable Registry attestation boundary for issuance, verification, encoding, and digest operations",
+              "Immutable Registry attestation boundary for verification and digest operations",
           },
           {
             file: "agent-key.ts",

@@ -6,9 +6,8 @@ import {
   HttpServerResponse,
 } from "@effect/platform";
 import { NodeHttpServerRequest } from "@effect/platform-node";
-import { Cause, Effect, Option, Schema } from "effect";
+import { Cause, Effect, Option } from "effect";
 import type { RegistryStorage } from "./storage.js";
-import { decodeCanonicalJson, encodeCanonicalJson } from "../canonical-json.js";
 import {
   httpEnvelope,
   type HttpEnvelopeError,
@@ -29,17 +28,15 @@ import {
   LIST_BODY_CAP,
   LIST_PATH,
   LIST_ROUTE,
-  listResponseSchema,
   LOOKUP_BODY_CAP,
   LOOKUP_PATH,
   LOOKUP_ROUTE,
-  lookupResponseSchema,
   REGISTER_BODY_CAP,
   REGISTER_PATH,
   REGISTER_ROUTE,
-  registerResponseSchema,
-  RegistryListRequest,
-  RegistryLookupRequest,
+  registryListCodec,
+  registryLookupCodec,
+  registryRegisterCodec,
 } from "./contract.js";
 import { type RegistryRpcClient, withBootstrapAdmission } from "./rpc.js";
 
@@ -97,8 +94,8 @@ function lookupRoute(input: RegistryHttpAppInput) {
     publicReadHandler({
       path: LOOKUP_PATH,
       bodyCap: LOOKUP_BODY_CAP,
-      requestSchema: RegistryLookupRequest,
-      resultSchema: lookupResponseSchema,
+      decodeRequest: registryLookupCodec.request.decode,
+      encodeResponse: registryLookupCodec.response.encode,
       invoke: (request) => input.client.lookup(request),
       requestSemaphore: input.requestSemaphore,
     }),
@@ -111,8 +108,8 @@ function listRoute(input: RegistryHttpAppInput) {
     publicReadHandler({
       path: LIST_PATH,
       bodyCap: LIST_BODY_CAP,
-      requestSchema: RegistryListRequest,
-      resultSchema: listResponseSchema,
+      decodeRequest: registryListCodec.request.decode,
+      encodeResponse: registryListCodec.response.encode,
       invoke: (request) => input.client.list(request),
       requestSemaphore: input.requestSemaphore,
     }),
@@ -190,23 +187,24 @@ function registerHandler(input: {
           const result = yield* withBootstrapAdmission(
             input.client.register(registration),
           );
-          return yield* resultResponse(registerResponseSchema, result);
+          return yield* resultResponse(
+            registryRegisterCodec.response.encode(result),
+          );
         }),
       );
     }),
   );
 }
 
-function publicReadHandler<
-  Request,
-  RequestEncoded,
-  Result,
-  ResultEncoded,
->(input: {
+function publicReadHandler<Request, Result, DecodeError, EncodeError>(input: {
   readonly path: string;
   readonly bodyCap: number;
-  readonly requestSchema: Schema.Schema<Request, RequestEncoded>;
-  readonly resultSchema: Schema.Schema<Result, ResultEncoded>;
+  readonly decodeRequest: (
+    bytes: Uint8Array,
+  ) => Effect.Effect<Request, DecodeError>;
+  readonly encodeResponse: (
+    result: Result,
+  ) => Effect.Effect<Uint8Array, EncodeError>;
   readonly invoke: (
     request: Request,
   ) => Effect.Effect<Result, HttpEnvelopeError>;
@@ -231,15 +229,12 @@ function publicReadHandler<
           if (version === undefined || !(yield* WireVersions.live(version))) {
             return yield* new VersionMismatchError();
           }
-          const decoded = yield* decodeCanonicalJson(
-            input.requestSchema,
-            bodyBytes,
-          ).pipe(
+          const decoded = yield* input.decodeRequest(bodyBytes).pipe(
             // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Every canonical body or request-schema failure has the same public malformed-request meaning.
             Effect.mapError(() => new MalformedRequestError()),
           );
           const result = yield* input.invoke(decoded);
-          return yield* resultResponse(input.resultSchema, result);
+          return yield* resultResponse(input.encodeResponse(result));
         }),
       );
     }),
@@ -428,12 +423,10 @@ function readBoundedBody(
   });
 }
 
-function resultResponse<A, I>(
-  schema: Schema.Schema<A, I>,
-  value: A,
+function resultResponse<E>(
+  encoded: Effect.Effect<Uint8Array, E>,
 ): Effect.Effect<HttpServerResponse.HttpServerResponse, InternalServerError> {
-  return Schema.encode(schema)(value).pipe(
-    Effect.flatMap(encodeCanonicalJson),
+  return encoded.pipe(
     Effect.map((bytes) => jsonResponse(bytes, 200)),
     // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Response serialization is an internal closed boundary with no client-actionable detail.
     Effect.mapError(() => new InternalServerError()),
