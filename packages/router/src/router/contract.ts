@@ -334,6 +334,15 @@ export const routerHttpErrorEnvelope = (
 ): Readonly<{ status: number; body: string }> | undefined =>
   isRouterHttpErrorTag(tag) ? routerHttpErrors[tag] : undefined;
 
+/** Whether text is the JCS encoding of encoded. */
+export const isCanonicalRouterJson = (
+  text: string,
+  encoded: unknown,
+): boolean => {
+  const canonical = canonicalize(encoded);
+  return canonical !== undefined && text === canonical;
+};
+
 /**
  * Decodes one exact status and body pair into its typed Router failure.
  *
@@ -348,18 +357,16 @@ export const routerHttpErrorFromResponse = (
   if (status === 412) {
     return Schema.decodeUnknownOption(
       Schema.parseJson(
-        Schema.Struct({
+        closedStruct({
           error: Schema.Literal("version_mismatch"),
-          supported: Schema.optional(Schema.Array(Schema.String)),
+          supported: Schema.NonEmptyArray(
+            Schema.String.pipe(Schema.pattern(/^\d{4}\.\d{3,4}\.\d+$/)),
+          ),
         }),
       ),
-    )(body, { onExcessProperty: "error" }).pipe(
-      Option.map(
-        ({ supported }) =>
-          new VersionMismatchError(
-            supported === undefined ? {} : { supported },
-          ),
-      ),
+    )(body).pipe(
+      Option.filter((value) => isCanonicalRouterJson(body, value)),
+      Option.map(({ supported }) => new VersionMismatchError({ supported })),
     );
   }
   const representation = Object.values(routerHttpErrors).find(

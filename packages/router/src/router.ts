@@ -16,7 +16,6 @@ import {
   legacyKeys,
   SignedMessage,
 } from "@moltzap/identity";
-import canonicalize from "canonicalize";
 import {
   Config,
   type ConfigError,
@@ -30,6 +29,7 @@ import {
   Schema,
 } from "effect";
 import {
+  isCanonicalRouterJson,
   type RouterClientError,
   RouterConnectionError,
   type RouterHttpEnvelopeError,
@@ -152,8 +152,7 @@ const decodeCanonicalResult = <A, I>(
     const encoded = yield* Schema.encode(schema)(result).pipe(
       Effect.mapError(invalidResponse),
     );
-    const canonical = canonicalize(encoded);
-    if (canonical === undefined || text !== canonical) {
+    if (!isCanonicalRouterJson(text, encoded)) {
       return yield* Effect.fail(invalidResponse());
     }
     return result;

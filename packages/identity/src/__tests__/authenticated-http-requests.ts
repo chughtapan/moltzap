@@ -1,6 +1,6 @@
 /** @file Signed-request helpers shared by the AuthenticatedHttp tests. */
 import { HttpClientRequest, HttpServerRequest } from "@effect/platform";
-import { Effect, Layer, Match } from "effect";
+import { Clock, Effect, Layer, Match, Schema } from "effect";
 import type { VerifiedAgentCard } from "../agent-card.js";
 import type { AgentId as AgentIdValue } from "../identifiers.js";
 import type {
@@ -89,12 +89,15 @@ export const registryWithLookup = (
 /** AuthenticatedHttp over `registry`, with small test capacities. */
 export const authenticatedHttpLayerWithRegistry = (
   registry: RegistryClientService,
-  registryLookupConcurrencyLimit = 4,
+  options: {
+    readonly registryLookupConcurrencyLimit?: number;
+    readonly agentCardCacheCapacity?: number;
+  } = {},
 ) =>
   AuthenticatedHttp.layer({
     liveNonceCapacity: 64,
-    agentCardCacheCapacity: 8,
-    registryLookupConcurrencyLimit,
+    agentCardCacheCapacity: options.agentCardCacheCapacity ?? 8,
+    registryLookupConcurrencyLimit: options.registryLookupConcurrencyLimit ?? 4,
   }).pipe(Layer.provide(Layer.succeed(Registry, registry)));
 
 /** Verifies `prepared` as the server would. */
@@ -133,3 +136,32 @@ export const verifyThroughLookupResult = (
     );
     return { fixture, verified };
   }).pipe(Effect.withSpan("verifyThroughLookupResult"));
+
+/** Keeps signature time fixed while deadlines use live timers. */
+export const clockAt = (milliseconds: number): Clock.Clock => {
+  const live = Clock.make();
+  return {
+    [Clock.ClockTypeId]: Clock.ClockTypeId,
+    unsafeCurrentTimeMillis: () => milliseconds,
+    currentTimeMillis: Effect.succeed(milliseconds),
+    unsafeCurrentTimeNanos: () => BigInt(milliseconds) * 1_000_000n,
+    currentTimeNanos: Effect.succeed(BigInt(milliseconds) * 1_000_000n),
+    sleep: (duration) => live.sleep(duration),
+  };
+};
+
+/** Reads the signed expiry so boundary tests follow the request's interval. */
+export const signatureExpiry = (prepared: PreparedRequest): number => {
+  const signatureInput =
+    prepared.serverRequest.headers["signature-input"] ?? "";
+  const match = /;expires=(\d+)/u.exec(signatureInput);
+  const encodedExpiry = match?.[1];
+  if (encodedExpiry === undefined) {
+    throw new Error("signed request is missing its expiry");
+  }
+  const expiry = Schema.NumberFromString.pipe(
+    Schema.int(),
+    Schema.nonNegative(),
+  );
+  return Schema.decodeUnknownSync(expiry)(encodedExpiry);
+};
