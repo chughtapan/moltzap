@@ -315,7 +315,7 @@ const requiredHeader = (headers: Headers.Headers, name: string): string => {
   return value;
 };
 
-const signatureParameterMutations = (
+const structuredFieldDuplicateMutations = (
   prepared: PreparedRequest,
 ): readonly RequestMutation[] => {
   const headers = prepared.serverRequest.headers;
@@ -452,7 +452,7 @@ it("produces an RFC 9421 proof and rejects covered-field mutations", () =>
     }),
   ));
 
-it("rejects invalid signature parameters and duplicate members without claiming the nonce", () =>
+it("rejects duplicate structured signature members without claiming the nonce", () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const fixture = yield* makeIdentityFixture;
@@ -464,7 +464,7 @@ it("rejects invalid signature parameters and duplicate members without claiming 
       const prepared = yield* prepareRequest({ fixture });
       const verifyDuplicates = Effect.gen(function* () {
         yield* Effect.forEach(
-          signatureParameterMutations(prepared),
+          structuredFieldDuplicateMutations(prepared),
           assertAuthenticationMutationRejected,
           { concurrency: 1, discard: true },
         );

@@ -201,6 +201,12 @@ type CardResolutionError =
   | OverloadedError
   | UnavailableError;
 
+/** In-flight card lookups, keyed by agent, each awaited by later callers. */
+type PendingResolutions = ReadonlyMap<
+  AgentIdValue,
+  Deferred.Deferred<VerifiedAgentCard, CardResolutionError>
+>;
+
 type RegistryLookup = (request: {
   readonly agentId: AgentIdValue;
 }) => Effect.Effect<RegistryLookupResult, unknown>;
@@ -232,12 +238,7 @@ interface CardResolutionSettings {
 }
 
 interface CardResolverDependencies {
-  readonly pendingResolutions: Ref.Ref<
-    ReadonlyMap<
-      AgentIdValue,
-      Deferred.Deferred<VerifiedAgentCard, CardResolutionError>
-    >
-  >;
+  readonly pendingResolutions: Ref.Ref<PendingResolutions>;
   readonly cards: BoundedCache<AgentIdValue, VerifiedAgentCard>;
   readonly lookup: RegistryLookup;
   readonly lookupPermits: Effect.Semaphore;
@@ -252,12 +253,7 @@ function makeCardResolver(
   ) => Effect.Effect<VerifiedAgentCard, CardResolutionError>
 > {
   return Effect.gen(function* () {
-    const pendingResolutions = yield* Ref.make<
-      ReadonlyMap<
-        AgentIdValue,
-        Deferred.Deferred<VerifiedAgentCard, CardResolutionError>
-      >
-    >(new Map());
+    const pendingResolutions = yield* Ref.make<PendingResolutions>(new Map());
     const lookupPermits = yield* Effect.makeSemaphore(
       settings.lookupConcurrencyLimit,
     );
@@ -416,27 +412,14 @@ function resolveLookupAttempt(
  * cache access and pending-resolution decisions cannot interleave.
  */
 function beginCardResolution(
-  pendingResolutions: Ref.Ref<
-    ReadonlyMap<
-      AgentIdValue,
-      Deferred.Deferred<VerifiedAgentCard, CardResolutionError>
-    >
-  >,
+  pendingResolutions: Ref.Ref<PendingResolutions>,
   cards: BoundedCache<AgentIdValue, VerifiedAgentCard>,
   agentId: AgentIdValue,
   candidate: Deferred.Deferred<VerifiedAgentCard, CardResolutionError>,
 ): Effect.Effect<CacheAccess> {
   return Ref.modify(
     pendingResolutions,
-    (
-      current,
-    ): readonly [
-      CacheAccess,
-      ReadonlyMap<
-        AgentIdValue,
-        Deferred.Deferred<VerifiedAgentCard, CardResolutionError>
-      >,
-    ] => {
+    (current): readonly [CacheAccess, PendingResolutions] => {
       const card = cards.get(agentId);
       if (Option.isSome(card)) {
         return [{ kind: "cached", card: card.value }, current] as const;
@@ -454,12 +437,7 @@ function beginCardResolution(
 }
 
 function removePendingResolution(
-  pendingResolutions: Ref.Ref<
-    ReadonlyMap<
-      AgentIdValue,
-      Deferred.Deferred<VerifiedAgentCard, CardResolutionError>
-    >
-  >,
+  pendingResolutions: Ref.Ref<PendingResolutions>,
   agentId: AgentIdValue,
 ): Effect.Effect<void> {
   return Ref.update(pendingResolutions, (current) => {
