@@ -289,6 +289,8 @@ Registry status.
 Before a domain result, Router uses the exact AuthenticatedHttp order
 and mapping:
 
+`supported` lists the server's live wire versions.
+
 | Status | Exact body |
 |---:|---|
 | 400 | `{"error":"malformed"}` |

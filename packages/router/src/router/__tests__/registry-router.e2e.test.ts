@@ -43,6 +43,10 @@ import {
   type RouterSendRequest,
   type RouterSendResult,
 } from "../../index.js";
+import {
+  makeRouterRunner,
+  testVersionMismatchRoundTrips,
+} from "./client-version-roundtrip.js";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const ADMISSION_CREDENTIAL = "registry-router-e2e-admission";
@@ -383,15 +387,6 @@ const makeRegistryRunner = (
     requestTimeout: Duration.seconds(5),
   }).pipe(Layer.provide(NodeHttpClient.layer));
   return (effect) => effect.pipe(Effect.provide(registryLayer));
-};
-
-const makeRouterRunner = (origin: URL): RouterRunner => {
-  const routerLayer = Router.layer({
-    origin,
-    sendTimeout: Duration.seconds(5),
-    pollTimeout: Duration.seconds(35),
-  }).pipe(Layer.provide(NodeHttpClient.layer));
-  return (effect) => effect.pipe(Effect.provide(routerLayer));
 };
 
 const signAuthenticatedRequest = (
@@ -1115,3 +1110,7 @@ it("registers identities and preserves opaque multicast behavior across Router r
   expect.hasAssertions();
   return Effect.runPromise(runEndToEndBehavior);
 }, 120_000);
+
+testVersionMismatchRoundTrips(
+  startInfrastructure.pipe(Effect.tap(startRouter)),
+);

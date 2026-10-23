@@ -62,9 +62,10 @@ it("preserves the supported versions from a canonical 412", () =>
         Either.match(outcome, {
           onLeft: (error) => {
             expect(error).toBeInstanceOf(VersionMismatchError);
-            if (error._tag === "VersionMismatchError") {
-              expect(error.supported).toEqual(supportedVersions);
-            }
+            expect(error).toMatchObject({
+              _tag: "VersionMismatchError",
+              supported: supportedVersions,
+            });
           },
           onRight: () => expect.fail("412 response was accepted as success"),
         });
@@ -83,6 +84,16 @@ it.each([
   [
     "JSON escape",
     '{"error":"version\\u005fmismatch","supported":["2099.101.0"]}',
+  ],
+  ["empty supported", '{"error":"version_mismatch","supported":[]}'],
+  [
+    "invalid wire version",
+    '{"error":"version_mismatch","supported":["invalid"]}',
+  ],
+  ["lone surrogate", '{"error":"version_mismatch","supported":["\\ud800"]}'],
+  [
+    "BOM prefix",
+    '\ufeff{"error":"version_mismatch","supported":["2099.101.0"]}',
   ],
   ["missing supported", '{"error":"version_mismatch"}'],
   [
