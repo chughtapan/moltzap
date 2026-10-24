@@ -3,11 +3,11 @@
 import { type Client, fromJsonSchema } from "@modelcontextprotocol/client";
 import { Effect, Queue, Stream, Take } from "effect";
 import { ListenError } from "../../communication/conversations/errors.js";
-import { decodePollResult, type PollResult } from "../protocol/index.js";
 import {
   HARNESS_CONSUMER_META_KEY,
   INBOX_ITEM_EVENT,
 } from "../protocol/names.js";
+import { decodePollResult, type PollResult } from "../protocol/operations.js";
 import { listenFailure } from "./failures.js";
 
 const resultSchema = fromJsonSchema({ type: "object" });

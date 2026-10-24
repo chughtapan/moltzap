@@ -139,7 +139,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`decodeHarnessMessageReadyEvent`](./harness/protocol/operations.ts#L242)
+### [`decodeHarnessMessageReadyEvent`](./harness/protocol/operations.ts#L303)
 
 _Function_
 
@@ -153,7 +153,7 @@ Decode one exact pending-delivery notification payload.
 
 **Returns:** The validated pending delivery.
 
-### [`decodeHarnessReadInboxResult`](./harness/protocol/operations.ts#L151)
+### [`decodeHarnessReadInboxResult`](./harness/protocol/operations.ts#L212)
 
 _Variable_
 
@@ -164,7 +164,7 @@ export const decodeHarnessReadInboxResult =
 
 Decode a bounded inbox page received through the MCP transport.
 
-### [`decodeHarnessSendErrorData`](./harness/protocol/operations.ts#L253)
+### [`decodeHarnessSendErrorData`](./harness/protocol/operations.ts#L314)
 
 _Function_
 
@@ -178,7 +178,7 @@ Decode the error data of one refused `send_message` call.
 
 **Returns:** The collective failure or send reason it carries.
 
-### [`decodeHarnessSendResult`](./harness/protocol/operations.ts#L275)
+### [`decodeHarnessSendResult`](./harness/protocol/operations.ts#L336)
 
 _Function_
 

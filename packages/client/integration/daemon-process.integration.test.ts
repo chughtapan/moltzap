@@ -72,9 +72,11 @@ function requireDelivery(
   });
 }
 
-/** The next delivery on `stream`. */
+/** Accepts the next delivery before its owning subscription closes. */
 function nextDelivery<E>(stream: Stream.Stream<InboundDelivery, E>) {
-  return Stream.runHead(stream).pipe(Effect.flatMap(requireDelivery));
+  return Stream.runHead(
+    stream.pipe(Stream.tap((delivery) => delivery.acknowledge)),
+  ).pipe(Effect.flatMap(requireDelivery));
 }
 
 /**
@@ -175,7 +177,6 @@ const deliverDirect = (input: {
           content: [{ type: "text", text: input.text }],
         },
       });
-      yield* inbound.acknowledge;
     }),
   );
 
@@ -418,7 +419,6 @@ const processBehavior = Effect.gen(function* () {
           content: [{ type: "text", text: initialText }],
         },
       });
-      yield* targetInbound.acknowledge;
 
       yield* target.send({ to: callerAddress, text: responseText });
       const callerInbound = yield* Fiber.join(callerDelivery);
@@ -431,7 +431,6 @@ const processBehavior = Effect.gen(function* () {
           content: [{ type: "text", text: responseText }],
         },
       });
-      yield* callerInbound.acknowledge;
     }),
   );
 
@@ -484,7 +483,6 @@ const processBehavior = Effect.gen(function* () {
           ],
         },
       });
-      yield* incoming.acknowledge;
 
       const callerDelivery = yield* Effect.forkScoped(
         nextDelivery(caller.messages),
@@ -503,7 +501,6 @@ const processBehavior = Effect.gen(function* () {
           ],
         },
       });
-      yield* reply.acknowledge;
     }),
   );
 }).pipe(Effect.scoped);

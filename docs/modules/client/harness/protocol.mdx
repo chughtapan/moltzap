@@ -13,7 +13,7 @@ Daemon MCP schemas and ports; hosts use the names and operations entrypoints.
 
 ## Public surface
 
-### [`decodeHarnessMessageReadyEvent`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/harness/protocol/operations.ts#L242)
+### [`decodeHarnessMessageReadyEvent`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/harness/protocol/operations.ts#L303)
 
 _Function_
 
@@ -27,7 +27,7 @@ Decode one exact pending-delivery notification payload.
 
 **Returns:** The validated pending delivery.
 
-### [`decodeHarnessReadInboxResult`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/harness/protocol/operations.ts#L151)
+### [`decodeHarnessReadInboxResult`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/harness/protocol/operations.ts#L212)
 
 _Variable_
 
@@ -38,7 +38,7 @@ export const decodeHarnessReadInboxResult =
 
 Decode a bounded inbox page received through the MCP transport.
 
-### [`decodeHarnessSendErrorData`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/harness/protocol/operations.ts#L253)
+### [`decodeHarnessSendErrorData`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/harness/protocol/operations.ts#L314)
 
 _Function_
 
@@ -52,7 +52,7 @@ Decode the error data of one refused `send_message` call.
 
 **Returns:** The collective failure or send reason it carries.
 
-### [`decodeHarnessSendResult`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/harness/protocol/operations.ts#L275)
+### [`decodeHarnessSendResult`](https://github.com/social-harness/moltzap/blob/main/packages/client/src/harness/protocol/operations.ts#L336)
 
 _Function_
 
