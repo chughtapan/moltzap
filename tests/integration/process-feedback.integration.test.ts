@@ -1,4 +1,6 @@
-/** @file Operator feedback through the installed process interface. */
+/** @file Operator feedback through the installed process interface.
+ * \@agent-code-guard/regression-only: Operator failures and release boundaries use explicit regression scenarios.
+ */
 
 import { Command } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";

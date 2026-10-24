@@ -210,6 +210,25 @@ export function rootEslintConfig(tsconfigRootDir: string) {
   ];
 }
 
+/** Process suites share strict rules regardless of their fixture's package of origin. */
+export function integrationEslintConfig(tsconfigRootDir: string) {
+  const languageOptions = makeTsLanguageOptions(tsconfigRootDir, [
+    "./tsconfig.json",
+    "./tsconfig.adapter-daemon.json",
+  ]);
+  return [
+    packageIgnores,
+    makeStrictBlock(["**/*.ts"], languageOptions, makeStrictRules()),
+    makePresetBlock(
+      ["**/*.integration.test.ts"],
+      languageOptions,
+      guard.configs.integrationTests,
+    ),
+    makeEslintDisableCommentRules(languageOptions),
+    configModuleRules,
+  ];
+}
+
 function makeTsLanguageOptions(
   tsconfigRootDir: string,
   project: readonly string[],

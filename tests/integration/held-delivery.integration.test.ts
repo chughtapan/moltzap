@@ -17,6 +17,7 @@ import {
   Stream,
 } from "effect";
 import { expect, it } from "vitest";
+import { expectCertifiedHistory } from "./certified-history.js";
 import {
   acquireDaemonManagementClient,
   acquireDaemonProcess,
@@ -27,6 +28,7 @@ import {
   makeRegistrationRequest,
   processTrace,
 } from "./daemon-process-harness.js";
+import { expectedPage, expectedRegistered } from "./expected-contracts.js";
 import { acquireRouterHoldProxy } from "./router-hold-proxy.js";
 
 /**
@@ -37,6 +39,7 @@ import { acquireRouterHoldProxy } from "./router-hold-proxy.js";
  * the trace sets itself, apart from its quiet windows.
  */
 const HELD_DELIVERY_TEST_TIMEOUT_MS = 180_000;
+
 const PARK_POLL_INTERVAL = Duration.millis(25);
 
 /**
@@ -46,39 +49,10 @@ const PARK_POLL_INTERVAL = Duration.millis(25);
 const QUIET_WINDOW = Duration.seconds(2);
 
 const heldText = "posted while the target link is held";
+
 const replyText = "reply after the held delivery is released";
+
 const followUpText = "follow-up in the recovered conversation";
-
-/** The certified content of one multicast: its text, then its operation part. */
-function multicastContent(text: string): Content {
-  return [
-    { type: "text", text },
-    {
-      type: "data",
-      value: {
-        "org.social-harness/collective": { kind: "operation", op: "multicast" },
-      },
-    },
-  ];
-}
-
-function directAddress(agentName: AgentName): AgentAddress {
-  return Schema.decodeUnknownSync(AgentAddress)(`agent:${agentName}`);
-}
-
-/** Points one daemon's Router traffic at the hold proxy instead of the Router. */
-function throughProxy(
-  fixture: DaemonProcessFixture,
-  routerOrigin: URL,
-): DaemonProcessFixture {
-  return {
-    ...fixture,
-    environment: {
-      ...fixture.environment,
-      SHARNESS_ROUTER_ORIGIN: routerOrigin.origin,
-    },
-  };
-}
 
 const registerFixture = (fixture: DaemonProcessFixture) =>
   Effect.scoped(
@@ -87,7 +61,7 @@ const registerFixture = (fixture: DaemonProcessFixture) =>
       const registered = yield* management.register(
         makeRegistrationRequest(fixture),
       );
-      expect(registered.kind).toBe("registered");
+      expect(registered.kind).toBe(expectedRegistered);
     }),
   );
 
@@ -104,7 +78,11 @@ const collectDeliveries = <E>(messages: Stream.Stream<InboundDelivery, E>) =>
 const expectQuiet = (inbox: Queue.Queue<InboundDelivery>) =>
   Effect.sleep(QUIET_WINDOW).pipe(
     Effect.zipRight(Queue.size(inbox)),
-    Effect.map((size) => expect(size).toBe(0)),
+    Effect.tap((size) =>
+      Effect.sync(() => {
+        expect(size).toBe(0);
+      }),
+    ),
   );
 
 /** Waits until the proxy parks a Router response for the held endpoint. */
@@ -120,7 +98,13 @@ const readHistory = (fixture: DaemonProcessFixture, address: AgentAddress) =>
   Effect.scoped(
     Effect.gen(function* () {
       const management = yield* acquireDaemonManagementClient(fixture.endpoint);
-      return yield* management.readConversation(address);
+      const history = yield* management.readConversation(address);
+      expect(history.kind).toBe(expectedPage);
+      expectCertifiedHistory(history.records, [
+        fixture.agentName,
+        address.slice("agent:".length),
+      ]);
+      return history;
     }),
   );
 
@@ -128,12 +112,10 @@ const readHistory = (fixture: DaemonProcessFixture, address: AgentAddress) =>
  * The held-delivery trace with each daemon's firewall, if any: a firewall
  * that passes every message changes nothing a peer or host sees.
  */
-const heldDeliveryBehavior = (
-  firewalls: {
-    readonly sender?: FirewallMode;
-    readonly target?: FirewallMode;
-  } = {},
-) =>
+const acquireHeldPair = (firewalls: {
+  readonly sender?: FirewallMode;
+  readonly target?: FirewallMode;
+}) =>
   Effect.gen(function* () {
     const infrastructure = yield* acquireProcessInfrastructure;
     const proxy = yield* acquireRouterHoldProxy(infrastructure.routerOrigin);
@@ -163,70 +145,170 @@ const heldDeliveryBehavior = (
     yield* registerFixture(senderFixture);
     yield* registerFixture(targetFixture);
 
+    return { proxy, senderFixture, targetFixture };
+  });
+
+const heldDeliveryBehavior = (
+  firewalls: {
+    readonly sender?: FirewallMode;
+    readonly target?: FirewallMode;
+  } = {},
+) =>
+  Effect.gen(function* () {
+    const pair = yield* acquireHeldPair(firewalls);
+    yield* Effect.scoped(
+      waitForHeldDelivery(pair).pipe(
+        Effect.flatMap(releaseHeldDelivery),
+        Effect.flatMap(followUpHeldDelivery),
+      ),
+    );
+    yield* readHeldHistory(pair);
+  }).pipe(Effect.scoped);
+
+it(
+  "recovers a delivery held after Router ordering between real daemons",
+  processTrace(heldDeliveryBehavior()),
+  HELD_DELIVERY_TEST_TIMEOUT_MS,
+);
+
+it(
+  "recovers a held delivery the same way between daemons with firewalls in both modes",
+  processTrace(
+    heldDeliveryBehavior({ sender: "guidance", target: "enforcement" }),
+  ),
+  HELD_DELIVERY_TEST_TIMEOUT_MS,
+);
+
+/** Points one daemon's Router traffic at the hold proxy instead of the Router. */
+function throughProxy(
+  fixture: DaemonProcessFixture,
+  routerOrigin: URL,
+): DaemonProcessFixture {
+  return {
+    ...fixture,
+    environment: {
+      ...fixture.environment,
+      SHARNESS_ROUTER_ORIGIN: routerOrigin.origin,
+    },
+  };
+}
+
+function waitForHeldDelivery(
+  pair: Effect.Effect.Success<ReturnType<typeof acquireHeldPair>>,
+) {
+  return Effect.gen(function* () {
+    const { proxy, senderFixture, targetFixture } = pair;
     const senderAddress = directAddress(senderFixture.agentName);
     const targetAddress = directAddress(targetFixture.agentName);
-    yield* Effect.scoped(
-      Effect.gen(function* () {
-        const sender = yield* acquireHarnessEndpoint(senderFixture.endpoint);
-        const target = yield* acquireHarnessEndpoint(targetFixture.endpoint);
-        const senderInbox = yield* collectDeliveries(sender.messages);
-        const targetInbox = yield* collectDeliveries(target.messages);
+    const sender = yield* acquireHarnessEndpoint(senderFixture.endpoint);
+    const target = yield* acquireHarnessEndpoint(targetFixture.endpoint);
+    const senderInbox = yield* collectDeliveries(sender.messages);
+    const targetInbox = yield* collectDeliveries(target.messages);
 
-        yield* proxy.hold;
-        yield* Effect.addFinalizer(() => proxy.release);
-        const heldSend = yield* Effect.forkScoped(
-          sender.send({ to: targetAddress, text: heldText }),
-        );
-        yield* awaitParkedResponse(proxy.parkedResponses);
-        yield* expectQuiet(targetInbox);
-        expect(yield* Queue.size(targetInbox)).toBe(0);
-
-        yield* proxy.release;
-        const released = yield* Queue.take(targetInbox);
-        expect(released.item).toMatchObject({
-          kind: "multicast",
-          message: {
-            kind: "direct",
-            address: senderAddress,
-            sender: senderAddress,
-            content: [{ type: "text", text: heldText }],
-          },
-        });
-        yield* released.acknowledge;
-        yield* Fiber.join(heldSend);
-
-        yield* target.send({ to: senderAddress, text: replyText });
-        const reply = yield* Queue.take(senderInbox);
-        expect(reply.item).toMatchObject({
-          kind: "multicast",
-          message: {
-            kind: "direct",
-            address: targetAddress,
-            sender: targetAddress,
-            content: [{ type: "text", text: replyText }],
-          },
-        });
-        yield* reply.acknowledge;
-
-        yield* sender.send({ to: targetAddress, text: followUpText });
-        const followUp = yield* Queue.take(targetInbox);
-        expect(followUp.item).toMatchObject({
-          kind: "multicast",
-          message: {
-            kind: "direct",
-            address: senderAddress,
-            sender: senderAddress,
-            content: [{ type: "text", text: followUpText }],
-          },
-        });
-        yield* followUp.acknowledge;
-
-        yield* expectQuiet(targetInbox);
-        expect(yield* Queue.size(senderInbox)).toBe(0);
-        expect(yield* proxy.parkedResponses).toBe(1);
-      }),
+    yield* proxy.hold;
+    yield* Effect.addFinalizer(() => proxy.release);
+    const heldSend = yield* Effect.forkScoped(
+      sender.send({ to: targetAddress, text: heldText }),
     );
+    yield* awaitParkedResponse(proxy.parkedResponses);
+    yield* expectQuiet(targetInbox);
+    expect(yield* Queue.size(targetInbox)).toBe(0);
 
+    return {
+      proxy,
+      sender,
+      target,
+      senderInbox,
+      targetInbox,
+      senderAddress,
+      targetAddress,
+      heldSend,
+    };
+  });
+}
+
+function releaseHeldDelivery(
+  state: Effect.Effect.Success<ReturnType<typeof waitForHeldDelivery>>,
+) {
+  return Effect.gen(function* () {
+    const {
+      proxy,
+      targetInbox,
+      heldSend,
+      target,
+      senderAddress,
+      senderInbox,
+      targetAddress,
+    } = state;
+    yield* proxy.release;
+    const released = yield* Queue.take(targetInbox);
+    expect(released.item).toMatchObject({
+      kind: "multicast",
+      message: {
+        kind: "direct",
+        address: senderAddress,
+        sender: senderAddress,
+        content: [{ type: "text", text: heldText }],
+      },
+    });
+    yield* released.acknowledge;
+    yield* Fiber.join(heldSend);
+
+    yield* target.send({ to: senderAddress, text: replyText });
+    const reply = yield* Queue.take(senderInbox);
+    expect(reply.item).toMatchObject({
+      kind: "multicast",
+      message: {
+        kind: "direct",
+        address: targetAddress,
+        sender: targetAddress,
+        content: [{ type: "text", text: replyText }],
+      },
+    });
+    yield* reply.acknowledge;
+
+    return state;
+  });
+}
+
+function followUpHeldDelivery(
+  state: Effect.Effect.Success<ReturnType<typeof releaseHeldDelivery>>,
+) {
+  return Effect.gen(function* () {
+    const {
+      proxy,
+      sender,
+      targetAddress,
+      targetInbox,
+      senderAddress,
+      senderInbox,
+    } = state;
+    yield* sender.send({ to: targetAddress, text: followUpText });
+    const followUp = yield* Queue.take(targetInbox);
+    expect(followUp.item).toMatchObject({
+      kind: "multicast",
+      message: {
+        kind: "direct",
+        address: senderAddress,
+        sender: senderAddress,
+        content: [{ type: "text", text: followUpText }],
+      },
+    });
+    yield* followUp.acknowledge;
+
+    yield* expectQuiet(targetInbox);
+    expect(yield* Queue.size(senderInbox)).toBe(0);
+    expect(yield* proxy.parkedResponses).toBe(1);
+  });
+}
+
+function readHeldHistory(
+  pair: Effect.Effect.Success<ReturnType<typeof acquireHeldPair>>,
+) {
+  return Effect.gen(function* () {
+    const { senderFixture, targetFixture } = pair;
+    const senderAddress = directAddress(senderFixture.agentName);
+    const targetAddress = directAddress(targetFixture.agentName);
     const expectedContents = [
       multicastContent(heldText),
       multicastContent(replyText),
@@ -246,18 +328,22 @@ const heldDeliveryBehavior = (
         ),
       ).toEqual(expectedContents);
     }
-  }).pipe(Effect.scoped);
+  });
+}
 
-it(
-  "recovers a delivery held after Router ordering between real daemons",
-  processTrace(heldDeliveryBehavior()),
-  HELD_DELIVERY_TEST_TIMEOUT_MS,
-);
+/** The certified content of one multicast: its text, then its operation part. */
+function multicastContent(text: string): Content {
+  return [
+    { type: "text", text },
+    {
+      type: "data",
+      value: {
+        "org.social-harness/collective": { kind: "operation", op: "multicast" },
+      },
+    },
+  ];
+}
 
-it(
-  "recovers a held delivery the same way between daemons with firewalls in both modes",
-  processTrace(
-    heldDeliveryBehavior({ sender: "guidance", target: "enforcement" }),
-  ),
-  HELD_DELIVERY_TEST_TIMEOUT_MS,
-);
+function directAddress(agentName: AgentName): AgentAddress {
+  return Schema.decodeUnknownSync(AgentAddress)(`agent:${agentName}`);
+}

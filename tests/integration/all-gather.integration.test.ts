@@ -12,24 +12,27 @@ import {
   type Participant,
   send,
 } from "./participants.js";
+import { anyNumber, anyString } from "./test-matchers.js";
 
-/**
- * Each test starts PGlite, the Registry, the Router and four daemons, and the
- * silent member's test waits out a deadline of several measured post rounds.
- * Beside a second full Client suite (load average 30 to 42 on 8 cores) that
- * test has taken 113 to 127 seconds, most of it process startup. Apart from
- * that measured deadline, the limit is the only wall-clock bound these traces
- * set themselves.
- */
-const ALL_GATHER_TEST_TIMEOUT_MS = 300_000;
-/**
- * The deadline of an all_gather every member answers: the test's own limit,
- * so only the answers close it and no deadline races them.
- */
-const ANSWERED_DEADLINE_SECONDS = ALL_GATHER_TEST_TIMEOUT_MS / 1000;
+/** The requester and the three members every all_gather trace starts. */
+const acquireFour = Effect.gen(function* () {
+  const [requester, first, second, third] = yield* acquireParticipants([
+    "all-gather-requester",
+    "all-gather-member-a",
+    "all-gather-member-b",
+    "all-gather-member-c",
+  ]);
+  if (requester === undefined || first === undefined) {
+    return yield* Effect.dieMessage("expected four participants");
+  }
+  if (second === undefined || third === undefined) {
+    return yield* Effect.dieMessage("expected four participants");
+  }
+  return { requester, first, second, third };
+});
+
 const question = "Which day works for the review?";
-const group =
-  "group:all-gather-member-a,all-gather-member-b,all-gather-member-c,all-gather-requester";
+
 const slotSchema = {
   type: "object",
   properties: { slot: { type: "string", enum: ["mon", "tue"] } },
@@ -43,31 +46,33 @@ const allGather = (requester: Participant, to: string, deadline: number) =>
     collective: { op: "all_gather", deadline, requestedSchema: slotSchema },
   });
 
+const group =
+  "group:all-gather-member-a,all-gather-member-b,all-gather-member-c,all-gather-requester";
+
+/**
+ * Each test starts PGlite, the Registry, the Router and four daemons, and the
+ * silent member's test waits out a deadline of several measured post rounds.
+ * Beside a second full Client suite (load average 30 to 42 on 8 cores) that
+ * test has taken 113 to 127 seconds, most of it process startup. Apart from
+ * that measured deadline, the limit is the only wall-clock bound these traces
+ * set themselves.
+ */
+const ALL_GATHER_TEST_TIMEOUT_MS = 300_000;
+
+/**
+ * The deadline of an all_gather every member answers: the test's own limit,
+ * so only the answers close it and no deadline races them.
+ */
+const ANSWERED_DEADLINE_SECONDS = ALL_GATHER_TEST_TIMEOUT_MS / 1000;
+
 const answer = (member: Participant, slot: string) =>
   send(member, {
     to: group,
     collectiveResponse: { action: "accept", content: { slot } },
   });
 
-/** The requester and the three members every all_gather trace starts. */
-const acquireFour = Effect.gen(function* () {
-  const [requester, first, second, third] = yield* acquireParticipants([
-    "all-gather-requester",
-    "all-gather-member-a",
-    "all-gather-member-b",
-    "all-gather-member-c",
-  ]);
-  return requester === undefined ||
-    first === undefined ||
-    second === undefined ||
-    third === undefined
-    ? yield* Effect.dieMessage("expected four participants")
-    : { requester, first, second, third };
-});
-
-const allAnsweredBehavior = Effect.gen(function* () {
+const allAnsweredRequester = Effect.gen(function* () {
   const { requester, first, second, third } = yield* acquireFour;
-
   const unreachable = yield* allGather(
     requester,
     "group:all-gather-member-a,all-gather-nobody,all-gather-requester",
@@ -80,53 +85,29 @@ const allAnsweredBehavior = Effect.gen(function* () {
       members: [{ member: "agent:all-gather-nobody", reason: "unknown-agent" }],
     },
   });
-
   const started = yield* allGather(requester, group, ANSWERED_DEADLINE_SECONDS);
   const request = {
     kind: "collectiveRequest",
     op: "all_gather",
     id: started.operationId,
-    postId: expect.any(String),
+    postId: anyString,
     from: requester.address,
     to: group,
     question,
     requestedSchema: slotSchema,
-    deadlineAt: expect.any(Number),
+    deadlineAt: anyNumber,
   };
   expect(yield* nextItem(first)).toEqual(request);
   expect(yield* nextItem(second)).toEqual(request);
   expect(yield* nextItem(third)).toEqual(request);
-
   yield* answer(first, "tue");
   yield* answer(second, "mon");
-  yield* send(third, {
-    to: group,
-    collectiveResponse: { action: "decline" },
-  });
+  return { requester, first, second, third, started };
+});
 
-  const requesterResult = yield* nextItem(requester);
-  expect(requesterResult).toEqual({
-    kind: "collectiveResult",
-    op: "all_gather",
-    id: started.operationId,
-    to: group,
-    question,
-    outcomes: [
-      {
-        member: first.address,
-        outcome: { kind: "answered", content: { slot: "tue" } },
-      },
-      {
-        member: second.address,
-        outcome: { kind: "answered", content: { slot: "mon" } },
-      },
-      { member: third.address, outcome: { kind: "declined" } },
-    ],
-  });
-  expect(yield* nextItem(first)).toEqual(requesterResult);
-  expect(yield* nextItem(second)).toEqual(requesterResult);
-  expect(yield* nextItem(third)).toEqual(requesterResult);
-}).pipe(Effect.scoped);
+const allAnsweredBehavior = allAnsweredRequester
+  .pipe(Effect.flatMap(allAnsweredRequesterResult))
+  .pipe(Effect.scoped);
 
 /**
  * Two members answer and the third stays silent, so the all_gather closes at
@@ -175,3 +156,37 @@ it(
   processTrace(silentMemberBehavior),
   ALL_GATHER_TEST_TIMEOUT_MS,
 );
+
+function allAnsweredRequesterResult(
+  state: Effect.Effect.Success<typeof allAnsweredRequester>,
+) {
+  return Effect.gen(function* () {
+    const { requester, first, second, third, started } = state;
+    yield* send(third, {
+      to: group,
+      collectiveResponse: { action: "decline" },
+    });
+    const requesterResult = yield* nextItem(requester);
+    expect(requesterResult).toEqual({
+      kind: "collectiveResult",
+      op: "all_gather",
+      id: started.operationId,
+      to: group,
+      question,
+      outcomes: [
+        {
+          member: first.address,
+          outcome: { kind: "answered", content: { slot: "tue" } },
+        },
+        {
+          member: second.address,
+          outcome: { kind: "answered", content: { slot: "mon" } },
+        },
+        { member: third.address, outcome: { kind: "declined" } },
+      ],
+    });
+    expect(yield* nextItem(first)).toEqual(requesterResult);
+    expect(yield* nextItem(second)).toEqual(requesterResult);
+    expect(yield* nextItem(third)).toEqual(requesterResult);
+  });
+}

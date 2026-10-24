@@ -13,22 +13,24 @@ import {
   type Participant,
   send,
 } from "./participants.js";
+import { anyNumber, anyString } from "./test-matchers.js";
 
-/**
- * Each test starts PGlite, the Registry, the Router and three daemons, and the
- * silent member's test waits out a deadline of several measured post rounds.
- * Beside a second full Client suite (load average 31 to 49 on 8 cores) that
- * test has taken 176 to 188 seconds, most of it process startup. Apart from
- * that measured deadline, the limit is the only wall-clock bound these traces
- * set themselves.
- */
-const GATHER_TEST_TIMEOUT_MS = 240_000;
-/**
- * The deadline of a gather every member answers: the test's own limit, so
- * only the answers close it and no deadline races them.
- */
-const ANSWERED_DEADLINE_SECONDS = GATHER_TEST_TIMEOUT_MS / 1000;
+const requireThree = (participants: readonly Participant[]) => {
+  const [requester, first, second] = participants;
+  return requester === undefined || first === undefined || second === undefined
+    ? Effect.dieMessage("expected three participants")
+    : Effect.succeed({ requester, first, second });
+};
+
+/** The requester and the two members every gather trace starts. */
+const acquireThree = acquireParticipants([
+  "gather-requester",
+  "gather-member-a",
+  "gather-member-b",
+]).pipe(Effect.flatMap(requireThree));
+
 const question = "Which day works for the review?";
+
 const slotSchema = {
   type: "object",
   properties: { slot: { type: "string", enum: ["mon", "tue"] } },
@@ -46,23 +48,24 @@ const gather = (
     collective: { op: "gather", deadline, requestedSchema: slotSchema },
   });
 
-const requireThree = (participants: readonly Participant[]) => {
-  const [requester, first, second] = participants;
-  return requester === undefined || first === undefined || second === undefined
-    ? Effect.dieMessage("expected three participants")
-    : Effect.succeed({ requester, first, second });
-};
+/**
+ * Each test starts PGlite, the Registry, the Router and three daemons, and the
+ * silent member's test waits out a deadline of several measured post rounds.
+ * Beside a second full Client suite (load average 31 to 49 on 8 cores) that
+ * test has taken 176 to 188 seconds, most of it process startup. Apart from
+ * that measured deadline, the limit is the only wall-clock bound these traces
+ * set themselves.
+ */
+const GATHER_TEST_TIMEOUT_MS = 240_000;
 
-/** The requester and the two members every gather trace starts. */
-const acquireThree = acquireParticipants([
-  "gather-requester",
-  "gather-member-a",
-  "gather-member-b",
-]).pipe(Effect.flatMap(requireThree));
+/**
+ * The deadline of a gather every member answers: the test's own limit, so
+ * only the answers close it and no deadline races them.
+ */
+const ANSWERED_DEADLINE_SECONDS = GATHER_TEST_TIMEOUT_MS / 1000;
 
-const allAnsweredBehavior = Effect.gen(function* () {
+const allAnsweredRequester = Effect.gen(function* () {
   const { requester, first, second } = yield* acquireThree;
-
   const unreachable = yield* send(requester, {
     to: `group:gather-member-a,gather-nobody,gather-requester`,
     text: question,
@@ -75,59 +78,31 @@ const allAnsweredBehavior = Effect.gen(function* () {
       members: [{ member: "agent:gather-nobody", reason: "unknown-agent" }],
     },
   });
-
   const started = yield* gather(
     requester,
     [first, second],
     ANSWERED_DEADLINE_SECONDS,
   );
-  /** The refused gather posted nothing, so the first item is this request. */
   const firstRequest = yield* nextItem(first);
   const secondRequest = yield* nextItem(second);
   expect(firstRequest).toEqual({
     kind: "collectiveRequest",
     op: "gather",
     id: started.operationId,
-    postId: expect.any(String),
+    postId: anyString,
     from: requester.address,
     to: requester.address,
     question,
     requestedSchema: slotSchema,
-    deadlineAt: expect.any(Number),
+    deadlineAt: anyNumber,
   });
   expect(secondRequest).toMatchObject({ id: started.operationId });
+  return { requester, first, second, started };
+});
 
-  const invalid = yield* send(first, {
-    to: requester.address,
-    collectiveResponse: { action: "accept", content: { slot: "sun" } },
-  }).pipe(Effect.flip);
-  expect(invalid).toMatchObject({
-    failure: { kind: "answer-invalid", fields: [{ field: "slot" }] },
-  });
-  yield* send(first, {
-    to: requester.address,
-    collectiveResponse: { action: "accept", content: { slot: "tue" } },
-  });
-  yield* send(second, {
-    to: requester.address,
-    collectiveResponse: { action: "decline" },
-  });
-
-  expect(yield* nextItem(requester)).toEqual({
-    kind: "collectiveResult",
-    op: "gather",
-    id: started.operationId,
-    to: "group:gather-member-a,gather-member-b,gather-requester",
-    question,
-    outcomes: [
-      {
-        member: first.address,
-        outcome: { kind: "answered", content: { slot: "tue" } },
-      },
-      { member: second.address, outcome: { kind: "declined" } },
-    ],
-  });
-}).pipe(Effect.scoped);
+const allAnsweredBehavior = allAnsweredRequester
+  .pipe(Effect.flatMap(allAnsweredInvalid))
+  .pipe(Effect.scoped);
 
 /**
  * The deadline is measured on a post to the group of every participant. The
@@ -177,3 +152,40 @@ it(
   processTrace(silentMemberBehavior),
   GATHER_TEST_TIMEOUT_MS,
 );
+
+function allAnsweredInvalid(
+  state: Effect.Effect.Success<typeof allAnsweredRequester>,
+) {
+  return Effect.gen(function* () {
+    const { requester, first, second, started } = state;
+    const invalid = yield* send(first, {
+      to: requester.address,
+      collectiveResponse: { action: "accept", content: { slot: "sun" } },
+    }).pipe(Effect.flip);
+    expect(invalid).toMatchObject({
+      failure: { kind: "answer-invalid", fields: [{ field: "slot" }] },
+    });
+    yield* send(first, {
+      to: requester.address,
+      collectiveResponse: { action: "accept", content: { slot: "tue" } },
+    });
+    yield* send(second, {
+      to: requester.address,
+      collectiveResponse: { action: "decline" },
+    });
+    expect(yield* nextItem(requester)).toEqual({
+      kind: "collectiveResult",
+      op: "gather",
+      id: started.operationId,
+      to: "group:gather-member-a,gather-member-b,gather-requester",
+      question,
+      outcomes: [
+        {
+          member: first.address,
+          outcome: { kind: "answered", content: { slot: "tue" } },
+        },
+        { member: second.address, outcome: { kind: "declined" } },
+      ],
+    });
+  });
+}
