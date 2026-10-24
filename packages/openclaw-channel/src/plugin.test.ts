@@ -188,6 +188,7 @@ function guidanceRemainsLocal() {
     Stream.succeed({
       item: multicast(message),
       guidance,
+      eventId: "unused-event-reference",
       acknowledge: Effect.void,
     }),
     events,
@@ -860,13 +861,18 @@ function withheldResultDelivery() {
     item,
     advice,
     guidance: { answers: [advice] },
+    eventId: "unused-event-reference",
     acknowledge: Effect.void,
   };
 }
 
 /** Run one item through the account's inbound path and return its dispatch. */
 function runItemTurn(item: InboundItem) {
-  return runDeliveryTurn({ item, acknowledge: Effect.void });
+  return runDeliveryTurn({
+    eventId: "unused-event-reference",
+    item,
+    acknowledge: Effect.void,
+  });
 }
 
 /** Run one delivery through the account's inbound path and return its dispatch. */
@@ -1084,6 +1090,7 @@ function makeInboundEndpoint(
   const deliveries = items.map(
     (item): InboundDelivery => ({
       item,
+      eventId: "unused-event-reference",
       acknowledge: Effect.sync(() => {
         events.push(`ack:${itemTurnId(item)}`);
       }),

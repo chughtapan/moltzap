@@ -88,6 +88,7 @@ function enqueue(fake: ReturnType<typeof makeEndpoint>, item: InboundItem) {
   Effect.runSync(
     Queue.offer(fake.inbox, {
       item,
+      eventId: "unused-event-reference",
       acknowledge: Effect.sync(() => {
         acknowledged();
       }),
