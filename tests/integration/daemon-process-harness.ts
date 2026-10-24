@@ -341,29 +341,13 @@ const canConnect = (port: number) =>
     }),
   );
 
-/** A PostgreSQL SSLRequest must receive the server's one-byte refusal before startup proceeds. */
-const postgresqlReady = (port: number) =>
-  Effect.async<boolean>((resume) => {
-    const socket = createConnection({ host: LOOPBACK_HOST, port });
-    const finish = (ready: boolean): void => {
-      socket.destroy();
-      resume(Effect.succeed(ready));
-    };
-    socket.once("connect", () => {
-      socket.write(Buffer.from([0, 0, 0, 8, 4, 210, 22, 47]));
-    });
-    socket.once("data", (data) => finish(data.length === 1 && data[0] === 78));
-    socket.once("error", () => finish(false));
-    socket.once("end", () => finish(false));
-    return Effect.sync(() => {
-      socket.destroy();
-    });
-  }).pipe(
-    Effect.timeoutTo({
-      duration: POLL_ATTEMPT_TIMEOUT,
-      onTimeout: () => false,
-      onSuccess: (ready) => ready,
-    }),
+/**
+ * PGlite announces its own listener only after its WASM database accepts
+ * connections, so another process holding the port cannot satisfy readiness.
+ */
+const pgliteListening = (running: RunningProcess, port: number) =>
+  Effect.sync(() =>
+    running.logs().includes(`PGLiteSocketServer listening on {"port":${port},`),
   );
 
 /** Whether `origin` answers its health check as ready. */
@@ -491,7 +475,6 @@ function serviceScript(
       : "@moltzap/client/service";
   return `import { NodeRuntime } from "@effect/platform-node";
 import { WireVersions } from "@moltzap/identity/test";
-import type { startRegistry } from "@moltzap/registry/test";
 import { ${service} } from "${module}";
 import { ConfigProvider, Effect, Layer } from "effect";
 Layer.launch(${service}.layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`;
@@ -514,7 +497,7 @@ export const startPgliteRegistry = (input: {
     ]);
     yield* awaitReady(
       postgresql,
-      postgresqlReady(input.postgresqlPort),
+      pgliteListening(postgresql, input.postgresqlPort),
       "listening",
     );
     const command: readonly [string, readonly string[]] = input.command ?? [
