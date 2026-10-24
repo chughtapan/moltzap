@@ -147,9 +147,9 @@ function exchange(from: DaemonProcessFixture, to: DaemonProcessFixture) {
     Effect.gen(function* () {
       const sender = yield* acquireHarnessEndpoint(from.endpoint);
       const receiver = yield* acquireHarnessEndpoint(to.endpoint);
-      const waiting = yield* Stream.runHead(receiver.messages).pipe(
-        Effect.forkScoped,
-      );
+      const waiting = yield* Stream.runHead(
+        receiver.messages.pipe(Stream.tap((delivery) => delivery.acknowledge)),
+      ).pipe(Effect.forkScoped);
       const text = `certified from ${from.agentName} to ${to.agentName}`;
       yield* sender.send({
         to: Schema.decodeUnknownSync(AgentAddress)(`agent:${to.agentName}`),
@@ -172,7 +172,6 @@ function exchange(from: DaemonProcessFixture, to: DaemonProcessFixture) {
         kind: "multicast",
         message: { content: [{ type: "text", text }] },
       });
-      yield* received.acknowledge;
     }),
   );
 }

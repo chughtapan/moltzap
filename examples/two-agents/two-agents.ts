@@ -124,7 +124,15 @@ const twoAgents = Effect.gen(function* () {
   const aliceEndpoint = yield* acquireHarnessEndpoint(alice.mcp);
   const bobEndpoint = yield* acquireHarnessEndpoint(bob.mcp);
   const firstDelivery = yield* Effect.forkScoped(
-    Stream.runHead(bobEndpoint.messages),
+    Stream.runHead(
+      bobEndpoint.messages.pipe(
+        Stream.tap((delivery) =>
+          Console.log(`bob received: ${describe(delivery.item)}`).pipe(
+            Effect.zipRight(delivery.acknowledge),
+          ),
+        ),
+      ),
+    ),
   );
 
   yield* aliceEndpoint.send(
@@ -132,7 +140,7 @@ const twoAgents = Effect.gen(function* () {
   );
   yield* Console.log(`alice sent: ${MESSAGE}`);
 
-  const delivery = yield* Fiber.join(firstDelivery).pipe(
+  yield* Fiber.join(firstDelivery).pipe(
     Effect.flatMap(
       Option.match({
         onNone: () => fail("bob's message stream ended before a delivery"),
@@ -140,8 +148,6 @@ const twoAgents = Effect.gen(function* () {
       }),
     ),
   );
-  yield* Console.log(`bob received: ${describe(delivery.item)}`);
-  yield* delivery.acknowledge;
 }).pipe(Effect.scoped, Effect.timeout(RUN_TIMEOUT));
 
 NodeRuntime.runMain(

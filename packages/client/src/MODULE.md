@@ -8,13 +8,14 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](./harness/endpoint/index.ts#L59)
+### [`acquireHarnessEndpoint`](./harness/endpoint/index.ts#L71)
 
 _Function_
 
 ```ts
 export function acquireHarnessEndpoint(
   endpoint: URL,
+  options?: HarnessEndpointOptions,
 ): Effect.Effect<HarnessEndpoint, ConnectError, Scope.Scope>
 ```
 
@@ -138,7 +139,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`decodeHarnessMessageReadyEvent`](./harness/protocol/operations.ts#L242)
+### [`decodeHarnessMessageReadyEvent`](./harness/protocol/operations.ts#L303)
 
 _Function_
 
@@ -152,7 +153,7 @@ Decode one exact pending-delivery notification payload.
 
 **Returns:** The validated pending delivery.
 
-### [`decodeHarnessReadInboxResult`](./harness/protocol/operations.ts#L151)
+### [`decodeHarnessReadInboxResult`](./harness/protocol/operations.ts#L212)
 
 _Variable_
 
@@ -163,7 +164,7 @@ export const decodeHarnessReadInboxResult =
 
 Decode a bounded inbox page received through the MCP transport.
 
-### [`decodeHarnessSendErrorData`](./harness/protocol/operations.ts#L253)
+### [`decodeHarnessSendErrorData`](./harness/protocol/operations.ts#L314)
 
 _Function_
 
@@ -177,7 +178,7 @@ Decode the error data of one refused `send_message` call.
 
 **Returns:** The collective failure or send reason it carries.
 
-### [`decodeHarnessSendResult`](./harness/protocol/operations.ts#L275)
+### [`decodeHarnessSendResult`](./harness/protocol/operations.ts#L336)
 
 _Function_
 
@@ -193,7 +194,7 @@ name.
 **Returns:** The operation id a gather names and the local firewall's guidance
 on the admitted send, each if any.
 
-### [`DeliveryAcknowledgeError`](./communication/conversations/errors.ts#L95)
+### [`DeliveryAcknowledgeError`](./communication/conversations/errors.ts#L99)
 
 _Class_
 
@@ -204,7 +205,9 @@ export class DeliveryAcknowledgeError extends Data.TaggedError(
   readonly reason: DeliveryAcknowledgeFailure;
 }> {
   override get message(): string {
-    return `delivery acknowledgment failed: ${this.reason}`;
+    return this.reason === "consumer-revoked"
+      ? "delivery acknowledgment failed: consumer-revoked. Recover unread work through a new subscription. Docs: https://github.com/social-harness/moltzap/blob/main/docs/spec/harness/ingress.md#polling-consumer"
+      : `delivery acknowledgment failed: ${this.reason}`;
   }
 }
 ```
@@ -289,7 +292,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](./harness/endpoint/capability.ts#L54)
+### [`HarnessEndpoint`](./harness/endpoint/capability.ts#L62)
 
 _Interface_
 
@@ -318,6 +321,20 @@ then completes and its error arrives as an `operationFailed` item on the
 stream. A multicast has no operation id, so its failure is always returned.
 A firewall refusal always returns on the send call before creating an intent,
 including when inbound failure delivery was requested.
+
+### [`HarnessEndpointOptions`](./harness/endpoint/capability.ts#L44)
+
+_Interface_
+
+```ts
+export interface HarnessEndpointOptions {
+  readonly credential: Redacted.Redacted;
+  /** Runs after consumer acquisition and renewal start, even when the inbox is empty. */
+  readonly onReady?: Effect.Effect<void>;
+}
+```
+
+Authenticated polling uses the runtime credential without exposing MCP details.
 
 ### [`HistoryExportRecord (type)`](./harness/inbox/history-export.ts#L54)
 
@@ -367,6 +384,7 @@ _Interface_
 export interface InboundDelivery {
   readonly item: InboundItem;
   readonly guidance?: LocalGuidance;
+  /** Valid only while this subscription owns receiving, including after cleanup fails. */
   readonly acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>;
 }
 ```
@@ -474,7 +492,7 @@ export function legacyKeys(
 
 Returns retired key names, including empty settings, without exposing values.
 
-### [`ListenError`](./communication/conversations/errors.ts#L74)
+### [`ListenError`](./communication/conversations/errors.ts#L75)
 
 _Class_
 
@@ -483,7 +501,9 @@ export class ListenError extends Data.TaggedError("ListenError")<{
   readonly reason: ListenFailure;
 }> {
   override get message(): string {
-    return `listen failed: ${this.reason}`;
+    return this.reason === "consumer-revoked"
+      ? "listen failed: consumer-revoked. Reacquire the subscription. Docs: https://github.com/social-harness/moltzap/blob/main/docs/spec/harness/ingress.md#polling-consumer"
+      : `listen failed: ${this.reason}`;
   }
 }
 ```
@@ -1599,7 +1619,9 @@ owns timeouts; the Effect is interruptible through response-body consumption.
 - `firewall/rules/README.md`
 - `harness/endpoint/capability.ts`
 - `harness/endpoint/events.ts`
+- `harness/endpoint/failures.ts`
 - `harness/endpoint/index.ts`
+- `harness/endpoint/poll.ts`
 - `harness/endpoint/README.md`
 - `harness/inbox/history-export.ts`
 - `harness/inbox/host-delivery.ts`
