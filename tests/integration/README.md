@@ -25,7 +25,7 @@ bind sockets.
 
 A successful lane reports its passing Vitest suites. The mixed-release lane
 requires npm access and reports a skip when no eligible previous release exists.
-CI runs process and adapter suites in `test` and adjacent-release checks in
+CI runs process and adapter suites in `integration` and adjacent-release checks in
 `mixed-release`; `ci` runs the workspace lint and graph checks.
 
 The `daemon-process-harness.ts` helpers compose disposable services and daemons.

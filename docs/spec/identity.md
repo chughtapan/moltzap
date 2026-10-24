@@ -901,13 +901,15 @@ otherwise.
 
 The private Registry package exposes `@moltzap/registry/test` only under the
 `sharness-test` condition. Its sole runtime export is
-`startRegistry({ emitted?, live, history })`, which launches the Registry using
+`startRegistry({ emitted, live, history })`, which launches the Registry using
 those wire compatibility sets and the ordinary Registry environment settings.
-The default emitted version is the package's `WIRE_VERSION`.
+The supplied `emitted` is the process's signing version and `live` is its effective
+live acceptance set. The effective history set is the union of supplied `history`
+and Identity's built-in `HISTORY_WIRE_VERSIONS`.
 
 Importing this entry installs no resolution hook. Calling `startRegistry`
 installs internal resolution before its dynamic server imports, scoped to
-imports whose parent module lies under the Registry package’s `dist/` or
+imports whose parent module lies under the Registry package's `dist/` or
 `bin/` directory. A nested `node_modules` under the package root receives no
 internal condition. Other
 modules in the process cannot use this hook to resolve

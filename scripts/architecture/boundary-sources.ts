@@ -371,27 +371,18 @@ function checkIntegrationPath(
   input: ImportSpecifier,
 ): void {
   const { specifier, index } = input;
-  if (specifier.includes("\\")) {
-    fail(
-      run,
-      site.file,
-      lineAt(site.text, index),
-      "test infrastructure must not use escaped import or URL specifiers",
-    );
+  const syntaxError = integrationSpecifierError(input);
+  if (syntaxError !== undefined) {
+    fail(run, site.file, lineAt(site.text, index), syntaxError);
     return;
   }
-  if (
-    input.urlRelative !== true &&
-    !specifier.startsWith(".") &&
-    !path.isAbsolute(specifier) &&
-    !specifier.startsWith("file:")
-  ) {
+  if (!isIntegrationPathSpecifier(input)) {
     return;
   }
   const { file, text } = site;
   let resolved: string;
   try {
-    resolved = resolveIntegrationPath(file, input);
+    resolved = resolveIntegrationPath(file, specifier);
   } catch (cause) {
     fail(
       run,
@@ -411,9 +402,33 @@ function checkIntegrationPath(
   }
 }
 
-/** URL arguments resolve against the containing file even without a leading dot. */
-function resolveIntegrationPath(file: string, input: ImportSpecifier): string {
-  return fileURLToPath(new URL(input.specifier, pathToFileURL(file)));
+/** Escapes and URL suffixes must not change what the containment check resolves. */
+function integrationSpecifierError(input: ImportSpecifier): string | undefined {
+  if (input.specifier.includes("\\")) {
+    return "test infrastructure must not use escaped import or URL specifiers";
+  }
+  return isIntegrationPathSpecifier(input) && /[?#%]/.test(input.specifier)
+    ? "test infrastructure must not use query, fragment, or encoded path specifiers"
+    : undefined;
+}
+
+/** Path references and URL schemes require containment; Node builtins resolve without files. */
+function isIntegrationPathSpecifier(input: ImportSpecifier): boolean {
+  const scheme = /^[a-z][a-z0-9+.-]*:/i.exec(input.specifier)?.[0];
+  if (scheme?.toLowerCase() === "node:") {
+    return false;
+  }
+  return (
+    input.urlRelative === true ||
+    input.specifier.startsWith(".") ||
+    path.isAbsolute(input.specifier) ||
+    scheme !== undefined
+  );
+}
+
+/** Every specifier resolves as a URL reference relative to the containing file. */
+function resolveIntegrationPath(file: string, specifier: string): string {
+  return fileURLToPath(new URL(specifier, pathToFileURL(file)));
 }
 
 /** Shared ESLint modules are available only to the integration ESLint configuration. */
@@ -696,11 +711,27 @@ function packageRoot(specifier: string): string {
 
 /** Linked files and directories would evade the source walk. Installed dependencies are excluded. */
 function checkIntegrationSymlinks(run: BoundaryRun, directory: string): void {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+  const installedDependencies = path.join(
+    run.repo,
+    INTEGRATION_TESTS.root,
+    "node_modules",
+  );
+  const entries = readdirSync(directory, { withFileTypes: true }).filter(
+    (entry) => path.join(directory, entry.name) !== installedDependencies,
+  );
+  for (const entry of entries) {
     const file = path.join(directory, entry.name);
     if (entry.isSymbolicLink()) {
       fail(run, file, 1, "test infrastructure must not contain symbolic links");
-    } else if (entry.isDirectory() && entry.name !== "node_modules") {
+    } else if (entry.isDirectory()) {
+      if (entry.name === "node_modules" || entry.name === "dist") {
+        fail(
+          run,
+          file,
+          1,
+          "test infrastructure must not contain nested node_modules or dist directories",
+        );
+      }
       checkIntegrationSymlinks(run, file);
     }
   }

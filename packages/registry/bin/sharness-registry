@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Console, Layer } from "effect";
-import { installInternalResolution, runRegistryMain } from "../dist/internal-resolution.js";
+import { installInternalResolution } from "../dist/internal-resolution.js";
+import { runRegistryMain } from "../dist/main.js";
 
 installInternalResolution();
 

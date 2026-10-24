@@ -963,7 +963,7 @@ const assertExternalResolutionDenied = `
 /**
  * A module under the Registry package root, outside its built modules and executable.
  *
- * Value: protects=after startRegistry installs internal resolution, a module in a nested node_modules under the Registry package root still cannot resolve `@moltzap/identity/internal`; fails_when=the hook's parent scope widens from dist/ and bin/ back to the package root; why_new=the external consumer lives in a temporary directory outside the package root, which both scopes deny; seam=none; no_claim=resolution for parents outside the package root.
+ * Value: protects=after startRegistry installs internal resolution, a module in a nested node_modules under the Registry package root still cannot resolve `@moltzap/identity/internal`; fails_when=the hook's parent scope includes the package root rather than only dist/ and bin/; why_new=the external consumer lives in a temporary directory outside the package root, which both scopes deny; seam=none; no_claim=resolution for parents outside the package root.
  */
 const makeNestedProbe = Effect.acquireRelease(
   Effect.gen(function* () {
@@ -1026,7 +1026,8 @@ it(
         );
         const response = yield* executeRequest(request);
         expect(response.status, response.body).toBe(OK_STATUS);
-        expect(response.body).toContain(REGISTERED_KIND);
+        const result: unknown = JSON.parse(response.body);
+        expect(result).toHaveProperty("kind", REGISTERED_KIND);
       }).pipe(
         Effect.scoped,
         Effect.provide(NodeFileSystem.layer),

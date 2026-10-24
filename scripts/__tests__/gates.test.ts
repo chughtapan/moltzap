@@ -21,7 +21,6 @@ import {
   readFileSync,
   rmSync,
   statSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -36,13 +35,20 @@ import {
 } from "../docs/sharness-version.ts";
 import {
   INTEGRATION_BOUNDARY_CASES,
-  INTEGRATION_INTEGRITY_CASES,
   MALFORMED_BOUNDARY_CASES,
-  plantBoundarySource,
 } from "./integration-boundary-cases.ts";
 import { testIntegrationGraph } from "./integration-boundary-graph.ts";
-import { testGuardIntegrity } from "./integration-integrity.ts";
+import {
+  testGuardIntegrity,
+  testIntegrationIntegrityGuards,
+} from "./integration-integrity.ts";
 import { testLintRelocation } from "./integration-lint-relocation.ts";
+import {
+  plantBoundarySource,
+  plantFile,
+  plantSymlink,
+  restoreAllPlants,
+} from "./plants.ts";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 
@@ -62,12 +68,6 @@ interface AssertionFailure {
 
 const failures: AssertionFailure[] = [];
 
-/** The plant stack restores gate inputs in reverse order after each assertion. */
-const planted: Array<{
-  path: string;
-  original?: string;
-}> = [];
-
 /** Idempotence snapshots run before any generator success case writes outputs, so they compare against the original on-disk bytes. */
 function main(): void {
   try {
@@ -84,8 +84,8 @@ function main(): void {
     testMalformedBoundaryInputs();
     testIntegrationBoundaries();
     testIntegrationGraph(test, runNode, workspaceRoot);
-    testIntegrationIntegrityGuards();
-    testGuardIntegrity(test, plantFile, restoreAllPlants, workspaceRoot);
+    testIntegrationIntegrityGuards(test, workspaceRoot);
+    testGuardIntegrity(test, workspaceRoot);
     testLintRelocation(test, runNode);
     testIsolatedFolderImports();
   } finally {
@@ -372,8 +372,7 @@ function testCompatibilityVersionFile(): void {
     ...consumers,
     ...generated.map((p) => resolve(workspaceRoot, p)),
   ]) {
-    const original = readFileSync(path, "utf8");
-    planted.push({ path, original });
+    plantFile(path, (source) => source);
   }
   plantFile(WIRE_VERSION_SOURCE, withCompatibilityVersion(nextVersion));
   const bumped = runGenerate(workspaceRoot);
@@ -709,11 +708,9 @@ function runBoundaryPlants(
   for (const [index, input] of cases.entries()) {
     try {
       if (input.symlink !== undefined) {
-        const file = resolve(workspaceRoot, input.path);
-        planted.push({ path: file });
-        symlinkSync(input.symlink, file);
+        plantSymlink(input.path, input.symlink);
       } else {
-        plantBoundarySource(input, plantFile);
+        plantBoundarySource(input);
       }
       const result = runBoundaries();
       test(
@@ -721,33 +718,6 @@ function runBoundaryPlants(
           `rejects malformed boundary input ${index + 1}: ${input.path}`,
         result.code === 1 && input.message.test(result.stderr),
         `expected boundary rejection. exit=${result.code}, stderr=${result.stderr}`,
-      );
-    } finally {
-      restoreAllPlants();
-    }
-  }
-}
-
-/** Test-integrity guards cover spies and synthetic literals in fixtures and tests. */
-function testIntegrationIntegrityGuards(): void {
-  for (const {
-    name,
-    path,
-    source,
-    diagnostic,
-  } of INTEGRATION_INTEGRITY_CASES) {
-    console.log(`\n# integration ${name}`);
-    try {
-      plantFile(path, (text) => text + source);
-      const result = spawnSync(
-        "/bin/bash",
-        ["scripts/code/sloppy-code-guard.sh"],
-        { cwd: workspaceRoot, encoding: "utf8" },
-      );
-      test(
-        `integration ${name} rejects its planted regression`,
-        result.status === 1 && diagnostic.test(result.stdout),
-        result.stdout + result.stderr,
       );
     } finally {
       restoreAllPlants();
@@ -1095,29 +1065,6 @@ function insertAfter(
     );
   }
   return source.replace(pattern, (head) => `${head}${insertion}`);
-}
-
-function plantFile(relPath: string, mutate: (s: string) => string): void {
-  const abs = resolve(workspaceRoot, relPath);
-  const original = existsSync(abs) ? readFileSync(abs, "utf8") : undefined;
-  planted.push(
-    original === undefined ? { path: abs } : { path: abs, original },
-  );
-  writeFileSync(abs, mutate(original ?? ""));
-}
-
-function restoreAllPlants(): void {
-  while (planted.length > 0) {
-    const p = planted.pop();
-    if (p === undefined) {
-      break;
-    }
-    if (p.original === undefined) {
-      rmSync(p.path);
-    } else {
-      writeFileSync(p.path, p.original);
-    }
-  }
 }
 
 function checkRegeneratedVersion(

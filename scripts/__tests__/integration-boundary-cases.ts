@@ -3,6 +3,40 @@
 /** Each case identifies a forbidden workspace change and its gate diagnostic. */
 export const INTEGRATION_BOUNDARY_CASES = [
   {
+    name: "query path",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: 'require("./x?/../../packages/client/src/index.ts");\n',
+    message:
+      /test infrastructure must not use query, fragment, or encoded path specifiers/,
+  },
+  {
+    name: "fragment path",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: 'require("./x#/../../packages/client/src/index.ts");\n',
+    message:
+      /test infrastructure must not use query, fragment, or encoded path specifiers/,
+  },
+  {
+    name: "uppercase file URL",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: 'require("FILE:///tmp/outside-integration.js");\n',
+    message: /test infrastructure must not cross its boundary/,
+  },
+  {
+    name: "nested node_modules cannot evade scanning",
+    path: "tests/integration/mixed-release/node_modules/boundary-plant.ts",
+    prepend: 'import "@moltzap/identity/internal";\n',
+    message:
+      /test infrastructure must not contain nested node_modules or dist directories/,
+  },
+  {
+    name: "nested dist cannot evade scanning",
+    path: "tests/integration/mixed-release/dist/boundary-plant.ts",
+    prepend: 'import "@moltzap/identity/internal";\n',
+    message:
+      /test infrastructure must not contain nested node_modules or dist directories/,
+  },
+  {
     name: "import.meta.resolve cannot resolve product source",
     path: "tests/integration/daemon-process-harness.ts",
     prepend: 'import.meta.resolve("../../packages/client/src/index.ts");\n',
@@ -352,6 +386,45 @@ export const MALFORMED_BOUNDARY_CASES = [
 /** Test-integrity rules apply to integration tests as well as product tests. */
 export const INTEGRATION_INTEGRITY_CASES = [
   {
+    name: "mock paths do not alter fixture scope",
+    path: "packages/registry/src/__tests__/registry-process.ts",
+    source: '\nvi.mock("../dist/service.js"); // helper.test.ts:\n',
+    diagnostic: /\[integration-vi-mock\]/,
+  },
+  {
+    name: "shared fixture mock guard",
+    path: "packages/registry/src/__tests__/registry-process.ts",
+    source: '\nvi.spyOn(console, "log");\n',
+    diagnostic: /\[integration-vi-mock\]/,
+  },
+  {
+    name: "integration fixture mock guard",
+    path: "tests/integration/daemon-process-harness.ts",
+    source: '\nvi.spyOn(console, "log");\n',
+    diagnostic: /\[integration-vi-mock\]/,
+  },
+  {
+    name: "object credential guard",
+    path: "tests/integration/daemon-process-harness.ts",
+    source: '\nconst config = { apiKey: "' + "synthetic".repeat(4) + '" };\n',
+    diagnostic: /\[hardcoded-api-key\]/,
+  },
+  {
+    name: "uppercase credential guard",
+    path: "tests/integration/daemon-process-harness.ts",
+    source: '\nconst API_KEY = "' + "synthetic".repeat(4) + '";\n',
+    diagnostic: /\[hardcoded-api-key\]/,
+  },
+  {
+    name: "distant next-line pragma",
+    path: "tests/integration/distant-pragma-plant.ts",
+    source:
+      '// #ignore-sloppy-code-next-line[hardcoded-api-key]: synthetic plant\nconst unrelated = true;\nconst apiKey = "' +
+      "synthetic".repeat(4) +
+      '";\n',
+    diagnostic: /\[hardcoded-api-key\]/,
+  },
+  {
     name: "mock guard",
     path: "tests/integration/daemon-process.integration.test.ts",
     source: '\nvi.spyOn(console, "log");\n',
@@ -376,32 +449,3 @@ export const INTEGRATION_INTEGRITY_CASES = [
     diagnostic: /\[hardcoded-api-key\]/,
   },
 ] as const;
-
-/** Source plants keep mutation validation separate from symlink creation. */
-export function plantBoundarySource(
-  input: {
-    readonly path: string;
-    readonly prepend?: string;
-    readonly replace?: string;
-    readonly before?: string;
-    readonly after?: string;
-  },
-  plantFile: (path: string, mutate: (source: string) => string) => void,
-): void {
-  plantFile(input.path, (source) => {
-    if (input.prepend !== undefined) {
-      return input.prepend + source;
-    }
-    if (input.replace !== undefined) {
-      return input.replace;
-    }
-    if (
-      input.before === undefined ||
-      input.after === undefined ||
-      !source.includes(input.before)
-    ) {
-      throw new Error(`Mutation target missing in ${input.path}`);
-    }
-    return source.replace(input.before, input.after);
-  });
-}

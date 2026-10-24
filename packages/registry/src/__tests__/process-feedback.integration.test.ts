@@ -12,6 +12,7 @@ import { expect } from "vitest";
 const binary = fileURLToPath(
   new URL("../../bin/sharness-registry", import.meta.url),
 );
+const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
 const processName = "sharness-registry";
 const requiredVariable = "SHARNESS_REGISTRY_POSTGRESQL_URL";
 const defaultEntry = 'SHARNESS_REGISTRY_HOST: optional; default: "127.0.0.1"';
@@ -23,6 +24,7 @@ function runProcess(
   processArguments: readonly string[],
   environment: Readonly<Record<string, string>> = {},
   nodeArguments: readonly string[] = [binary],
+  cwd = packageRoot,
 ) {
   return Effect.gen(function* () {
     const child = yield* Command.start(
@@ -36,7 +38,7 @@ function runProcess(
         process.execPath,
         ...nodeArguments,
         ...processArguments,
-      ),
+      ).pipe(Command.workingDirectory(cwd)),
     );
     return yield* Effect.all(
       {
@@ -111,7 +113,13 @@ it(
   15_000,
 );
 
-// Value: protects=startRegistry reports a startup failure and exits nonzero, as the Registry test composition spec states; fails_when=its failure handler stops setting the exit status or printing the error; why_new=registry-binary starts the test entry only successfully; seam=none; no_claim=which configuration errors exist
+/**
+ * Value: protects=startRegistry reports a startup failure and exits nonzero,
+ * as the Registry test composition spec states; fails_when=its failure handler
+ * stops setting the exit status or printing the error; why_new=registry-binary
+ * starts the test entry only successfully; seam=none;
+ * no_claim=which configuration errors exist.
+ */
 it(
   "reports a test-composition startup failure and exits unsuccessfully",
   () =>
@@ -120,7 +128,7 @@ it(
         "--conditions=sharness-test",
         "--input-type=module",
         "-e",
-        `import { startRegistry } from "@moltzap/registry/test"; startRegistry(${JSON.stringify({ live: [WIRE_VERSION], history: [WIRE_VERSION] })});`,
+        `import { startRegistry } from "@moltzap/registry/test"; startRegistry(${JSON.stringify({ emitted: WIRE_VERSION, live: [WIRE_VERSION], history: [WIRE_VERSION] })});`,
       ]);
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr).toContain(`${requiredVariable} is required`);

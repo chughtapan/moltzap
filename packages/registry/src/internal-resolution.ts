@@ -1,6 +1,4 @@
 /** @file Limits Registry's private Identity resolution to Registry-owned modules. */
-import { NodeRuntime } from "@effect/platform-node";
-import { ConfigProvider, Console, Effect } from "effect";
 import { registerHooks } from "node:module";
 
 const REGISTRY_MODULE_ROOTS = [
@@ -25,23 +23,4 @@ export function installInternalResolution(): void {
       });
     },
   });
-}
-
-/** Reports startup failures with their causes and runs the process with environment configuration. */
-export function runRegistryMain<E>(program: Effect.Effect<void, E>): void {
-  program.pipe(
-    Effect.catchAll((error) =>
-      Console.error(
-        error instanceof Error ? error.message : String(error),
-      ).pipe(
-        Effect.andThen(
-          Effect.sync(() => {
-            process.exitCode = 1;
-          }),
-        ),
-      ),
-    ),
-    Effect.withConfigProvider(ConfigProvider.fromEnv()),
-    NodeRuntime.runMain,
-  );
 }

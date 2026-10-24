@@ -3,49 +3,63 @@ import { spawnSync } from "node:child_process";
 import { existsSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { INTEGRATION_INTEGRITY_CASES } from "./integration-boundary-cases.ts";
+import { plantBoundarySource, plantFile, restoreAllPlants } from "./plants.ts";
+
 type GateAssertion = (name: string, passed: boolean, message: string) => void;
-type PlantFile = (path: string, mutate: (source: string) => string) => void;
 
 /**
  * Runs the guard and lane integrity checks that live outside the plant tables.
  * @param test Records one gate assertion.
- * @param plantFile Writes a planted file that `restoreAllPlants` removes.
- * @param restoreAllPlants Restores every planted file.
  * @param workspaceRoot Repository root.
  */
 export function testGuardIntegrity(
   test: GateAssertion,
-  plantFile: PlantFile,
-  restoreAllPlants: () => void,
   workspaceRoot: string,
 ): void {
-  testMissingGuardDirectory(test, plantFile, restoreAllPlants, workspaceRoot);
-  testPragmaPathIsData(test, plantFile, restoreAllPlants, workspaceRoot);
+  testMissingGuardDirectory(test, workspaceRoot);
+  testPragmaPathIsData(test, workspaceRoot);
   testIntegrationLaneCollection(test, workspaceRoot);
+}
+
+/** Test-integrity guards cover spies and synthetic literals in fixtures and tests. */
+export function testIntegrationIntegrityGuards(
+  test: GateAssertion,
+  workspaceRoot: string,
+): void {
+  for (const {
+    name,
+    path,
+    source,
+    diagnostic,
+  } of INTEGRATION_INTEGRITY_CASES) {
+    console.log(`\n# integration ${name}`);
+    try {
+      plantFile(path, (text) => text + source);
+      const result = runSloppyGuard(workspaceRoot);
+      test(
+        `integration ${name} rejects its planted regression`,
+        result.status === 1 && diagnostic.test(result.stdout),
+        result.stdout + result.stderr,
+      );
+    } finally {
+      restoreAllPlants();
+    }
+  }
 }
 
 /** A missing scan root must fail rather than report a clean scan. */
 function testMissingGuardDirectory(
   test: GateAssertion,
-  plantFile: PlantFile,
-  restoreAllPlants: () => void,
   workspaceRoot: string,
 ): void {
   try {
-    plantFile("scripts/code/sloppy-code-guard.sh", (source) =>
-      source.replace(
-        '"packages/ tests/"',
-        '"packages/ tests/integration/missing-guard-root/"',
-      ),
-    );
-    const result = spawnSync(
-      "/bin/bash",
-      ["scripts/code/sloppy-code-guard.sh"],
-      {
-        cwd: workspaceRoot,
-        encoding: "utf8",
-      },
-    );
+    plantBoundarySource({
+      path: "scripts/code/sloppy-code-guard.sh",
+      before: '"packages/ tests/"',
+      after: '"packages/ tests/integration/missing-guard-root/"',
+    });
+    const result = runSloppyGuard(workspaceRoot);
     test(
       "integrity guard refuses a missing directory",
       result.status === 1 &&
@@ -64,14 +78,10 @@ function testMissingGuardDirectory(
  *
  * Value: protects=sloppy-code-guard reads a next-line pragma from a file whose path contains quotes and command substitution without running it; fails_when=filter_pragma reads the previous line through a shell command again; why_new=every other plant uses plain paths, where a shell read gives the same answer; seam=none; no_claim=the pragma grammar or which rules accept pragmas.
  * @param test Records one gate assertion.
- * @param plantFile Writes a planted file that `restoreAllPlants` removes.
- * @param restoreAllPlants Restores every planted file.
  * @param workspaceRoot Repository root the guard runs from.
  */
 function testPragmaPathIsData(
   test: GateAssertion,
-  plantFile: PlantFile,
-  restoreAllPlants: () => void,
   workspaceRoot: string,
 ): void {
   const marker = resolve(workspaceRoot, "pragma-path-ran");
@@ -84,11 +94,7 @@ function testPragmaPathIsData(
         "synthetic".repeat(4) +
         '";\n',
     );
-    const result = spawnSync(
-      "/bin/bash",
-      ["scripts/code/sloppy-code-guard.sh"],
-      { cwd: workspaceRoot, encoding: "utf8" },
-    );
+    const result = runSloppyGuard(workspaceRoot);
     test(
       "integrity guard reads a pragma without running its file name",
       result.status === 0 &&
@@ -139,4 +145,12 @@ function testIntegrationLaneCollection(
       ),
     result.stdout + result.stderr,
   );
+}
+
+/** Both integrity tables and focused regressions run the same guard invocation. */
+function runSloppyGuard(workspaceRoot: string) {
+  return spawnSync("/bin/bash", ["scripts/code/sloppy-code-guard.sh"], {
+    cwd: workspaceRoot,
+    encoding: "utf8",
+  });
 }

@@ -24,7 +24,8 @@
         "scripts/code/**/*.ts",
         "scripts/setup/**/*.ts",
         "scripts/test/packed-workspace.ts",
-        "scripts/test-*-package.ts"
+        "scripts/test-*-package.ts",
+        "scripts/__tests__/**/*.ts"
       ],
       "ignoreDependencies": [
         "@effect/tsgo",

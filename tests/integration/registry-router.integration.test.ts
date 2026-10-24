@@ -39,14 +39,13 @@ import {
 } from "./client-version-roundtrip.js";
 import {
   acquireDaemonManagementClient,
-  acquireDaemonProcess,
+  acquireDaemonProcesses,
   acquireProcessInfrastructure,
   awaitReady,
   CONCURRENT_DAEMONS,
   hasExited,
   isHealthy,
   LOOPBACK_HOST,
-  makeDaemonProcessFixture,
   makePrivateKeyPem,
   makeRegistrationRequest,
   makeSigningAuthority,
@@ -862,10 +861,11 @@ const runEndToEndBehavior = Effect.gen(function* () {
   Effect.provide(NodeHttpClient.layer),
 );
 
-it("registers identities and preserves opaque multicast behavior across Router restart", () => {
-  expect.hasAssertions();
-  return Effect.runPromise(runEndToEndBehavior);
-}, 120_000);
+it(
+  "registers identities and preserves opaque multicast behavior across Router restart",
+  processTrace(runEndToEndBehavior),
+  120_000,
+);
 
 testVersionMismatchRoundTrips(
   {
@@ -880,16 +880,7 @@ const concurrentRegistration = Effect.gen(function* () {
   const infrastructure = yield* acquireProcessInfrastructure;
   const fileSystem = yield* FileSystem.FileSystem;
   const runRouter = makeRouterRunner(infrastructure.routerOrigin);
-  const fixtures = yield* Effect.forEach(
-    [...Array(CONCURRENT_DAEMONS).keys()],
-    (index) =>
-      makeDaemonProcessFixture(infrastructure, `concurrent-agent-${index}`),
-    { concurrency: CONCURRENT_DAEMONS },
-  );
-  yield* Effect.forEach(fixtures, (fixture) => acquireDaemonProcess(fixture), {
-    concurrency: 4,
-    discard: true,
-  }).pipe(Effect.parallelFinalizers);
+  const fixtures = yield* acquireDaemonProcesses(infrastructure);
   yield* Effect.forEach(
     fixtures,
     (fixture) =>
@@ -932,7 +923,7 @@ const concurrentRegistration = Effect.gen(function* () {
 );
 
 it(
-  "registers sixteen daemons concurrently and resolves every identity through the Router",
+  `registers ${CONCURRENT_DAEMONS} daemons concurrently and resolves every identity through the Router`,
   processTrace(concurrentRegistration),
   180_000,
 );

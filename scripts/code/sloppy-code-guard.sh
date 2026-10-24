@@ -40,6 +40,8 @@ PRAGMA_TAG='#ignore-sloppy-code'
 #   - `content` carries `<tag>[<rule>, ...]: <reason>` (same-line pragma), or
 #   - the file's line N-1 carries `<tag>-next-line[<rule>, ...]: <reason>`
 #     (next-line pragma, for multi-line signatures).
+# Lines are read through awk file redirection; a matched path is never passed
+# to a shell.
 # Invocation: `... | filter_pragma <rule>`.
 filter_pragma() {
   local rule="$1"
@@ -98,6 +100,7 @@ check() {
   local glob="${4:-*.ts}"
   local dir="${5:-$PKG_SRC_GLOB}"
   local exclude="${6:-$NON_TEST_EXCLUDE}"
+  local case_option="${7:--E}"
 
   local directory
   # shellcheck disable=SC2086
@@ -109,7 +112,19 @@ check() {
   done
 
   # shellcheck disable=SC2086
-  matches=$(grep -rn --include="$glob" -E "$pattern" $dir 2>/dev/null \
+  matches=$(grep -rn --include="$glob" "$case_option" "$pattern" $dir 2>/dev/null \
+    | awk -v rule="$rule" '
+      {
+        file = $0
+        sub(/:[0-9]+:.*/, "", file)
+        if (rule != "integration-vi-mock" ||
+            (file !~ /\/(node_modules|dist)\// &&
+             (file ~ /\.integration\.test\.ts$/ ||
+              (file !~ /\.test\.ts$/ &&
+               (file ~ /^tests\// ||
+                file ~ /^packages\/[^/]+\/src\/__tests__\//))))) print
+      }
+    ' \
     | grep -vE "$exclude" \
     | filter_pragma "$rule" \
     || true)
@@ -217,17 +232,18 @@ echo ""
 
 check integration-vi-mock \
   'vi\.mock|vi\.hoisted|vi\.spyOn' \
-  "Integration tests must not use vi.mock/hoisted/spyOn — test the real flow" \
-  "*.integration.test.ts" \
+  "Integration tests and shared fixtures must not use vi.mock/hoisted/spyOn — test the real flow" \
+  "*.ts" \
   "packages/ tests/" \
   "$NO_EXCLUDE"
 
 check hardcoded-api-key \
-  "api[Kk]ey.*=.*['\"][a-zA-Z0-9_-]{20,}['\"]" \
+  "api[_-]?key[\"']?[[:space:]]*[:=][[:space:]]*['\"][A-Za-z0-9_-]{20,}['\"]" \
   "Hardcoded API key — use environment variables" \
   "*.ts" \
-  "packages/ tests/" \
-  "$NO_EXCLUDE"
+  "packages/ tests/ scripts/ examples/" \
+  "$NO_EXCLUDE" \
+  "-iE"
 
 # `as unknown as` bypasses the type system. Use a type guard, a user-defined
 # predicate, or Effect.catchTag/catchTags for tagged unions. Legitimate

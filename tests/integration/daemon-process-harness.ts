@@ -60,6 +60,26 @@ const SHUTDOWN_TIMEOUT = Duration.seconds(5);
  * sixty seconds also allows interruption and worker scheduling overhead.
  */
 const TEARDOWN_TIMEOUT_MS = 60_000;
+/** Bounded boots limit process startup pressure while ports wait to bind. */
+const DAEMON_BOOT_CONCURRENCY = 4;
+/** Reserve each port and boot its daemon in one bounded step; release children in parallel. */
+export const acquireDaemonProcesses = (infrastructure: ProcessInfrastructure) =>
+  Effect.forEach(
+    [...Array(CONCURRENT_DAEMONS).keys()],
+    (index) =>
+      makeDaemonProcessFixture(
+        infrastructure,
+        `concurrent-agent-${index}`,
+      ).pipe(Effect.tap(acquireDaemonProcess)),
+    { concurrency: DAEMON_BOOT_CONCURRENCY },
+  ).pipe(Effect.parallelFinalizers);
+
+/** Router admission allows concurrent management and protocol requests per daemon. */
+const REQUESTS_PER_DAEMON = 4;
+/** Each daemon can hold its active poll and a replacement poll. */
+const HELD_POLLS_PER_DAEMON = 2;
+/** A live child must become ready within thirty seconds, with logs on failure. */
+const READINESS_TIMEOUT = Duration.seconds(30);
 const POLL_ATTEMPT_TIMEOUT = Duration.seconds(1);
 const POLL_INTERVAL = Duration.millis(25);
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
@@ -346,7 +366,7 @@ export const isHealthy = (origin: URL) =>
 
 /**
  * Polls `probe` until it reads true, and fails with the child's output once
- * the child exits first.
+ * the child exits first or the readiness deadline expires.
  * @param running Child that must become ready.
  * @param probe One readiness check of the child.
  * @param phase What the child had yet to do, for the failure message.
@@ -367,7 +387,15 @@ export const awaitReady = (
     return yield* Effect.fail(
       processTestError(`process exited before ${phase}\n${running.logs()}`),
     );
-  });
+  }).pipe(
+    Effect.timeoutFail({
+      duration: READINESS_TIMEOUT,
+      onTimeout: () =>
+        processTestError(
+          `process timed out before ${phase}\n${running.logs()}`,
+        ),
+    }),
+  );
 
 /** Each process fixture receives a fresh Ed25519 signing identity. */
 export const makePrivateKeyPem = (): string => {
@@ -422,13 +450,25 @@ const encodePublicKey = (
   );
 
 /** Child compositions receive wire sets through plain JavaScript under the test condition. */
-function launchScript(
+function launchCommand(
   service: "Registry" | "RouterServer" | "Daemon",
   versions: Parameters<typeof startRegistry>[0],
+): readonly [string, readonly string[]] {
+  const script =
+    service === "Registry"
+      ? `import { startRegistry } from "@moltzap/registry/test"; startRegistry(${JSON.stringify(versions)});`
+      : serviceScript(service, versions);
+  return [
+    process.execPath,
+    ["--conditions=sharness-test", "--input-type=module", "-e", script],
+  ];
+}
+
+/** Router and daemon compositions share Identity's test wire policy. */
+function serviceScript(
+  service: "RouterServer" | "Daemon",
+  versions: Parameters<typeof startRegistry>[0],
 ): string {
-  if (service === "Registry") {
-    return `import { startRegistry } from "@moltzap/registry/test"; startRegistry(${JSON.stringify(versions)});`;
-  }
   const module =
     service === "RouterServer"
       ? "@moltzap/router/server"
@@ -504,6 +544,7 @@ export const acquireProcessInfrastructureFrom = (
 ): Effect.Effect<ProcessInfrastructure, ProcessTestError, Scope.Scope> =>
   Effect.gen(function* () {
     const versions = yield* Effect.serviceOption(WireVersions);
+    const emitted = yield* WireVersions.emitted;
     const temporaryDirectory = yield* acquireTemporaryDirectory;
     const registryKeyPath = join(temporaryDirectory, "registry-key.pem");
     const registryPrivateKey = makePrivateKeyPem();
@@ -529,15 +570,7 @@ export const acquireProcessInfrastructureFrom = (
       const registryCommand: readonly [string, readonly string[]] =
         Option.isNone(versions)
           ? [binaries.registry, []]
-          : [
-              process.execPath,
-              [
-                "--conditions=sharness-test",
-                "--input-type=module",
-                "-e",
-                launchScript("Registry", versions.value),
-              ],
-            ];
+          : launchCommand("Registry", { ...versions.value, emitted });
       yield* startPgliteRegistry({
         postgresqlPort,
         registryPort,
@@ -551,15 +584,7 @@ export const acquireProcessInfrastructureFrom = (
       versions,
     )
       ? [binaries.router, []]
-      : [
-          process.execPath,
-          [
-            "--conditions=sharness-test",
-            "--input-type=module",
-            "-e",
-            launchScript("RouterServer", versions.value),
-          ],
-        ];
+      : launchCommand("RouterServer", { ...versions.value, emitted });
     const startRouter = managedProcess(
       routerCommand[0],
       routerCommand[1],
@@ -569,9 +594,11 @@ export const acquireProcessInfrastructureFrom = (
         SHARNESS_ROUTER_REGISTRY_ORIGIN: registryOrigin.origin,
         SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY: registrySignerPublicKeyJson,
         SHARNESS_ROUTER_REQUEST_CONCURRENCY_LIMIT: String(
-          CONCURRENT_DAEMONS * 4,
+          CONCURRENT_DAEMONS * REQUESTS_PER_DAEMON,
         ),
-        SHARNESS_ROUTER_HELD_POLL_CAPACITY: String(CONCURRENT_DAEMONS * 2),
+        SHARNESS_ROUTER_HELD_POLL_CAPACITY: String(
+          CONCURRENT_DAEMONS * HELD_POLLS_PER_DAEMON,
+        ),
       },
       join(WORKSPACE_ROOT, "packages/client"),
     ).pipe(
@@ -668,15 +695,7 @@ export const acquireDaemonProcess = (
   Effect.gen(function* () {
     const [binary, args] =
       fixture.wireVersions !== undefined
-        ? ([
-            process.execPath,
-            [
-              "--conditions=sharness-test",
-              "--input-type=module",
-              "-e",
-              launchScript("Daemon", fixture.wireVersions),
-            ],
-          ] as const)
+        ? launchCommand("Daemon", fixture.wireVersions)
         : executable === undefined
           ? daemonCommand(fixture)
           : ([executable, []] as const);
@@ -729,14 +748,15 @@ export const awaitDaemonStartupFailure = (
       "listening",
     ).pipe(
       Effect.as(true),
-      Effect.catchAll(() => Effect.succeed(false)),
+      Effect.catchAll((error) =>
+        hasExited(running.child) ? Effect.succeed(false) : Effect.fail(error),
+      ),
     );
     if (listened) {
       return yield* Effect.fail(
         processTestError(`daemon listened unexpectedly\n${running.logs()}`),
       );
     }
-    yield* waitForExit(running);
     return { exitCode: running.child.exitCode, logs: running.logs() };
   });
 

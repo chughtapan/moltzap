@@ -6,6 +6,7 @@ import {
   FINAL_PACKAGES,
   INTEGRATION_TESTS,
 } from "../architecture/boundary-contract.ts";
+import { TOOL_PROJECTS } from "../architecture/boundary-nx-graph.ts";
 type GateAssertion = (name: string, passed: boolean, message: string) => void;
 type GateRunner = (args: readonly string[]) => { code: number; stderr: string };
 
@@ -103,23 +104,11 @@ function contractProjects() {
   }));
   return [
     ...products,
-    {
-      name: "workspace",
-      root: "tools/workspace",
-      targets: ["lint", "lint:architecture-boundaries", "lint:effect"],
-      dependencies: [],
-    },
-    {
-      ...INTEGRATION_TESTS,
-      dependencies: INTEGRATION_TESTS.dependencies.map(
+    ...TOOL_PROJECTS.map((project) => ({
+      ...project,
+      dependencies: project.dependencies.map(
         (dir) => FINAL_PACKAGES[dir].npmName,
       ),
-    },
-    {
-      name: "two-agents-example",
-      root: "examples/two-agents",
-      targets: ["test:pack"],
-      dependencies: ["@moltzap/identity", "@moltzap/router", "@moltzap/client"],
-    },
+    })),
   ];
 }

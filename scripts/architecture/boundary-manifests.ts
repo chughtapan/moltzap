@@ -14,12 +14,12 @@ import {
 import {
   CALENDAR_VERSION,
   dependencyNames,
+  exportCondition,
   type ExportTarget,
   FINAL_PACKAGE_DIRS,
   FINAL_PACKAGE_NAMES,
   FINAL_PACKAGES,
   INTEGRATION_TESTS,
-  manifestExportTarget,
   type PackageDir,
   REPOSITORY_URL,
 } from "./boundary-contract.ts";
@@ -448,17 +448,17 @@ function resolvedExportTarget(
     readonly target: ExportTarget;
   },
 ): JsonObject {
-  if (site.target.testOnly !== true && site.target.internalOnly !== true) {
+  const condition = exportCondition(site.target);
+  if (condition === undefined) {
     return entry;
   }
-  const target = manifestExportTarget(site.target);
   failOnSetDrift(run, {
     where: site.where,
     what: `test-only export "${site.subpath}" conditions drifted`,
     actual: Object.keys(entry),
-    wanted: Object.keys(target),
+    wanted: [condition],
   });
-  return objectAt(entry, Object.keys(target)[0] ?? "");
+  return objectAt(entry, condition);
 }
 
 /**

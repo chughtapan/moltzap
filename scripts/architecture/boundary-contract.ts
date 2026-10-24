@@ -234,9 +234,16 @@ export function manifestExportTarget({
   internalOnly,
   ...target
 }: ExportTarget): Readonly<Record<string, unknown>> {
-  return testOnly === true || internalOnly === true
-    ? {
-        [internalOnly === true ? "sharness-internal" : "sharness-test"]: target,
-      }
-    : target;
+  const condition = exportCondition({ testOnly, internalOnly, ...target });
+  return condition === undefined ? target : { [condition]: target };
+}
+
+/** Visibility metadata selects a named condition independently of object key order. */
+export function exportCondition(
+  target: ExportTarget,
+): "sharness-internal" | "sharness-test" | undefined {
+  if (target.internalOnly === true) {
+    return "sharness-internal";
+  }
+  return target.testOnly === true ? "sharness-test" : undefined;
 }
