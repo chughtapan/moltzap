@@ -541,29 +541,45 @@ const architectureConfigDefinitions: ReadonlyArray<{
               "Closed Registry request, result, operation value, representation, route, and client-failure contract",
           },
           {
-            file: "registry/rpc.ts",
+            file: "signed-message.ts",
+            reason:
+              "Domain entrypoint for the root-exported SignedMessage: signing, verification, the verified trust state, and the recipient order and bounds a sealed body inherits",
+          },
+        ],
+      },
+    },
+  },
+  {
+    packageRoot: "packages/registry",
+    definition: {
+      config: {
+        packageRuntime: "node",
+        publicTypePackages: [
+          publicTypePackage.effect,
+          publicTypePackage.platform,
+        ],
+        allowedTestPublicSubpaths: [],
+        folderReadmeFileNames: ["README.md", "MODULE.md"],
+        facadeFiles: [
+          {
+            file: "rpc.ts",
             reason:
               "Correlated in-process RPC boundary between HTTP admission and storage operations",
           },
           {
-            file: "registry/server.ts",
+            file: "server.ts",
             reason:
-              "Production process-composition boundary exported through the Registry server subpath",
+              "Private Registry process composition used by the operator executable and process fixtures",
           },
           {
-            file: "registry/storage.ts",
+            file: "storage.ts",
             reason:
               "Durable Registry storage capability and PostgreSQL implementation boundary",
           },
           {
-            file: "registry/migrations/0001_registry.ts",
+            file: "migrations/0001_registry.ts",
             reason:
               "Ordered PostgreSQL schema migration seam owned by Registry storage",
-          },
-          {
-            file: "signed-message.ts",
-            reason:
-              "Domain entrypoint for the root-exported SignedMessage: signing, verification, the verified trust state, and the recipient order and bounds a sealed body inherits",
           },
         ],
       },

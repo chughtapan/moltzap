@@ -1,7 +1,7 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --conditions=sharness-internal
 import { NodeRuntime } from "@effect/platform-node";
 import { ConfigProvider, Console, Effect, Layer } from "effect";
-import { layer, processHelp } from "../dist/registry/server.js";
+import { layer, processHelp } from "../dist/server.js";
 
 const program = process.argv.includes("--help")
   ? Console.log(processHelp)

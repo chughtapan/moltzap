@@ -4,23 +4,22 @@ import * as Reactivity from "@effect/experimental/Reactivity";
 import { FileSystem, HttpClient, HttpClientRequest } from "@effect/platform";
 import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
 import { PgClient } from "@effect/sql-pg";
-import { Duration, Effect, Redacted, Ref, Schema } from "effect";
-import { join } from "node:path";
-import { expect, it } from "vitest";
-import { encodeCanonicalJson } from "../../canonical-json.js";
-import { contentDigest } from "../../http-signature.js";
 import {
   AgentCard,
   AgentName,
   AgentSigningAuthority,
   type VerifiedAgentCard,
   WIRE_VERSION,
-} from "../../index.js";
+} from "@moltzap/identity";
 import {
   Registry,
   type RegistryListRequest,
   RegistryRegisterRequest,
-} from "../../registry.js";
+} from "@moltzap/identity/registry";
+import { contentDigest, encodeCanonicalJson } from "@moltzap/identity/test";
+import { Duration, Effect, Redacted, Ref, Schema } from "effect";
+import { join } from "node:path";
+import { expect, it } from "vitest";
 import {
   callRegister,
   canConnect,

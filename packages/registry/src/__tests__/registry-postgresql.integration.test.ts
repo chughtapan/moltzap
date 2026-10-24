@@ -5,28 +5,29 @@ import { FileSystem, HttpServerRequest } from "@effect/platform";
 import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
 import { PgClient } from "@effect/sql-pg";
 import {
+  AgentCard,
+  AgentSigningAuthority,
+  AuthenticationFailedError,
+  type VerifiedAgentCard,
+  WIRE_VERSION,
+} from "@moltzap/identity";
+import {
+  Registry,
+  type RegistryLookupResult,
+  RegistryRegisterRequest,
+  type RegistryRegisterResult,
+} from "@moltzap/identity/registry";
+import { encodeCanonicalJson } from "@moltzap/identity/test";
+import {
   PostgreSqlContainer,
   type StartedPostgreSqlContainer,
 } from "@testcontainers/postgresql";
 import { Duration, Effect, Either, Match, Redacted, Schema } from "effect";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import type {
-  RegistryLookupResult,
-  RegistryRegisterResult,
-} from "../contract.js";
-import { clockAt } from "../../__tests__/authenticated-http-requests.js";
-import { encodeCanonicalJson } from "../../canonical-json.js";
-import { AuthenticationFailedError } from "../../http-errors.js";
-import {
-  AgentCard,
-  AgentSigningAuthority,
-  type VerifiedAgentCard,
-} from "../../index.js";
-import { Registry, RegistryRegisterRequest } from "../../registry.js";
-import { WIRE_VERSION } from "../../version.js";
 import { verifyBootstrapRegistration } from "../admission.js";
 import { initializeRegistryStorage, makeRegistryStorage } from "../storage.js";
+import { clockAt } from "./clock.js";
 import {
   BOOTSTRAP_SIGNATURE_INTERVAL_SECONDS,
   LOOPBACK_HOST,

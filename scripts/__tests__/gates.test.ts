@@ -222,7 +222,7 @@ function testDocImportsResolveR6(): void {
   plantFile(
     CONTRIBUTING_DOC,
     (s) =>
-      `${s}\n\`\`\`typescript\nimport { WIRE_VERSION } from "@moltzap/identity";\nimport { Registry } from "@moltzap/identity/registry";\nimport "@moltzap/identity/registry/server";\nimport "@moltzap/router/server";\n\`\`\`\n`,
+      `${s}\n\`\`\`typescript\nimport { WIRE_VERSION } from "@moltzap/identity";\nimport { Registry } from "@moltzap/identity/registry";\nimport "@moltzap/registry";\nimport "@moltzap/router/server";\n\`\`\`\n`,
   );
   const r6 = runScript(
     "scripts/docs/check-doc-imports-resolve.ts",

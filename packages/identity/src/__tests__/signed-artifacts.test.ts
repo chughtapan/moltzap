@@ -31,13 +31,13 @@ import {
   AgentName,
   PrincipalId,
 } from "../identifiers.js";
-import { AgentCardIssuedAt, issueAgentCard } from "../registry/issuance.js";
 import {
   MessageId,
   SignedMessage,
   SignedMessageSigningError,
   type SignedMessage as SignedMessageValue,
 } from "../signed-message.js";
+import { AgentCardIssuedAt, issueAgentCard } from "./issuance.js";
 import cofactoredGolden from "./wire-cofactored-golden.json" with { type: "json" };
 
 const MAXIMUM_BODY_BYTES = 262_144;

@@ -50,12 +50,36 @@ git clone --depth 1 --branch "v$VERSION" https://github.com/social-harness/moltz
 You should see a new `moltzap` directory.
 
 </Step>
+<Step title="Build the private Registry service">
+
+Change to the repository root:
+
+```bash
+cd moltzap
+```
+
+Install the workspace dependencies with the pinned pnpm version:
+
+```bash
+pnpm install
+```
+
+Build the private service and its Identity dependency:
+
+```bash
+pnpm nx run @moltzap/registry:build
+```
+
+You should see `Successfully ran target build`. Registry runs from this
+workspace build; its private package is excluded from npm releases.
+
+</Step>
 <Step title="Install the example's packages">
 
 Change to the example directory:
 
 ```bash
-cd moltzap/examples/two-agents
+cd examples/two-agents
 ```
 
 Install its dependencies:

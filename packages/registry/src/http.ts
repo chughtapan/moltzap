@@ -6,11 +6,7 @@ import {
   HttpServerResponse,
 } from "@effect/platform";
 import { NodeHttpServerRequest } from "@effect/platform-node";
-import { Cause, Effect, Option } from "effect";
-import type { RegistryStorage } from "./storage.js";
 import {
-  httpEnvelope,
-  type HttpEnvelopeError,
   InternalServerError,
   MalformedRequestError,
   MethodNotAllowedError,
@@ -19,10 +15,18 @@ import {
   RouteNotFoundError,
   UnsupportedMediaTypeError,
   VersionMismatchError,
-} from "../http-errors.js";
-import { WireVersions } from "../wire-versions.js";
-import { verifyBootstrapRegistration } from "./admission.js";
+  wireVersions as WireVersions,
+} from "@moltzap/identity";
 import {
+  httpEnvelope,
+  type HttpEnvelopeError,
+  RegistryApi,
+} from "@moltzap/identity/internal";
+import { Cause, Effect, Option } from "effect";
+import type { RegistryStorage } from "./storage.js";
+import { verifyBootstrapRegistration } from "./admission.js";
+import { type RegistryRpcClient, withBootstrapAdmission } from "./rpc.js";
+const {
   HEALTH_PATH,
   KNOWN_PATHS,
   LIST_BODY_CAP,
@@ -37,8 +41,7 @@ import {
   registryListCodec,
   registryLookupCodec,
   registryRegisterCodec,
-} from "./contract.js";
-import { type RegistryRpcClient, withBootstrapAdmission } from "./rpc.js";
+} = RegistryApi;
 
 type RegistryHttpAppInput = Readonly<{
   client: RegistryRpcClient;

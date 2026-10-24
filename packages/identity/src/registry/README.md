@@ -1,27 +1,6 @@
-# Registry implementation
+# Registry client and contract
 
-This folder contains the runnable Registry behind the public
-`@moltzap/identity/registry` capability. These files own Registry requests,
-results, client failures, process composition, HTTP admission, and durable
-storage.
-
-Start with:
-
-- `server.ts` validates process-environment configuration and composes the
-  production Effect layers launched by the package executable.
-- `http.ts` exposes readiness and the registration, lookup, and list routes.
-- `admission.ts` authenticates registration before storage work: it checks the admission credential and the submitted key around `../http-signature.ts → verifyBootstrapRequest`, then claims the nonce.
-- `rpc.ts` owns the private operation group, admission proof, handlers, and
-  in-process dispatch.
-- `issuance.ts` signs and verifies immutable AgentCards for Registry storage.
-- `storage.ts` owns PostgreSQL transactions, migrations, nonces, and immutable
-  registration records.
-- `client.ts` implements the public `Registry` capability over HTTP.
-
-`contract.ts` owns the closed requests, results, operation values, client
-failures, routes, enclosing limits, and shared request and response codecs
-used by those boundaries.
-`migrations/` remains a private implementation detail.
-
-Consumers that compose the Registry process import `layer` and `StartupError`
-directly from `@moltzap/identity/registry/server`.
+The public Registry capability in `../registry.ts` owns bootstrap registration,
+immutable card lookup, listing, and closed client failures. `contract.ts` owns
+the exact shared request and response representations. The private
+`@moltzap/registry` workspace package owns the service process and persistence.

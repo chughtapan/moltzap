@@ -8,17 +8,7 @@ import {
   RpcServer,
 } from "@effect/rpc";
 import {
-  Context,
-  Deferred,
-  Effect,
-  FiberRef,
-  Layer,
-  Option,
-  Schema,
-} from "effect";
-import type { AgentSigningAuthority } from "../agent-key.js";
-import type { RegistryStorage } from "./storage.js";
-import {
+  type AgentSigningAuthority,
   AuthenticationFailedError,
   InternalServerError,
   MalformedRequestError,
@@ -29,16 +19,29 @@ import {
   UnavailableError,
   UnsupportedMediaTypeError,
   VersionMismatchError,
-} from "../http-errors.js";
+} from "@moltzap/identity";
+import { RegistryApi } from "@moltzap/identity/internal";
 import {
+  RegistryListRequest,
+  RegistryLookupRequest,
+  RegistryRegisterRequest,
+} from "@moltzap/identity/registry";
+import {
+  Context,
+  Deferred,
+  Effect,
+  FiberRef,
+  Layer,
+  Option,
+  Schema,
+} from "effect";
+import type { RegistryStorage } from "./storage.js";
+const {
   listResultSchema,
   lookupResultSchema,
   registerResultSchema,
-  RegistryListRequest,
-  RegistryLookupRequest,
   registryRegisterCodec,
-  RegistryRegisterRequest,
-} from "./contract.js";
+} = RegistryApi;
 
 interface BootstrapAdmission {
   readonly admitted: true;

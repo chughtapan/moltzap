@@ -56,22 +56,6 @@
       "reason": "Closed Registry request, result, operation value, representation, route, and client-failure contract"
     },
     {
-      "file": "registry/rpc.ts",
-      "reason": "Correlated in-process RPC boundary between HTTP admission and storage operations"
-    },
-    {
-      "file": "registry/server.ts",
-      "reason": "Production process-composition boundary exported through the Registry server subpath"
-    },
-    {
-      "file": "registry/storage.ts",
-      "reason": "Durable Registry storage capability and PostgreSQL implementation boundary"
-    },
-    {
-      "file": "registry/migrations/0001_registry.ts",
-      "reason": "Ordered PostgreSQL schema migration seam owned by Registry storage"
-    },
-    {
       "file": "signed-message.ts",
       "reason": "Domain entrypoint for the root-exported SignedMessage: signing, verification, the verified trust state, and the recipient order and bounds a sealed body inherits"
     }

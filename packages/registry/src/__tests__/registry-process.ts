@@ -3,6 +3,25 @@
 import { HttpClient, HttpClientRequest } from "@effect/platform";
 import { NodeHttpClient } from "@effect/platform-node";
 import {
+  AgentName,
+  AgentSigningAuthority,
+  type AgentSigningAuthority as AgentSigningAuthorityValue,
+  PrincipalId,
+  type VerifiedAgentCard,
+} from "@moltzap/identity";
+import {
+  OperationId,
+  Registry,
+  RegistryRegisterRequest,
+  type RegistryRegisterRequest as RegistryRegisterRequestValue,
+} from "@moltzap/identity/registry";
+import {
+  agentSigningPrivateKey,
+  contentDigest,
+  ed25519PublicKeyThumbprintUri,
+  encodeCanonicalJson,
+} from "@moltzap/identity/test";
+import {
   Clock,
   Data,
   Duration,
@@ -21,25 +40,6 @@ import { type IncomingMessage, request as makeHttpRequest } from "node:http";
 import { createConnection, createServer } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  agentSigningPrivateKey,
-  ed25519PublicKeyThumbprintUri,
-} from "../../agent-key.js";
-import { encodeCanonicalJson } from "../../canonical-json.js";
-import { contentDigest } from "../../http-signature.js";
-import {
-  AgentName,
-  AgentSigningAuthority,
-  type AgentSigningAuthority as AgentSigningAuthorityValue,
-  PrincipalId,
-  type VerifiedAgentCard,
-} from "../../index.js";
-import {
-  OperationId,
-  Registry,
-  RegistryRegisterRequest,
-  type RegistryRegisterRequest as RegistryRegisterRequestValue,
-} from "../../registry.js";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const ADMISSION_CREDENTIAL = "registry-binary-admission";
@@ -67,17 +67,15 @@ const SIGNATURE_PARAMETERS = [
   "alg",
   "tag",
 ] as const;
-const WORKSPACE_ROOT = fileURLToPath(
-  new URL("../../../../../", import.meta.url),
-);
+const WORKSPACE_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 const CHILD_PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
 const PGLITE_BINARY = join(
   WORKSPACE_ROOT,
-  "packages/identity/node_modules/.bin/pglite-server",
+  "packages/registry/node_modules/.bin/pglite-server",
 );
 const REGISTRY_BINARY = join(
   WORKSPACE_ROOT,
-  "packages/identity/bin/sharness-registry",
+  "packages/registry/bin/sharness-registry",
 );
 
 interface RunningProcess {

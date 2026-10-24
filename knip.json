@@ -73,10 +73,6 @@
       "project": [
         "src/**/*.ts",
         "*.ts"
-      ],
-      "ignoreDependencies": [
-        "@electric-sql/pglite",
-        "@electric-sql/pglite-socket"
       ]
     },
     "packages/router": {
@@ -88,6 +84,21 @@
       "project": [
         "src/**/*.ts",
         "*.ts"
+      ]
+    },
+    "packages/registry": {
+      "entry": [
+        "src/**/*.test.ts",
+        "src/**/*.types-check.ts",
+        "vitest*.config.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "*.ts"
+      ],
+      "ignoreDependencies": [
+        "@electric-sql/pglite",
+        "@electric-sql/pglite-socket"
       ]
     }
   },

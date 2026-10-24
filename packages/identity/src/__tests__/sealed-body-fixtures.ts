@@ -12,13 +12,13 @@ import {
   type Ed25519PublicKey,
 } from "../agent-key.js";
 import { AgentId, AgentName, PrincipalId } from "../identifiers.js";
-import { AgentCardIssuedAt, issueAgentCard } from "../registry/issuance.js";
 import { SealedBody } from "../sealed-body.js";
 import {
   MessageId,
   SignedMessage,
   type VerifiedSignedMessage,
 } from "../signed-message.js";
+import { AgentCardIssuedAt, issueAgentCard } from "./issuance.js";
 
 /**
  * Building fixtures dominates these tests: every group member costs an

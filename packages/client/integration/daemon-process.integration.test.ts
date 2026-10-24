@@ -831,7 +831,7 @@ it(
         for (const [binary, key] of [
           ["client/bin/sharnessd", "MOLTZAPD_STATE_DIRECTORY"],
           [
-            "identity/bin/sharness-registry",
+            "registry/bin/sharness-registry",
             "MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL",
           ],
           ["router/bin/sharness-router", "MOLTZAP_ROUTER_PORT"],

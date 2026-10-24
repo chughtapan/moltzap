@@ -331,10 +331,20 @@ function inLeg(leg: string) {
  * before its network must still reach.
  */
 function releaseNetwork(consumer: string) {
-  return {
-    registry: join(consumer, "node_modules/.bin/sharness-registry"),
-    router: join(consumer, "node_modules/.bin/sharness-router"),
-  };
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const published = join(consumer, "node_modules/.bin/sharness-registry");
+    if (!(yield* fs.exists(published))) {
+      return yield* new ProcessTestError({
+        message:
+          "Previous-release Registry service artifact is unavailable. Docs: https://github.com/social-harness/moltzap/blob/main/docs/spec/layer-interfaces.md#publication-and-versions",
+      });
+    }
+    return {
+      registry: published,
+      router: join(consumer, "node_modules/.bin/sharness-router"),
+    };
+  });
 }
 
 function installCurrent(temporaryRoot: string) {
@@ -424,7 +434,9 @@ const mixedRelease = Effect.scoped(
       );
       if (version === releases[0]) {
         yield* Effect.scoped(
-          acquireProcessInfrastructureFrom(releaseNetwork(consumer)).pipe(
+          acquireProcessInfrastructureFrom(
+            yield* releaseNetwork(consumer),
+          ).pipe(
             Effect.flatMap((previousNetwork) =>
               certifyPair(previousNetwork, version, consumer, current),
             ),

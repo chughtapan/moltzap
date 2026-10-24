@@ -6,8 +6,7 @@ plus the Identity representation chapters govern this package.
 
 `@moltzap/identity` owns identifiers, keys, immutable AgentCards, signed
 artifacts, sealed message bodies, authenticated HTTP, Registry capabilities
-and representations, Registry persistence, migrations, the Registry process,
-and `sharness-registry`. It has no production workspace dependency.
+and representations. It has no production workspace dependency.
 
 Keep Registry and Router as independent processes. Identity does not own
 Router delivery, conversations, certified history, tasks, norms, personal
@@ -19,14 +18,13 @@ Preserve the admitted wire bytes, routes, bounds, authentication, typed
 failures, persistence, and process behavior unless their governing authority
 changes. Publication follows `docs/spec/layer-interfaces.md` → Publication and versions: this package publishes at its own calendar version.
 
-Run build, typecheck, test, integration, lint, and architecture checks through
+Run build, typecheck, test, lint, and architecture checks through
 Nx:
 
 ```sh
 pnpm nx run @moltzap/identity:build
 pnpm nx run @moltzap/identity:typecheck:tests
 pnpm nx run @moltzap/identity:test
-pnpm nx run @moltzap/identity:test:integration
 pnpm nx run @moltzap/identity:lint
 pnpm nx run @moltzap/identity:arch:check
 ```

@@ -28,10 +28,17 @@
         "{workspaceRoot}/packages/client/integration/daemon-process-harness.ts",
         "{workspaceRoot}/scripts/test/adapter-daemon-*.ts",
         "{workspaceRoot}/scripts/test/tsconfig.adapter-daemon.json",
-        "{workspaceRoot}/scripts/tsconfig.json"
+        "{workspaceRoot}/scripts/tsconfig.json",
+        "{workspaceRoot}/packages/registry/src/**/*"
       ],
       "dependsOn": [
-        "^build"
+        "^build",
+        {
+          "target": "build",
+          "projects": [
+            "@moltzap/registry"
+          ]
+        }
       ],
       "executor": "nx:run-commands",
       "options": {

@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
 
 const binary = fileURLToPath(
-  new URL("../../../bin/sharness-registry", import.meta.url),
+  new URL("../../bin/sharness-registry", import.meta.url),
 );
 const processName = "sharness-registry";
 const requiredVariable = "SHARNESS_REGISTRY_POSTGRESQL_URL";
@@ -32,6 +32,7 @@ function runProcess(
           ([name, value]) => `${name}=${value}`,
         ),
         process.execPath,
+        "--conditions=sharness-internal",
         binary,
         ...processArguments,
       ),

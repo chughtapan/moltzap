@@ -102,8 +102,8 @@ members, not additional root exports, and so are
 `SealedBody.maximumPlaintextByteLength`. `AgentCardIssuedAt` is not an
 export.
 
-The `@moltzap/identity/registry/server` subpath exports only `layer`
-and `StartupError`. Its production binary is exactly
+The private `@moltzap/registry` package exposes its process `layer`,
+`StartupError`, and operator `processHelp`. Its production binary is exactly
 `sharness-registry`. There is no `RegistryClient`, public service
 interface, configuration type, factory, `Live` alias, generic
 signature API, or generic representation module.
@@ -822,7 +822,7 @@ Registry response-card failures do not expose
 SQL detail, response body, or library error crosses the public error
 boundary.
 
-`StartupError` from `@moltzap/identity/registry/server` is a
+`StartupError` from `@moltzap/registry` is a
 `Data.TaggedError` named
 `RegistryServerStartupError` with `_tag`, `phase`, and an optional closed
 `reason`. Storage failures carry `pre-reset`, `newer-schema`, `signer-mismatch`, or

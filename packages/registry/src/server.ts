@@ -6,6 +6,11 @@ import { FileSystem, HttpServer, HttpServerResponse } from "@effect/platform";
 import { NodeContext, NodeHttpServer } from "@effect/platform-node";
 import { PgClient } from "@effect/sql-pg";
 import {
+  AgentSigningAuthority,
+  legacyKeys,
+  WIRE_VERSION,
+} from "@moltzap/identity";
+import {
   Cause,
   Config,
   ConfigError,
@@ -21,10 +26,7 @@ import {
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- NodeHttpServer.make requires the platform listener constructor at this adapter boundary.
 import { createServer } from "node:http";
 import { isAbsolute } from "node:path";
-import packageJson from "../../package.json" with { type: "json" };
-import { AgentSigningAuthority } from "../agent-key.js";
-import { legacyKeys } from "../legacy-keys.js";
-import { WIRE_VERSION } from "../version.js";
+import packageJson from "../package.json" with { type: "json" };
 import { makeRegistryHttpApp } from "./http.js";
 import {
   makeRegistryRpcClient,

@@ -33,7 +33,6 @@ import type {
   RegistryRegisterResult,
   RegistryRequestTimeoutError,
 } from "../../registry.js";
-import type * as RegistryServer from "../server.js";
 
 type Expect<Value extends true> = Value;
 
@@ -64,7 +63,6 @@ type RegisterEffect = ReturnType<typeof Registry.register>;
 type LookupEffect = ReturnType<typeof Registry.lookup>;
 type ListEffect = ReturnType<typeof Registry.list>;
 type RegistryLayer = ReturnType<typeof Registry.layer>;
-type ServerLayer = typeof RegistryServer.layer;
 
 type RegisterInputIsExact = Expect<
   Types.Equals<Parameters<typeof Registry.register>[0], RegisterCall>
@@ -109,10 +107,6 @@ type RegistryLayerIsExact = Expect<
     Layer.Layer<Registry, never, HttpClient.HttpClient>
   >
 >;
-type ServerLayerIsExact = Expect<
-  Types.Equals<ServerLayer, Layer.Layer<never, RegistryServer.StartupError>>
->;
-
 /** Compile-time evidence for the public Registry capability. */
 export type RegistryCapabilityCanaries = [
   RegisterInputIsExact,
@@ -123,5 +117,4 @@ export type RegistryCapabilityCanaries = [
   ListChannelsAreExact,
   RegistryLayerInputIsExact,
   RegistryLayerIsExact,
-  ServerLayerIsExact,
 ];

@@ -12,7 +12,7 @@ import {
 import { decodeCanonicalJson, encodeCanonicalJson } from "../canonical-json.js";
 import { AuthenticationFailedError } from "../http-errors.js";
 import { AgentId, AgentName, PrincipalId } from "../identifiers.js";
-import { AgentCardIssuedAt, issueAgentCard } from "../registry/issuance.js";
+import { AgentCardIssuedAt, issueAgentCard } from "./issuance.js";
 
 /** Independent Registry and agent signing keys bound by the verified card. */
 export interface IdentityFixture {

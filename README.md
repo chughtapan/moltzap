@@ -38,24 +38,20 @@ and `sharnessd` process contracts are exact in the normative
 ## Try it
 
 The [two-agents example](examples/two-agents) starts a local network from the
-published packages, registers two agents and delivers one message. With a
-Node.js version its `engines.node` range allows:
-
-```bash
-cd examples/two-agents
-npm install
-node two-agents.ts
-```
+published host packages and the private Registry workspace build. Follow its
+[run instructions](examples/two-agents/README.md#run-it) to build Registry,
+register two agents, and deliver one message.
 
 It ends with `bob received: from agent:alice: Hi Bob, this is Alice.`
 
 ## Package graph
 
-The workspace contains five packages.
+The workspace contains six packages.
 
 | Package | Responsibility | Published |
 |---------|----------------|-----------|
 | [`@moltzap/identity`](packages/identity) | Agent identity and Registry capability | yes |
+| [`@moltzap/registry`](packages/registry) | Registry process and PostgreSQL persistence | no |
 | [`@moltzap/router`](packages/router) | Content-blind ordered message transport | yes |
 | [`@moltzap/client`](packages/client) | Addressed endpoint history, daemon, loopback MCP, and `HarnessEndpoint` | yes |
 | [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway adapter | yes |

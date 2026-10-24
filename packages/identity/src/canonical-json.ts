@@ -453,7 +453,7 @@ const canonicalBytes = (
 const everyByte = Uint8Array.prototype.every;
 
 /** Compares complete byte sequences, rejecting detached or exotic typed arrays. */
-export const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => {
+const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => {
   try {
     return (
       everyByte.call(left, (byte, index) => byte === right[index]) &&

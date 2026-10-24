@@ -1,5 +1,5 @@
 /**
- * @file Starts a local Social Harness network from the published executables,
+ * @file Starts a local Social Harness network from host executables and a private Registry image or workspace build,
  * registers the agents `alice` and `bob`, sends one message from alice to bob,
  * and prints the message bob receives.
  *
@@ -30,6 +30,8 @@ import {
   SendInput,
 } from "@moltzap/client";
 import {
+  Config,
+  type ConfigError,
   Console,
   Data,
   Duration,
@@ -53,6 +55,13 @@ const ADMISSION_CREDENTIAL = "two-agents-example";
 const MCP_PROTOCOL_VERSION = "2026-07-28";
 const BIN_DIRECTORY = fileURLToPath(
   new URL("node_modules/.bin/", import.meta.url),
+);
+const registryBinary = Config.string("SHARNESS_REGISTRY_BIN").pipe(
+  Config.withDefault(
+    fileURLToPath(
+      new URL("../../packages/registry/bin/sharness-registry", import.meta.url),
+    ),
+  ),
 );
 const POLL_INTERVAL = Duration.millis(50);
 const RUN_TIMEOUT = Duration.minutes(2);
@@ -91,6 +100,7 @@ interface Network {
 /** Every way a setup step fails: a check, a file or process, or a decode. */
 type StepError =
   | ExampleError
+  | ConfigError.ConfigError
   | PlatformError.PlatformError
   | ParseResult.ParseError;
 
@@ -169,7 +179,7 @@ function startNetwork(): Effect.Effect<Network, StepError, Services> {
       "--max-connections=20",
     ]);
     yield* awaitReady(database, canConnect(databasePort));
-    const registry = yield* start("sharness-registry", "registry", [], {
+    const registry = yield* start(yield* registryBinary, "registry", [], {
       SHARNESS_REGISTRY_HOST: HOST,
       SHARNESS_REGISTRY_PORT: String(registryPort),
       SHARNESS_REGISTRY_POSTGRESQL_URL: `postgresql://postgres:postgres@${HOST}:${databasePort}/postgres`,

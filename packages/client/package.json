@@ -71,7 +71,13 @@
         "executor": "nx:run-commands",
         "dependsOn": [
           "build",
-          "^build"
+          "^build",
+          {
+            "target": "build",
+            "projects": [
+              "@moltzap/registry"
+            ]
+          }
         ],
         "inputs": [
           "sources",
@@ -82,7 +88,8 @@
           },
           {
             "runtime": "node --version"
-          }
+          },
+          "{workspaceRoot}/packages/registry/src/**/*"
         ],
         "options": {
           "cwd": "packages/client",

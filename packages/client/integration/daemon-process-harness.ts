@@ -70,11 +70,11 @@ const WORKSPACE_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const CHILD_PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
 const PGLITE_BINARY = join(
   WORKSPACE_ROOT,
-  "packages/identity/node_modules/.bin/pglite-server",
+  "packages/registry/node_modules/.bin/pglite-server",
 );
 const REGISTRY_BINARY = join(
   WORKSPACE_ROOT,
-  "packages/identity/bin/sharness-registry",
+  "packages/registry/bin/sharness-registry",
 );
 const ROUTER_BINARY = join(
   WORKSPACE_ROOT,
@@ -443,9 +443,10 @@ export const acquireProcessInfrastructureFrom = (
               process.execPath,
               [
                 "--conditions=sharness-test",
+                "--conditions=sharness-internal",
                 "--input-type=module",
                 "-e",
-                `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity/test"; import { layer } from "@moltzap/identity/registry/server"; import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions.value)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
+                `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity/test"; import { layer } from "@moltzap/registry"; import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions.value)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
               ],
             ];
       const registry = yield* managedProcess(
@@ -459,7 +460,7 @@ export const acquireProcessInfrastructureFrom = (
           SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH: registryKeyPath,
           SHARNESS_REGISTRY_LIST_PAGE_SIZE: "16",
         },
-        join(WORKSPACE_ROOT, "packages/client"),
+        join(WORKSPACE_ROOT, "packages/registry"),
       );
       yield* awaitReady(registry, isHealthy(registryOrigin), "health response");
     });

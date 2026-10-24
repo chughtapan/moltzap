@@ -79,11 +79,11 @@ const WORKSPACE_ROOT = fileURLToPath(
 const CHILD_PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
 const PGLITE_BINARY = join(
   WORKSPACE_ROOT,
-  "packages/identity/node_modules/.bin/pglite-server",
+  "packages/registry/node_modules/.bin/pglite-server",
 );
 const REGISTRY_BINARY = join(
   WORKSPACE_ROOT,
-  "packages/identity/bin/sharness-registry",
+  "packages/registry/bin/sharness-registry",
 );
 const ROUTER_BINARY = join(
   WORKSPACE_ROOT,

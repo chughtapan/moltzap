@@ -1,6 +1,6 @@
 /**
  * @file Rebuild synthetic retained-wire fixtures with deterministic test-only keys.
- * Run with Node after pnpm build: node scripts/generate-wire-golden.ts.
+ * Run with Node after pnpm build: node --conditions=sharness-internal scripts/generate-wire-golden.ts.
  */
 
 import { FileSystem } from "@effect/platform";
@@ -23,15 +23,15 @@ import {
   PrincipalId,
 } from "../packages/identity/dist/identifiers.js";
 import {
-  AgentCardIssuedAt,
-  issueAgentCard,
-} from "../packages/identity/dist/registry/issuance.js";
-import {
   MessageId,
   SignedMessage,
 } from "../packages/identity/dist/signed-message.js";
 import { WIRE_VERSION } from "../packages/identity/dist/version.js";
 import { WireVersions } from "../packages/identity/dist/wire-versions.js";
+import {
+  AgentCardIssuedAt,
+  issueAgentCard,
+} from "../packages/registry/dist/issuance.js";
 
 /** Public deterministic seeds belong only to synthetic golden fixtures. */
 function testAuthority(byte: number) {
@@ -146,7 +146,7 @@ const generateCofactored = Effect.gen(function* () {
   );
   return {
     provenance:
-      "Synthetic cofactored-only Ed25519 evidence. Regenerate: node scripts/generate-wire-golden.ts after pnpm build.",
+      "Synthetic cofactored-only Ed25519 evidence. Regenerate: node --conditions=sharness-internal scripts/generate-wire-golden.ts after pnpm build.",
     registryKey: yield* Schema.encode(Ed25519PublicKey)(
       AgentSigningAuthority.publicKey(registryAuthority),
     ),
@@ -179,7 +179,7 @@ const generate = Effect.gen(function* () {
   });
   return {
     provenance:
-      "Synthetic signed retained-version fixture using fictional 2099.101.0; not captured from a published release. Regenerate: node scripts/generate-wire-golden.ts after pnpm build.",
+      "Synthetic signed retained-version fixture using fictional 2099.101.0; not captured from a published release. Regenerate: node --conditions=sharness-internal scripts/generate-wire-golden.ts after pnpm build.",
     registryKey: yield* Schema.encode(Ed25519PublicKey)(
       AgentSigningAuthority.publicKey(registryAuthority),
     ),

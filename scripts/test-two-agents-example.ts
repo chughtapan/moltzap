@@ -99,7 +99,13 @@ function runExample(
     );
     return yield* runCommand(process.execPath, ["two-agents.ts"], {
       cwd: consumerRoot,
-      env: { NODE_PATH: "" },
+      env: {
+        NODE_PATH: "",
+        SHARNESS_REGISTRY_BIN: join(
+          workspaceRoot,
+          "packages/registry/bin/sharness-registry",
+        ),
+      },
     }).pipe(
       Effect.disconnect,
       Effect.timeoutFail({

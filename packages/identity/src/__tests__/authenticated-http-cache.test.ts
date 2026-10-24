@@ -4,7 +4,6 @@ import { Array, Effect, Encoding, Ref, Schema } from "effect";
 import { expect, it } from "vitest";
 import type { RegistryClientService } from "../registry/contract.js";
 import { AgentId, AgentName } from "../identifiers.js";
-import { AgentCardIssuedAt, issueAgentCard } from "../registry/issuance.js";
 import {
   type IdentityFixture,
   makeIdentityFixture,
@@ -15,6 +14,7 @@ import {
   registryWithLookup,
   verifyAgentRequest,
 } from "./authenticated-http-requests.js";
+import { AgentCardIssuedAt, issueAgentCard } from "./issuance.js";
 
 const makeDistinctFixture = (index: number) =>
   Effect.gen(function* () {

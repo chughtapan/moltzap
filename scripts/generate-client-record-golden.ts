@@ -1,6 +1,6 @@
 /**
  * @file Rebuild retained Client records after pnpm build:
- * node scripts/generate-client-record-golden.ts.
+ * node --conditions=sharness-internal scripts/generate-client-record-golden.ts.
  * Two-member forms rebuild from retained signed inputs whose keys were not kept;
  * N4 forms sign under public deterministic test seeds. Neither fixture contains
  * production key material.
@@ -43,11 +43,11 @@ import {
   PrincipalId,
   SignedMessage,
 } from "../packages/identity/dist/index.js";
+import { WireVersions } from "../packages/identity/dist/wire-versions.js";
 import {
   AgentCardIssuedAt,
   issueAgentCard,
-} from "../packages/identity/dist/registry/issuance.js";
-import { WireVersions } from "../packages/identity/dist/wire-versions.js";
+} from "../packages/registry/dist/issuance.js";
 import { RouterInstanceId } from "../packages/router/dist/index.js";
 import captured from "./client-record-golden-inputs.json" with { type: "json" };
 

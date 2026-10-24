@@ -3,7 +3,7 @@
  *
  * The table pins the directory and package names, public entrypoints,
  * binaries, manifest edges, TypeScript references, and required Nx targets
- * for all five products. It is a hand transcription of the current package
+ * for all workspace products. It is a hand transcription of the current package
  * contract, written down rather than derived so drift fails whichever side
  * moves, but it is not self-certifying: re-verify it against
  * docs/spec/layer-interfaces.md whenever that contract changes.
@@ -15,11 +15,13 @@ export type PackageDir =
   | "identity"
   | "nanoclaw-channel"
   | "openclaw-channel"
-  | "router";
+  | "router"
+  | "registry";
 
 /** The `types` and `import` conditions one public subpath resolves to. */
 interface ExportTarget {
   readonly testOnly?: true;
+  readonly internalOnly?: true;
   readonly types: string;
   readonly import: string;
 }
@@ -35,6 +37,8 @@ interface PackageContract {
    * graph.
    */
   readonly deps: readonly PackageDir[];
+  /** Process fixtures launch services without adding a production dependency. */
+  readonly testDeps?: readonly PackageDir[];
   readonly exports: Readonly<Record<string, ExportTarget>>;
   readonly bin: Readonly<Record<string, string>>;
   /**
@@ -78,16 +82,25 @@ export const FINAL_PACKAGES: Readonly<Record<PackageDir, PackageContract>> = {
         types: "./dist/registry.d.ts",
         import: "./dist/registry.js",
       },
-      "./registry/server": {
-        types: "./dist/registry/server.d.ts",
-        import: "./dist/registry/server.js",
+      "./internal": {
+        internalOnly: true,
+        types: "./dist/internal/index.d.ts",
+        import: "./dist/internal/index.js",
       },
       "./test": {
         testOnly: true,
-        types: "./dist/wire-versions.d.ts",
-        import: "./dist/wire-versions.js",
+        types: "./dist/internal/test.d.ts",
+        import: "./dist/internal/test.js",
       },
     },
+    bin: {},
+    targets: SERVICE_TARGETS.filter((target) => target !== "test:integration"),
+  },
+  registry: {
+    npmName: "@moltzap/registry",
+    published: false,
+    deps: ["identity"],
+    exports: { ".": ROOT_EXPORT },
     bin: { "sharness-registry": "./bin/sharness-registry" },
     targets: SERVICE_TARGETS,
   },
@@ -109,6 +122,7 @@ export const FINAL_PACKAGES: Readonly<Record<PackageDir, PackageContract>> = {
     npmName: "@moltzap/client",
     published: true,
     deps: ["identity", "router"],
+    testDeps: ["registry"],
     exports: {
       ".": ROOT_EXPORT,
       "./service": {
@@ -163,6 +177,7 @@ export const FINAL_PACKAGES: Readonly<Record<PackageDir, PackageContract>> = {
 /** Every product directory, in the order the checks report them. */
 export const FINAL_PACKAGE_DIRS: readonly PackageDir[] = [
   "identity",
+  "registry",
   "router",
   "client",
   "openclaw-channel",
