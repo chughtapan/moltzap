@@ -49,8 +49,6 @@ const PACKAGE_SOURCE_FILES = [
 ];
 
 const TEST_SUPPORT_FILES = [
-  "*.test.ts",
-  "*.spec.ts",
   "src/**/*.test.ts",
   "src/**/*.spec.ts",
   "src/**/*.integration.test.ts",
@@ -174,7 +172,7 @@ export function packageEslintConfig(options: PackageEslintOptions) {
     },
     makeStrictBlock(TEST_SUPPORT_FILES, languageOptions, strictRules),
     makePresetBlock(
-      ["src/**/*.integration.test.ts", "*.integration.test.ts"],
+      ["src/**/*.integration.test.ts"],
       languageOptions,
       guard.configs.integrationTests,
     ),

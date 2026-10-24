@@ -46,7 +46,14 @@
         "executor": "nx:run-commands",
         "dependsOn": [
           "^build",
-          "@moltzap/client:build"
+          "@moltzap/client:build",
+          "@moltzap/registry:build"
+        ],
+        "inputs": [
+          "sources",
+          "^production",
+          "{workspaceRoot}/packages/registry/src/**/*",
+          "{workspaceRoot}/packages/registry/bin/**/*"
         ],
         "options": {
           "command": "vitest run --config tests/integration/mixed-release-vitest.config.ts",
