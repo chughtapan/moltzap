@@ -32,7 +32,6 @@ import {
 export interface Manifest {
   /** Production edges: `dependencies`, `optionalDependencies`, `peerDependencies`. */
   readonly name: string;
-  readonly private?: boolean;
   readonly version: string;
   readonly dependencies: Readonly<Record<string, string>>;
 }
@@ -83,7 +82,6 @@ export function selectPackages(
   version: string,
   dirs: readonly string[],
 ): Selection {
-  dirs = dirs.filter((dir) => workspace.manifest(dir).private !== true);
   const misordered = outOfOrder(workspace, dirs);
   if (misordered !== undefined) {
     return misordered;
@@ -118,7 +116,6 @@ export function repositoryWorkspace(repo: string): Workspace {
       const manifest = readManifest(repo, dir);
       return {
         name: String(manifest.name),
-        private: manifest.private === true,
         version: String(manifest.version),
         dependencies: {
           ...stringRecord(manifest.dependencies),

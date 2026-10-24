@@ -18,7 +18,7 @@ import {
   SignedMessage,
   type VerifiedSignedMessage,
 } from "../signed-message.js";
-import { AgentCardIssuedAt, issueAgentCard } from "./issuance.js";
+import { AgentCardIssuedAt, makeVerifiedCard } from "./agent-card-fixtures.js";
 
 /**
  * Building fixtures dominates these tests: every group member costs an
@@ -67,7 +67,7 @@ export const issueCard = (
   byte: number,
   publicKey: Ed25519PublicKey,
 ) =>
-  issueAgentCard({
+  makeVerifiedCard({
     agentId: Schema.decodeUnknownSync(AgentId)(identifier("agt_", byte)),
     principalId: Schema.decodeUnknownSync(PrincipalId)(
       identifier("prn_", byte),

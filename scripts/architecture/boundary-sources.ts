@@ -159,7 +159,9 @@ export function checkFinalImports(run: BoundaryRun): number {
 
 function checkSourceFile(run: BoundaryRun, file: string): void {
   const text = readFileSync(file, "utf8");
-  for (const match of text.matchAll(/export\s+\*\s+from\s+["'][^"']+["']/g)) {
+  for (const match of text.matchAll(
+    /export\s+\*(?:\s+as\s+[^\s]+)?\s+from\s+["'][^"']+["']/g,
+  )) {
     fail(
       run,
       file,

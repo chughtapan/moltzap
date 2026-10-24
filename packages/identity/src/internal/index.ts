@@ -5,6 +5,7 @@
 
 import { Effect, Schema } from "effect";
 import { GeneralSign } from "jose";
+import type { AgentId, AgentName, PrincipalId } from "../identifiers.js";
 import {
   AgentCard,
   agentCardIssuedAtSchema,
@@ -13,39 +14,57 @@ import {
 import {
   AgentSigningAuthority,
   agentSigningPrivateKey,
+  type Ed25519PublicKey,
   ed25519PublicKeyThumbprintUri,
 } from "../agent-key.js";
 import { encodeCanonicalJson } from "../canonical-json.js";
-import { hasCanonicalBase64UrlLength } from "../identifiers.js";
 import { WIRE_VERSION } from "../version.js";
 import { WIRE_PROFILES } from "../wire-profile.js";
 
 /** Closed Registry wire grammar shared by client encoding and service admission. */
-export * as RegistryApi from "../registry/contract.js";
+export {
+  HEALTH_PATH,
+  KNOWN_PATHS,
+  LIST_BODY_CAP,
+  LIST_PATH,
+  LIST_ROUTE,
+  listResultSchema,
+  LOOKUP_BODY_CAP,
+  LOOKUP_PATH,
+  LOOKUP_ROUTE,
+  lookupResultSchema,
+  REGISTER_BODY_CAP,
+  REGISTER_PATH,
+  REGISTER_ROUTE,
+  registerResultSchema,
+  registrationBody,
+  registryAgentCardCodec,
+  registryListCodec,
+  registryLookupCodec,
+  registryRegisterCodec,
+} from "../registry/contract.js";
 /** Bootstrap verification keeps private signature proofs inside service admission. */
 export {
   type VerifiedHttpSignature,
   verifyBootstrapRequest,
 } from "../http-signature.js";
-/** HTTP failures use Identity's exact closed response representation. */
-export { httpEnvelope, type HttpEnvelopeError } from "../http-errors.js";
 
-/** Bootstrap framing admits the key representation before cryptographic validation. */
-export const bootstrapAuthentication = Object.freeze({
-  publicKeyRepresentation: Schema.Struct({
-    crv: Schema.Literal("Ed25519"),
-    kty: Schema.Literal("OKP"),
-    x: Schema.String.pipe(
-      Schema.filter((value) => hasCanonicalBase64UrlLength(value, 32)),
-    ),
-  }),
-});
+/** Complete immutable claims accepted by the card-signing capability. */
+export interface AgentCardClaims {
+  readonly kind: "agentCard";
+  readonly sharnessVersion: string;
+  readonly agentId: AgentId;
+  readonly principalId: PrincipalId;
+  readonly agentName: AgentName;
+  readonly publicKey: Ed25519PublicKey;
+  readonly issuedAt: typeof agentCardIssuedAtSchema.Type;
+}
 
 interface CardSigning {
   readonly issuedAt: typeof agentCardIssuedAtSchema;
   readonly publicKeyId: typeof ed25519PublicKeyThumbprintUri;
   readonly sign: (
-    payload: unknown,
+    payload: AgentCardClaims,
     authority: AgentSigningAuthority,
   ) => Effect.Effect<AgentCard, AgentCardVerificationError>;
 }
@@ -58,7 +77,7 @@ export const agentCardSigning: CardSigning = Object.freeze({
 });
 
 function signCardPayload(
-  payload: unknown,
+  payload: AgentCardClaims,
   authority: AgentSigningAuthority,
 ): Effect.Effect<AgentCard, AgentCardVerificationError> {
   return Effect.gen(function* () {

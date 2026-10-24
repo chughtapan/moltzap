@@ -102,29 +102,6 @@ await test("an identity change publishes every package, since each pins identity
   });
 });
 
-await test("private service packages never reach packing or npm selection", () => {
-  const { workspace } = fakeWorkspace({}, AS_PUBLISHED);
-  const privateWorkspace: Workspace = {
-    ...workspace,
-    manifest: (dir) =>
-      dir === "registry"
-        ? {
-            name: "@moltzap/registry",
-            version: PREVIOUS,
-            private: true,
-            dependencies: { "@moltzap/identity": PREVIOUS },
-          }
-        : workspace.manifest(dir),
-  };
-  assert.deepEqual(
-    selectPackages(privateWorkspace, RELEASE, ["registry", ...DIRS]),
-    {
-      kind: "selected",
-      dirs: [],
-    },
-  );
-});
-
 await test("an unchanged workspace publishes nothing", () => {
   const { workspace } = fakeWorkspace({}, AS_PUBLISHED);
   assert.deepEqual(selectPackages(workspace, RELEASE, DIRS), {

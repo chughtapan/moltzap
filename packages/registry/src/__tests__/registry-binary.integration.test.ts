@@ -16,7 +16,6 @@ import {
   type RegistryListRequest,
   RegistryRegisterRequest,
 } from "@moltzap/identity/registry";
-import { contentDigest, encodeCanonicalJson } from "@moltzap/identity/test";
 import { Duration, Effect, Redacted, Ref, Schema } from "effect";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -51,6 +50,7 @@ import {
   waitForExit,
   waitForTcpListener,
 } from "./registry-process.js";
+import { contentDigest, encodeCanonicalJson } from "./request-fixtures.js";
 
 const REGISTERED_KIND = "registered";
 const NOT_FOUND_KIND = "not_found";

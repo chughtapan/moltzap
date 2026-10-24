@@ -1,6 +1,6 @@
 /**
  * @file Rebuild retained Client records after pnpm build:
- * node --conditions=sharness-internal scripts/generate-client-record-golden.ts.
+ * node scripts/generate-client-record-golden.ts.
  * Two-member forms rebuild from retained signed inputs whose keys were not kept;
  * N4 forms sign under public deterministic test seeds. Neither fixture contains
  * production key material.
@@ -9,6 +9,7 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect, Redacted, Schema } from "effect";
+import { registerHooks } from "node:module";
 import { fileURLToPath } from "node:url";
 import {
   ActionCertifiedRecord,
@@ -44,12 +45,21 @@ import {
   SignedMessage,
 } from "../packages/identity/dist/index.js";
 import { WireVersions } from "../packages/identity/dist/wire-versions.js";
-import {
-  AgentCardIssuedAt,
-  issueAgentCard,
-} from "../packages/registry/dist/issuance.js";
 import { RouterInstanceId } from "../packages/router/dist/index.js";
 import captured from "./client-record-golden-inputs.json" with { type: "json" };
+
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    return nextResolve(specifier, {
+      ...context,
+      conditions: [...context.conditions, "sharness-internal"],
+    });
+  },
+});
+
+const { AgentCardIssuedAt: agentCardIssuedAt, issueAgentCard } = await import(
+  "../packages/registry/dist/issuance.js"
+);
 
 const sharnessVersion = "2026.1021.3";
 const utf8 = new TextDecoder();
@@ -204,7 +214,7 @@ function deterministicIdentity(byte: number, registry: AgentSigningAuthority) {
         `golden-member-${byte}`,
       ),
       publicKey: AgentSigningAuthority.publicKey(authority),
-      issuedAt: yield* Schema.decodeUnknown(AgentCardIssuedAt)(
+      issuedAt: yield* Schema.decodeUnknown(agentCardIssuedAt)(
         "2026-08-27T12:00:00Z",
       ),
       registrySigningAuthority: registry,

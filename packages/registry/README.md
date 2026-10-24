@@ -2,7 +2,8 @@
 
 Private workspace package for the Registry HTTP process, bootstrap admission,
 immutable AgentCard issuance, PostgreSQL storage, and migrations. Operators run
-this service as an image built from this package; it is not published to npm.
+this service from `packages/registry/bin/sharness-registry` in the workspace.
+The package is not published to npm, and no Registry image is published.
 
 `sharness-registry` reads its configuration from the environment. Run
 `packages/registry/bin/sharness-registry --help` from the workspace root after

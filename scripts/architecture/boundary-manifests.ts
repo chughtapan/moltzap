@@ -493,11 +493,7 @@ function checkBinaryFile(
   name: string,
   binPath: string,
 ): void {
-  if (
-    !/^#!\/usr\/bin\/env (?:node|-S node --conditions=sharness-internal)\r?\n/u.test(
-      readFileSync(binPath, "utf8"),
-    )
-  ) {
+  if (!/^#!\/usr\/bin\/env node\r?\n/u.test(readFileSync(binPath, "utf8"))) {
     run.failures.push(`${where}: binary "${name}" lacks a node shebang`);
   }
   if ((statSync(binPath).mode & 0o111) === 0) {

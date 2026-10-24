@@ -17,7 +17,6 @@ import {
   RegistryRegisterRequest,
   type RegistryRegisterResult,
 } from "@moltzap/identity/registry";
-import { encodeCanonicalJson } from "@moltzap/identity/test";
 import {
   PostgreSqlContainer,
   type StartedPostgreSqlContainer,
@@ -47,6 +46,7 @@ import {
   waitForExit,
   waitForHealthStatus,
 } from "./registry-process.js";
+import { encodeCanonicalJson } from "./request-fixtures.js";
 
 const SERVICE_UNAVAILABLE_STATUS = 503;
 const EMPTY_BODY = "";

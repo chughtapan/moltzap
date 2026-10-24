@@ -26,7 +26,6 @@ import {
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- NodeHttpServer.make requires the platform listener constructor at this adapter boundary.
 import { createServer } from "node:http";
 import { isAbsolute } from "node:path";
-import packageJson from "../package.json" with { type: "json" };
 import { makeRegistryHttpApp } from "./http.js";
 import {
   makeRegistryRpcClient,
@@ -340,7 +339,7 @@ function serveRegistry(
       Effect.provideService(HttpServer.HttpServer, httpServer),
     );
     yield* Console.log(
-      `sharness-registry listening on ${listeningUrl(httpServer.address)} (package ${packageJson.version}; WIRE_VERSION ${WIRE_VERSION})`,
+      `sharness-registry listening on ${listeningUrl(httpServer.address)} (WIRE_VERSION ${WIRE_VERSION})`,
     );
   });
 }

@@ -33,7 +33,8 @@
           {
             "runtime": "node --version"
           },
-          "{workspaceRoot}/packages/registry/src/**/*"
+          "{workspaceRoot}/packages/registry/src/**/*",
+          "{workspaceRoot}/packages/registry/bin/**/*"
         ],
         "options": {
           "cwd": "tests/integration",
@@ -73,7 +74,8 @@
           "{workspaceRoot}/tests/integration/adapter-daemon-*.ts",
           "{workspaceRoot}/tests/integration/tsconfig.adapter-daemon.json",
           "{workspaceRoot}/scripts/tsconfig.json",
-          "{workspaceRoot}/packages/registry/src/**/*"
+          "{workspaceRoot}/packages/registry/src/**/*",
+          "{workspaceRoot}/packages/registry/bin/**/*"
         ],
         "dependsOn": [
           "^build",

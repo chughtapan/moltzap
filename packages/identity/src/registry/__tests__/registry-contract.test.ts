@@ -8,7 +8,10 @@ import {
 import { Duration, Effect, Either, Layer, Redacted, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { AgentCardIssuedAt, issueAgentCard } from "../../__tests__/issuance.js";
+import {
+  AgentCardIssuedAt,
+  makeVerifiedCard,
+} from "../../__tests__/agent-card-fixtures.js";
 import { encodeCanonicalJson } from "../../canonical-json.js";
 import {
   AgentId,
@@ -129,7 +132,7 @@ const makeClientCard = (
     readonly publicKey?: ReturnType<typeof AgentSigningAuthority.publicKey>;
   },
 ) =>
-  issueAgentCard({
+  makeVerifiedCard({
     agentId: Schema.decodeUnknownSync(AgentId)(input.agentId),
     principalId: Schema.decodeUnknownSync(PrincipalId)(
       input.principalId ?? "prn_AAAAAAAAAAAAAAAAAAAAAA",

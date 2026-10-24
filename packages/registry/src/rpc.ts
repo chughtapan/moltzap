@@ -20,7 +20,12 @@ import {
   UnsupportedMediaTypeError,
   VersionMismatchError,
 } from "@moltzap/identity";
-import { RegistryApi } from "@moltzap/identity/internal";
+import {
+  listResultSchema,
+  lookupResultSchema,
+  registerResultSchema,
+  registryRegisterCodec,
+} from "@moltzap/identity/internal";
 import {
   RegistryListRequest,
   RegistryLookupRequest,
@@ -36,12 +41,6 @@ import {
   Schema,
 } from "effect";
 import type { RegistryStorage } from "./storage.js";
-const {
-  listResultSchema,
-  lookupResultSchema,
-  registerResultSchema,
-  registryRegisterCodec,
-} = RegistryApi;
 
 interface BootstrapAdmission {
   readonly admitted: true;

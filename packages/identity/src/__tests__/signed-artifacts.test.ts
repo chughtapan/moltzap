@@ -37,7 +37,7 @@ import {
   SignedMessageSigningError,
   type SignedMessage as SignedMessageValue,
 } from "../signed-message.js";
-import { AgentCardIssuedAt, issueAgentCard } from "./issuance.js";
+import { AgentCardIssuedAt, makeVerifiedCard } from "./agent-card-fixtures.js";
 import cofactoredGolden from "./wire-cofactored-golden.json" with { type: "json" };
 
 const MAXIMUM_BODY_BYTES = 262_144;
@@ -111,7 +111,7 @@ const makeSigningAuthority = () => {
 const makeIdentityFixture = Effect.gen(function* () {
   const registrySigningAuthority = yield* makeSigningAuthority();
   const agentSigningAuthority = yield* makeSigningAuthority();
-  const agentCard = yield* issueAgentCard({
+  const agentCard = yield* makeVerifiedCard({
     agentId: Schema.decodeUnknownSync(AgentId)(identifier("agt_", 250)),
     principalId: Schema.decodeUnknownSync(PrincipalId)(identifier("prn_", 249)),
     agentName: Schema.decodeUnknownSync(AgentName)("snapshot-sender"),

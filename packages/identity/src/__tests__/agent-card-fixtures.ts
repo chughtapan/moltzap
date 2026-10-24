@@ -4,15 +4,11 @@ import { Effect } from "effect";
 import {
   AgentCard,
   type AgentCardVerificationError,
-  type AgentId as AgentIdValue,
-  type AgentName as AgentNameValue,
   AgentSigningAuthority,
-  type Ed25519PublicKey as Ed25519PublicKeyValue,
-  type PrincipalId as PrincipalIdValue,
   type VerifiedAgentCard,
-  wireVersions as WireVersions,
+  wireVersions,
 } from "../index.js";
-import { agentCardSigning } from "../internal/index.js";
+import { type AgentCardClaims, agentCardSigning } from "../internal/index.js";
 
 /** Whole-second UTC issuance evidence carried by an AgentCard. */
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Effect Schemas share the package-owned domain name they decode.
@@ -21,41 +17,34 @@ export const AgentCardIssuedAt = agentCardSigning.issuedAt;
 // eslint-disable-next-line @typescript-eslint/no-redeclare -- The same-named Schema and type form one package boundary model.
 export type AgentCardIssuedAt = typeof AgentCardIssuedAt.Type;
 
-interface IssueAgentCardInput {
-  readonly agentId: AgentIdValue;
-  readonly principalId: PrincipalIdValue;
-  readonly agentName: AgentNameValue;
-  readonly publicKey: Ed25519PublicKeyValue;
-  readonly issuedAt: AgentCardIssuedAt;
+interface CardFixtureInput
+  extends Omit<AgentCardClaims, "kind" | "sharnessVersion"> {
   readonly registrySigningAuthority: AgentSigningAuthority;
 }
 
 /**
- * Builds immutable attestations for artifact and client tests.
+ * Signs and verifies immutable card claims for Identity fixtures.
  *
  * @param input Complete identity fields and Registry signing authority.
  * @returns A Registry-verified immutable AgentCard.
  */
-export const issueAgentCard = (
-  input: IssueAgentCardInput,
+export const makeVerifiedCard = (
+  input: CardFixtureInput,
 ): Effect.Effect<VerifiedAgentCard, AgentCardVerificationError> =>
   Effect.gen(function* () {
+    const { registrySigningAuthority, ...claims } = input;
     const card = yield* agentCardSigning.sign(
       {
         kind: "agentCard",
-        sharnessVersion: yield* WireVersions.emitted,
-        agentId: input.agentId,
-        principalId: input.principalId,
-        agentName: input.agentName,
-        publicKey: input.publicKey,
-        issuedAt: input.issuedAt,
+        sharnessVersion: yield* wireVersions.emitted,
+        ...claims,
       },
-      input.registrySigningAuthority,
+      registrySigningAuthority,
     );
     return yield* AgentCard.verify({
       agentCard: card,
       registrySignerPublicKey: AgentSigningAuthority.publicKey(
-        input.registrySigningAuthority,
+        registrySigningAuthority,
       ),
     });
-  }).pipe(Effect.withSpan("issueAgentCard"));
+  }).pipe(Effect.withSpan("makeVerifiedCard"));

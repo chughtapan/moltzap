@@ -337,7 +337,7 @@ function releaseNetwork(consumer: string) {
     if (!(yield* fs.exists(published))) {
       return yield* new ProcessTestError({
         message:
-          "Previous-release Registry service artifact is unavailable. Docs: https://github.com/social-harness/moltzap/blob/main/docs/spec/layer-interfaces.md#publication-and-versions",
+          "Previous-release Registry bin is unavailable; the previous Registry comes from that release's image once images exist. Docs: https://github.com/social-harness/moltzap/blob/main/docs/spec/layer-interfaces.md#publication-and-versions",
       });
     }
     return {
