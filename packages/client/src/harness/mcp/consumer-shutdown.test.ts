@@ -90,7 +90,8 @@ const request = (
 const eventHandler = (events: HarnessEvents) =>
   createMcpHandler(
     () => {
-      const server = new McpServer(info, { capabilities: { events: {} } });
+      const capabilities = { events: {}, logging: {} };
+      const server = new McpServer(info, { capabilities });
       events.install(server.server, "owner");
       return server;
     },
