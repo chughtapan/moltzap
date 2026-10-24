@@ -53,5 +53,8 @@
   ],
   "readme": "none",
   "skipErrorChecking": true,
-  "logLevel": "Warn"
+  "logLevel": "Warn",
+  "exclude": [
+    "tests/**"
+  ]
 }

@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "noEmit": true,
+    "incremental": true,
+    "rootDir": "../..",
+    "tsBuildInfoFile": "./tsconfig.integration.tsbuildinfo",
+    "allowImportingTsExtensions": true,
+    "customConditions": [
+      "sharness-test"
+    ]
+  },
+  "include": [
+    "*.ts"
+  ],
+  "exclude": [
+    "adapter-daemon-process.integration.test.ts",
+    "adapter-daemon-fixture.ts",
+    "adapter-daemon-vitest.config.ts"
+  ]
+}

@@ -17,6 +17,7 @@ import {
   FINAL_PACKAGE_DIRS,
   FINAL_PACKAGE_NAMES,
   FINAL_PACKAGES,
+  INTEGRATION_TESTS,
   type PackageDir,
   REPOSITORY_URL,
 } from "./boundary-contract.ts";
@@ -111,9 +112,44 @@ export function checkWorkspaceRoots(run: BoundaryRun): void {
     actual: referencePaths(
       readJsonObject(path.join(run.repo, "tsconfig.json")),
     ).map((referencePath) => path.normalize(referencePath)),
-    wanted: FINAL_PACKAGE_DIRS.map((dir) => path.join("packages", dir)),
+    wanted: [
+      ...FINAL_PACKAGE_DIRS.map((dir) => path.join("packages", dir)),
+      INTEGRATION_TESTS.root,
+    ],
   });
   checkLintEntryPoints(run);
+}
+
+/**
+ * Test infrastructure consumes products without joining their graph or releases.
+ * @param run Run collecting failures.
+ */
+export function checkIntegrationTests(run: BoundaryRun): void {
+  const where = `${INTEGRATION_TESTS.root}/package.json`;
+  const manifest = readJsonObject(path.join(run.repo, where));
+  if (manifest.name !== INTEGRATION_TESTS.name || manifest.private !== true) {
+    run.failures.push(
+      `${where}: must name ${INTEGRATION_TESTS.name} and stay private`,
+    );
+  }
+  failOnSetDrift(run, {
+    where,
+    what: "test infrastructure dependencies drifted",
+    actual: DEPENDENCY_SECTIONS.flatMap((section) =>
+      Object.keys(objectAt(manifest, section)),
+    ).filter((name) => name.startsWith("@moltzap/")),
+    wanted: INTEGRATION_TESTS.dependencies.map(
+      (dir) => FINAL_PACKAGES[dir].npmName,
+    ),
+  });
+  failOnSetDrift(run, {
+    where: "knip.json",
+    what: "test workspace roots drifted",
+    actual: Object.keys(knipWorkspacesOf(run)).filter((name) =>
+      name.startsWith("tests/"),
+    ),
+    wanted: [INTEGRATION_TESTS.root],
+  });
 }
 
 /**

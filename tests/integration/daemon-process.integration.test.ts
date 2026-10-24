@@ -1,14 +1,6 @@
 /** @file Two real daemons certify, deliver, and recover multicast operations. */
 
-import { WireVersions } from "@moltzap/identity/test";
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { DatabaseSync } from "node:sqlite";
 import { ProtocolErrorCode } from "@modelcontextprotocol/client";
-import { WIRE_VERSION, AgentCard, type AgentName } from "@moltzap/identity";
-import { Effect, Fiber, Option, Schema, Stream } from "effect";
-import { expect, it } from "vitest";
 import {
   acquireHarnessEndpoint,
   AgentAddress,
@@ -17,7 +9,15 @@ import {
   type InboundDelivery,
   SendError,
   type SendInput,
-} from "../src/index.js";
+} from "@moltzap/client";
+import { AgentCard, type AgentName, WIRE_VERSION } from "@moltzap/identity";
+import { WireVersions } from "@moltzap/identity/test";
+import { Effect, Fiber, Option, Schema, Stream } from "effect";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
+import { expect, it } from "vitest";
 import {
   acquireDaemonManagementClient,
   acquireDaemonProcess,
@@ -27,8 +27,8 @@ import {
   makeDaemonProcessFixture,
   makeRegistrationRequest,
   ProcessTestError,
-  stopProcess,
   processTrace,
+  stopProcess,
 } from "./daemon-process-harness.js";
 
 /**
@@ -710,7 +710,7 @@ const refusesStaleOutbox = Effect.scoped(
         "-e",
         retiredWindowDaemon,
       ],
-      cwd: fileURLToPath(new URL("../", import.meta.url)),
+      cwd: fileURLToPath(new URL("../../packages/client/", import.meta.url)),
     });
     expect(failed.exitCode).not.toBe(0);
     expect(failed.logs).toContain("outbox-too-old");
@@ -846,7 +846,7 @@ it(
             },
             {
               executable: fileURLToPath(
-                new URL(`../../${binary}`, import.meta.url),
+                new URL(`../../packages/${binary}`, import.meta.url),
               ),
               args: [],
             },

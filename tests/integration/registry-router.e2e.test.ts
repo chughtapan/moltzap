@@ -21,6 +21,13 @@ import {
   type RegistryRegisterRequest,
 } from "@moltzap/identity/registry";
 import {
+  Router,
+  type RouterPollRequest,
+  type RouterPollResult,
+  type RouterSendRequest,
+  type RouterSendResult,
+} from "@moltzap/router";
+import {
   Data,
   Duration,
   Effect,
@@ -36,18 +43,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import {
-  Router,
-  type RouterPollRequest,
-  type RouterPollResult,
-  type RouterSendRequest,
-  type RouterSendResult,
-} from "../../index.js";
-import {
   makeRegistryRunner,
   makeRouterRunner,
   type RegistryInfrastructure,
   testVersionMismatchRoundTrips,
-} from "./integration/client-version-roundtrip.js";
+} from "./client-version-roundtrip.js";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const ADMISSION_CREDENTIAL = "registry-router-e2e-admission";
@@ -73,9 +73,7 @@ const OVERLOADED_BODY = '{"error":"overloaded"}';
 const AUTHENTICATION_FAILED_BODY = '{"error":"authentication_failed"}';
 const UNAVAILABLE_BODY = '{"error":"unavailable"}';
 const BATCH_BODY_FRAGMENT = '"kind":"batch"';
-const WORKSPACE_ROOT = fileURLToPath(
-  new URL("../../../../../", import.meta.url),
-);
+const WORKSPACE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const CHILD_PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
 const PGLITE_BINARY = join(
   WORKSPACE_ROOT,

@@ -1,8 +1,8 @@
 /** @file Test-only OTLP/HTTP receiver that decodes the protobuf trace exports daemons send it. */
 
-import { Cause, Duration, Effect, Ref, Schema, type Scope } from "effect";
 import type { Buffer } from "node:buffer";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { Cause, Duration, Effect, Ref, Schema, type Scope } from "effect";
 import protobuf from "protobufjs";
 import { ProcessTestError } from "./daemon-process-harness.js";
 import {

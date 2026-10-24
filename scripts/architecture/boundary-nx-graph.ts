@@ -12,6 +12,7 @@ import {
   FINAL_PACKAGE_DIRS,
   FINAL_PACKAGE_NAMES,
   FINAL_PACKAGES,
+  INTEGRATION_TESTS,
   type PackageDir,
 } from "./boundary-contract.ts";
 import {
@@ -43,12 +44,7 @@ interface ToolProject {
 }
 
 const TOOL_PROJECTS: readonly ToolProject[] = [
-  {
-    name: "adapter-daemon",
-    root: "tools/adapter-daemon",
-    target: "test:integration",
-    dependencies: ["identity", "router", "client", "openclaw-channel"],
-  },
+  INTEGRATION_TESTS,
   {
     name: "two-agents-example",
     root: "examples/two-agents",

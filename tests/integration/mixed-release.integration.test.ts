@@ -11,16 +11,6 @@ import { Data, Effect, Fiber, Option, Schedule, Schema, Stream } from "effect";
 import { join, resolve } from "node:path";
 import { expect, it, type TestContext } from "vitest";
 import {
-  acquireDaemonManagementClient,
-  acquireDaemonProcess,
-  acquireProcessInfrastructure,
-  acquireProcessInfrastructureFrom,
-  type DaemonProcessFixture,
-  makeDaemonProcessFixture,
-  makeRegistrationRequest,
-  ProcessTestError,
-} from "../../packages/client/integration/daemon-process-harness.js";
-import {
   HISTORY_WIRE_VERSIONS,
   LIVE_WIRE_VERSIONS,
   WIRE_VERSION,
@@ -29,7 +19,17 @@ import {
   installPackedConsumer,
   packWorkspaceClosure,
   runCommand,
-} from "./packed-workspace.js";
+} from "../../scripts/test/packed-workspace.js";
+import {
+  acquireDaemonManagementClient,
+  acquireDaemonProcess,
+  acquireProcessInfrastructure,
+  acquireProcessInfrastructureFrom,
+  type DaemonProcessFixture,
+  makeDaemonProcessFixture,
+  makeRegistrationRequest,
+  ProcessTestError,
+} from "./daemon-process-harness.js";
 
 /* eslint-disable agent-code-guard/no-example-only-tests -- Regression cases exercise the reviewed release selection, reset boundary, missing metadata, and registry outage failures; the real process exchange checks interoperability. */
 

@@ -473,6 +473,7 @@ const packageDefinitions: Readonly<Record<string, PackageDefinition>> = {
 
 const workspaceRoot = new URL("../../", import.meta.url);
 
+/** Product architecture configurations exclude the test infrastructure in `tests/integration`. */
 const architectureConfigDefinitions: ReadonlyArray<{
   readonly packageRoot: string;
   readonly definition: PackageDefinition;

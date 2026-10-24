@@ -63,7 +63,6 @@ export default [
     projects: [
       "./tsconfig.json",
       "./tsconfig.test.json",
-      "./tsconfig.integration.json",
     ],
     tsconfigRootDir: import.meta.dirname,
   }),

@@ -279,17 +279,6 @@
         "cwd": ".",
         "command": "pnpm exec vitest run --config scripts/docs/vitest.config.ts"
       }
-    },
-    "test:mixed-release": {
-      "cache": false,
-      "executor": "nx:run-commands",
-      "dependsOn": [
-        "@moltzap/client:build"
-      ],
-      "options": {
-        "command": "vitest run --config scripts/test/mixed-release-vitest.config.ts",
-        "cwd": "."
-      }
     }
   }
 }

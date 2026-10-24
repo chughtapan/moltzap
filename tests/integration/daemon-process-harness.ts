@@ -1,6 +1,5 @@
 /** @file Minimal real-process fixtures for the Client daemon acceptance test. */
 
-import { WireVersions } from "@moltzap/identity/test";
 import {
   Client,
   ProtocolError,
@@ -13,6 +12,7 @@ import {
   PrincipalId,
 } from "@moltzap/identity";
 import { OperationId } from "@moltzap/identity/registry";
+import { WireVersions } from "@moltzap/identity/test";
 import {
   Console,
   Data,
@@ -26,28 +26,28 @@ import {
   Schema,
   Scope,
 } from "effect";
-import { createRequire } from "node:module";
 import { type ChildProcess, spawn } from "node:child_process";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
+import { createRequire } from "node:module";
 // This black-box fixture owns exact temporary process files at the Node process boundary.
+import type { MessageAddressInput } from "@moltzap/client";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type TestContext } from "vitest";
-import type { MessageAddressInput } from "../src/index.js";
 import {
-  managementReadConversationResultSchema,
-  managementRegisterResultSchema,
-  managementSearchConversationsResultSchema,
-  managementStatusResultSchema,
   type ManagementReadConversationResult,
+  managementReadConversationResultSchema,
   type ManagementRegisterRequest,
   type ManagementRegisterResult,
+  managementRegisterResultSchema,
   type ManagementSearchConversationsResult,
+  managementSearchConversationsResultSchema,
   type ManagementStatusResult,
-} from "../src/harness/protocol/index.js";
+  managementStatusResultSchema,
+} from "../../packages/client/src/harness/protocol/index.js";
 
 /** Loader resolution follows Client dependencies even when child processes run from the workspace root. */
 const require = createRequire(import.meta.url);
@@ -66,7 +66,7 @@ const TEARDOWN_TIMEOUT_MS = 60_000;
 const POLL_ATTEMPT_TIMEOUT = Duration.seconds(1);
 const POLL_INTERVAL = Duration.millis(25);
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
-const WORKSPACE_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
+const WORKSPACE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const CHILD_PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
 const PGLITE_BINARY = join(
   WORKSPACE_ROOT,
@@ -83,7 +83,7 @@ const ROUTER_BINARY = join(
 const DAEMON_BINARY = join(WORKSPACE_ROOT, "packages/client/bin/sharnessd");
 const FIREWALL_DAEMON = join(
   WORKSPACE_ROOT,
-  "packages/client/integration/firewall-daemon.ts",
+  "tests/integration/firewall-daemon.ts",
 );
 
 /** The mode of the firewall a daemon fixture installs; absent for `sharnessd` itself. */

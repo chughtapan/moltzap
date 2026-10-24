@@ -1,0 +1,133 @@
+{
+  "name": "@moltzap/integration-tests",
+  "private": true,
+  "description": "Cross-package process acceptance suites",
+  "type": "module",
+  "scripts": {
+    "test:integration": "nx run @moltzap/integration-tests:test:integration",
+    "test:mixed-release": "nx run @moltzap/integration-tests:test:mixed-release",
+    "test:adapter-daemon": "nx run @moltzap/integration-tests:test:adapter-daemon",
+    "typecheck:tests": "nx run @moltzap/integration-tests:typecheck:tests",
+    "lint": "nx run @moltzap/integration-tests:lint"
+  },
+  "nx": {
+    "targets": {
+      "test:integration": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "^build",
+          {
+            "target": "build",
+            "projects": [
+              "@moltzap/registry"
+            ]
+          }
+        ],
+        "inputs": [
+          "sources",
+          "^production",
+          {
+            "dependentTasksOutputFiles": "**/*",
+            "transitive": true
+          },
+          {
+            "runtime": "node --version"
+          },
+          "{workspaceRoot}/packages/registry/src/**/*"
+        ],
+        "options": {
+          "cwd": "tests/integration",
+          "command": "tsc -p tsconfig.json && vitest run --config vitest.integration.config.ts"
+        }
+      },
+      "test:mixed-release": {
+        "cache": false,
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "^build",
+          "@moltzap/client:build"
+        ],
+        "options": {
+          "command": "vitest run --config tests/integration/mixed-release-vitest.config.ts",
+          "cwd": "."
+        }
+      },
+      "test:adapter-daemon": {
+        "inputs": [
+          "default",
+          "^production",
+          {
+            "dependentTasksOutputFiles": "**/*",
+            "transitive": true
+          },
+          {
+            "runtime": "node --version"
+          },
+          {
+            "env": "SHARNESS_EXPERIMENT_HIDE_COLLECTIVES"
+          },
+          {
+            "env": "SHARNESS_MCP_URL"
+          },
+          "{workspaceRoot}/tests/integration/daemon-process-harness.ts",
+          "{workspaceRoot}/tests/integration/adapter-daemon-*.ts",
+          "{workspaceRoot}/tests/integration/tsconfig.adapter-daemon.json",
+          "{workspaceRoot}/scripts/tsconfig.json",
+          "{workspaceRoot}/packages/registry/src/**/*"
+        ],
+        "dependsOn": [
+          "^build",
+          {
+            "target": "build",
+            "projects": [
+              "@moltzap/registry"
+            ]
+          }
+        ],
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": ".",
+          "parallel": false,
+          "commands": [
+            "pnpm exec tsc -p tests/integration/tsconfig.adapter-daemon.json",
+            "pnpm exec vitest run --config tests/integration/adapter-daemon-vitest.config.ts"
+          ]
+        }
+      },
+      "typecheck:tests": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "^build"
+        ],
+        "options": {
+          "cwd": "tests/integration",
+          "command": "tsc -p tsconfig.json && tsc -p tsconfig.adapter-daemon.json"
+        }
+      },
+      "lint": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "tests/integration",
+          "command": "eslint . --cache --max-warnings=0"
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@moltzap/identity": "workspace:*",
+    "@moltzap/registry": "workspace:*",
+    "@moltzap/router": "workspace:*",
+    "@moltzap/client": "workspace:*",
+    "@moltzap/openclaw-channel": "workspace:*",
+    "@effect/platform": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@modelcontextprotocol/client": "catalog:",
+    "@typescript/native": "catalog:",
+    "effect": "catalog:",
+    "eslint": "catalog:",
+    "protobufjs": "catalog:",
+    "tsx": "catalog:",
+    "vitest": "catalog:",
+    "@effect/vitest": "catalog:"
+  }
+}

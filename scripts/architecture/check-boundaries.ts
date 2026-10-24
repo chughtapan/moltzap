@@ -17,6 +17,7 @@ import path from "node:path";
 import { FINAL_PACKAGE_DIRS } from "./boundary-contract.ts";
 import {
   checkCompatibilityVersion,
+  checkIntegrationTests,
   checkProductManifests,
   checkReleaseSet,
   checkWorkspaceRoots,
@@ -46,6 +47,7 @@ failOnSetDrift(run, {
 const vocabularyCount = checkLayerVocabulary(run);
 const compatibilityVersion = checkCompatibilityVersion(run);
 checkWorkspaceRoots(run);
+checkIntegrationTests(run);
 const publishedVersions = checkProductManifests(run);
 checkReleaseSet(run, publishedVersions);
 const finalSourceCount = checkFinalImports(run);

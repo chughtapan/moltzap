@@ -37,14 +37,11 @@
       "entry": [
         "src/**/*.test.ts",
         "src/**/*.types-check.ts",
-        "integration/**/*.integration.test.ts",
-        "integration/firewall-daemon.ts",
         "src/daemon/launcher/index.ts",
         "vitest*.config.ts"
       ],
       "project": [
         "src/**/*.ts",
-        "integration/**/*.ts",
         "*.ts"
       ]
     },
@@ -99,6 +96,19 @@
       "ignoreDependencies": [
         "@electric-sql/pglite",
         "@electric-sql/pglite-socket"
+      ]
+    },
+    "tests/integration": {
+      "entry": [
+        "*.test.ts",
+        "firewall-daemon.ts",
+        "*vitest*.config.ts"
+      ],
+      "project": [
+        "*.ts"
+      ],
+      "ignoreDependencies": [
+        "@moltzap/registry"
       ]
     }
   },

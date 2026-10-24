@@ -122,7 +122,6 @@ export const FINAL_PACKAGES: Readonly<Record<PackageDir, PackageContract>> = {
     npmName: "@moltzap/client",
     published: true,
     deps: ["identity", "router"],
-    testDeps: ["registry"],
     exports: {
       ".": ROOT_EXPORT,
       "./service": {
@@ -139,7 +138,6 @@ export const FINAL_PACKAGES: Readonly<Record<PackageDir, PackageContract>> = {
       "build",
       "lint",
       "test",
-      "test:integration",
       "test:pack",
       "typecheck:tests",
     ],
@@ -199,3 +197,17 @@ export function dependencyNames(dir: PackageDir): readonly string[] {
     (dependency) => FINAL_PACKAGES[dependency].npmName,
   );
 }
+
+/** Test infrastructure stays outside the product dependency graph and release set. */
+export const INTEGRATION_TESTS = {
+  name: "@moltzap/integration-tests",
+  root: "tests/integration",
+  target: "test:integration",
+  dependencies: [
+    "identity",
+    "registry",
+    "router",
+    "client",
+    "openclaw-channel",
+  ],
+} as const;

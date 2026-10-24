@@ -9,10 +9,10 @@ import {
 } from "@moltzap/identity";
 import { OperationId, Registry } from "@moltzap/identity/registry";
 import { WireVersions } from "@moltzap/identity/test";
+import { Router } from "@moltzap/router";
 import { Duration, Effect, Layer, Redacted, Schema, type Scope } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { expect, it } from "vitest";
-import { Router } from "../../../router.js";
 
 /** Registry setup shared by the independent process round trips. */
 export interface RegistryInfrastructure {

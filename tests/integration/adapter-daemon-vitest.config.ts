@@ -24,7 +24,7 @@ export default defineConfig({
   },
   ssr: { resolve: { conditions: ["sharness-test"] } },
   test: {
-    include: ["scripts/test/adapter-daemon-process.integration.test.ts"],
+    include: ["tests/integration/adapter-daemon-process.integration.test.ts"],
     maxWorkers: 1,
     passWithNoTests: false,
   },

@@ -158,7 +158,7 @@ which the daemon stops exporting and keeps serving the agent.
 pnpm nx run @moltzap/client:build
 pnpm nx run @moltzap/client:typecheck:tests
 pnpm nx run @moltzap/client:test
-pnpm nx run @moltzap/client:test:integration
+pnpm nx run @moltzap/integration-tests:test:integration
 pnpm nx run @moltzap/client:test:pack
 pnpm nx run @moltzap/client:lint
 pnpm nx run @moltzap/client:arch:check
