@@ -23,8 +23,8 @@ export const INTEGRATION_BOUNDARY_CASES = [
   },
   {
     name: "linked sources cannot evade scanning",
-    path: "tests/integration/dist",
-    symlink: "../../packages/client/src/index.ts",
+    path: "tests/integration/mixed-release/linked.ts",
+    symlink: "../../../packages/client/src/index.ts",
     message: /test infrastructure must not contain symbolic links/,
   },
   {

@@ -1,11 +1,31 @@
 /** @file Test-integrity plants for integration fixtures and scan roots. */
 import { spawnSync } from "node:child_process";
+import { existsSync, rmSync } from "node:fs";
+import { resolve } from "node:path";
 
 type GateAssertion = (name: string, passed: boolean, message: string) => void;
 type PlantFile = (path: string, mutate: (source: string) => string) => void;
 
+/**
+ * Runs the guard and lane integrity checks that live outside the plant tables.
+ * @param test Records one gate assertion.
+ * @param plantFile Writes a planted file that `restoreAllPlants` removes.
+ * @param restoreAllPlants Restores every planted file.
+ * @param workspaceRoot Repository root.
+ */
+export function testGuardIntegrity(
+  test: GateAssertion,
+  plantFile: PlantFile,
+  restoreAllPlants: () => void,
+  workspaceRoot: string,
+): void {
+  testMissingGuardDirectory(test, plantFile, restoreAllPlants, workspaceRoot);
+  testPragmaPathIsData(test, plantFile, restoreAllPlants, workspaceRoot);
+  testIntegrationLaneCollection(test, workspaceRoot);
+}
+
 /** A missing scan root must fail rather than report a clean scan. */
-export function testMissingGuardDirectory(
+function testMissingGuardDirectory(
   test: GateAssertion,
   plantFile: PlantFile,
   restoreAllPlants: () => void,
@@ -37,4 +57,86 @@ export function testMissingGuardDirectory(
   } finally {
     restoreAllPlants();
   }
+}
+
+/**
+ * A pragma line is read as data even when its file name carries shell syntax.
+ *
+ * Value: protects=sloppy-code-guard reads a next-line pragma from a file whose path contains quotes and command substitution without running it; fails_when=filter_pragma reads the previous line through a shell command again; why_new=every other plant uses plain paths, where a shell read gives the same answer; seam=none; no_claim=the pragma grammar or which rules accept pragmas.
+ * @param test Records one gate assertion.
+ * @param plantFile Writes a planted file that `restoreAllPlants` removes.
+ * @param restoreAllPlants Restores every planted file.
+ * @param workspaceRoot Repository root the guard runs from.
+ */
+function testPragmaPathIsData(
+  test: GateAssertion,
+  plantFile: PlantFile,
+  restoreAllPlants: () => void,
+  workspaceRoot: string,
+): void {
+  const marker = resolve(workspaceRoot, "pragma-path-ran");
+  try {
+    plantFile(
+      'tests/integration/pragma"$(touch pragma-path-ran)".ts',
+      () =>
+        "// #ignore-sloppy-code-next-line[hardcoded-api-key]: synthetic pragma plant\n" +
+        'const apiKey = "' +
+        "synthetic".repeat(4) +
+        '";\n',
+    );
+    const result = spawnSync(
+      "/bin/bash",
+      ["scripts/code/sloppy-code-guard.sh"],
+      { cwd: workspaceRoot, encoding: "utf8" },
+    );
+    test(
+      "integrity guard reads a pragma without running its file name",
+      result.status === 0 &&
+        !result.stdout.includes("[hardcoded-api-key]") &&
+        !existsSync(marker),
+      result.stdout + result.stderr,
+    );
+  } finally {
+    rmSync(marker, { force: true });
+    restoreAllPlants();
+  }
+}
+
+/**
+ * The process lane collects only its own suites.
+ *
+ * Value: protects=@moltzap/integration-tests:test:integration collects exactly the suites under tests/integration outside mixed-release/; fails_when=its include or exclude lets Vitest collect files through node_modules links to product packages or from mixed-release/; why_new=a lane run stays green whenever linked product suites happen to pass; seam=none; no_claim=which suites the lane holds or whether they pass.
+ * @param test Records one gate assertion.
+ * @param workspaceRoot Repository root.
+ */
+function testIntegrationLaneCollection(
+  test: GateAssertion,
+  workspaceRoot: string,
+): void {
+  const lane = resolve(workspaceRoot, "tests/integration");
+  const result = spawnSync(
+    process.execPath,
+    [
+      resolve(lane, "node_modules/vitest/vitest.mjs"),
+      "list",
+      "--filesOnly",
+      "--config",
+      "vitest.integration.config.ts",
+    ],
+    { cwd: lane, encoding: "utf8" },
+  );
+  const files = result.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.endsWith(".integration.test.ts"));
+  test(
+    "integration lane collects only its own suites",
+    result.status === 0 &&
+      files.length > 0 &&
+      files.every(
+        (file) =>
+          !file.includes("node_modules/") && !file.includes("mixed-release/"),
+      ),
+    result.stdout + result.stderr,
+  );
 }

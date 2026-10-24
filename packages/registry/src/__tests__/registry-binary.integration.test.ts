@@ -17,8 +17,9 @@ import {
   RegistryRegisterRequest,
 } from "@moltzap/identity/registry";
 import { Duration, Effect, Redacted, Ref, Schema } from "effect";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
 import {
   callRegister,
@@ -959,6 +960,31 @@ const assertExternalResolutionDenied = `
   }
 `;
 
+/**
+ * A module under the Registry package root, outside its built modules and executable.
+ *
+ * Value: protects=after startRegistry installs internal resolution, a module in a nested node_modules under the Registry package root still cannot resolve `@moltzap/identity/internal`; fails_when=the hook's parent scope widens from dist/ and bin/ back to the package root; why_new=the external consumer lives in a temporary directory outside the package root, which both scopes deny; seam=none; no_claim=resolution for parents outside the package root.
+ */
+const makeNestedProbe = Effect.acquireRelease(
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const directory = fileURLToPath(
+      new URL(
+        `../../node_modules/.scope-probe-${randomUUID()}/`,
+        import.meta.url,
+      ),
+    );
+    yield* fileSystem.makeDirectory(directory, { recursive: true });
+    const probe = join(directory, "probe.mjs");
+    yield* fileSystem.writeFileString(probe, assertExternalResolutionDenied);
+    return { directory, url: pathToFileURL(probe).href };
+  }),
+  ({ directory }) =>
+    Effect.flatMap(FileSystem.FileSystem, (fileSystem) =>
+      fileSystem.remove(directory, { recursive: true }),
+    ).pipe(Effect.orDie),
+);
+
 it(
   "test composition accepts an adjacent registration while external private exports stay inaccessible",
   () =>
@@ -966,6 +992,7 @@ it(
       Effect.gen(function* () {
         const infrastructure = yield* setupRegistryInfrastructure;
         const cwd = yield* makeExternalConsumer;
+        const nested = yield* makeNestedProbe;
         const adjacent = `${WIRE_VERSION}-adjacent`;
         const versions = {
           emitted: WIRE_VERSION,
@@ -980,7 +1007,8 @@ it(
             "-e",
             `import { startRegistry } from "@moltzap/registry/test";
          startRegistry(${JSON.stringify(versions)});
-         ${assertExternalResolutionDenied}`,
+         ${assertExternalResolutionDenied}
+         await import(${JSON.stringify(nested.url)});`,
           ],
           infrastructure.environment,
           cwd,

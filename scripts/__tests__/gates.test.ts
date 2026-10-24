@@ -41,7 +41,7 @@ import {
   plantBoundarySource,
 } from "./integration-boundary-cases.ts";
 import { testIntegrationGraph } from "./integration-boundary-graph.ts";
-import { testMissingGuardDirectory } from "./integration-integrity.ts";
+import { testGuardIntegrity } from "./integration-integrity.ts";
 import { testLintRelocation } from "./integration-lint-relocation.ts";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -85,7 +85,7 @@ function main(): void {
     testIntegrationBoundaries();
     testIntegrationGraph(test, runNode, workspaceRoot);
     testIntegrationIntegrityGuards();
-    testMissingGuardDirectory(test, plantFile, restoreAllPlants, workspaceRoot);
+    testGuardIntegrity(test, plantFile, restoreAllPlants, workspaceRoot);
     testLintRelocation(test, runNode);
     testIsolatedFolderImports();
   } finally {
