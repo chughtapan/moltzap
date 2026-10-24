@@ -29,7 +29,9 @@ import { initializeRegistryStorage, makeRegistryStorage } from "../storage.js";
 import { clockAt } from "./clock.js";
 import {
   BOOTSTRAP_SIGNATURE_INTERVAL_SECONDS,
+  callRegister,
   LOOPBACK_HOST,
+  makeOperationId,
   makePrivateKeyPem,
   makeRegistryRunner,
   makeSigningAuthority,
@@ -425,19 +427,68 @@ it(
           storage,
         };
         const outcomes = yield* Effect.all(
-          [
+          Array.from({ length: 8 }, () =>
             verifyBootstrapRegistration(input).pipe(Effect.either),
-            verifyBootstrapRegistration(input).pipe(Effect.either),
-          ],
-          { concurrency: 2 },
+          ),
+          { concurrency: 8 },
         ).pipe(Effect.withClock(clockAt(prepared.expiresAt)));
         expect(
           outcomes.filter(Either.isRight).map((result) => result.right),
         ).toStrictEqual([prepared.request]);
         expect(
           outcomes.filter(Either.isLeft).map((result) => result.left),
-        ).toStrictEqual([new AuthenticationFailedError()]);
+        ).toStrictEqual(
+          Array.from({ length: 7 }, () => new AuthenticationFailedError()),
+        );
       }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
     ),
+  180_000,
+);
+
+it.each([
+  { conflict: "key", refused: "key_already_registered" },
+  { conflict: "name", refused: "name_taken" },
+])(
+  "admits one concurrent registration for the same $conflict on PostgreSQL",
+  ({ conflict, refused }) => {
+    expect.hasAssertions();
+    return Effect.runPromise(
+      Effect.gen(function* () {
+        const setup = yield* makePostgreSqlRegistrySetup;
+        yield* startReadyRegistry(setup.environment, setup.origin);
+        const run = makeRegistryRunner(
+          setup.origin,
+          setup.registrySignerPublicKey,
+        );
+        const first = yield* prepareAgent("postgresql-race");
+        const contenders = yield* Effect.all(
+          Array.from({ length: 8 }, () =>
+            conflict === "key"
+              ? Effect.succeed({
+                  ...first,
+                  request: { ...first.request, operationId: makeOperationId() },
+                })
+              : prepareAgent("postgresql-race"),
+          ),
+          { concurrency: 8 },
+        );
+        const results = yield* Effect.forEach(
+          contenders,
+          (contender) => callRegister(run, contender),
+          { concurrency: 8 },
+        );
+        expect(
+          results.filter((result) => result.kind === REGISTERED_KIND),
+        ).toHaveLength(1);
+        expect(
+          results.filter((result) => result.kind === refused),
+        ).toHaveLength(7);
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(NodeFileSystem.layer),
+        Effect.provide(NodeHttpClient.layer),
+      ),
+    );
+  },
   180_000,
 );
