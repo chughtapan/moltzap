@@ -5,14 +5,14 @@
     "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
     "rootDir": "src",
     "customConditions": [
-      "sharness-internal",
-      "sharness-test"
+      "sharness-internal"
     ]
   },
   "include": [
     "src/**/*.ts"
   ],
   "exclude": [
+    "src/test.ts",
     "src/**/*.test.ts",
     "src/**/*.spec.ts",
     "src/**/*.types-check.ts",

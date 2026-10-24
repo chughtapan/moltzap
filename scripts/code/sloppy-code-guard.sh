@@ -32,6 +32,7 @@ ERRORS=0
 
 PKG_SRC_GLOB="packages/*/src"
 NON_TEST_EXCLUDE='__tests__|\.test\.|\.integration\.test\.|test-utils|/dist/'
+NO_EXCLUDE='^$'
 PRAGMA_TAG='#ignore-sloppy-code'
 
 # Filter lines of the form `path:N:content` through the pragma rules.
@@ -91,13 +92,15 @@ filter_pragma() {
 }
 
 # check RULE_ID PATTERN MESSAGE [GLOB] [DIR] [EXCLUDE]
+# EXCLUDE defaults to NON_TEST_EXCLUDE for omitted or empty arguments.
+# Pass NO_EXCLUDE to scan tests too; its sentinel matches no grep result.
 check() {
   local rule="$1"
   local pattern="$2"
   local message="$3"
   local glob="${4:-*.ts}"
   local dir="${5:-$PKG_SRC_GLOB}"
-  local exclude="${6-$NON_TEST_EXCLUDE}"
+  local exclude="${6:-$NON_TEST_EXCLUDE}"
 
   # shellcheck disable=SC2086
   matches=$(grep -rn --include="$glob" -E "$pattern" $dir 2>/dev/null \
@@ -211,14 +214,14 @@ check integration-vi-mock \
   "Integration tests must not use vi.mock/hoisted/spyOn — test the real flow" \
   "*.integration.test.ts" \
   "packages/ tests/" \
-  "^$"
+  "$NO_EXCLUDE"
 
 check hardcoded-api-key \
   "api[Kk]ey.*=.*['\"][a-zA-Z0-9_-]{20,}['\"]" \
   "Hardcoded API key in test file — use environment variables" \
   "*.test.ts" \
   "packages/ tests/" \
-  "^$"
+  "$NO_EXCLUDE"
 
 # `as unknown as` bypasses the type system. Use a type guard, a user-defined
 # predicate, or Effect.catchTag/catchTags for tagged unions. Legitimate

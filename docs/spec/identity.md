@@ -897,6 +897,21 @@ enforces uniqueness, and commits the card with the operation result.
 migrations, database access, and the listener are ready. It returns 503
 otherwise.
 
+## Registry test composition
+
+The private Registry package exposes `@moltzap/registry/test` only under the
+`sharness-test` condition. Its sole runtime export is
+`startRegistry({ emitted?, live, history })`, which launches the Registry using
+those wire compatibility sets and the ordinary Registry environment settings.
+The default emitted version is the package's `WIRE_VERSION`.
+
+Importing this entry installs no resolution hook. Calling `startRegistry`
+installs internal resolution before its dynamic server imports, scoped to
+imports whose parent module lies inside the Registry package root. Other
+modules in the process cannot use this hook to resolve
+`@moltzap/identity/internal`. Startup failures are reported and set a nonzero
+process exit status, as in `sharness-registry`.
+
 ## Registry configuration
 
 Registry defines one private `Config.all` value. `Schema.Config`

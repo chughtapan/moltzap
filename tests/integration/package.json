@@ -15,6 +15,9 @@
         "executor": "nx:run-commands",
         "inputs": [
           "sources",
+          "!{projectRoot}/mixed-release/**",
+          "!{projectRoot}/README.md",
+          "!{projectRoot}/eslint.config.ts",
           "^production",
           {
             "runtime": "node --version"
@@ -88,14 +91,15 @@
           }
         ]
       }
-    },
-    "implicitDependencies": []
+    }
   },
   "devDependencies": {
     "@moltzap/identity": "workspace:*",
+    "@moltzap/registry": "workspace:*",
     "@moltzap/router": "workspace:*",
     "@moltzap/client": "workspace:*",
     "@moltzap/openclaw-channel": "workspace:*",
+    "@electric-sql/pglite-socket": "catalog:",
     "@effect/platform": "catalog:",
     "@effect/platform-node": "catalog:",
     "@modelcontextprotocol/client": "catalog:",
@@ -104,7 +108,6 @@
     "eslint": "catalog:",
     "protobufjs": "catalog:",
     "tsx": "catalog:",
-    "vitest": "catalog:",
-    "@moltzap/registry": "workspace:*"
+    "vitest": "catalog:"
   }
 }

@@ -8,7 +8,10 @@ import { Effect, Schema } from "effect";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { FINAL_PACKAGES } from "./architecture/boundary-contract.ts";
+import {
+  FINAL_PACKAGES,
+  manifestExportTarget,
+} from "./architecture/boundary-contract.ts";
 import { verifyHostImportGraph } from "./test/client-host-imports.ts";
 import {
   type Archives,
@@ -156,7 +159,7 @@ function verifyPackedManifest(
     const exportEntries = Object.entries(manifest.exports ?? {});
     yield* requireCondition(
       isDeepStrictEqual(manifest.exports, packedExportContract()),
-      "packed client must expose exactly the root, ./service, and condition-only ./test entrypoints",
+      `packed client must expose exactly these contract entrypoints: ${Object.keys(FINAL_PACKAGES.client.exports).join(", ")}`,
     );
     yield* verifyExportTargets(extractedPackage, manifest, exportEntries);
     yield* verifyHostImportGraph(extractedPackage, String(manifest.main));
@@ -179,16 +182,10 @@ function verifyPackedManifest(
 /** Contract metadata becomes condition-only manifest export objects. */
 function packedExportContract() {
   return Object.fromEntries(
-    Object.entries(FINAL_PACKAGES.client.exports).map(
-      ([subpath, { testOnly, internalOnly, ...target }]) => [
-        subpath,
-        testOnly === true || internalOnly === true
-          ? {
-              [internalOnly ? "sharness-internal" : "sharness-test"]: target,
-            }
-          : target,
-      ],
-    ),
+    Object.entries(FINAL_PACKAGES.client.exports).map(([subpath, target]) => [
+      subpath,
+      manifestExportTarget(target),
+    ]),
   );
 }
 
@@ -282,7 +279,9 @@ function verifyConsumerImports(
         "--conditions=sharness-test",
         "--input-type=module",
         "-e",
-        'await import("@moltzap/client/test");',
+        `const actual = Object.keys(await import("@moltzap/client/test")).sort();
+const expected = ["managementReadConversationResultSchema", "managementRegisterRequestSchema", "managementRegisterResultSchema", "managementSearchConversationsResultSchema", "managementStatusResultSchema"].sort();
+if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error("Client test schemas differ: " + JSON.stringify(actual));`,
       ],
       { cwd: consumerRoot, env: { NODE_PATH: "" } },
     );

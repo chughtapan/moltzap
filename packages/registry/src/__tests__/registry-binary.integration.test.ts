@@ -18,6 +18,7 @@ import {
 } from "@moltzap/identity/registry";
 import { Duration, Effect, Redacted, Ref, Schema } from "effect";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import {
   callRegister,
@@ -48,6 +49,7 @@ import {
   startReadyRegistry,
   stopProcess,
   waitForExit,
+  waitForHealthStatus,
   waitForTcpListener,
 } from "./registry-process.js";
 import { contentDigest, encodeCanonicalJson } from "./request-fixtures.js";
@@ -834,6 +836,7 @@ const setupRegistryInfrastructure = Effect.gen(function* () {
     port: registryPort,
     postgresqlUrl,
     registryKeyPath,
+    overrides: { SHARNESS_REGISTRY_SQL_POOL_SIZE: "1" },
   });
   return {
     environment,
@@ -927,3 +930,101 @@ it("preserves Registry contracts across first boot, concurrency, and restart", (
   expect.hasAssertions();
   return Effect.runPromise(registryBinaryBehavior);
 }, 120_000);
+
+/** The external caller has the package links that an installed consumer receives. */
+const makeExternalConsumer = Effect.gen(function* () {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const directory = yield* fileSystem.makeTempDirectoryScoped({
+    prefix: "sharness-registry-consumer-",
+  });
+  const scopeDirectory = join(directory, "node_modules", "@moltzap");
+  yield* fileSystem.makeDirectory(scopeDirectory, { recursive: true });
+  yield* fileSystem.symlink(
+    fileURLToPath(new URL("../../", import.meta.url)),
+    join(scopeDirectory, "registry"),
+  );
+  yield* fileSystem.symlink(
+    fileURLToPath(new URL("../../../identity/", import.meta.url)),
+    join(scopeDirectory, "identity"),
+  );
+  return directory;
+});
+
+const assertExternalResolutionDenied = `
+  try {
+    await import("@moltzap/identity/internal");
+    throw new Error("external caller resolved private Identity exports");
+  } catch (error) {
+    if (error.code !== "ERR_PACKAGE_PATH_NOT_EXPORTED") throw error;
+  }
+`;
+
+it("importing the test entry leaves external private exports inaccessible", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const cwd = yield* makeExternalConsumer;
+      const child = yield* managedProcess(
+        process.execPath,
+        [
+          "--conditions=sharness-test",
+          "--input-type=module",
+          "-e",
+          `import { startRegistry } from "@moltzap/registry/test";
+         ${assertExternalResolutionDenied}`,
+        ],
+        {},
+        cwd,
+      );
+      yield* waitForExit(child).pipe(Effect.timeout("10 seconds"));
+      expect(child.child.exitCode, child.logs()).toBe(0);
+    }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+  ));
+
+it(
+  "test composition accepts an adjacent registration while external private exports stay inaccessible",
+  () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const infrastructure = yield* setupRegistryInfrastructure;
+        const cwd = yield* makeExternalConsumer;
+        const adjacent = `${WIRE_VERSION}-adjacent`;
+        const versions = {
+          emitted: WIRE_VERSION,
+          live: [WIRE_VERSION, adjacent],
+          history: [WIRE_VERSION, adjacent],
+        };
+        const registry = yield* managedProcess(
+          process.execPath,
+          [
+            "--conditions=sharness-test",
+            "--input-type=module",
+            "-e",
+            `import { startRegistry } from "@moltzap/registry/test";
+         startRegistry(${JSON.stringify(versions)});
+         ${assertExternalResolutionDenied}`,
+          ],
+          infrastructure.environment,
+          cwd,
+        );
+        yield* waitForHealthStatus({
+          runningProcess: registry,
+          origin: infrastructure.origin,
+          expectedStatus: NO_CONTENT_STATUS,
+        });
+        const prepared = yield* prepareAgent("adjacent-test-entry");
+        const request = yield* makeVersionedBootstrapRequest(
+          infrastructure.origin,
+          prepared,
+          adjacent,
+        );
+        const response = yield* executeRequest(request);
+        expect(response.status, response.body).toBe(OK_STATUS);
+        expect(response.body).toContain(REGISTERED_KIND);
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(NodeFileSystem.layer),
+        Effect.provide(NodeHttpClient.layer),
+      ),
+    ),
+  60_000,
+);

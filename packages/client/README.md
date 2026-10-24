@@ -165,5 +165,5 @@ pnpm nx run @moltzap/client:lint
 pnpm nx run @moltzap/client:arch:check
 ```
 
-See the [cross-package integration suites](../../tests/integration/README.md)
+See the [cross-package integration suites](https://github.com/social-harness/moltzap/blob/main/tests/integration/README.md)
 for Registry, Router, daemon, adapter, and mixed-release checks.

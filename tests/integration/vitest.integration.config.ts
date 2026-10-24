@@ -6,7 +6,7 @@ export default defineConfig({
   ssr: { resolve: { conditions: ["sharness-test"] } },
   test: {
     include: ["*.integration.test.ts"],
-    maxWorkers: 2,
+    maxWorkers: 3,
     passWithNoTests: false,
   },
 });

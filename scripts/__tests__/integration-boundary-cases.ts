@@ -3,6 +3,204 @@
 /** Each case identifies a forbidden workspace change and its gate diagnostic. */
 export const INTEGRATION_BOUNDARY_CASES = [
   {
+    name: "escaped import cannot conceal an external path",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: String.raw`import "\u002e\u002e/../packages/client/src/index.ts";`,
+    message:
+      /test infrastructure must not use escaped import or URL specifiers/,
+  },
+  {
+    name: "escaped URL cannot conceal an external path",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: String.raw`new URL("\u002e\u002e/../packages/client/src/index.ts", import.meta.url);`,
+    message:
+      /test infrastructure must not use escaped import or URL specifiers/,
+  },
+  {
+    name: "shorthand Vitest alias cannot bypass imports",
+    path: "tests/integration/vitest.integration.config.ts",
+    before: "resolve: { conditions:",
+    after: "resolve: { alias, conditions:",
+    message:
+      /test infrastructure must not configure import resolution bypasses/,
+  },
+  {
+    name: "computed Vitest alias cannot bypass imports",
+    path: "tests/integration/vitest.integration.config.ts",
+    before: "resolve: { conditions:",
+    after: 'resolve: { ["alias"]: {}, conditions:',
+    message:
+      /test infrastructure must not configure import resolution bypasses/,
+  },
+  {
+    name: "URL with trailing comma cannot escape",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend:
+      'new URL("../../packages/client/src/index.ts", import.meta.url,);\n',
+    message: /test infrastructure must not cross its boundary/,
+  },
+  {
+    name: "bare relative URL cannot escape",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend:
+      'new URL("child/../../../packages/client/src/index.ts", import.meta.url);\n',
+    message: /test infrastructure must not cross its boundary/,
+  },
+  {
+    name: "external protocol URL cannot escape",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: 'new URL("https://example.invalid/module.ts", import.meta.url);\n',
+    message: /test infrastructure must not cross its boundary/,
+  },
+
+  {
+    name: "quoted Vitest alias cannot bypass imports",
+    path: "tests/integration/vitest.integration.config.ts",
+    before: "resolve: { conditions:",
+    after:
+      'resolve: { "alias": { "@moltzap/client": "../../packages/client/src/index.ts" }, conditions:',
+    message:
+      /test infrastructure must not configure import resolution bypasses/,
+  },
+  {
+    name: "workspace-root dependency binary",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend:
+      'const binary = join(WORKSPACE_ROOT, "packages/registry/node_modules/.bin/pglite-server");\n',
+    message:
+      /test infrastructure must not use another workspace's node_modules/,
+  },
+  {
+    name: "malformed file URL",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: 'import "file://remote/path.js";\n',
+    message: /test infrastructure must not cross its boundary/,
+  },
+  {
+    name: "integration workspace name is fixed",
+    path: "tests/integration/package.json",
+    before: '"name": "@moltzap/integration-tests"',
+    after: '"name": "@moltzap/renamed-tests"',
+    message: /must name @moltzap\/integration-tests and stay private/,
+  },
+  {
+    name: "integration implicit edges cannot be added",
+    path: "tests/integration/package.json",
+    before: '"nx": {',
+    after: '"nx": {"implicitDependencies": ["@moltzap/client"],',
+    message: /test infrastructure dependencies drifted/,
+  },
+  {
+    name: "internal condition in target command",
+    path: "tests/integration/package.json",
+    before: '"command": "',
+    after: '"command": "node --conditions=sharness-internal && ',
+    message: /test infrastructure must not enable sharness-internal/,
+  },
+  {
+    name: "internal condition in TypeScript config",
+    path: "tests/integration/tsconfig.json",
+    before: '"sharness-test"',
+    after: '"sharness-test", "sharness-internal"',
+    message: /test infrastructure must not enable sharness-internal/,
+  },
+  {
+    name: "TypeScript paths cannot bypass imports",
+    path: "tests/integration/tsconfig.json",
+    before: '"compilerOptions": {',
+    after: '"compilerOptions": {"paths": {},',
+    message:
+      /test infrastructure must not configure import resolution bypasses/,
+  },
+  {
+    name: "TypeScript baseUrl cannot bypass imports",
+    path: "tests/integration/tsconfig.json",
+    before: '"compilerOptions": {',
+    after: '"compilerOptions": {"baseUrl": ".",',
+    message:
+      /test infrastructure must not configure import resolution bypasses/,
+  },
+  {
+    name: "package imports cannot bypass imports",
+    path: "tests/integration/package.json",
+    before: '"private": true,',
+    after: '"private": true, "imports": {},',
+    message:
+      /test infrastructure must not configure import resolution bypasses/,
+  },
+  {
+    name: "Vitest product alias cannot bypass imports",
+    path: "tests/integration/vitest.integration.config.ts",
+    before: "resolve: { conditions:",
+    after:
+      'resolve: { alias: { "@moltzap/client": "../../packages/client/src/index.ts" }, conditions:',
+    message:
+      /test infrastructure must not configure import resolution bypasses/,
+  },
+  {
+    name: "backtick template product source",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: "await import(`../../packages/client/src/index.js`);\n",
+    message: /test infrastructure must not cross its boundary/,
+  },
+  {
+    name: "non-literal dynamic import",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: "await import(moduleName);\n",
+    message: /test infrastructure imports must use string literals/,
+  },
+  {
+    name: "non-literal require",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: "require(moduleName);\n",
+    message: /test infrastructure imports must use string literals/,
+  },
+  {
+    name: "interpolated template import",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: "await import(`./${moduleName}.js`);\n",
+    message: /test infrastructure imports must use string literals/,
+  },
+  {
+    name: "absolute product source",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: 'import "/tmp/outside-integration.js";\n',
+    message: /test infrastructure must not cross its boundary/,
+  },
+  {
+    name: "file URL product source",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: 'import "file:///tmp/outside-integration.js";\n',
+    message: /test infrastructure must not cross its boundary/,
+  },
+  {
+    name: "URL product source",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend:
+      'new URL("../../packages/client/src/index.ts", import.meta.url);\n',
+    message: /test infrastructure must not cross its boundary/,
+  },
+  {
+    name: "another workspace dependency binary",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend:
+      'const binary = "../../packages/registry/node_modules/.bin/pglite-server";\n',
+    message:
+      /test infrastructure must not use another workspace's node_modules/,
+  },
+  {
+    name: "ESLint relative exception belongs only to its config",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: 'import "../../packages/client/eslint.config.js";\n',
+    message: /test infrastructure must not cross its boundary/,
+  },
+  {
+    name: "__tests__ must occupy a whole path segment",
+    path: "packages/client/src/__tests__suffix-gate.ts",
+    prepend: 'import "@moltzap/identity/test";\n',
+    message: /production source must not import test-only export/,
+  },
+  {
     name: "integration workspace stays private",
     path: "tests/integration/package.json",
     before: '"private": true',
@@ -85,9 +283,9 @@ export const INTEGRATION_BOUNDARY_CASES = [
 /** Invalid shapes must fail closed even when the remaining contract is intact. */
 export const MALFORMED_BOUNDARY_CASES = [
   {
-    path: "tests/integration/package.json",
-    before: '"implicitDependencies": []',
-    after: '"implicitDependencies": [7]',
+    path: "tsconfig.json",
+    before: '"references": [',
+    after: '"references": [7,',
   },
   {
     path: "tsconfig.json",
@@ -115,4 +313,14 @@ export const MALFORMED_BOUNDARY_CASES = [
     after: '"references": {}',
   },
   { path: "packages/identity/tsconfig.json", replace: "[]" },
+] as const;
+
+/** Test-integrity rules apply to integration tests as well as product tests. */
+export const INTEGRATION_INTEGRITY_CASES = [
+  ["mock guard", '\nvi.spyOn(console, "log");\n', /\[integration-vi-mock\]/],
+  [
+    "credential guard",
+    '\nconst apiKey = "' + "synthetic".repeat(4) + '";\n',
+    /\[hardcoded-api-key\]/,
+  ],
 ] as const;

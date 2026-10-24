@@ -35,6 +35,7 @@ import {
 } from "../docs/sharness-version.ts";
 import {
   INTEGRATION_BOUNDARY_CASES,
+  INTEGRATION_INTEGRITY_CASES,
   MALFORMED_BOUNDARY_CASES,
 } from "./integration-boundary-cases.ts";
 import { testIntegrationGraph } from "./integration-boundary-graph.ts";
@@ -60,7 +61,7 @@ const failures: AssertionFailure[] = [];
 /** The plant stack restores gate inputs in reverse order after each assertion. */
 const planted: Array<{
   path: string;
-  original: string;
+  original?: string;
 }> = [];
 
 /** Idempotence snapshots run before any generator success case writes outputs, so they compare against the original on-disk bytes. */
@@ -79,7 +80,7 @@ function main(): void {
     testMalformedBoundaryInputs();
     testIntegrationBoundaries();
     testIntegrationGraph(test, runNode, workspaceRoot);
-    testIntegrationMockGuard();
+    testIntegrationIntegrityGuards();
     testIsolatedFolderImports();
   } finally {
     restoreAllPlants();
@@ -671,6 +672,7 @@ function testPublicationGuardsDriftedList(): void {
 
 /** Each plant must fail the public gate even without a resolved Nx graph. */
 function testIntegrationBoundaries(): void {
+  console.log("\n# check-boundaries integration workspace");
   runBoundaryPlants(INTEGRATION_BOUNDARY_CASES);
 }
 
@@ -728,28 +730,28 @@ function runBoundaryPlants(
   }
 }
 
-/** Test-integrity guards scan test paths, including the private workspace. */
-function testIntegrationMockGuard(): void {
-  try {
-    plantFile(
-      "tests/integration/daemon-process.integration.test.ts",
-      (source) => source + '\nvi.spyOn(console, "log");\n',
-    );
-    const result = spawnSync(
-      "/bin/bash",
-      ["scripts/code/sloppy-code-guard.sh"],
-      {
-        cwd: workspaceRoot,
-        encoding: "utf8",
-      },
-    );
-    test(
-      "integration-vi-mock rejects spies in integration suites",
-      result.status === 1 && /\[integration-vi-mock\]/.test(result.stdout),
-      result.stdout + result.stderr,
-    );
-  } finally {
-    restoreAllPlants();
+/** Test-integrity guards cover spies and synthetic secret literals in integration files. */
+function testIntegrationIntegrityGuards(): void {
+  for (const [name, source, diagnostic] of INTEGRATION_INTEGRITY_CASES) {
+    console.log(`\n# integration ${name}`);
+    try {
+      plantFile(
+        "tests/integration/daemon-process.integration.test.ts",
+        (text) => text + source,
+      );
+      const result = spawnSync(
+        "/bin/bash",
+        ["scripts/code/sloppy-code-guard.sh"],
+        { cwd: workspaceRoot, encoding: "utf8" },
+      );
+      test(
+        `integration ${name} rejects its planted regression`,
+        result.status === 1 && diagnostic.test(result.stdout),
+        result.stdout + result.stderr,
+      );
+    } finally {
+      restoreAllPlants();
+    }
   }
 }
 
@@ -1097,9 +1099,11 @@ function insertAfter(
 
 function plantFile(relPath: string, mutate: (s: string) => string): void {
   const abs = resolve(workspaceRoot, relPath);
-  const original = readFileSync(abs, "utf8");
-  planted.push({ path: abs, original });
-  writeFileSync(abs, mutate(original));
+  const original = existsSync(abs) ? readFileSync(abs, "utf8") : undefined;
+  planted.push(
+    original === undefined ? { path: abs } : { path: abs, original },
+  );
+  writeFileSync(abs, mutate(original ?? ""));
 }
 
 function restoreAllPlants(): void {
@@ -1108,7 +1112,11 @@ function restoreAllPlants(): void {
     if (p === undefined) {
       break;
     }
-    writeFileSync(p.path, p.original);
+    if (p.original === undefined) {
+      rmSync(p.path);
+    } else {
+      writeFileSync(p.path, p.original);
+    }
   }
 }
 

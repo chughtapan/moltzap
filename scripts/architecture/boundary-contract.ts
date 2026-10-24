@@ -19,7 +19,7 @@ export type PackageDir =
   | "registry";
 
 /** The `types` and `import` conditions one public subpath resolves to. */
-interface ExportTarget {
+export interface ExportTarget {
   readonly testOnly?: true;
   readonly internalOnly?: true;
   readonly types: string;
@@ -219,7 +219,6 @@ export const INTEGRATION_TESTS = {
     "typecheck:tests",
     "lint",
   ],
-  implicitDependencies: [],
   dependencies: [
     "identity",
     "registry",
@@ -228,3 +227,16 @@ export const INTEGRATION_TESTS = {
     "openclaw-channel",
   ],
 } as const;
+
+/** Contract-only visibility metadata becomes the exact manifest condition object. */
+export function manifestExportTarget({
+  testOnly,
+  internalOnly,
+  ...target
+}: ExportTarget): Readonly<Record<string, unknown>> {
+  return testOnly === true || internalOnly === true
+    ? {
+        [internalOnly === true ? "sharness-internal" : "sharness-test"]: target,
+      }
+    : target;
+}

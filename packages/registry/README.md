@@ -11,8 +11,13 @@ The package is not published to npm, and no Registry image is published.
 
 The package depends on Identity capabilities through `@moltzap/identity`,
 `@moltzap/identity/registry`, and the condition-only `@moltzap/identity/internal`
-entry. The binary enables `sharness-internal`; direct Node compositions must
-also enable that condition.
+entry. Internal resolution is scoped to Registry-owned modules.
+
+The `@moltzap/registry/test` entry resolves only with `--conditions=sharness-test`.
+It exports `startRegistry({ emitted?, live, history })`, which runs the Registry
+with explicit wire compatibility sets for adjacent-release process tests.
+Calling it installs Registry-scoped internal resolution before loading the server;
+importing the entry does not change the caller's resolution conditions.
 
 See [Registry specification](../../docs/spec/identity.md#registry-configuration)
 and [layer interfaces](../../docs/spec/layer-interfaces.md).

@@ -108,6 +108,9 @@
       ],
       "project": [
         "**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "@electric-sql/pglite-socket"
       ]
     }
   },

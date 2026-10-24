@@ -60,7 +60,7 @@
         ],
         "options": {
           "cwd": "packages/registry",
-          "command": "node ../../scripts/build/clean-dist.ts && tsc -b"
+          "command": "node ../../scripts/build/clean-dist.ts && tsc -b tsconfig.json tsconfig.test-entry.json"
         }
       },
       "typecheck": {

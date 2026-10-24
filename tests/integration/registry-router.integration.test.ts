@@ -27,7 +27,7 @@ import {
   type RouterSendRequest,
   type RouterSendResult,
 } from "@moltzap/router";
-import { Duration, Effect, Encoding, Option, Redacted, Schema } from "effect";
+import { Effect, Encoding, Redacted, Schema } from "effect";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -38,17 +38,24 @@ import {
   testVersionMismatchRoundTrips,
 } from "./client-version-roundtrip.js";
 import {
-  canConnect,
+  acquireDaemonManagementClient,
+  acquireDaemonProcess,
+  acquireProcessInfrastructure,
+  awaitReady,
+  hasExited,
+  isHealthy,
   LOOPBACK_HOST,
+  makeDaemonProcessFixture,
   makePrivateKeyPem,
+  makeRegistrationRequest,
   makeSigningAuthority,
   managedProcess,
-  PGLITE_BINARY,
   processTestError,
-  REGISTRY_BINARY,
+  processTrace,
   reservePort,
   ROUTER_BINARY,
   type RunningProcess,
+  startPgliteRegistry,
   stopProcess,
 } from "./daemon-process-harness.js";
 const ADMISSION_CREDENTIAL = "registry-router-e2e-admission";
@@ -59,14 +66,9 @@ const ACCEPTED_KIND = "accepted";
 const ROUTER_RESTARTED_KIND = "router_restarted";
 const CURSOR_INVALID_RESULT = Object.freeze({ kind: "cursor_invalid" });
 const OK_STATUS = 200;
-const NO_CONTENT_STATUS = 204;
 const AUTHENTICATION_FAILED_STATUS = 401;
 const OVERLOADED_STATUS = 429;
 const UNAVAILABLE_STATUS = 503;
-const EMPTY_BODY = "";
-const STARTUP_TIMEOUT_MS = 30_000;
-const POLL_ATTEMPT_TIMEOUT = Duration.seconds(1);
-const POLL_INTERVAL_MS = 25;
 const JSON_CONTENT_TYPE = "application/json";
 const MESSAGE_INVALID_BODY = '{"kind":"message_invalid"}';
 const OVERLOADED_BODY = '{"error":"overloaded"}';
@@ -118,76 +120,10 @@ interface HttpObservation {
   readonly body: string;
 }
 
-const waitForTcpListener = (runningProcess: RunningProcess, port: number) =>
-  Effect.gen(function* () {
-    const deadline = Date.now() + STARTUP_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      if (
-        runningProcess.child.exitCode !== null ||
-        runningProcess.child.signalCode !== null
-      ) {
-        return yield* Effect.fail(
-          processTestError(
-            `process exited before listening\n${runningProcess.logs()}`,
-          ),
-        );
-      }
-      if (yield* canConnect(port)) {
-        return;
-      }
-      yield* Effect.sleep(Duration.millis(POLL_INTERVAL_MS));
-    }
-    return yield* Effect.fail(
-      processTestError(
-        `process did not listen before timeout\n${runningProcess.logs()}`,
-      ),
-    );
-  });
-
-const waitForHealth = (runningProcess: RunningProcess, origin: URL) =>
-  Effect.gen(function* () {
-    const deadline = Date.now() + STARTUP_TIMEOUT_MS;
-    const healthUrl = new URL("/healthz", origin);
-    while (Date.now() < deadline) {
-      if (
-        runningProcess.child.exitCode !== null ||
-        runningProcess.child.signalCode !== null
-      ) {
-        return yield* Effect.fail(
-          processTestError(
-            `process exited before readiness\n${runningProcess.logs()}`,
-          ),
-        );
-      }
-      const response = yield* HttpClient.get(healthUrl).pipe(
-        Effect.flatMap((result) =>
-          result.text.pipe(
-            Effect.map((body) => ({ status: result.status, body })),
-          ),
-        ),
-        Effect.timeout(POLL_ATTEMPT_TIMEOUT),
-        Effect.option,
-      );
-      if (
-        Option.isSome(response) &&
-        response.value.status === NO_CONTENT_STATUS
-      ) {
-        return response.value;
-      }
-      yield* Effect.sleep(Duration.millis(POLL_INTERVAL_MS));
-    }
-    return yield* Effect.fail(
-      processTestError(
-        `process did not become ready\n${runningProcess.logs()}`,
-      ),
-    );
-  });
-
 const assertHealthy = (runningProcess: RunningProcess, origin: URL) =>
   Effect.gen(function* () {
-    const health = yield* waitForHealth(runningProcess, origin);
-    expect(health.status).toBe(NO_CONTENT_STATUS);
-    expect(health.body).toBe(EMPTY_BODY);
+    yield* awaitReady(runningProcess, isHealthy(origin), "health response");
+    expect(hasExited(runningProcess.child)).toBe(false);
   });
 
 const randomIdentifierPayload = (): string =>
@@ -316,20 +252,11 @@ const startRegistryInfrastructure = Effect.gen(function* () {
     { concurrency: 2 },
   );
   const registryOrigin = new URL(`http://${LOOPBACK_HOST}:${registryPort}`);
-  const postgresql = yield* managedProcess(PGLITE_BINARY, [
-    "--db=memory://",
-    `--port=${postgresqlPort}`,
-    `--host=${LOOPBACK_HOST}`,
-    "--max-connections=20",
-  ]);
-  yield* waitForTcpListener(postgresql, postgresqlPort);
-  const registry = yield* managedProcess(REGISTRY_BINARY, [], {
-    SHARNESS_REGISTRY_HOST: LOOPBACK_HOST,
-    SHARNESS_REGISTRY_PORT: String(registryPort),
-    SHARNESS_REGISTRY_SQL_POOL_SIZE: "1",
-    SHARNESS_REGISTRY_POSTGRESQL_URL: `postgresql://postgres:postgres@${LOOPBACK_HOST}:${postgresqlPort}/postgres`,
-    SHARNESS_REGISTRY_ADMISSION_CREDENTIAL: ADMISSION_CREDENTIAL,
-    SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH: registryPrivateKeyPath,
+  const registry = yield* startPgliteRegistry({
+    postgresqlPort,
+    registryPort,
+    registryKeyPath: registryPrivateKeyPath,
+    admissionCredential: ADMISSION_CREDENTIAL,
   });
   yield* assertHealthy(registry, registryOrigin);
   return {
@@ -941,23 +868,55 @@ testVersionMismatchRoundTrips(
   Redacted.make(ADMISSION_CREDENTIAL),
 );
 
-/** A PGlite-backed Registry serializes its single SQL session under concurrent load. */
+/** Every concurrently registered daemon identity resolves through the Router. */
 const concurrentRegistration = Effect.gen(function* () {
-  const infrastructure = yield* startRegistryInfrastructure;
-  const runRegistry = makeRegistryRunner(
-    infrastructure.registryOrigin,
-    infrastructure.registrySignerPublicKey,
+  const infrastructure = yield* acquireProcessInfrastructure;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const runRouter = makeRouterRunner(infrastructure.routerOrigin);
+  const fixtures = yield* Effect.forEach(
+    [...Array(16).keys()],
+    (index) =>
+      makeDaemonProcessFixture(infrastructure, `concurrent-agent-${index}`),
+    { concurrency: 16 },
   );
-  const agents = yield* Effect.all(
-    [...Array(8).keys()].map((index) =>
-      registerAgent(`concurrent-agent-${index}`, runRegistry),
-    ),
-    { concurrency: 8 },
-  );
+  yield* Effect.forEach(fixtures, (fixture) => acquireDaemonProcess(fixture), {
+    concurrency: 16,
+    discard: true,
+  });
   yield* Effect.forEach(
-    agents,
-    (agent) => assertConcurrentLookup(agent, runRegistry),
-    { concurrency: 8, discard: true },
+    fixtures,
+    (fixture) =>
+      Effect.gen(function* () {
+        const management = yield* acquireDaemonManagementClient(
+          fixture.endpoint,
+        );
+        const registered = yield* management.register(
+          makeRegistrationRequest(fixture),
+        );
+        expect(registered.kind).toBe(REGISTERED_KIND);
+        if (registered.kind !== REGISTERED_KIND) {
+          return yield* Effect.fail(
+            processTestError(`registration returned ${registered.kind}`),
+          );
+        }
+        const agentCard = yield* Schema.decodeUnknown(AgentCard)(
+          registered.agentCard,
+        );
+        expect(agentCard.agentName).toBe(fixture.agentName);
+        const privateKey = yield* fileSystem.readFileString(
+          fixture.agentPrivateKeyFile,
+        );
+        const signingAuthority = yield* makeSigningAuthority(privateKey);
+        const result = yield* runRouter(
+          Router.poll({
+            request: {},
+            callerAgentId: agentCard.agentId,
+            signingAuthority,
+          }),
+        );
+        expect(result.kind).toBe(BATCH_KIND);
+      }),
+    { concurrency: 16, discard: true },
   );
 }).pipe(
   Effect.scoped,
@@ -965,24 +924,8 @@ const concurrentRegistration = Effect.gen(function* () {
   Effect.provide(NodeHttpClient.layer),
 );
 
-function assertConcurrentLookup(
-  agent: RegisteredAgent,
-  runRegistry: RegistryRunner,
-) {
-  return Effect.gen(function* () {
-    const result = yield* runRegistry(
-      Registry.lookup({ agentId: agent.agentCard.agentId }),
-    );
-    expect(result.kind).toBe(FOUND_KIND);
-    if (result.kind === FOUND_KIND) {
-      expect(yield* encodeAgentCard(result.agentCard)).toStrictEqual(
-        yield* encodeAgentCard(agent.agentCard),
-      );
-    }
-  });
-}
-
-it("registers eight agents concurrently and resolves every identity", () => {
-  expect.hasAssertions();
-  return Effect.runPromise(concurrentRegistration);
-}, 120_000);
+it(
+  "registers sixteen daemons concurrently and resolves every identity through the Router",
+  processTrace(concurrentRegistration),
+  180_000,
+);

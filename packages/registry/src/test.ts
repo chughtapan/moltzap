@@ -1,16 +1,7 @@
 /** @file Condition-only process composition for adjacent wire releases. */
 import { NodeRuntime } from "@effect/platform-node";
-import { ConfigProvider, Effect, Layer } from "effect";
-import { registerHooks } from "node:module";
-
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    return nextResolve(specifier, {
-      ...context,
-      conditions: [...context.conditions, "sharness-internal"],
-    });
-  },
-});
+import { ConfigProvider, Console, Effect, Layer } from "effect";
+import { installInternalResolution } from "./internal-resolution.js";
 
 /** Internal Identity capabilities stay within the Registry process boundary. */
 export function startRegistry(versions: {
@@ -18,6 +9,7 @@ export function startRegistry(versions: {
   readonly live: readonly string[];
   readonly history: readonly string[];
 }): void {
+  installInternalResolution();
   Effect.gen(function* () {
     const { WireVersions } = yield* Effect.tryPromise(
       () => import("@moltzap/identity/test"),
@@ -27,6 +19,15 @@ export function startRegistry(versions: {
       Effect.provideService(WireVersions, versions),
     );
   }).pipe(
+    Effect.catchAll((error) =>
+      Console.error(error.message).pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            process.exitCode = 1;
+          }),
+        ),
+      ),
+    ),
     Effect.withSpan("startRegistry"),
     Effect.withConfigProvider(ConfigProvider.fromEnv()),
     NodeRuntime.runMain,

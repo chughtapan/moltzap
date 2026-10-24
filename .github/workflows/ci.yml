@@ -64,7 +64,7 @@ jobs:
       - name: Verify the published closure installs from tarballs
         run: pnpm nx run-many -t test:pack --parallel=4
       - run: pnpm typecheck
-      - run: pnpm nx run @moltzap/integration-tests:typecheck:tests
+      - run: pnpm nx run-many -t typecheck:tests
       - name: Lint
         run: pnpm lint
         timeout-minutes: 30
@@ -88,7 +88,8 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    # Bounds a hung test run. Green runs of this job have taken at most 340 s.
+    # Bounds a hung test run. Prior green runs took approximately 340 s;
+    # refresh this measurement from the next green run after the lane changes.
     timeout-minutes: 20
     environment: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'nx-cache-write' || '' }}
     env:
@@ -110,10 +111,10 @@ jobs:
         if: github.event_name == 'pull_request'
       - name: Test the affected projects
         if: github.event_name == 'pull_request'
-        run: pnpm exec nx affected -t typecheck:tests test test:integration
+        run: pnpm exec nx affected -t test test:integration
       - name: Test every project
         if: github.event_name != 'pull_request'
-        run: pnpm exec nx run-many -t typecheck:tests test test:integration
+        run: pnpm exec nx run-many -t test test:integration
 
   mixed-release:
     runs-on: ubuntu-latest

@@ -469,9 +469,16 @@ mismatches. Release notes mark each reset release with the phrase
   range, when its version is not a calendar version, when a sibling edge is
   not an exact `workspace:*` pin, when Registry or the NanoClaw adapter is not private, or
   when the release workflow's package list drifts from the published set, or when
-  the integration-test workspace loses its private flag, declared lanes, exact
-  product dependencies or Knip root, or imports a non-public product entry
-  other than a condition-only test export. The
+  the integration-test workspace changes its name, loses its private flag,
+  declared lanes, exact product dependency set (including Nx implicit edges), or
+  Knip root; contains internal-condition text in code or package/TypeScript
+  configuration; imports an undeclared product or a non-public product entry
+  other than a condition-only test export; uses non-literal module arguments
+  or escaped import or URL specifiers; reaches outside its root by relative,
+  absolute, file-URL, or `new URL` paths
+  except for the packed-workspace helper and ESLint modules in their allowed
+  configuration; reaches another workspace's `node_modules`; or bypasses import
+  rules through Vitest aliases, TypeScript paths/base URLs, or package imports. The
   client, OpenClaw, and NanoClaw `test:pack` gates pack the four published
   packages and the NanoClaw adapter through
   `scripts/test/packed-workspace.ts` and prove each closure installs with

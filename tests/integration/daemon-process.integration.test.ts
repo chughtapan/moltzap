@@ -14,7 +14,7 @@ import { AgentCard, type AgentName, WIRE_VERSION } from "@moltzap/identity";
 import { WireVersions } from "@moltzap/identity/test";
 import { Effect, Fiber, Option, Schema, Stream } from "effect";
 import { readdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
@@ -710,7 +710,7 @@ const refusesStaleOutbox = Effect.scoped(
         "-e",
         retiredWindowDaemon,
       ],
-      cwd: fileURLToPath(new URL("../../packages/client/", import.meta.url)),
+      cwd: dirname(fileURLToPath(import.meta.url)),
     });
     expect(failed.exitCode).not.toBe(0);
     expect(failed.logs).toContain("outbox-too-old");
@@ -828,13 +828,14 @@ it(
           infrastructure,
           "legacy-key",
         );
-        for (const [binary, key] of [
-          ["client/bin/sharnessd", "MOLTZAPD_STATE_DIRECTORY"],
+        for (const [specifier, binary, key] of [
+          ["@moltzap/client", "sharnessd", "MOLTZAPD_STATE_DIRECTORY"],
           [
-            "registry/bin/sharness-registry",
+            "@moltzap/registry",
+            "sharness-registry",
             "MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL",
           ],
-          ["router/bin/sharness-router", "MOLTZAP_ROUTER_PORT"],
+          ["@moltzap/router", "sharness-router", "MOLTZAP_ROUTER_PORT"],
         ] as const) {
           const failed = yield* awaitDaemonStartupFailure(
             {
@@ -845,8 +846,10 @@ it(
               },
             },
             {
-              executable: fileURLToPath(
-                new URL(`../../packages/${binary}`, import.meta.url),
+              executable: join(
+                dirname(dirname(fileURLToPath(import.meta.resolve(specifier)))),
+                "bin",
+                binary,
               ),
               args: [],
             },
