@@ -79,8 +79,8 @@ beforeAll(async () => {
     'export class Registry {}\nexport type OperationId = string;\nexport const OperationId = "operation";\n',
   );
   writeFixture(
-    "packages/identity/src/registry/server.ts",
-    'export class StartupError extends Error {}\n/** Complete production Registry process composition. */\nexport const layer = "layer";\n',
+    "packages/registry/src/index.ts",
+    '/** @file Private Registry process. */\nexport class StartupError extends Error {}\n/** Complete production Registry process composition. */\nexport const layer = "layer";\n',
   );
   writeFixture(
     "packages/identity/src/registry/client.ts",
@@ -100,6 +100,10 @@ beforeAll(async () => {
     "export type IgnoredCanary = true;\n",
   );
 
+  writeFixture(
+    "packages/registry/package.json",
+    JSON.stringify({ name: "@moltzap/registry" }),
+  );
   writeFixture(
     "packages/router/package.json",
     JSON.stringify({ name: "@moltzap/router" }),
@@ -192,39 +196,6 @@ beforeAll(async () => {
               ],
             },
             {
-              id: 9,
-              name: "registry/server",
-              kind: ReflectionKind.Module,
-              children: [
-                {
-                  id: 10,
-                  name: "StartupError",
-                  kind: ReflectionKind.Class,
-                  sources: source(
-                    "C:\\workspace\\moltzap\\packages\\identity\\src\\registry\\server.ts",
-                    1,
-                  ),
-                },
-                {
-                  id: 11,
-                  name: "layer",
-                  kind: ReflectionKind.Variable,
-                  sources: source(
-                    "packages/identity/src/registry/server.ts",
-                    3,
-                  ),
-                  comment: {
-                    summary: [
-                      {
-                        kind: "text",
-                        text: "Complete production Registry process composition.",
-                      },
-                    ],
-                  },
-                },
-              ],
-            },
-            {
               id: 12,
               name: "registry/client",
               kind: ReflectionKind.Module,
@@ -237,6 +208,41 @@ beforeAll(async () => {
                     "packages/identity/src/registry/client.ts",
                     1,
                   ),
+                },
+              ],
+            },
+          ],
+        },
+        {
+          name: "@moltzap/registry",
+          children: [
+            {
+              id: 9,
+              name: "index",
+              kind: ReflectionKind.Module,
+              children: [
+                {
+                  id: 10,
+                  name: "StartupError",
+                  kind: ReflectionKind.Class,
+                  sources: source(
+                    "C:\\workspace\\moltzap\\packages\\registry\\src\\index.ts",
+                    1,
+                  ),
+                },
+                {
+                  id: 11,
+                  name: "layer",
+                  kind: ReflectionKind.Variable,
+                  sources: source("packages/registry/src/index.ts", 3),
+                  comment: {
+                    summary: [
+                      {
+                        kind: "text",
+                        text: "Complete production Registry process composition.",
+                      },
+                    ],
+                  },
                 },
               ],
             },
@@ -424,10 +430,11 @@ describe("module documentation", () => {
     const [publicSurface = ""] = identityModule.split("## Package subpaths");
     const registrySection = identityModule
       .split("### `@moltzap/identity/registry`\n")[1]
-      ?.split("### `@moltzap/identity/registry/server`\n")[0];
-    const serverSection = identityModule.split(
-      "### `@moltzap/identity/registry/server`\n",
-    )[1];
+      ?.split("## Files\n")[0];
+    const serverSection = readFileSync(
+      join(sandbox, "packages/registry/src/MODULE.md"),
+      "utf8",
+    );
 
     // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
     expect(publicSurface).not.toContain("### [`Registry`]");
@@ -442,10 +449,10 @@ describe("module documentation", () => {
     // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
     expect(registrySection).toContain("#### [`OperationId (value)`]");
     // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
-    expect(serverSection).toContain("#### [`StartupError`]");
+    expect(serverSection).toContain("### [`StartupError`]");
     // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
-    expect(serverSection).toContain("#### [`layer`]");
-    expect(identityModule).toContain(
+    expect(serverSection).toContain("### [`layer`]");
+    expect(serverSection).toContain(
       // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
       "Complete production Registry process composition.",
     );
@@ -469,7 +476,6 @@ describe("module documentation", () => {
         "- `registry.ts`",
         "- `registry/client.ts`",
         "- `registry/README.md`",
-        "- `registry/server.ts`",
       ].join("\n"),
     );
   });
@@ -491,6 +497,7 @@ describe("module documentation", () => {
       ["packages/client/src", "client/src"],
       ["packages/client/src/service", "client/service"],
       ["packages/identity/src", "identity/src"],
+      ["packages/registry/src", "registry/src"],
       ["packages/router/src", "router/src"],
     ]);
     expect(
@@ -508,9 +515,9 @@ describe("module documentation", () => {
     // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The expected text is the observable output for this fixed input fixture.
     expect(identityModule).toContain("_`packages/identity/src`_");
     expect(existsSync(join(sandbox, "docs/modules/router/src.mdx"))).toBe(true);
-    expect(identityMdx).toContain(
-      `${GITHUB_SOURCE}/packages/identity/src/registry/server.ts#L1`,
-    );
+    expect(
+      readFileSync(join(sandbox, "docs/modules/registry/src.mdx"), "utf8"),
+    ).toContain(`${GITHUB_SOURCE}/packages/registry/src/index.ts#L1`);
   });
 
   // eslint-disable-next-line agent-code-guard/async-keyword -- Vitest awaits this Promise boundary; the implementation under test remains an Effect.
@@ -532,7 +539,7 @@ describe("module documentation", () => {
     );
 
     const missingSubpathEntries = new Map(typeDocCache.byPackageEntrypoint);
-    missingSubpathEntries.delete("@moltzap/identity/registry/server");
+    missingSubpathEntries.delete("@moltzap/identity/registry");
     await expect(
       Effect.runPromise(
         generateModuleDocs(
@@ -544,7 +551,7 @@ describe("module documentation", () => {
         ).pipe(Effect.provide(NodeContext.layer)),
       ),
     ).rejects.toThrow(
-      "Required TypeDoc package subpaths were not loaded: @moltzap/identity/registry/server",
+      "Required TypeDoc package subpaths were not loaded: @moltzap/identity/registry",
     );
   });
 

@@ -1,33 +1,33 @@
 /** @file Registry-owned bootstrap admission before private dispatch. */
 
 import type { HttpServerRequest } from "@effect/platform";
-import { Effect, Redacted, Schema } from "effect";
-import { createHash, timingSafeEqual } from "node:crypto";
-import type { RegistryStorage } from "./storage.js";
-import { Ed25519PublicKey } from "../agent-key.js";
+import type { RegistryRegisterRequest as RegistryRegisterRequestValue } from "@moltzap/identity/registry";
 import {
   AuthenticationFailedError,
+  Ed25519PublicKey,
   type InternalServerError,
   MalformedRequestError,
   OverloadedError,
   type UnavailableError,
   type VersionMismatchError,
-} from "../http-errors.js";
-import {
-  type VerifiedHttpSignature,
-  verifyBootstrapRequest,
-} from "../http-signature.js";
-import { hasCanonicalBase64UrlLength } from "../identifiers.js";
+} from "@moltzap/identity";
 import {
   registrationBody,
-  type RegistryRegisterRequest as RegistryRegisterRequestValue,
-} from "./contract.js";
+  type VerifiedHttpSignature,
+  verifyBootstrapRequest,
+} from "@moltzap/identity/internal";
+import { Effect, Redacted, Schema } from "effect";
+import { createHash, timingSafeEqual } from "node:crypto";
+import type { RegistryStorage } from "./storage.js";
 
 const registrationPublicKeyRepresentation = Schema.Struct({
   crv: Schema.Literal("Ed25519"),
   kty: Schema.Literal("OKP"),
   x: Schema.String.pipe(
-    Schema.filter((value) => hasCanonicalBase64UrlLength(value, 32)),
+    Schema.filter((value) => {
+      const bytes = Buffer.from(value, "base64url");
+      return bytes.byteLength === 32 && bytes.toString("base64url") === value;
+    }),
   ),
 });
 

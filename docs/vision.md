@@ -267,7 +267,7 @@ stack.
 
 The executable topology has:
 
-- `sharness-registry`, an Identity-owned Registry HTTP process with durable
+- `sharness-registry`, a Registry-owned HTTP process with durable
   registration storage;
 - `sharness-router`, a Router-owned HTTP process with bounded volatile delivery
   state; and
@@ -399,21 +399,20 @@ database, or cross-conversation context.
 
 ### Packages
 
-The cutover finishes with exactly five products under `packages/*`:
+Six packages implement the five-layer harness under `packages/*`:
 
 | Package | Owns | Direct production dependencies |
 |---|---|---|
-| `@moltzap/identity` | Identity interfaces, Registry client/server, Registry process | none |
+| `@moltzap/identity` | Identity interfaces and Registry client | none |
+| `@moltzap/registry` | Private Registry process, admission, issuance, PostgreSQL storage and migrations | identity |
 | `@moltzap/router` | Opaque Router interfaces, client/server, Router process | identity |
 | `@moltzap/client` | Endpoint communication, history, tasks, norms, personal firewall, daemon, `HarnessEndpoint` | identity, router |
 | `@moltzap/openclaw-channel` | OpenClaw adapter | client |
 | `@moltzap/nanoclaw-channel` | NanoClaw adapter | client |
 
-There are no compatibility package names or forwarding exports. Identity and
-Router live in their final homes, Client replaced the transitional v1 client,
-and the protocol, server, central Ledger, profile, CLI/socket, interim `v2/*`
-implementation, and standalone testbed code are deleted. Four of the five
-packages publish to npm, each at its own calendar version, while `@moltzap/nanoclaw-channel` stays private, as defined in
+There are no compatibility package names or forwarding exports. Four packages
+publish to npm, each at its own calendar version, while `@moltzap/registry` and
+`@moltzap/nanoclaw-channel` stay private, as defined in
 [Publication and versions](spec/layer-interfaces.md#publication-and-versions).
 The package version is independent of the wire compatibility value.
 

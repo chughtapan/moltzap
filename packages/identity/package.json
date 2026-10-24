@@ -1,7 +1,7 @@
 {
   "name": "@moltzap/identity",
   "version": "2026.1022.0",
-  "description": "Identity contracts and representation, AuthenticatedHttp, Registry client and PostgreSQL server",
+  "description": "Identity contracts and representation, AuthenticatedHttp, and Registry client",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -19,7 +19,6 @@
   "files": [
     "dist",
     "!dist/tsconfig.tsbuildinfo",
-    "bin",
     "LICENSE",
     "NOTICE"
   ],
@@ -34,26 +33,24 @@
       "types": "./dist/registry.d.ts",
       "import": "./dist/registry.js"
     },
-    "./registry/server": {
-      "types": "./dist/registry/server.d.ts",
-      "import": "./dist/registry/server.js"
-    },
     "./test": {
       "sharness-test": {
-        "types": "./dist/wire-versions.d.ts",
-        "import": "./dist/wire-versions.js"
+        "types": "./dist/internal/test.d.ts",
+        "import": "./dist/internal/test.js"
+      }
+    },
+    "./internal": {
+      "sharness-internal": {
+        "types": "./dist/internal/index.d.ts",
+        "import": "./dist/internal/index.js"
       }
     }
-  },
-  "bin": {
-    "sharness-registry": "./bin/sharness-registry"
   },
   "scripts": {
     "build": "nx run @moltzap/identity:build",
     "typecheck": "nx run @moltzap/identity:typecheck",
     "typecheck:tests": "nx run @moltzap/identity:typecheck:tests",
     "test": "nx run @moltzap/identity:test",
-    "test:integration": "nx run @moltzap/identity:test:integration",
     "lint": "nx run @moltzap/identity:lint",
     "arch:check": "nx run @moltzap/identity:arch:check"
   },
@@ -100,17 +97,6 @@
           "command": "vitest run --config vitest.config.ts"
         }
       },
-      "test:integration": {
-        "executor": "nx:run-commands",
-        "dependsOn": [
-          "build",
-          "^build"
-        ],
-        "options": {
-          "cwd": "packages/identity",
-          "command": "vitest run --config vitest.integration.config.ts"
-        }
-      },
       "lint": {
         "executor": "nx:run-commands",
         "options": {
@@ -128,12 +114,7 @@
     }
   },
   "dependencies": {
-    "@effect/experimental": "catalog:",
     "@effect/platform": "catalog:",
-    "@effect/platform-node": "catalog:",
-    "@effect/rpc": "catalog:",
-    "@effect/sql": "catalog:",
-    "@effect/sql-pg": "catalog:",
     "@noble/curves": "catalog:",
     "canonicalize": "catalog:",
     "effect": "catalog:",
@@ -143,9 +124,6 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@electric-sql/pglite": "catalog:",
-    "@electric-sql/pglite-socket": "catalog:",
-    "@testcontainers/postgresql": "catalog:",
     "@typescript/native": "catalog:",
     "eslint": "catalog:",
     "fast-check": "catalog:",

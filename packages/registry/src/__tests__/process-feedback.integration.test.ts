@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
 
 const binary = fileURLToPath(
-  new URL("../../../bin/sharness-registry", import.meta.url),
+  new URL("../../bin/sharness-registry", import.meta.url),
 );
 const processName = "sharness-registry";
 const requiredVariable = "SHARNESS_REGISTRY_POSTGRESQL_URL";
@@ -51,6 +51,7 @@ function runProcess(
   }).pipe(Effect.timeout("10 seconds"), Effect.provide(NodeContext.layer));
 }
 
+// @agent-code-guard/regression-only: These process regressions verify help, closed configuration failures, secret redaction, and plain Node loading.
 it(
   "prints environment requirements and defaults without starting",
   () =>
@@ -91,6 +92,19 @@ it(
       expect(result.stderr).toContain(invalidVariable);
       expect(result.stderr + result.stdout).not.toContain(secret);
       expect(result.stdout).toBe("");
+    }),
+  15_000,
+);
+
+it(
+  "loads the Registry bin through plain Node without resolution flags",
+  () =>
+    Effect.gen(function* () {
+      const result = yield* runProcess([]);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain(`${requiredVariable} is required`);
+      // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- Node must reach the Registry configuration boundary instead of refusing the internal package entry.
+      expect(result.stderr).not.toContain("ERR_PACKAGE_PATH_NOT_EXPORTED");
     }),
   15_000,
 );

@@ -4,23 +4,21 @@ import * as Reactivity from "@effect/experimental/Reactivity";
 import { FileSystem, HttpClient, HttpClientRequest } from "@effect/platform";
 import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
 import { PgClient } from "@effect/sql-pg";
-import { Duration, Effect, Redacted, Ref, Schema } from "effect";
-import { join } from "node:path";
-import { expect, it } from "vitest";
-import { encodeCanonicalJson } from "../../canonical-json.js";
-import { contentDigest } from "../../http-signature.js";
 import {
   AgentCard,
   AgentName,
   AgentSigningAuthority,
   type VerifiedAgentCard,
   WIRE_VERSION,
-} from "../../index.js";
+} from "@moltzap/identity";
 import {
   Registry,
   type RegistryListRequest,
   RegistryRegisterRequest,
-} from "../../registry.js";
+} from "@moltzap/identity/registry";
+import { Duration, Effect, Redacted, Ref, Schema } from "effect";
+import { join } from "node:path";
+import { expect, it } from "vitest";
 import {
   callRegister,
   canConnect,
@@ -52,6 +50,7 @@ import {
   waitForExit,
   waitForTcpListener,
 } from "./registry-process.js";
+import { contentDigest, encodeCanonicalJson } from "./request-fixtures.js";
 
 const REGISTERED_KIND = "registered";
 const NOT_FOUND_KIND = "not_found";
@@ -885,7 +884,7 @@ const registryBinaryBehavior = Effect.gen(function* () {
   expect(registry.logs()).toContain(
     `sharness-registry listening on ${infrastructure.origin.origin}`,
   );
-  expect(registry.logs()).toMatch(/\(package \S+; WIRE_VERSION \S+\)/u);
+  expect(registry.logs()).toMatch(/\(WIRE_VERSION \S+\)/u);
   expect(
     registry.logs().match(/sharness-registry listening on/gu),
   ).toHaveLength(1);

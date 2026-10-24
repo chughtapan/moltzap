@@ -222,7 +222,7 @@ function testDocImportsResolveR6(): void {
   plantFile(
     CONTRIBUTING_DOC,
     (s) =>
-      `${s}\n\`\`\`typescript\nimport { WIRE_VERSION } from "@moltzap/identity";\nimport { Registry } from "@moltzap/identity/registry";\nimport "@moltzap/identity/registry/server";\nimport "@moltzap/router/server";\n\`\`\`\n`,
+      `${s}\n\`\`\`typescript\nimport { WIRE_VERSION } from "@moltzap/identity";\nimport { Registry } from "@moltzap/identity/registry";\nimport "@moltzap/registry";\nimport "@moltzap/router/server";\n\`\`\`\n`,
   );
   const r6 = runScript(
     "scripts/docs/check-doc-imports-resolve.ts",
@@ -384,6 +384,7 @@ function testPublicationGuards(): void {
   testPublicationGuardsWireSemver();
   testPublicationGuardsDriftedList();
   testPublicationGuardsTestOnly();
+  testPublicationGuardsNamespaceExport();
 }
 
 /** Test overrides require an explicit condition and cannot enter production source. */
@@ -412,6 +413,23 @@ function testPublicationGuardsTestOnly(): void {
         production.stderr,
       ),
     `expected production-import failure. exit=${production.code}, stderr=${production.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+}
+
+/** Namespace wildcard exports expose the same unbounded surface as bare wildcards. */
+function testPublicationGuardsNamespaceExport(): void {
+  plantFile(
+    "packages/identity/src/index.ts",
+    (source) =>
+      source + '\nexport * as RegistryApi from "./registry/contract.js";\n',
+  );
+  const wildcard = runBoundaries();
+  test(
+    "rejects a namespace wildcard export",
+    wildcard.code !== 0 &&
+      /wildcard export is not allowed/.test(wildcard.stderr),
+    `expected namespace-wildcard failure. exit=${wildcard.code}, stderr=${wildcard.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
 }
@@ -627,6 +645,20 @@ function testPublicationGuardsDriftedList(): void {
         driftedList.stderr,
       ),
     `expected release-list failure. exit=${driftedList.code}, stderr=${driftedList.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+  plantFile(".github/workflows/publish.yml", (source) =>
+    // eslint-disable-next-line sonarjs/slow-regex -- The input is bounded, repository-owned workflow text.
+    source.replace(/^(\s*RELEASE_PACKAGES:\s*).+$/m, "$& registry"),
+  );
+  const privatePackage = runBoundaries();
+  test(
+    "rejects a private package in the release list",
+    privatePackage.code !== 0 &&
+      /RELEASE_PACKAGES drifted from the published set/.test(
+        privatePackage.stderr,
+      ),
+    `expected private release-list failure. exit=${privatePackage.code}, stderr=${privatePackage.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
 }

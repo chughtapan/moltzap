@@ -12,7 +12,7 @@ import {
 import { decodeCanonicalJson, encodeCanonicalJson } from "../canonical-json.js";
 import { AuthenticationFailedError } from "../http-errors.js";
 import { AgentId, AgentName, PrincipalId } from "../identifiers.js";
-import { AgentCardIssuedAt, issueAgentCard } from "../registry/issuance.js";
+import { AgentCardIssuedAt, makeVerifiedCard } from "./agent-card-fixtures.js";
 
 /** Independent Registry and agent signing keys bound by the verified card. */
 export interface IdentityFixture {
@@ -37,7 +37,7 @@ const makeSigningAuthority = () => {
 export const makeIdentityFixture = Effect.gen(function* () {
   const registryAuthority = yield* makeSigningAuthority();
   const signingAuthority = yield* makeSigningAuthority();
-  const agentCard = yield* issueAgentCard({
+  const agentCard = yield* makeVerifiedCard({
     agentId: makeAgentId(1),
     principalId: Schema.decodeUnknownSync(PrincipalId)(identifier("prn_", 2)),
     agentName: Schema.decodeUnknownSync(AgentName)("http-signer"),

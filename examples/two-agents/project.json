@@ -5,13 +5,25 @@
     "test:pack": {
       "executor": "nx:run-commands",
       "dependsOn": [
-        "^build"
+        "^build",
+        {
+          "target": "build",
+          "projects": [
+            "@moltzap/registry"
+          ]
+        }
       ],
       "cache": false,
       "options": {
         "cwd": ".",
         "command": "node scripts/test-two-agents-example.ts"
-      }
+      },
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/packages/registry/src/**/*",
+        "{workspaceRoot}/packages/registry/bin/**/*"
+      ]
     }
   }
 }

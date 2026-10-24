@@ -6,7 +6,8 @@
     "packages/nanoclaw-channel",
     "packages/openclaw-channel",
     "packages/identity",
-    "packages/router"
+    "packages/router",
+    "packages/registry"
   ],
   "externalSymbolLinkMappings": {
     "effect": {
@@ -19,7 +20,9 @@
     }
   },
   "packageOptions": {
-    "entryPoints": ["src/index.ts"],
+    "entryPoints": [
+      "src/index.ts"
+    ],
     "excludeInternal": true,
     "excludePrivate": true,
     "readme": "none",
@@ -43,7 +46,10 @@
     ]
   },
   "outputs": [
-    { "name": "json", "path": "node_modules/.cache/typedoc.json" }
+    {
+      "name": "json",
+      "path": "node_modules/.cache/typedoc.json"
+    }
   ],
   "readme": "none",
   "skipErrorChecking": true,

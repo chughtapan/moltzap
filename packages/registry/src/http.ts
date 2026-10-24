@@ -6,22 +6,19 @@ import {
   HttpServerResponse,
 } from "@effect/platform";
 import { NodeHttpServerRequest } from "@effect/platform-node";
-import { Cause, Effect, Option } from "effect";
-import type { RegistryStorage } from "./storage.js";
 import {
-  httpEnvelope,
-  type HttpEnvelopeError,
+  type AuthenticationFailedError,
   InternalServerError,
   MalformedRequestError,
   MethodNotAllowedError,
   OverloadedError,
   PayloadTooLargeError,
   RouteNotFoundError,
+  type UnavailableError,
   UnsupportedMediaTypeError,
   VersionMismatchError,
-} from "../http-errors.js";
-import { WireVersions } from "../wire-versions.js";
-import { verifyBootstrapRegistration } from "./admission.js";
+  wireVersions,
+} from "@moltzap/identity";
 import {
   HEALTH_PATH,
   KNOWN_PATHS,
@@ -37,7 +34,10 @@ import {
   registryListCodec,
   registryLookupCodec,
   registryRegisterCodec,
-} from "./contract.js";
+} from "@moltzap/identity/internal";
+import { Cause, Effect, Option } from "effect";
+import type { RegistryStorage } from "./storage.js";
+import { verifyBootstrapRegistration } from "./admission.js";
 import { type RegistryRpcClient, withBootstrapAdmission } from "./rpc.js";
 
 type RegistryHttpAppInput = Readonly<{
@@ -226,7 +226,7 @@ function publicReadHandler<Request, Result, DecodeError, EncodeError>(input: {
         Effect.gen(function* () {
           const bodyBytes = yield* readBoundedBody(request, input.bodyCap);
           const version = request.headers["sharness-version"];
-          if (version === undefined || !(yield* WireVersions.live(version))) {
+          if (version === undefined || !(yield* wireVersions.live(version))) {
             return yield* new VersionMismatchError();
           }
           const decoded = yield* input.decodeRequest(bodyBytes).pipe(
@@ -458,4 +458,45 @@ function jsonResponse(
     status,
     contentType: JSON_CONTENT_TYPE,
   });
+}
+
+/** Closed failures represented by the shared HTTP error envelope. */
+type HttpEnvelopeError =
+  | MalformedRequestError
+  | AuthenticationFailedError
+  | RouteNotFoundError
+  | MethodNotAllowedError
+  | VersionMismatchError
+  | PayloadTooLargeError
+  | UnsupportedMediaTypeError
+  | OverloadedError
+  | UnavailableError
+  | InternalServerError;
+
+const mappings = Object.freeze({
+  MalformedRequestError: { status: 400, code: "malformed" },
+  AuthenticationFailedError: { status: 401, code: "authentication_failed" },
+  RouteNotFoundError: { status: 404, code: "not_found" },
+  MethodNotAllowedError: { status: 405, code: "method_not_allowed" },
+  VersionMismatchError: { status: 412, code: "version_mismatch" },
+  PayloadTooLargeError: { status: 413, code: "payload_too_large" },
+  UnsupportedMediaTypeError: {
+    status: 415,
+    code: "unsupported_media_type",
+  },
+  OverloadedError: { status: 429, code: "overloaded" },
+  UnavailableError: { status: 503, code: "unavailable" },
+  InternalServerError: { status: 500, code: "internal" },
+} as const);
+
+/**
+ * Private HTTP status and body-code projection for a shared error.
+ *
+ * @param error Recognized closed HTTP failure.
+ * @returns Its exact status and stable body code.
+ */
+function httpEnvelope(
+  error: HttpEnvelopeError,
+): (typeof mappings)[keyof typeof mappings] {
+  return mappings[error._tag];
 }

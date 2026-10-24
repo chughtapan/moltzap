@@ -2,7 +2,9 @@
   "$schema": "https://typedoc.org/schema.json",
   "entryPoints": [
     "src/index.ts",
-    "src/registry.ts",
-    "src/registry/server.ts"
+    "src/registry.ts"
+  ],
+  "exclude": [
+    "src/internal/**"
   ]
 }

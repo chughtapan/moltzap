@@ -9,6 +9,7 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect, Redacted, Schema } from "effect";
+import { registerHooks } from "node:module";
 import { fileURLToPath } from "node:url";
 import {
   ActionCertifiedRecord,
@@ -43,13 +44,22 @@ import {
   PrincipalId,
   SignedMessage,
 } from "../packages/identity/dist/index.js";
-import {
-  AgentCardIssuedAt,
-  issueAgentCard,
-} from "../packages/identity/dist/registry/issuance.js";
 import { WireVersions } from "../packages/identity/dist/wire-versions.js";
 import { RouterInstanceId } from "../packages/router/dist/index.js";
 import captured from "./client-record-golden-inputs.json" with { type: "json" };
+
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    return nextResolve(specifier, {
+      ...context,
+      conditions: [...context.conditions, "sharness-internal"],
+    });
+  },
+});
+
+const { AgentCardIssuedAt: agentCardIssuedAt, issueAgentCard } = await import(
+  "../packages/registry/dist/issuance.js"
+);
 
 const sharnessVersion = "2026.1021.3";
 const utf8 = new TextDecoder();
@@ -204,7 +214,7 @@ function deterministicIdentity(byte: number, registry: AgentSigningAuthority) {
         `golden-member-${byte}`,
       ),
       publicKey: AgentSigningAuthority.publicKey(authority),
-      issuedAt: yield* Schema.decodeUnknown(AgentCardIssuedAt)(
+      issuedAt: yield* Schema.decodeUnknown(agentCardIssuedAt)(
         "2026-08-27T12:00:00Z",
       ),
       registrySigningAuthority: registry,

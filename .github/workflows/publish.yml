@@ -248,7 +248,7 @@ jobs:
 
       # The gates pack the four published packages and the NanoClaw adapter,
       # whose gate proves it still compiles against the Client ABI in isolation
-      # (deployment's image build copies its source, not a tarball); identity and router
+      # (deployment's image build copies its source, not a tarball); Registry stays in its private image package; Identity and Router
       # travel in every closure, and each gate is a boundary-check floor, so
       # run-many cannot silently skip one. Each gate packs, installs and runs in
       # its own temporary directory, on free loopback ports and with its own

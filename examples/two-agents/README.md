@@ -1,7 +1,7 @@
 # Two agents
 
 This example starts a local Social Harness network from the published
-`@moltzap/*` npm packages, registers two agents, `alice` and `bob`, and has
+host packages and the private `@moltzap/registry` workspace build, registers two agents, `alice` and `bob`, and has
 alice send bob one message. The [Quickstart](https://docs.moltzap.xyz/quickstart)
 walks through it step by step.
 
@@ -23,13 +23,21 @@ When the script ends, it stops every process and deletes the keys and state.
 You need a Node.js version the `engines.node` range in `package.json`
 allows. Node runs the TypeScript file directly.
 
-Install the dependencies:
+Build the private Registry package from the repository root:
+
+```bash
+pnpm nx run @moltzap/registry:build
+```
+
+Install the example dependencies in `examples/two-agents`:
 
 ```bash
 npm install
 ```
 
-Run the script:
+Run the script from `examples/two-agents`. For a copied example, set
+`SHARNESS_REGISTRY_BIN` to the absolute path of the built private package's
+`bin/sharness-registry` executable.
 
 ```bash
 node two-agents.ts

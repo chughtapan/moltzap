@@ -21,9 +21,10 @@ npm install @moltzap/client             # sharnessd and the HarnessEndpoint
 npm install @moltzap/openclaw-channel   # OpenClaw plugin
 ```
 
-`@moltzap/identity` and `@moltzap/router` install as their dependencies and
-carry the `sharness-registry` and `sharness-router` processes. Every published
-package pins its siblings to exact versions, so a closure installed from npm is
+`@moltzap/identity` and `@moltzap/router` install as their dependencies. Router
+carries `sharness-router`; the private `@moltzap/registry` workspace package
+carries `sharness-registry`. Every published package pins its siblings to exact
+versions, so a closure installed from npm is
 the one its release tested. Agent images, the simulator, and the
 evaluation suites are built outside this repository and consume these packages
 like any other dependent.
@@ -38,24 +39,20 @@ and `sharnessd` process contracts are exact in the normative
 ## Try it
 
 The [two-agents example](examples/two-agents) starts a local network from the
-published packages, registers two agents and delivers one message. With a
-Node.js version its `engines.node` range allows:
-
-```bash
-cd examples/two-agents
-npm install
-node two-agents.ts
-```
+published host packages and the private Registry workspace build. Follow its
+[run instructions](examples/two-agents/README.md#run-it) to build Registry,
+register two agents, and deliver one message.
 
 It ends with `bob received: from agent:alice: Hi Bob, this is Alice.`
 
 ## Package graph
 
-The workspace contains five packages.
+The workspace contains six packages.
 
 | Package | Responsibility | Published |
 |---------|----------------|-----------|
 | [`@moltzap/identity`](packages/identity) | Agent identity and Registry capability | yes |
+| [`@moltzap/registry`](packages/registry) | Registry process and PostgreSQL persistence | no |
 | [`@moltzap/router`](packages/router) | Content-blind ordered message transport | yes |
 | [`@moltzap/client`](packages/client) | Addressed endpoint history, daemon, loopback MCP, and `HarnessEndpoint` | yes |
 | [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway adapter | yes |

@@ -37,6 +37,12 @@ interface ImportSite {
   readonly text: string;
 }
 
+interface ProductEntrySite {
+  readonly target: PackageDir;
+  readonly specifier: string;
+  readonly line: number;
+}
+
 const SKIPPED_DIRECTORIES: ReadonlySet<string> = new Set([
   "dist",
   "node_modules",
@@ -153,7 +159,9 @@ export function checkFinalImports(run: BoundaryRun): number {
 
 function checkSourceFile(run: BoundaryRun, file: string): void {
   const text = readFileSync(file, "utf8");
-  for (const match of text.matchAll(/export\s+\*\s+from\s+["'][^"']+["']/g)) {
+  for (const match of text.matchAll(
+    /export\s+\*(?:\s+as\s+[^\s]+)?\s+from\s+["'][^"']+["']/g,
+  )) {
     fail(
       run,
       file,
@@ -232,7 +240,7 @@ function checkProductImport(
     fail(run, site.file, line, `unknown workspace package import "${root}"`);
     return;
   }
-  if (!mayImport(site.dir, root)) {
+  if (!mayImport(site, root)) {
     fail(
       run,
       site.file,
@@ -241,6 +249,16 @@ function checkProductImport(
     );
     return;
   }
+  checkProductEntry(run, site, { target, specifier, line });
+}
+
+function checkProductEntry(
+  run: BoundaryRun,
+  site: ImportSite,
+  input: ProductEntrySite,
+): void {
+  const { target, specifier, line } = input;
+  const root = FINAL_PACKAGES[target].npmName;
   const subpath = exportSubpath(specifier, root);
   checkTestOnlyImport(run, site, {
     testOnly: FINAL_PACKAGES[target].exports[subpath]?.testOnly,
@@ -255,6 +273,7 @@ function checkProductImport(
       `import "${specifier}" is not a public export of "${root}"`,
     );
   }
+  checkInternalImport(run, site, input);
   if (
     isRuntimeAdapter(site.dir) &&
     root === "@moltzap/client" &&
@@ -269,9 +288,37 @@ function checkProductImport(
   }
 }
 
-function mayImport(dir: PackageDir, root: string): boolean {
+function checkInternalImport(
+  run: BoundaryRun,
+  site: ImportSite,
+  input: ProductEntrySite,
+): void {
+  const { target, specifier, line } = input;
+  const subpath = exportSubpath(specifier, FINAL_PACKAGES[target].npmName);
+  if (
+    FINAL_PACKAGES[target].exports[subpath]?.internalOnly === true &&
+    site.dir !== "registry" &&
+    site.dir !== "identity"
+  ) {
+    fail(
+      run,
+      site.file,
+      line,
+      `internal Identity capabilities are reserved for Registry compositions ("${specifier}")`,
+    );
+  }
+}
+
+function mayImport(site: ImportSite, root: string): boolean {
+  const contract = FINAL_PACKAGES[site.dir];
+  if (root === contract.npmName || dependencyNames(site.dir).includes(root)) {
+    return true;
+  }
   return (
-    root === FINAL_PACKAGES[dir].npmName || dependencyNames(dir).includes(root)
+    site.file.includes(`${path.sep}integration${path.sep}`) &&
+    (contract.testDeps ?? []).some(
+      (dir) => FINAL_PACKAGES[dir].npmName === root,
+    )
   );
 }
 
@@ -327,7 +374,8 @@ function checkTestOnlyImport(
   if (
     input.testOnly === true &&
     !site.file.endsWith(".test.ts") &&
-    !site.file.includes(`${path.sep}integration${path.sep}`)
+    !site.file.includes(`${path.sep}integration${path.sep}`) &&
+    !site.file.includes(`${path.sep}__tests__${path.sep}`)
   ) {
     fail(
       run,

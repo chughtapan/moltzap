@@ -1,31 +1,36 @@
 /** @file Durable Registry persistence for admission, immutable cards, and idempotent operations. */
 
 import type { SqlError } from "@effect/sql/SqlError";
+import type {
+  RegistryListRequest,
+  RegistryListResult,
+  RegistryLookupRequest,
+  RegistryLookupResult,
+  RegistryRegisterRequest,
+  RegistryRegisterResult,
+} from "@moltzap/identity/registry";
 import * as Migrator from "@effect/sql/Migrator";
 import { SqlClient } from "@effect/sql/SqlClient";
-import { Clock, Data, Effect, Either, Encoding, Schema } from "effect";
-import { randomBytes } from "node:crypto";
-import { AgentCard, type VerifiedAgentCard } from "../agent-card.js";
 import {
+  AgentCard,
+  AgentId,
+  type AgentId as AgentIdValue,
   type AgentSigningAuthority,
   type Ed25519PublicKey,
-  ed25519PublicKeyThumbprintUri,
-} from "../agent-key.js";
-import { exactStruct, sameBytes } from "../canonical-json.js";
-import { InternalServerError, UnavailableError } from "../http-errors.js";
-import { AgentId, type AgentId as AgentIdValue } from "../identifiers.js";
+  InternalServerError,
+  UnavailableError,
+  type VerifiedAgentCard,
+} from "@moltzap/identity";
 import {
+  agentCardSigning,
   registryAgentCardCodec,
-  type RegistryListRequest,
-  type RegistryListResult,
-  type RegistryLookupRequest,
-  type RegistryLookupResult,
   registryRegisterCodec,
-  type RegistryRegisterRequest,
-  type RegistryRegisterResult,
-} from "./contract.js";
+} from "@moltzap/identity/internal";
+import { Clock, Data, Effect, Either, Encoding, Schema } from "effect";
+import { randomBytes } from "node:crypto";
 import { AgentCardIssuedAt, issueAgentCard } from "./issuance.js";
 import { registryMigration } from "./migrations/0001_registry.js";
+const ed25519PublicKeyThumbprintUri = agentCardSigning.publicKeyId;
 
 /** Storage initialization failed before the Registry became ready. */
 export class RegistryStorageInitializationError extends Data.TaggedError(
@@ -133,6 +138,28 @@ export function makeRegistryStorage(input: StorageInput): RegistryStorage {
     list: makeList(input),
   });
 }
+
+// eslint-disable-next-line @typescript-eslint/unbound-method -- Capturing the intrinsic prevents candidate arrays from replacing the comparison method.
+const everyByte = Uint8Array.prototype.every;
+
+/** Compares complete byte sequences, rejecting detached or exotic typed arrays. */
+const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => {
+  try {
+    return (
+      everyByte.call(left, (byte, index) => byte === right[index]) &&
+      everyByte.call(right, (byte, index) => byte === left[index])
+    );
+    // eslint-disable-next-line agent-code-guard/bare-catch -- Detached or exotic typed arrays are non-canonical inputs, not defects. #ignore-sloppy-code-next-line[bare-catch]: The comparison returns false.
+  } catch {
+    return false;
+  }
+};
+
+/** Rejects excess members and absent required fields at identity boundaries. */
+const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
+  Schema.Struct(fields).annotations({
+    parseOptions: { exact: true, onExcessProperty: "error" },
+  });
 
 const AGENT_ID_MINT_ATTEMPTS = 8;
 const migrations = Migrator.fromRecord({

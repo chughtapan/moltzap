@@ -5,7 +5,7 @@
  * Shared `packages/*` rules cover wildcard exports and barrel discipline. The
  * final-package contract in `boundary-contract.ts` pins the directory and
  * package names, public entrypoints, binaries, manifest edges, TypeScript
- * references, and required Nx targets for all five products. Pass
+ * references, and required Nx targets for all workspace products. Pass
  * `--nx-graph FILE` to also compare the graph `nx graph --print` resolved.
  *
  * Every rule asserts its input set is non-empty before reporting success. A
@@ -60,7 +60,7 @@ if (run.failures.length > 0) {
 }
 
 console.log(
-  `[check-architecture-boundaries] OK — ${sourceCount} package TypeScript sources, ${finalSourceCount} final-package code files, exact five-product static graph, ${publishedVersions.size} published manifests at ${[...new Set(publishedVersions.values())].join(", ")}, and ${vocabularyCount} Identity/Router non-documentation files scanned at compatibility version ${String(compatibilityVersion)}`,
+  `[check-architecture-boundaries] OK — ${sourceCount} package TypeScript sources, ${finalSourceCount} final-package code files, exact six-package static graph, ${publishedVersions.size} published manifests at ${[...new Set(publishedVersions.values())].join(", ")}, and ${vocabularyCount} Identity/Router non-documentation files scanned at compatibility version ${String(compatibilityVersion)}`,
 );
 
 function packageDirectories(packagesRoot: string): readonly string[] {

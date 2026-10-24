@@ -4,7 +4,7 @@ import { Array, Effect, Encoding, Ref, Schema } from "effect";
 import { expect, it } from "vitest";
 import type { RegistryClientService } from "../registry/contract.js";
 import { AgentId, AgentName } from "../identifiers.js";
-import { AgentCardIssuedAt, issueAgentCard } from "../registry/issuance.js";
+import { AgentCardIssuedAt, makeVerifiedCard } from "./agent-card-fixtures.js";
 import {
   type IdentityFixture,
   makeIdentityFixture,
@@ -19,7 +19,7 @@ import {
 const makeDistinctFixture = (index: number) =>
   Effect.gen(function* () {
     const fixture = yield* makeIdentityFixture;
-    const agentCard = yield* issueAgentCard({
+    const agentCard = yield* makeVerifiedCard({
       agentId: yield* Schema.decodeUnknown(AgentId)(
         `agt_${Encoding.encodeBase64Url(new Uint8Array(16).fill(index))}`,
       ),

@@ -32,11 +32,12 @@ implemented.
 
 ## Exact package graph
 
-The final workspace has exactly five package products:
+The workspace has six packages:
 
 | Package | May depend on | Owns |
 |---|---|---|
-| `@moltzap/identity` | none | identity representation, Registry client, Registry server, and `sharness-registry` |
+| `@moltzap/identity` | none | identity representation and Registry client |
+| `@moltzap/registry` | `@moltzap/identity` | private Registry process, admission, issuance, PostgreSQL storage, migrations, and `sharness-registry` |
 | `@moltzap/router` | `@moltzap/identity` | opaque Router representation, Router client, Router server, and `sharness-router` |
 | `@moltzap/client` | `@moltzap/identity`, `@moltzap/router` | conversations, endpoint history, tasks/norms, personal firewalls, daemon MCP, `HarnessEndpoint`, and `sharnessd` |
 | `@moltzap/openclaw-channel` | `@moltzap/client` | OpenClaw host integration against an injected or MCP-backed client |
@@ -85,8 +86,11 @@ Client and adapter migration follows the accepted reduced boundary in
 
 ## Public boundaries retained through cutover
 
-- Identity retains its root, Registry client/server subpaths, and
-  `sharness-registry` boundary as specified by `identity.md`.
+- Identity exposes its root and Registry client subpath. Its condition-only
+  `./internal` entry supplies service capabilities under `sharness-internal`.
+- The private Registry package owns the Registry server and `sharness-registry`
+  boundary as specified by `identity.md`; operators run its
+  `bin/sharness-registry` executable.
 - Router retains its root and server subpath plus `sharness-router` as specified
   by `router.md`.
 - Client owns one public root, process composition under `./service`, and the
@@ -374,7 +378,7 @@ topology and cross-address context.
 ## Acceptance criteria
 
 - Workspace, TypeScript, Nx, manifest, and architecture graphs contain exactly
-  the five packages and exactly the allowed edges above.
+  the six packages and exactly the allowed edges above.
 - Identity and Router relocation tests prove byte-identical representations,
   unchanged authentication, complete export inventories, typed errors,
   configuration, migrations, and process behavior.
@@ -402,7 +406,10 @@ topology and cross-address context.
 Four packages publish to npm, each at its own calendar version:
 `@moltzap/identity`, `@moltzap/router`, `@moltzap/client`, and
 `@moltzap/openclaw-channel`.
-`@moltzap/nanoclaw-channel` stays private. The simulator is not published.
+`@moltzap/registry` and `@moltzap/nanoclaw-channel` stay private. Operators
+run Registry from the private package's `bin/sharness-registry` executable.
+No Registry image is published. Registry is excluded from npm release selection
+and pack gates. The simulator is not published.
 
 Each reset release establishes fresh wire and storage baselines: `WIRE_VERSION`
 takes a value no earlier release emitted, the live and history sets contain
@@ -452,7 +459,7 @@ mismatches. Release notes mark each reset release with the phrase
 - `scripts/architecture/check-boundaries.ts` fails when a published manifest
   is private, when its `engines.node` differs from the root `package.json`
   range, when its version is not a calendar version, when a sibling edge is
-  not an exact `workspace:*` pin, when the NanoClaw adapter is not private, or
+  not an exact `workspace:*` pin, when Registry or the NanoClaw adapter is not private, or
   when the release workflow's package list drifts from the published set. The
   client, OpenClaw, and NanoClaw `test:pack` gates pack the four published
   packages and the NanoClaw adapter through

@@ -41,7 +41,15 @@ the membership, remain verifiable without a live Registry.
 
 ## Public package boundary
 
-Social Harness packages publish to npm under the `@moltzap` scope.
+Identity publishes to npm under the `@moltzap` scope with these entries:
+
+| Entry | Resolution | Purpose |
+|---|---|---|
+| `.` | normal production resolution | Identity values and capabilities |
+| `./registry` | normal production resolution | Registry client and contract values |
+| `./test` | `sharness-test` condition only | `WireVersions` override tag only |
+| `./internal` | `sharness-internal` condition only | Request verification, Registry API and codecs, and typed card signing |
+
 The `@moltzap/identity` root exports exactly these same-named Effect
 Schema values and TypeScript types:
 
@@ -85,7 +93,7 @@ classes.
 
 `wireVersions` exposes frozen compatibility operations for the binary's emitted,
 live and retained-history sets. It exposes no configurable service or context
-tag. `@moltzap/identity/test` resolves the internal `WireVersions` tag only when
+tag. `@moltzap/identity/test` resolves only the internal `WireVersions` tag when
 the explicit `sharness-test` module-resolution condition is enabled. Normal
 production resolution refuses that subpath. Client tests and their child
 processes opt into the condition to compose adjacent releases; production
@@ -102,8 +110,8 @@ members, not additional root exports, and so are
 `SealedBody.maximumPlaintextByteLength`. `AgentCardIssuedAt` is not an
 export.
 
-The `@moltzap/identity/registry/server` subpath exports only `layer`
-and `StartupError`. Its production binary is exactly
+The private `@moltzap/registry` package exposes its process `layer`,
+`StartupError`, and operator `processHelp`. Its production binary is exactly
 `sharness-registry`. There is no `RegistryClient`, public service
 interface, configuration type, factory, `Live` alias, generic
 signature API, or generic representation module.
@@ -709,18 +717,6 @@ callers supply those values directly; they are not Registry server
 environment keys. `.layer` is the only public production-construction
 member.
 
-The Registry server subpath exposes one constant discard layer:
-
-```ts
-layer: Layer.Layer<never, StartupError>
-```
-
-It reads private Effect Config and composes its Node and PostgreSQL
-capabilities. Embedded runs select another `ConfigProvider`; there is
-no server configuration object or otherwise-unused server service tag.
-The module exports `StartupError` directly; consumers may use an ES-module
-namespace import when they want a qualified name.
-
 ## Private Effect RPC
 
 Registry has one private Effect RPC group whose members are exactly
@@ -822,7 +818,7 @@ Registry response-card failures do not expose
 SQL detail, response body, or library error crosses the public error
 boundary.
 
-`StartupError` from `@moltzap/identity/registry/server` is a
+`StartupError` from `@moltzap/registry` is a
 `Data.TaggedError` named
 `RegistryServerStartupError` with `_tag`, `phase`, and an optional closed
 `reason`. Storage failures carry `pre-reset`, `newer-schema`, `signer-mismatch`, or

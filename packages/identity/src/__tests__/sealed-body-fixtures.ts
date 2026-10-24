@@ -12,13 +12,13 @@ import {
   type Ed25519PublicKey,
 } from "../agent-key.js";
 import { AgentId, AgentName, PrincipalId } from "../identifiers.js";
-import { AgentCardIssuedAt, issueAgentCard } from "../registry/issuance.js";
 import { SealedBody } from "../sealed-body.js";
 import {
   MessageId,
   SignedMessage,
   type VerifiedSignedMessage,
 } from "../signed-message.js";
+import { AgentCardIssuedAt, makeVerifiedCard } from "./agent-card-fixtures.js";
 
 /**
  * Building fixtures dominates these tests: every group member costs an
@@ -67,7 +67,7 @@ export const issueCard = (
   byte: number,
   publicKey: Ed25519PublicKey,
 ) =>
-  issueAgentCard({
+  makeVerifiedCard({
     agentId: Schema.decodeUnknownSync(AgentId)(identifier("agt_", byte)),
     principalId: Schema.decodeUnknownSync(PrincipalId)(
       identifier("prn_", byte),

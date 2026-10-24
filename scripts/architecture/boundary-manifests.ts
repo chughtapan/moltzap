@@ -367,6 +367,7 @@ function checkExports(
         where,
         subpath,
         testOnly: wantedTarget.testOnly,
+        internalOnly: wantedTarget.internalOnly,
       },
     );
     for (const condition of ["types", "import"] as const) {
@@ -397,18 +398,24 @@ function resolvedExportTarget(
     readonly where: string;
     readonly subpath: string;
     readonly testOnly?: true;
+    readonly internalOnly?: true;
   },
 ): JsonObject {
-  if (site.testOnly !== true) {
+  if (site.testOnly !== true && site.internalOnly !== true) {
     return entry;
   }
   failOnSetDrift(run, {
     where: site.where,
     what: `test-only export "${site.subpath}" conditions drifted`,
     actual: Object.keys(entry),
-    wanted: ["sharness-test"],
+    wanted: [
+      site.internalOnly === true ? "sharness-internal" : "sharness-test",
+    ],
   });
-  return objectAt(entry, "sharness-test");
+  return objectAt(
+    entry,
+    site.internalOnly === true ? "sharness-internal" : "sharness-test",
+  );
 }
 
 /**
@@ -450,7 +457,7 @@ function checkBinaryFile(
   name: string,
   binPath: string,
 ): void {
-  if (!readFileSync(binPath, "utf8").startsWith("#!/usr/bin/env node")) {
+  if (!/^#!\/usr\/bin\/env node\r?\n/u.test(readFileSync(binPath, "utf8"))) {
     run.failures.push(`${where}: binary "${name}" lacks a node shebang`);
   }
   if ((statSync(binPath).mode & 0o111) === 0) {

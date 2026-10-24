@@ -95,6 +95,7 @@
               "modules/client/src",
               "modules/identity/src",
               "modules/openclaw-channel/src",
+              "modules/registry/src",
               "modules/router/src"
             ]
           }

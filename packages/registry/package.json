@@ -1,0 +1,138 @@
+{
+  "name": "@moltzap/registry",
+  "version": "2026.1022.0",
+  "description": "Private Registry HTTP process and PostgreSQL persistence",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/social-harness/moltzap.git",
+    "directory": "packages/registry"
+  },
+  "homepage": "https://github.com/social-harness/moltzap/tree/main/packages/registry#readme",
+  "bugs": {
+    "url": "https://github.com/social-harness/moltzap/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "dist",
+    "!dist/tsconfig.tsbuildinfo",
+    "bin",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "sharness-registry": "./bin/sharness-registry"
+  },
+  "scripts": {
+    "build": "nx run @moltzap/registry:build",
+    "typecheck": "nx run @moltzap/registry:typecheck",
+    "typecheck:tests": "nx run @moltzap/registry:typecheck:tests",
+    "test": "nx run @moltzap/registry:test",
+    "test:integration": "nx run @moltzap/registry:test:integration",
+    "lint": "nx run @moltzap/registry:lint",
+    "arch:check": "nx run @moltzap/registry:arch:check"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "executor": "nx:run-commands",
+        "inputs": [
+          "production",
+          "^production",
+          "{workspaceRoot}/scripts/build/clean-dist.ts"
+        ],
+        "options": {
+          "cwd": "packages/registry",
+          "command": "node ../../scripts/build/clean-dist.ts && tsc -b"
+        }
+      },
+      "typecheck": {
+        "executor": "nx:run-commands",
+        "inputs": [
+          "production",
+          "^production"
+        ],
+        "options": {
+          "cwd": "packages/registry",
+          "command": "tsc --noEmit --tsBuildInfoFile ./tsconfig.typecheck.tsbuildinfo -p tsconfig.json"
+        }
+      },
+      "typecheck:tests": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/registry",
+          "command": "tsc -p tsconfig.test.json"
+        }
+      },
+      "test": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "options": {
+          "cwd": "packages/registry",
+          "command": "vitest run --config vitest.config.ts"
+        }
+      },
+      "test:integration": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "options": {
+          "cwd": "packages/registry",
+          "command": "vitest run --config vitest.integration.config.ts"
+        }
+      },
+      "lint": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/registry",
+          "command": "eslint . --cache --max-warnings=0"
+        }
+      },
+      "arch:check": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/registry",
+          "command": "node ../../scripts/architecture/check-package.ts ."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@effect/experimental": "catalog:",
+    "@effect/platform": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@effect/rpc": "catalog:",
+    "@effect/sql": "catalog:",
+    "@effect/sql-pg": "catalog:",
+    "effect": "catalog:",
+    "@moltzap/identity": "workspace:*"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@electric-sql/pglite": "catalog:",
+    "@electric-sql/pglite-socket": "catalog:",
+    "@testcontainers/postgresql": "catalog:",
+    "@typescript/native": "catalog:",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "http-message-signatures": "catalog:"
+  },
+  "private": true
+}
