@@ -5,8 +5,9 @@ export default defineConfig({
   resolve: { conditions: ["sharness-test"] },
   ssr: { resolve: { conditions: ["sharness-test"] } },
   test: {
-    include: ["*.integration.test.ts", "*.e2e.test.ts"],
+    include: ["*.integration.test.ts"],
     exclude: [
+      "registry-router.integration.test.ts",
       "mixed-release.integration.test.ts",
       "adapter-daemon-process.integration.test.ts",
     ],

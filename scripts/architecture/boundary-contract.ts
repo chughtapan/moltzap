@@ -37,8 +37,6 @@ interface PackageContract {
    * graph.
    */
   readonly deps: readonly PackageDir[];
-  /** Process fixtures launch services without adding a production dependency. */
-  readonly testDeps?: readonly PackageDir[];
   readonly exports: Readonly<Record<string, ExportTarget>>;
   readonly bin: Readonly<Record<string, string>>;
   /**
@@ -124,6 +122,11 @@ export const FINAL_PACKAGES: Readonly<Record<PackageDir, PackageContract>> = {
     deps: ["identity", "router"],
     exports: {
       ".": ROOT_EXPORT,
+      "./test": {
+        testOnly: true,
+        types: "./dist/test.d.ts",
+        import: "./dist/test.js",
+      },
       "./service": {
         types: "./dist/daemon/index.d.ts",
         import: "./dist/daemon/index.js",
@@ -138,6 +141,7 @@ export const FINAL_PACKAGES: Readonly<Record<PackageDir, PackageContract>> = {
       "build",
       "lint",
       "test",
+      "test:integration",
       "test:pack",
       "typecheck:tests",
     ],
@@ -202,7 +206,16 @@ export function dependencyNames(dir: PackageDir): readonly string[] {
 export const INTEGRATION_TESTS = {
   name: "@moltzap/integration-tests",
   root: "tests/integration",
-  targets: ["test:integration", "test:adapter-daemon", "test:mixed-release"],
+  targets: [
+    "test:integration",
+    "test:registry-router",
+    "test:adapter-daemon",
+    "test:mixed-release",
+    "typecheck:tests",
+    "lint",
+  ],
+  /** Only this fixture may enable internal resolution in its Registry child. */
+  internalConditionFiles: ["tests/integration/daemon-process-harness.ts"],
   dependencies: [
     "identity",
     "registry",

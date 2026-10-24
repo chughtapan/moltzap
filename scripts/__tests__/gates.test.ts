@@ -33,6 +33,7 @@ import {
   WIRE_VERSION_LITERAL,
   WIRE_VERSION_SOURCE,
 } from "../docs/sharness-version.ts";
+import { INTEGRATION_BOUNDARY_CASES } from "./integration-boundary-cases.ts";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 
@@ -52,9 +53,7 @@ interface AssertionFailure {
 
 const failures: AssertionFailure[] = [];
 
-// Tests mutate real files under `docs/` to trigger gate hits, then
-// restore the original contents in a finally block. The plant stack
-// lets a single restoreAllPlants() call rewind in reverse order.
+/** The plant stack restores gate inputs in reverse order after each assertion. */
 const planted: Array<{
   path: string;
   original: string;
@@ -74,6 +73,7 @@ function main(): void {
     testNonCalendarRetainedEntry();
     testDependencyVersions();
     testMalformedBoundaryInputs();
+    testIntegrationBoundaries();
     testIsolatedFolderImports();
   } finally {
     restoreAllPlants();
@@ -663,7 +663,34 @@ function testPublicationGuardsDriftedList(): void {
   restoreAllPlants();
 }
 
+/** Each plant must fail the public gate even without a resolved Nx graph. */
+function testIntegrationBoundaries(): void {
+  for (const input of INTEGRATION_BOUNDARY_CASES) {
+    try {
+      plantFile(input.path, (source) => {
+        if (!source.includes(input.before)) {
+          throw new Error(`Mutation target missing in ${input.path}`);
+        }
+        return source.replace(input.before, input.after);
+      });
+      const result = runBoundaries();
+      test(
+        input.name,
+        result.code === 1 && input.message.test(result.stderr),
+        `expected boundary rejection. exit=${result.code}, stderr=${result.stderr}`,
+      );
+    } finally {
+      restoreAllPlants();
+    }
+  }
+}
+
 const MALFORMED_BOUNDARY_CASES = [
+  {
+    path: "tests/integration/package.json",
+    before: '"implicitDependencies": [',
+    after: '"implicitDependencies": [7,',
+  },
   {
     path: "tsconfig.json",
     before: '"references": [',

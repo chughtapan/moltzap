@@ -136,14 +136,23 @@ export function checkIntegrationTests(run: BoundaryRun): void {
       ...DEPENDENCY_SECTIONS.flatMap((section) =>
         Object.keys(objectAt(manifest, section)),
       ).filter((name) => name.startsWith("@moltzap/")),
-      ...arrayAt(objectAt(manifest, "nx"), "implicitDependencies").filter(
-        (name): name is string => typeof name === "string",
-      ),
+      ...stringsAt(objectAt(manifest, "nx"), "implicitDependencies"),
     ],
     wanted: INTEGRATION_TESTS.dependencies.map(
       (dir) => FINAL_PACKAGES[dir].npmName,
     ),
   });
+  const declaredTargets = new Set(
+    Object.keys(objectAt(objectAt(manifest, "nx"), "targets")),
+  );
+  const missing = INTEGRATION_TESTS.targets.filter(
+    (target) => !declaredTargets.has(target),
+  );
+  if (missing.length > 0) {
+    run.failures.push(
+      `${where}: required Nx target declarations are missing: ${missing.join(", ")}`,
+    );
+  }
   failOnSetDrift(run, {
     where: "knip.json",
     what: "test workspace roots drifted",

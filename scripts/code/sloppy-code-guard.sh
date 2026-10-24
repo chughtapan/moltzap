@@ -209,13 +209,13 @@ check integration-vi-mock \
   'vi\.mock|vi\.hoisted|vi\.spyOn' \
   "Integration tests must not use vi.mock/hoisted/spyOn — test the real flow" \
   "*.integration.test.ts" \
-  "packages/"
+  "packages/ tests/"
 
 check hardcoded-api-key \
   "api[Kk]ey.*=.*['\"][a-zA-Z0-9_-]{20,}['\"]" \
   "Hardcoded API key in test file — use environment variables" \
   "*.test.ts" \
-  "packages/"
+  "packages/ tests/"
 
 # `as unknown as` bypasses the type system. Use a type guard, a user-defined
 # predicate, or Effect.catchTag/catchTags for tagged unions. Legitimate

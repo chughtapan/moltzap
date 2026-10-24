@@ -13,6 +13,7 @@ import {
   dependencyNames,
   FINAL_PACKAGE_DIRS,
   FINAL_PACKAGES,
+  INTEGRATION_TESTS,
   type PackageDir,
 } from "./boundary-contract.ts";
 import {
@@ -154,7 +155,69 @@ export function checkFinalImports(run: BoundaryRun): number {
       checkImports(run, { dir, packageDirectory, file, text });
     }
   }
-  return scanned;
+  return scanned + checkIntegrationImports(run);
+}
+
+/** Test infrastructure consumes public product entries and condition-only test entries. */
+function checkIntegrationImports(run: BoundaryRun): number {
+  const files = walkFiles(
+    path.join(run.repo, INTEGRATION_TESTS.root),
+    (name) => name.endsWith(".ts"),
+    SKIPPED_DIRECTORIES,
+  );
+  if (files.length === 0) {
+    run.failures.push(
+      `${INTEGRATION_TESTS.root}: no TypeScript sources scanned; import rules would pass vacuously here`,
+    );
+  }
+  for (const file of files) {
+    checkIntegrationSourceFile(run, file);
+  }
+  return files.length;
+}
+
+/** The Registry launch fixture alone enables internal resolution in its child. */
+function checkIntegrationSourceFile(run: BoundaryRun, file: string): void {
+  const text = readFileSync(file, "utf8");
+  const internalConditionFiles: readonly string[] =
+    INTEGRATION_TESTS.internalConditionFiles;
+  if (
+    text.includes("sharness-internal") &&
+    !internalConditionFiles.includes(relativePath(run, file))
+  ) {
+    fail(
+      run,
+      file,
+      1,
+      "internal resolution is reserved for the Registry launch fixture",
+    );
+  }
+  for (const { specifier, index } of importSpecifiers(text)) {
+    if (
+      packageRoot(specifier).startsWith("@moltzap/") &&
+      !isIntegrationProductImport(specifier)
+    ) {
+      fail(
+        run,
+        file,
+        lineAt(text, index),
+        `test infrastructure must import public or test-only product exports ("${specifier}")`,
+      );
+    }
+  }
+}
+
+function isIntegrationProductImport(specifier: string): boolean {
+  const root = packageRoot(specifier);
+  const dependencies: readonly PackageDir[] = INTEGRATION_TESTS.dependencies;
+  const target = dependencies.find(
+    (dir) => FINAL_PACKAGES[dir].npmName === root,
+  );
+  const entry =
+    target === undefined
+      ? undefined
+      : FINAL_PACKAGES[target].exports[exportSubpath(specifier, root)];
+  return entry !== undefined && entry.internalOnly !== true;
 }
 
 function checkSourceFile(run: BoundaryRun, file: string): void {
@@ -311,15 +374,7 @@ function checkInternalImport(
 
 function mayImport(site: ImportSite, root: string): boolean {
   const contract = FINAL_PACKAGES[site.dir];
-  if (root === contract.npmName || dependencyNames(site.dir).includes(root)) {
-    return true;
-  }
-  return (
-    site.file.includes(`${path.sep}integration${path.sep}`) &&
-    (contract.testDeps ?? []).some(
-      (dir) => FINAL_PACKAGES[dir].npmName === root,
-    )
-  );
+  return root === contract.npmName || dependencyNames(site.dir).includes(root);
 }
 
 function exportSubpath(specifier: string, root: string): string {
@@ -374,8 +429,10 @@ function checkTestOnlyImport(
   if (
     input.testOnly === true &&
     !site.file.endsWith(".test.ts") &&
-    !site.file.includes(`${path.sep}integration${path.sep}`) &&
-    !site.file.includes(`${path.sep}__tests__${path.sep}`)
+    !path
+      .relative(site.packageDirectory, site.file)
+      .split(path.sep)
+      .includes("__tests__")
   ) {
     fail(
       run,

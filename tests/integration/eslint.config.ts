@@ -22,7 +22,6 @@ export default [
       "message-policy-file.integration.test.ts",
       "otlp-receiver.ts",
       "participants.ts",
-      "process-feedback.integration.test.ts",
       "router-hold-proxy.ts",
       "telemetry.integration.test.ts",
     ],
@@ -41,7 +40,11 @@ export default [
   ),
   ...relocateConfig(
     clientConfig,
-    ["eslint.config.ts", "vitest.integration.config.ts"],
+    [
+      "eslint.config.ts",
+      "vitest.integration.config.ts",
+      "registry-router-vitest.config.ts",
+    ],
     "",
   ),
   ...relocateConfig(
@@ -51,7 +54,7 @@ export default [
   ),
   ...relocateConfig(
     routerConfig,
-    ["registry-router.e2e.test.ts"],
+    ["registry-router.integration.test.ts"],
     "src/router/__tests__/",
   ),
   {

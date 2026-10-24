@@ -11,16 +11,19 @@ export default defineConfig({
   root: WORKSPACE_ROOT,
   resolve: {
     conditions: ["sharness-test"],
-    alias: {
-      "@moltzap/client": resolve(
-        WORKSPACE_ROOT,
-        "packages/client/src/index.ts",
-      ),
-      "@moltzap/openclaw-channel": resolve(
-        WORKSPACE_ROOT,
-        "packages/openclaw-channel/src/index.ts",
-      ),
-    },
+    alias: [
+      {
+        find: /^@moltzap\/client$/u,
+        replacement: resolve(WORKSPACE_ROOT, "packages/client/src/index.ts"),
+      },
+      {
+        find: /^@moltzap\/openclaw-channel$/u,
+        replacement: resolve(
+          WORKSPACE_ROOT,
+          "packages/openclaw-channel/src/index.ts",
+        ),
+      },
+    ],
   },
   ssr: { resolve: { conditions: ["sharness-test"] } },
   test: {

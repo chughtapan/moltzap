@@ -109,10 +109,10 @@ jobs:
         if: github.event_name == 'pull_request'
       - name: Test the affected projects
         if: github.event_name == 'pull_request'
-        run: pnpm exec nx affected -t typecheck:tests test test:integration test:adapter-daemon
+        run: pnpm exec nx affected -t typecheck:tests test test:integration test:adapter-daemon test:registry-router
       - name: Test every project
         if: github.event_name != 'pull_request'
-        run: pnpm exec nx run-many -t typecheck:tests test test:integration test:adapter-daemon
+        run: pnpm exec nx run-many -t typecheck:tests test test:integration test:adapter-daemon test:registry-router
 
   mixed-release:
     runs-on: ubuntu-latest

@@ -11,7 +11,6 @@ import {
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import { Effect, Schedule, Schema } from "effect";
-// This black-box test owns its exact temporary policy and export files at the process boundary.
 import { FirewallAuditRecord } from "@moltzap/client/service";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";

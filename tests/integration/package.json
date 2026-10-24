@@ -8,35 +8,38 @@
     "test:mixed-release": "nx run @moltzap/integration-tests:test:mixed-release",
     "test:adapter-daemon": "nx run @moltzap/integration-tests:test:adapter-daemon",
     "typecheck:tests": "nx run @moltzap/integration-tests:typecheck:tests",
-    "lint": "nx run @moltzap/integration-tests:lint"
+    "lint": "nx run @moltzap/integration-tests:lint",
+    "test:registry-router": "nx run @moltzap/integration-tests:test:registry-router"
   },
   "nx": {
     "targets": {
       "test:integration": {
         "executor": "nx:run-commands",
         "dependsOn": [
-          "^build",
-          {
-            "target": "build",
-            "projects": [
-              "@moltzap/registry"
-            ]
-          }
+          "^build"
         ],
         "inputs": [
           "sources",
-          "^production",
+          "!{projectRoot}/adapter-daemon-*.ts",
+          "!{projectRoot}/mixed-release*.ts",
+          "!{projectRoot}/registry-router.integration.test.ts",
+          "!{projectRoot}/registry-router-vitest.config.ts",
+          "!{projectRoot}/client-version-roundtrip.ts",
+          "!{projectRoot}/tsconfig.adapter-daemon.json",
+          "!{projectRoot}/eslint.config.ts",
+          "!{projectRoot}/README.md",
           {
-            "dependentTasksOutputFiles": "**/*",
-            "transitive": true
+            "input": "production",
+            "projects": [
+              "@moltzap/identity",
+              "@moltzap/registry",
+              "@moltzap/router",
+              "@moltzap/client"
+            ]
           },
           {
             "runtime": "node --version"
-          },
-          "{workspaceRoot}/packages/registry/src/**/*",
-          "{workspaceRoot}/packages/registry/bin/**/*",
-          "{workspaceRoot}/scripts/test/packed-workspace.ts",
-          "{workspaceRoot}/scripts/tsconfig.json"
+          }
         ],
         "options": {
           "cwd": "tests/integration",
@@ -47,15 +50,12 @@
         "cache": false,
         "executor": "nx:run-commands",
         "dependsOn": [
-          "^build",
           "@moltzap/client:build",
           "@moltzap/registry:build"
         ],
         "inputs": [
           "sources",
           "^production",
-          "{workspaceRoot}/packages/registry/src/**/*",
-          "{workspaceRoot}/packages/registry/bin/**/*",
           "{workspaceRoot}/scripts/test/packed-workspace.ts",
           "{workspaceRoot}/scripts/tsconfig.json"
         ],
@@ -80,29 +80,17 @@
           },
           {
             "env": "SHARNESS_MCP_URL"
-          },
-          "{workspaceRoot}/tests/integration/daemon-process-harness.ts",
-          "{workspaceRoot}/tests/integration/adapter-daemon-*.ts",
-          "{workspaceRoot}/tests/integration/tsconfig.adapter-daemon.json",
-          "{workspaceRoot}/scripts/tsconfig.json",
-          "{workspaceRoot}/packages/registry/src/**/*",
-          "{workspaceRoot}/packages/registry/bin/**/*",
-          "{workspaceRoot}/scripts/test/packed-workspace.ts"
+          }
         ],
         "dependsOn": [
-          "^build",
-          {
-            "target": "build",
-            "projects": [
-              "@moltzap/registry"
-            ]
-          }
+          "^build"
         ],
         "executor": "nx:run-commands",
         "options": {
           "cwd": ".",
           "command": "pnpm exec vitest run --config tests/integration/adapter-daemon-vitest.config.ts"
-        }
+        },
+        "cache": true
       },
       "typecheck:tests": {
         "executor": "nx:run-commands",
@@ -138,6 +126,32 @@
           "{workspaceRoot}/scripts/test/packed-workspace.ts",
           "{workspaceRoot}/scripts/tsconfig.json"
         ]
+      },
+      "test:registry-router": {
+        "executor": "nx:run-commands",
+        "cache": true,
+        "dependsOn": [
+          "@moltzap/identity:build",
+          "@moltzap/registry:build",
+          "@moltzap/router:build"
+        ],
+        "inputs": [
+          "{projectRoot}/registry-router.integration.test.ts",
+          "{projectRoot}/client-version-roundtrip.ts",
+          "{projectRoot}/registry-router-vitest.config.ts",
+          {
+            "input": "production",
+            "projects": [
+              "@moltzap/identity",
+              "@moltzap/registry",
+              "@moltzap/router"
+            ]
+          }
+        ],
+        "options": {
+          "cwd": "tests/integration",
+          "command": "vitest run --config registry-router-vitest.config.ts"
+        }
       }
     },
     "implicitDependencies": [
@@ -157,7 +171,6 @@
     "eslint": "catalog:",
     "protobufjs": "catalog:",
     "tsx": "catalog:",
-    "vitest": "catalog:",
-    "@effect/vitest": "catalog:"
+    "vitest": "catalog:"
   }
 }

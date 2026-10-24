@@ -5,15 +5,14 @@ import {
   ProtocolError,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
+import type { MessageAddressInput } from "@moltzap/client";
 import {
-  AgentAddress,
-  Content,
-  GroupAddress,
-  type MessageAddressInput,
-  PostId,
-} from "@moltzap/client";
+  managementRegisterResultSchema,
+  managementStatusResultSchema,
+  managementSearchConversationsResultSchema,
+  managementReadConversationResultSchema,
+} from "@moltzap/client/test";
 import {
-  AgentCard,
   AgentName,
   AgentSigningAuthority,
   Ed25519PublicKey,
@@ -79,55 +78,6 @@ const FIREWALL_DAEMON = join(
   WORKSPACE_ROOT,
   "tests/integration/firewall-daemon.ts",
 );
-
-/** Decode only the management fields observed by these process traces. */
-const managementRegisterResultSchema = Schema.Union(
-  Schema.Struct({
-    kind: Schema.Literal("registered"),
-    agentCard: Schema.encodedSchema(AgentCard),
-  }),
-  Schema.Struct({ kind: Schema.Literal("name_taken") }),
-  Schema.Struct({ kind: Schema.Literal("key_already_registered") }),
-  Schema.Struct({ kind: Schema.Literal("idempotency_conflict") }),
-);
-
-const managementStatusResultSchema = Schema.Union(
-  Schema.Struct({ kind: Schema.Literal("unregistered") }),
-  Schema.Struct({
-    kind: Schema.Literal("active"),
-    agentCard: Schema.encodedSchema(AgentCard),
-  }),
-);
-
-const managementSearchConversationsResultSchema = Schema.Struct({
-  kind: Schema.Literal("page"),
-  addresses: Schema.Array(Schema.Union(AgentAddress, GroupAddress)),
-  hasMore: Schema.Boolean,
-});
-
-/** Preserve uninspected record fields so peer-history equality compares the complete records. */
-const managementReadConversationResultSchema = Schema.Struct({
-  kind: Schema.Literal("page"),
-  records: Schema.Array(
-    Schema.Struct({
-      recordCore: Schema.Struct({
-        sharnessVersion: Schema.String,
-        action: Schema.Struct({
-          kind: Schema.Literal("GENESIS", "POST"),
-          postIntent: Schema.Struct({ postId: PostId, content: Content }),
-        }),
-      }),
-      routerAnchor: Schema.Union(
-        Schema.Struct({ kind: Schema.Literal("genesis_anchor_body") }),
-        Schema.Struct({
-          kind: Schema.Literal("completed_reanchor"),
-          reanchor: Schema.Struct({ sharnessVersion: Schema.String }),
-        }),
-      ),
-    }),
-  ),
-  continuation: Schema.NullOr(Schema.String),
-}).annotations({ parseOptions: { onExcessProperty: "preserve" } });
 
 interface ManagementRegisterRequest {
   readonly operationId: OperationId;
