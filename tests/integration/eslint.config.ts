@@ -66,11 +66,9 @@ export default [
 ];
 
 /** Match selectors at the owning path so relocation preserves every override. */
-function relocateConfig(
-  configs: readonly Linter.Config[],
-  fixtures: readonly string[],
-  directory: string,
-): Linter.Config[] {
+function relocateConfig<
+  Config extends Pick<Linter.Config, "files" | "ignores">,
+>(configs: readonly Config[], fixtures: readonly string[], directory: string) {
   return configs.flatMap((config) => {
     const files = fixtures.filter((file) => {
       const original = `${directory}${file}`;

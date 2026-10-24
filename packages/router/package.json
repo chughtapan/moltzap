@@ -94,13 +94,7 @@
         "executor": "nx:run-commands",
         "dependsOn": [
           "build",
-          "^build",
-          {
-            "target": "build",
-            "projects": [
-              "@moltzap/registry"
-            ]
-          }
+          "^build"
         ],
         "options": {
           "cwd": "packages/router",
@@ -108,9 +102,7 @@
         },
         "inputs": [
           "sources",
-          "^production",
-          "{workspaceRoot}/packages/registry/src/**/*",
-          "{workspaceRoot}/packages/registry/bin/**/*"
+          "^production"
         ]
       },
       "lint": {

@@ -18,9 +18,6 @@
     },
     {
       "path": "packages/registry"
-    },
-    {
-      "path": "tests/integration"
     }
   ]
 }

@@ -106,9 +106,6 @@
       ],
       "project": [
         "*.ts"
-      ],
-      "ignoreDependencies": [
-        "@moltzap/registry"
       ]
     }
   },

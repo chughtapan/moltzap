@@ -6,6 +6,14 @@ import {
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import {
+  AgentAddress,
+  Content,
+  GroupAddress,
+  type MessageAddressInput,
+  PostId,
+} from "@moltzap/client";
+import {
+  AgentCard,
   AgentName,
   AgentSigningAuthority,
   Ed25519PublicKey,
@@ -29,27 +37,13 @@ import {
 import { type ChildProcess, spawn } from "node:child_process";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
-// This black-box fixture owns exact temporary process files at the Node process boundary.
-import type { MessageAddressInput } from "@moltzap/client";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type TestContext } from "vitest";
-import {
-  type ManagementReadConversationResult,
-  managementReadConversationResultSchema,
-  type ManagementRegisterRequest,
-  type ManagementRegisterResult,
-  managementRegisterResultSchema,
-  type ManagementSearchConversationsResult,
-  managementSearchConversationsResultSchema,
-  type ManagementStatusResult,
-  managementStatusResultSchema,
-} from "../../packages/client/src/harness/protocol/index.js";
-
-/** Loader resolution follows Client dependencies even when child processes run from the workspace root. */
+/** Resolve the fixture's tsx loader independently of a child process's working directory. */
 const require = createRequire(import.meta.url);
 
 const LOOPBACK_HOST = "127.0.0.1";
@@ -85,6 +79,68 @@ const FIREWALL_DAEMON = join(
   WORKSPACE_ROOT,
   "tests/integration/firewall-daemon.ts",
 );
+
+/** Decode only the management fields observed by these process traces. */
+const managementRegisterResultSchema = Schema.Union(
+  Schema.Struct({
+    kind: Schema.Literal("registered"),
+    agentCard: Schema.encodedSchema(AgentCard),
+  }),
+  Schema.Struct({ kind: Schema.Literal("name_taken") }),
+  Schema.Struct({ kind: Schema.Literal("key_already_registered") }),
+  Schema.Struct({ kind: Schema.Literal("idempotency_conflict") }),
+);
+
+const managementStatusResultSchema = Schema.Union(
+  Schema.Struct({ kind: Schema.Literal("unregistered") }),
+  Schema.Struct({
+    kind: Schema.Literal("active"),
+    agentCard: Schema.encodedSchema(AgentCard),
+  }),
+);
+
+const managementSearchConversationsResultSchema = Schema.Struct({
+  kind: Schema.Literal("page"),
+  addresses: Schema.Array(Schema.Union(AgentAddress, GroupAddress)),
+  hasMore: Schema.Boolean,
+});
+
+/** Preserve uninspected record fields so peer-history equality compares the complete records. */
+const managementReadConversationResultSchema = Schema.Struct({
+  kind: Schema.Literal("page"),
+  records: Schema.Array(
+    Schema.Struct({
+      recordCore: Schema.Struct({
+        sharnessVersion: Schema.String,
+        action: Schema.Struct({
+          kind: Schema.Literal("GENESIS", "POST"),
+          postIntent: Schema.Struct({ postId: PostId, content: Content }),
+        }),
+      }),
+      routerAnchor: Schema.Union(
+        Schema.Struct({ kind: Schema.Literal("genesis_anchor_body") }),
+        Schema.Struct({
+          kind: Schema.Literal("completed_reanchor"),
+          reanchor: Schema.Struct({ sharnessVersion: Schema.String }),
+        }),
+      ),
+    }),
+  ),
+  continuation: Schema.NullOr(Schema.String),
+}).annotations({ parseOptions: { onExcessProperty: "preserve" } });
+
+interface ManagementRegisterRequest {
+  readonly operationId: OperationId;
+  readonly principalId: PrincipalId;
+  readonly agentName: AgentName;
+}
+
+type ManagementRegisterResult = typeof managementRegisterResultSchema.Type;
+type ManagementStatusResult = typeof managementStatusResultSchema.Type;
+type ManagementSearchConversationsResult =
+  typeof managementSearchConversationsResultSchema.Type;
+type ManagementReadConversationResult =
+  typeof managementReadConversationResultSchema.Type;
 
 /** The mode of the firewall a daemon fixture installs; absent for `sharnessd` itself. */
 export type FirewallMode = "guidance" | "enforcement";

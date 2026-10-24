@@ -202,7 +202,7 @@ export function dependencyNames(dir: PackageDir): readonly string[] {
 export const INTEGRATION_TESTS = {
   name: "@moltzap/integration-tests",
   root: "tests/integration",
-  target: "test:integration",
+  targets: ["test:integration", "test:adapter-daemon", "test:mixed-release"],
   dependencies: [
     "identity",
     "registry",

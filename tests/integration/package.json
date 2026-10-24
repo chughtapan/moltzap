@@ -34,11 +34,13 @@
             "runtime": "node --version"
           },
           "{workspaceRoot}/packages/registry/src/**/*",
-          "{workspaceRoot}/packages/registry/bin/**/*"
+          "{workspaceRoot}/packages/registry/bin/**/*",
+          "{workspaceRoot}/scripts/test/packed-workspace.ts",
+          "{workspaceRoot}/scripts/tsconfig.json"
         ],
         "options": {
           "cwd": "tests/integration",
-          "command": "tsc -p tsconfig.json && vitest run --config vitest.integration.config.ts"
+          "command": "vitest run --config vitest.integration.config.ts"
         }
       },
       "test:mixed-release": {
@@ -53,7 +55,9 @@
           "sources",
           "^production",
           "{workspaceRoot}/packages/registry/src/**/*",
-          "{workspaceRoot}/packages/registry/bin/**/*"
+          "{workspaceRoot}/packages/registry/bin/**/*",
+          "{workspaceRoot}/scripts/test/packed-workspace.ts",
+          "{workspaceRoot}/scripts/tsconfig.json"
         ],
         "options": {
           "command": "vitest run --config tests/integration/mixed-release-vitest.config.ts",
@@ -82,7 +86,8 @@
           "{workspaceRoot}/tests/integration/tsconfig.adapter-daemon.json",
           "{workspaceRoot}/scripts/tsconfig.json",
           "{workspaceRoot}/packages/registry/src/**/*",
-          "{workspaceRoot}/packages/registry/bin/**/*"
+          "{workspaceRoot}/packages/registry/bin/**/*",
+          "{workspaceRoot}/scripts/test/packed-workspace.ts"
         ],
         "dependsOn": [
           "^build",
@@ -96,11 +101,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": ".",
-          "parallel": false,
-          "commands": [
-            "pnpm exec tsc -p tests/integration/tsconfig.adapter-daemon.json",
-            "pnpm exec vitest run --config tests/integration/adapter-daemon-vitest.config.ts"
-          ]
+          "command": "pnpm exec vitest run --config tests/integration/adapter-daemon-vitest.config.ts"
         }
       },
       "typecheck:tests": {
@@ -111,20 +112,40 @@
         "options": {
           "cwd": "tests/integration",
           "command": "tsc -p tsconfig.json && tsc -p tsconfig.adapter-daemon.json"
-        }
+        },
+        "inputs": [
+          "default",
+          "^production",
+          "{workspaceRoot}/eslint.shared.ts",
+          "{workspaceRoot}/scripts/test/packed-workspace.ts",
+          "{workspaceRoot}/scripts/tsconfig.json"
+        ]
       },
       "lint": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "tests/integration",
           "command": "eslint . --cache --max-warnings=0"
-        }
+        },
+        "inputs": [
+          "default",
+          "^production",
+          "{workspaceRoot}/eslint.config.ts",
+          "{workspaceRoot}/eslint.shared.ts",
+          "{workspaceRoot}/knip.json",
+          "{workspaceRoot}/oxlint.json",
+          "{workspaceRoot}/tsconfig.eslint.json",
+          "{workspaceRoot}/scripts/test/packed-workspace.ts",
+          "{workspaceRoot}/scripts/tsconfig.json"
+        ]
       }
-    }
+    },
+    "implicitDependencies": [
+      "@moltzap/registry"
+    ]
   },
   "devDependencies": {
     "@moltzap/identity": "workspace:*",
-    "@moltzap/registry": "workspace:*",
     "@moltzap/router": "workspace:*",
     "@moltzap/client": "workspace:*",
     "@moltzap/openclaw-channel": "workspace:*",

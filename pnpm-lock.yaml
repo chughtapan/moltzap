@@ -566,9 +566,6 @@ importers:
       '@moltzap/openclaw-channel':
         specifier: workspace:*
         version: link:../../packages/openclaw-channel
-      '@moltzap/registry':
-        specifier: workspace:*
-        version: link:../../packages/registry
       '@moltzap/router':
         specifier: workspace:*
         version: link:../../packages/router

@@ -112,10 +112,7 @@ export function checkWorkspaceRoots(run: BoundaryRun): void {
     actual: referencePaths(
       readJsonObject(path.join(run.repo, "tsconfig.json")),
     ).map((referencePath) => path.normalize(referencePath)),
-    wanted: [
-      ...FINAL_PACKAGE_DIRS.map((dir) => path.join("packages", dir)),
-      INTEGRATION_TESTS.root,
-    ],
+    wanted: FINAL_PACKAGE_DIRS.map((dir) => path.join("packages", dir)),
   });
   checkLintEntryPoints(run);
 }
@@ -135,9 +132,14 @@ export function checkIntegrationTests(run: BoundaryRun): void {
   failOnSetDrift(run, {
     where,
     what: "test infrastructure dependencies drifted",
-    actual: DEPENDENCY_SECTIONS.flatMap((section) =>
-      Object.keys(objectAt(manifest, section)),
-    ).filter((name) => name.startsWith("@moltzap/")),
+    actual: [
+      ...DEPENDENCY_SECTIONS.flatMap((section) =>
+        Object.keys(objectAt(manifest, section)),
+      ).filter((name) => name.startsWith("@moltzap/")),
+      ...arrayAt(objectAt(manifest, "nx"), "implicitDependencies").filter(
+        (name): name is string => typeof name === "string",
+      ),
+    ],
     wanted: INTEGRATION_TESTS.dependencies.map(
       (dir) => FINAL_PACKAGES[dir].npmName,
     ),

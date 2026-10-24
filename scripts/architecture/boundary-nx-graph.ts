@@ -35,11 +35,11 @@ interface NxGraph {
   readonly dependencies: JsonObject;
 }
 
-/** A tool project outside `packages/`: its root, required target, and edges. */
+/** A tool project outside `packages/`: its root, required targets, and edges. */
 interface ToolProject {
   readonly name: string;
   readonly root: string;
-  readonly target: string;
+  readonly targets: readonly string[];
   readonly dependencies: readonly PackageDir[];
 }
 
@@ -48,7 +48,7 @@ const TOOL_PROJECTS: readonly ToolProject[] = [
   {
     name: "two-agents-example",
     root: "examples/two-agents",
-    target: "test:pack",
+    targets: ["test:pack"],
     dependencies: ["identity", "router", "client"],
   },
 ];
@@ -193,10 +193,12 @@ function checkToolNode(
       `${graph.label}: Nx project "${tool.name}" root is "${root ?? "missing"}", expected "${tool.root}"`,
     );
   }
-  if (!Object.hasOwn(objectAt(data, "targets"), tool.target)) {
-    run.failures.push(
-      `${graph.label}: Nx project "${tool.name}" is missing required target "${tool.target}"`,
-    );
+  for (const target of tool.targets) {
+    if (!Object.hasOwn(objectAt(data, "targets"), target)) {
+      run.failures.push(
+        `${graph.label}: Nx project "${tool.name}" is missing required target "${target}"`,
+      );
+    }
   }
   failOnSetDrift(run, {
     where: graph.label,
