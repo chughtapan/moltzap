@@ -68,6 +68,7 @@ import {
 } from "../protocol/index.js";
 import {
   HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
+  HARNESS_CONSUMER_META_KEY,
   HARNESS_READ_EVENT_TOOL,
   HARNESS_READ_INBOX_TOOL,
   HARNESS_SEND_TOOL,
@@ -96,6 +97,7 @@ import {
 import {
   type HarnessEvents,
   makeHarnessEvents,
+  makeHarnessPollEvents,
   makeWebhookEvents,
   runEventOperation,
   runRequest,
@@ -158,7 +160,10 @@ interface HarnessMcpHandlerOptions {
 }
 
 interface RunOperationOptions<Value extends Readonly<Record<string, unknown>>> {
-  readonly operation: Effect.Effect<Value, ClosedOperationError>;
+  readonly operation: Effect.Effect<
+    Value,
+    ClosedOperationError | ProtocolError
+  >;
   readonly label: string;
   readonly allowedReasons: ReadonlySet<string>;
   readonly fallbackReason: string;
@@ -329,6 +334,12 @@ const runOperation = async <Value extends Readonly<Record<string, unknown>>>(
       onNone: () => Cause.failureOption(outcome.cause),
       onSome: () => Option.none(),
     });
+    if (
+      Option.isSome(expectedFailure) &&
+      ProtocolError.isInstance(expectedFailure.value)
+    ) {
+      throw expectedFailure.value;
+    }
     const reason = Option.match(expectedFailure, {
       onNone: () => options.fallbackReason,
       onSome: (failure) =>
@@ -564,6 +575,7 @@ const roleCatalogs = {
 } as const satisfies Readonly<Record<HarnessMcpRole, RoleCatalog>>;
 
 interface ToolCallInput {
+  readonly role: HarnessMcpRole;
   readonly name: string;
   readonly toolArguments: unknown;
   readonly metadata: unknown;
@@ -703,6 +715,7 @@ const makeToolHandler =
       RunOperationOptions<Value>,
       "label" | "allowedReasons" | "fallbackReason"
     > & {
+      readonly consumesInbox?: boolean;
       readonly execute: (
         operations: HarnessMcpOperations,
         request: Request,
@@ -719,7 +732,13 @@ const makeToolHandler =
     );
     return await runValidatedOperation(outputSchema, input.name, {
       ...options,
-      operation: options.execute(operations, request),
+      operation: options.consumesInbox
+        ? operations.events.nativeOperation(
+            input.metadata,
+            options.execute(operations, request),
+            input.role === "runtime",
+          )
+        : options.execute(operations, request),
       ...requestRuntime(input),
     });
   };
@@ -836,6 +855,7 @@ const toolHandlers = {
     inboxRequestSchema,
     readInboxOutput,
     {
+      consumesInbox: true,
       execute: (operations, request) => operations.readInbox(request),
       label: "Inbox read",
       allowedReasons: RUNTIME_READ_REASONS,
@@ -859,6 +879,7 @@ const toolHandlers = {
     harnessAcknowledgeDeliveryRequestSchema,
     emptyOutput,
     {
+      consumesInbox: true,
       execute: (operations, request) =>
         operations
           .acknowledgeDelivery(request.deliveryToken)
@@ -871,8 +892,8 @@ const toolHandlers = {
 } satisfies Readonly<Record<ToolName, ToolHandler>>;
 
 /**
- * The tools `role` lists and may call now: its catalog for whether the
- * daemon's protocol is up. Listing and admission read this one answer.
+ * The advertised tools and ordinary call admission for the current protocol
+ * state. Generation-bound native inbox calls have a separate admission path.
  * @param role The request's authority.
  * @param operations The daemon operations that report the protocol state.
  * @returns The tool names, in catalog order.
@@ -893,15 +914,29 @@ const currentTools = (
     : tools;
 };
 
+/** Transport metadata admits native receive calls without advertising them as model tools. */
+const hasConsumerBinding = (metadata: unknown) =>
+  typeof metadata === "object" &&
+  metadata !== null &&
+  HARNESS_CONSUMER_META_KEY in metadata;
+const nativeInboxTool = (name: string) =>
+  name === HARNESS_READ_INBOX_TOOL || name === HARNESS_ACKNOWLEDGE_DELIVERY_TOOL
+    ? name
+    : undefined;
+
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP dispatcher awaits the selected Promise-native tool handler.
 const handleToolCall = async (
   input: ToolCallInput,
   operations: ToolOperations,
   role: HarnessMcpRole,
 ) => {
-  const name = currentTools(role, operations).find(
-    (tool) => tool === input.name,
-  );
+  const nativeName =
+    operations.protocolActive() && hasConsumerBinding(input.metadata)
+      ? nativeInboxTool(input.name)
+      : undefined;
+  const name =
+    nativeName ??
+    currentTools(role, operations).find((tool) => tool === input.name);
   if (name === undefined) {
     return toolNotFound(input.name);
   }
@@ -916,6 +951,7 @@ const installToolCallHandler = (
 ): void => {
   server.server.setRequestHandler("tools/call", (request, context) => {
     const input = {
+      role,
       name: request.params.name,
       toolArguments: request.params.arguments ?? {},
       metadata: context.mcpReq._meta,
@@ -1007,11 +1043,13 @@ const guardedHandler = (
   },
   close: () =>
     Effect.runPromise(
-      events.close.pipe(
+      Effect.all([events.close, Scope.close(scope, Exit.void)], {
+        concurrency: 2,
+        discard: true,
+      }).pipe(
         Effect.ensuring(
           Effect.tryPromise(() => delegate.close()).pipe(Effect.ignore),
         ),
-        Effect.ensuring(Scope.close(scope, Exit.void)),
       ),
     ),
 });
@@ -1039,8 +1077,13 @@ const acquireHandler = (
     const services = yield* Effect.runtime();
     const gate = yield* Effect.makeSemaphore(1);
     const webhook = yield* acquireWebhook(options, scope, gate);
+    const poll =
+      options.credentials === undefined || options.eventStore === undefined
+        ? undefined
+        : yield* makeHarnessPollEvents(options.eventStore, gate);
     const events = yield* makeHarnessEvents({
       ...(webhook === undefined ? {} : { webhook }),
+      ...(poll === undefined ? {} : { poll }),
       summary: options.operations.readInboxSummary,
       protocolActive: options.operations.protocolActive,
       gate,
