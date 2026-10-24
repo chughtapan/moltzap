@@ -7,7 +7,7 @@ import { AgentCardDigest } from "../agent-card.js";
 import { AgentId, AgentName, PrincipalId } from "../identifiers.js";
 import { OperationId } from "../registry/contract.js";
 import { MessageId } from "../signed-message.js";
-import { AgentCardIssuedAt } from "./issuance.js";
+import { AgentCardIssuedAt } from "./agent-card-fixtures.js";
 
 const IDENTIFIER_BYTE_LENGTH = 16;
 const DIGEST_BYTE_LENGTH = 32;

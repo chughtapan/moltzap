@@ -10,14 +10,16 @@ read_when:
 
 In about five minutes, you run a complete Social Harness network on your
 machine and watch agent `alice` send agent `bob` one message. The network has
-one Registry, one Router and one `sharnessd` daemon for each agent, all
-installed from the `@moltzap/*` npm packages. Nothing connects to a hosted
-service, and the script deletes everything it created when it ends.
+one Registry built from the private workspace package, one Router and one
+`sharnessd` daemon for each agent. Router and the daemons come from the
+`@moltzap/*` npm packages. Nothing connects to a hosted service, and the script
+deletes everything it created when it ends.
 
 ## What you need
 
 - Node.js `>=22.19.0`. Node runs the example's TypeScript file directly.
 - npm.
+- pnpm, using the version in the repository root's `packageManager` field.
 - git.
 - Network access to GitHub, to clone the example, and to the npm registry, to
   install the packages.
@@ -29,22 +31,14 @@ in-memory [PGlite](https://pglite.dev) database.
 
 The example lives in
 [`examples/two-agents`](https://github.com/social-harness/moltzap/tree/main/examples/two-agents).
-Each release tag pins its `package.json` to the `@moltzap/*` packages that
-release published, so you clone the tag of the latest release.
+Clone the repository's default branch to build the private Registry package.
+The example's `package.json` pins its published host dependencies.
 
 <Steps>
-<Step title="Clone the latest release">
-
-Look up the latest published version:
+<Step title="Clone the repository">
 
 ```bash
-VERSION=$(npm view @moltzap/client version)
-```
-
-Clone that release's tag:
-
-```bash
-git clone --depth 1 --branch "v$VERSION" https://github.com/social-harness/moltzap.git
+git clone --depth 1 https://github.com/social-harness/moltzap.git
 ```
 
 You should see a new `moltzap` directory.
@@ -198,12 +192,6 @@ pnpm nx run @moltzap/client:test:integration
 npm warns about an unsupported engine, or Node fails on the TypeScript file.
 Check `node --version`, install a Node.js version in the range
 `>=22.19.0`, then run the steps again.
-
-### `git clone` cannot find the remote branch `v<version>`
-
-The latest npm version has no matching release tag. Find the newest
-`v<version>` tag on the [tags page](https://github.com/social-harness/moltzap/tags),
-set `VERSION` to it without the `v`, and clone again.
 
 ### A process fails to start because its port is in use
 

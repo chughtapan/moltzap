@@ -1,5 +1,5 @@
 /**
- * @file Starts a local Social Harness network from host executables and a private Registry image or workspace build,
+ * @file Starts a local Social Harness network from host executables and a private workspace Registry,
  * registers the agents `alice` and `bob`, sends one message from alice to bob,
  * and prints the message bob receives.
  *
@@ -47,7 +47,7 @@ import {
 } from "effect";
 import { createPublicKey, generateKeyPairSync, randomBytes } from "node:crypto";
 import { createConnection, createServer } from "node:net";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HOST = "127.0.0.1";
@@ -322,7 +322,7 @@ function start(
 ): Effect.Effect<Running, StepError, Services> {
   return Effect.gen(function* () {
     const child = yield* Command.make(
-      join(BIN_DIRECTORY, executable),
+      isAbsolute(executable) ? executable : join(BIN_DIRECTORY, executable),
       ...args,
     ).pipe(Command.env(environment), Command.start);
     const output = yield* Ref.make("");

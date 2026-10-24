@@ -1,12 +1,13 @@
 /**
  * @file Rebuild synthetic retained-wire fixtures with deterministic test-only keys.
- * Run with Node after pnpm build: node --conditions=sharness-internal scripts/generate-wire-golden.ts.
+ * Run with Node after pnpm build: node scripts/generate-wire-golden.ts.
  */
 
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect, Encoding, Redacted, Schema } from "effect";
 import { createHash } from "node:crypto";
+import { registerHooks } from "node:module";
 import { fileURLToPath } from "node:url";
 import {
   AgentCard,
@@ -28,10 +29,18 @@ import {
 } from "../packages/identity/dist/signed-message.js";
 import { WIRE_VERSION } from "../packages/identity/dist/version.js";
 import { WireVersions } from "../packages/identity/dist/wire-versions.js";
-import {
-  AgentCardIssuedAt,
-  issueAgentCard,
-} from "../packages/registry/dist/issuance.js";
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    return nextResolve(specifier, {
+      ...context,
+      conditions: [...context.conditions, "sharness-internal"],
+    });
+  },
+});
+
+const { AgentCardIssuedAt: agentCardIssuedAt, issueAgentCard } = await import(
+  "../packages/registry/dist/issuance.js"
+);
 
 /** Public deterministic seeds belong only to synthetic golden fixtures. */
 function testAuthority(byte: number) {
@@ -127,7 +136,7 @@ const generateCofactored = Effect.gen(function* () {
     principalId: Schema.decodeUnknownSync(PrincipalId)(identifier("prn_", 253)),
     agentName: Schema.decodeUnknownSync(AgentName)("mixed-order-sender"),
     publicKey,
-    issuedAt: Schema.decodeUnknownSync(AgentCardIssuedAt)(
+    issuedAt: Schema.decodeUnknownSync(agentCardIssuedAt)(
       "2026-07-30T12:00:00Z",
     ),
     registrySigningAuthority: registryAuthority,
@@ -146,7 +155,7 @@ const generateCofactored = Effect.gen(function* () {
   );
   return {
     provenance:
-      "Synthetic cofactored-only Ed25519 evidence. Regenerate: node --conditions=sharness-internal scripts/generate-wire-golden.ts after pnpm build.",
+      "Synthetic cofactored-only Ed25519 evidence. Regenerate: node scripts/generate-wire-golden.ts after pnpm build.",
     registryKey: yield* Schema.encode(Ed25519PublicKey)(
       AgentSigningAuthority.publicKey(registryAuthority),
     ),
@@ -165,7 +174,7 @@ const generate = Effect.gen(function* () {
     principalId: Schema.decodeUnknownSync(PrincipalId)(identifier("prn_", 2)),
     agentName: Schema.decodeUnknownSync(AgentName)("http-signer"),
     publicKey: AgentSigningAuthority.publicKey(signingAuthority),
-    issuedAt: Schema.decodeUnknownSync(AgentCardIssuedAt)(
+    issuedAt: Schema.decodeUnknownSync(agentCardIssuedAt)(
       "2026-07-30T12:00:00Z",
     ),
     registrySigningAuthority: registryAuthority,
@@ -179,7 +188,7 @@ const generate = Effect.gen(function* () {
   });
   return {
     provenance:
-      "Synthetic signed retained-version fixture using fictional 2099.101.0; not captured from a published release. Regenerate: node --conditions=sharness-internal scripts/generate-wire-golden.ts after pnpm build.",
+      "Synthetic signed retained-version fixture using fictional 2099.101.0; not captured from a published release. Regenerate: node scripts/generate-wire-golden.ts after pnpm build.",
     registryKey: yield* Schema.encode(Ed25519PublicKey)(
       AgentSigningAuthority.publicKey(registryAuthority),
     ),

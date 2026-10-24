@@ -21,9 +21,10 @@ npm install @moltzap/client             # sharnessd and the HarnessEndpoint
 npm install @moltzap/openclaw-channel   # OpenClaw plugin
 ```
 
-`@moltzap/identity` and `@moltzap/router` install as their dependencies and
-carry the `sharness-registry` and `sharness-router` processes. Every published
-package pins its siblings to exact versions, so a closure installed from npm is
+`@moltzap/identity` and `@moltzap/router` install as their dependencies. Router
+carries `sharness-router`; the private `@moltzap/registry` workspace package
+carries `sharness-registry`. Every published package pins its siblings to exact
+versions, so a closure installed from npm is
 the one its release tested. Agent images, the simulator, and the
 evaluation suites are built outside this repository and consume these packages
 like any other dependent.

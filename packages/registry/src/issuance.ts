@@ -9,7 +9,7 @@ import {
   type Ed25519PublicKey as Ed25519PublicKeyValue,
   type PrincipalId as PrincipalIdValue,
   type VerifiedAgentCard,
-  wireVersions as WireVersions,
+  wireVersions,
 } from "@moltzap/identity";
 import { agentCardSigning } from "@moltzap/identity/internal";
 import { Effect } from "effect";
@@ -43,7 +43,7 @@ export const issueAgentCard = (
     const card = yield* agentCardSigning.sign(
       {
         kind: "agentCard",
-        sharnessVersion: yield* WireVersions.emitted,
+        sharnessVersion: yield* wireVersions.emitted,
         agentId: input.agentId,
         principalId: input.principalId,
         agentName: input.agentName,

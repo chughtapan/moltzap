@@ -41,7 +41,15 @@ the membership, remain verifiable without a live Registry.
 
 ## Public package boundary
 
-Social Harness packages publish to npm under the `@moltzap` scope.
+Identity publishes to npm under the `@moltzap` scope with these entries:
+
+| Entry | Resolution | Purpose |
+|---|---|---|
+| `.` | normal production resolution | Identity values and capabilities |
+| `./registry` | normal production resolution | Registry client and contract values |
+| `./test` | `sharness-test` condition only | `WireVersions` override tag only |
+| `./internal` | `sharness-internal` condition only | Request verification, Registry API and codecs, and typed card signing |
+
 The `@moltzap/identity` root exports exactly these same-named Effect
 Schema values and TypeScript types:
 
@@ -85,7 +93,7 @@ classes.
 
 `wireVersions` exposes frozen compatibility operations for the binary's emitted,
 live and retained-history sets. It exposes no configurable service or context
-tag. `@moltzap/identity/test` resolves the internal `WireVersions` tag only when
+tag. `@moltzap/identity/test` resolves only the internal `WireVersions` tag when
 the explicit `sharness-test` module-resolution condition is enabled. Normal
 production resolution refuses that subpath. Client tests and their child
 processes opt into the condition to compose adjacent releases; production
@@ -708,18 +716,6 @@ The client layer snapshots its URL and Duration inputs. Programmatic
 callers supply those values directly; they are not Registry server
 environment keys. `.layer` is the only public production-construction
 member.
-
-The Registry server subpath exposes one constant discard layer:
-
-```ts
-layer: Layer.Layer<never, StartupError>
-```
-
-It reads private Effect Config and composes its Node and PostgreSQL
-capabilities. Embedded runs select another `ConfigProvider`; there is
-no server configuration object or otherwise-unused server service tag.
-The module exports `StartupError` directly; consumers may use an ES-module
-namespace import when they want a qualified name.
 
 ## Private Effect RPC
 

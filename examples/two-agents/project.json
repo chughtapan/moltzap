@@ -21,7 +21,8 @@
       "inputs": [
         "default",
         "^production",
-        "{workspaceRoot}/packages/registry/src/**/*"
+        "{workspaceRoot}/packages/registry/src/**/*",
+        "{workspaceRoot}/packages/registry/bin/**/*"
       ]
     }
   }

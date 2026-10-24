@@ -32,7 +32,7 @@ implemented.
 
 ## Exact package graph
 
-The final workspace has six packages:
+The workspace has six packages:
 
 | Package | May depend on | Owns |
 |---|---|---|
@@ -89,7 +89,8 @@ Client and adapter migration follows the accepted reduced boundary in
 - Identity exposes its root and Registry client subpath. Its condition-only
   `./internal` entry supplies service capabilities under `sharness-internal`.
 - The private Registry package owns the Registry server and `sharness-registry`
-  boundary as specified by `identity.md`; operators ship it as an image.
+  boundary as specified by `identity.md`; operators run its
+  `bin/sharness-registry` executable.
 - Router retains its root and server subpath plus `sharness-router` as specified
   by `router.md`.
 - Client owns one public root, process composition under `./service`, and the
@@ -406,8 +407,9 @@ Four packages publish to npm, each at its own calendar version:
 `@moltzap/identity`, `@moltzap/router`, `@moltzap/client`, and
 `@moltzap/openclaw-channel`.
 `@moltzap/registry` and `@moltzap/nanoclaw-channel` stay private. Operators
-run Registry as an image built from its private package. Registry is excluded
-from npm release selection and pack gates. The simulator is not published.
+run Registry from the private package's `bin/sharness-registry` executable.
+No Registry image is published. Registry is excluded from npm release selection
+and pack gates. The simulator is not published.
 
 Each reset release establishes fresh wire and storage baselines: `WIRE_VERSION`
 takes a value no earlier release emitted, the live and history sets contain

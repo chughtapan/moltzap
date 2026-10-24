@@ -284,12 +284,24 @@
       "cache": false,
       "executor": "nx:run-commands",
       "dependsOn": [
-        "@moltzap/client:build"
+        "@moltzap/client:build",
+        {
+          "target": "build",
+          "projects": [
+            "@moltzap/registry"
+          ]
+        }
       ],
       "options": {
         "command": "vitest run --config scripts/test/mixed-release-vitest.config.ts",
         "cwd": "."
-      }
+      },
+      "inputs": [
+        "sources",
+        "^production",
+        "{workspaceRoot}/packages/registry/src/**/*",
+        "{workspaceRoot}/packages/registry/bin/**/*"
+      ]
     }
   }
 }

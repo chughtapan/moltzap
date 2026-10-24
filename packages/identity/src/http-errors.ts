@@ -84,29 +84,3 @@ export type HttpEnvelopeError =
   | OverloadedError
   | UnavailableError
   | InternalServerError;
-
-const mappings = Object.freeze({
-  MalformedRequestError: { status: 400, code: "malformed" },
-  AuthenticationFailedError: { status: 401, code: "authentication_failed" },
-  RouteNotFoundError: { status: 404, code: "not_found" },
-  MethodNotAllowedError: { status: 405, code: "method_not_allowed" },
-  VersionMismatchError: { status: 412, code: "version_mismatch" },
-  PayloadTooLargeError: { status: 413, code: "payload_too_large" },
-  UnsupportedMediaTypeError: {
-    status: 415,
-    code: "unsupported_media_type",
-  },
-  OverloadedError: { status: 429, code: "overloaded" },
-  UnavailableError: { status: 503, code: "unavailable" },
-  InternalServerError: { status: 500, code: "internal" },
-} as const);
-
-/**
- * Private HTTP status and body-code projection for a shared error.
- *
- * @param error Recognized closed HTTP failure.
- * @returns Its exact status and stable body code.
- */
-export const httpEnvelope = (
-  error: HttpEnvelopeError,
-): (typeof mappings)[keyof typeof mappings] => mappings[error._tag];

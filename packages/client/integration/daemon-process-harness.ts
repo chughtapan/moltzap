@@ -443,10 +443,9 @@ export const acquireProcessInfrastructureFrom = (
               process.execPath,
               [
                 "--conditions=sharness-test",
-                "--conditions=sharness-internal",
                 "--input-type=module",
                 "-e",
-                `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity/test"; import { layer } from "@moltzap/registry"; import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions.value)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
+                `import { NodeRuntime } from "@effect/platform-node"; import { WireVersions } from "@moltzap/identity/test"; import { registerHooks } from "node:module"; registerHooks({ resolve(specifier, context, nextResolve) { return nextResolve(specifier, { ...context, conditions: [...context.conditions, "sharness-internal"] }); } }); const { layer } = await import("@moltzap/registry"); import { ConfigProvider, Effect, Layer } from "effect"; Layer.launch(layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions.value)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`,
               ],
             ];
       const registry = yield* managedProcess(

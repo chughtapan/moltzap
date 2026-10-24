@@ -12,18 +12,24 @@ import {
   type VersionMismatchError,
 } from "@moltzap/identity";
 import {
-  bootstrapAuthentication,
-  RegistryApi,
+  registrationBody,
   type VerifiedHttpSignature,
   verifyBootstrapRequest,
 } from "@moltzap/identity/internal";
 import { Effect, Redacted, Schema } from "effect";
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { RegistryStorage } from "./storage.js";
-const { registrationBody } = RegistryApi;
 
-const registrationPublicKeyRepresentation =
-  bootstrapAuthentication.publicKeyRepresentation;
+const registrationPublicKeyRepresentation = Schema.Struct({
+  crv: Schema.Literal("Ed25519"),
+  kty: Schema.Literal("OKP"),
+  x: Schema.String.pipe(
+    Schema.filter((value) => {
+      const bytes = Buffer.from(value, "base64url");
+      return bytes.byteLength === 32 && bytes.toString("base64url") === value;
+    }),
+  ),
+});
 
 const minimumRegistrationBody = Schema.Struct({
   request: Schema.Struct({

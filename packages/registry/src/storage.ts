@@ -21,13 +21,16 @@ import {
   UnavailableError,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
-import { agentCardSigning, RegistryApi } from "@moltzap/identity/internal";
+import {
+  agentCardSigning,
+  registryAgentCardCodec,
+  registryRegisterCodec,
+} from "@moltzap/identity/internal";
 import { Clock, Data, Effect, Either, Encoding, Schema } from "effect";
 import { randomBytes } from "node:crypto";
 import { AgentCardIssuedAt, issueAgentCard } from "./issuance.js";
 import { registryMigration } from "./migrations/0001_registry.js";
 const ed25519PublicKeyThumbprintUri = agentCardSigning.publicKeyId;
-const { registryAgentCardCodec, registryRegisterCodec } = RegistryApi;
 
 /** Storage initialization failed before the Registry became ready. */
 export class RegistryStorageInitializationError extends Data.TaggedError(

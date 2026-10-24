@@ -94,12 +94,24 @@
         "executor": "nx:run-commands",
         "dependsOn": [
           "build",
-          "^build"
+          "^build",
+          {
+            "target": "build",
+            "projects": [
+              "@moltzap/registry"
+            ]
+          }
         ],
         "options": {
           "cwd": "packages/router",
           "command": "vitest run --config vitest.integration.config.ts"
-        }
+        },
+        "inputs": [
+          "sources",
+          "^production",
+          "{workspaceRoot}/packages/registry/src/**/*",
+          "{workspaceRoot}/packages/registry/bin/**/*"
+        ]
       },
       "lint": {
         "executor": "nx:run-commands",

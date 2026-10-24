@@ -29,7 +29,8 @@
         "{workspaceRoot}/scripts/test/adapter-daemon-*.ts",
         "{workspaceRoot}/scripts/test/tsconfig.adapter-daemon.json",
         "{workspaceRoot}/scripts/tsconfig.json",
-        "{workspaceRoot}/packages/registry/src/**/*"
+        "{workspaceRoot}/packages/registry/src/**/*",
+        "{workspaceRoot}/packages/registry/bin/**/*"
       ],
       "dependsOn": [
         "^build",

@@ -410,7 +410,9 @@ Six packages implement the five-layer harness under `packages/*`:
 | `@moltzap/openclaw-channel` | OpenClaw adapter | client |
 | `@moltzap/nanoclaw-channel` | NanoClaw adapter | client |
 
-Each package exposes the capabilities owned at its boundary. Four packages publish to npm, each at its own calendar version, while `@moltzap/registry` and `@moltzap/nanoclaw-channel` stay private, as defined in
+There are no compatibility package names or forwarding exports. Four packages
+publish to npm, each at its own calendar version, while `@moltzap/registry` and
+`@moltzap/nanoclaw-channel` stay private, as defined in
 [Publication and versions](spec/layer-interfaces.md#publication-and-versions).
 The package version is independent of the wire compatibility value.
 

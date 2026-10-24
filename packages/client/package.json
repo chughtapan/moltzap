@@ -89,7 +89,8 @@
           {
             "runtime": "node --version"
           },
-          "{workspaceRoot}/packages/registry/src/**/*"
+          "{workspaceRoot}/packages/registry/src/**/*",
+          "{workspaceRoot}/packages/registry/bin/**/*"
         ],
         "options": {
           "cwd": "packages/client",
