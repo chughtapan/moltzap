@@ -480,6 +480,13 @@ import { ConfigProvider, Effect, Layer } from "effect";
 Layer.launch(${service}.layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`;
 }
 
+/**
+ * PGlite serves every statement from one WASM session, so a loaded runner can
+ * take longer than the Registry's 5 s production SQL deadline to connect,
+ * migrate, or serve a queue of serialized registrations.
+ */
+const PGLITE_SQL_OPERATION_TIMEOUT_MS = 30_000;
+
 /** A PGlite Registry uses one SQL connection because its backend is one session. */
 export const startPgliteRegistry = (input: {
   readonly postgresqlPort: number;
@@ -511,6 +518,9 @@ export const startPgliteRegistry = (input: {
         SHARNESS_REGISTRY_HOST: LOOPBACK_HOST,
         SHARNESS_REGISTRY_PORT: String(input.registryPort),
         SHARNESS_REGISTRY_SQL_POOL_SIZE: "1",
+        SHARNESS_REGISTRY_SQL_OPERATION_TIMEOUT_MS: String(
+          PGLITE_SQL_OPERATION_TIMEOUT_MS,
+        ),
         SHARNESS_REGISTRY_POSTGRESQL_URL: `postgresql://postgres:postgres@${LOOPBACK_HOST}:${input.postgresqlPort}/postgres`,
         SHARNESS_REGISTRY_ADMISSION_CREDENTIAL: input.admissionCredential,
         SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH: input.registryKeyPath,
