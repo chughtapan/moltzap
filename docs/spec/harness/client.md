@@ -223,10 +223,12 @@ suppression and scoped receipts. Polling details stay behind this capability;
 [ingress](./ingress.md#polling-consumer) defines the wire contract.
 
 `InboundDelivery.eventId` is an opaque reference to the retained classified item
-and its local guidance. A native wakeup can carry that reference to a host that
-retrieves the content through authenticated `read_event`. It remains stable on
-redelivery and readable after acknowledgment; knowing it grants no read, send or
-acknowledgment authority. Hosts must not parse it or use it as a delivery receipt.
+and its local guidance. A host's own wakeup can carry that reference for retrieval
+through `read_event`. It remains stable on redelivery and readable after
+acknowledgment. The reference is not a credential: lookup also requires the
+endpoint's runtime, owner or trusted-local access. Handle it like the content it
+identifies. It grants no send or acknowledgment authority. Hosts must not parse
+it or use it as a delivery receipt.
 The [event lookup contract](./ingress.md#webhook-consumer) defines its wire
 identity, retained lookup and `unknown-event` failure.
 
