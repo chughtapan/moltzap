@@ -8,7 +8,7 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](./harness/endpoint/index.ts#L71)
+### [`acquireHarnessEndpoint`](./harness/endpoint/index.ts#L72)
 
 _Function_
 
@@ -292,7 +292,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](./harness/endpoint/capability.ts#L62)
+### [`HarnessEndpoint`](./harness/endpoint/capability.ts#L64)
 
 _Interface_
 
@@ -322,7 +322,7 @@ stream. A multicast has no operation id, so its failure is always returned.
 A firewall refusal always returns on the send call before creating an intent,
 including when inbound failure delivery was requested.
 
-### [`HarnessEndpointOptions`](./harness/endpoint/capability.ts#L44)
+### [`HarnessEndpointOptions`](./harness/endpoint/capability.ts#L46)
 
 _Interface_
 
@@ -382,6 +382,8 @@ _Interface_
 
 ```ts
 export interface InboundDelivery {
+  /** Opaque, stable reference for native wakeups and authenticated `read_event`. */
+  readonly eventId: string;
   readonly item: InboundItem;
   readonly guidance?: LocalGuidance;
   /** Valid only while this subscription owns receiving, including after cleanup fails. */

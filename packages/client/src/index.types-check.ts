@@ -192,6 +192,7 @@ type LocalGuidanceIsExact = Expect<
   Types.Equals<LocalGuidance, ExpectedLocalGuidance>
 >;
 type ExpectedDelivery = Readonly<{
+  eventId: string;
   item: InboundItem;
   guidance?: LocalGuidance;
   acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>;
