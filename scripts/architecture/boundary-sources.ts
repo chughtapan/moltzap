@@ -7,7 +7,7 @@
  * check that walks nothing passes vacuously and is indistinguishable from no
  * check at all.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -78,6 +78,10 @@ const LAYER_NOTATION_SOURCE = String.raw`(?:^|[^A-Za-z0-9])(?:[Ll][12](?=$|[^a-z
  */
 const IMPORT_SPECIFIER =
   /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)(["'`])([^"'`]+)\1/g;
+
+/** Resolver calls name modules without loading them. */
+const RESOLVE_SPECIFIER =
+  /(?:\b(?:import\.meta|require)|\bcreateRequire\s*\([^)]*\))\.resolve\s*\(\s*(["'`])([^"'`]+)\1/g;
 
 /**
  * Apply the shared wildcard-export and `#core` barrel rules to every package
@@ -168,6 +172,7 @@ export function checkFinalImports(run: BoundaryRun): number {
  */
 export function checkIntegrationImports(run: BoundaryRun): number {
   const root = path.join(run.repo, INTEGRATION_TESTS.root);
+  checkIntegrationSymlinks(run, root);
   const files = walkFiles(
     root,
     (name) => CODE_EXTENSIONS.has(path.extname(name)),
@@ -180,7 +185,6 @@ export function checkIntegrationImports(run: BoundaryRun): number {
   }
   const allowedRelative = new Set([
     path.join(run.repo, "scripts/test/packed-workspace.js"),
-    path.join(run.repo, "scripts/test/packed-workspace.ts"),
   ]);
   const eslintRelative = new Set(
     [
@@ -409,12 +413,7 @@ function checkIntegrationPath(
 
 /** URL arguments resolve against the containing file even without a leading dot. */
 function resolveIntegrationPath(file: string, input: ImportSpecifier): string {
-  if (input.urlRelative === true) {
-    return fileURLToPath(new URL(input.specifier, pathToFileURL(file)));
-  }
-  return input.specifier.startsWith("file:")
-    ? fileURLToPath(input.specifier)
-    : path.resolve(path.dirname(file), input.specifier);
+  return fileURLToPath(new URL(input.specifier, pathToFileURL(file)));
 }
 
 /** Shared ESLint modules are available only to the integration ESLint configuration. */
@@ -636,7 +635,10 @@ function sharedPackageConfigImports(run: BoundaryRun): ReadonlySet<string> {
 }
 
 function importSpecifiers(text: string): readonly ImportSpecifier[] {
-  return [...text.matchAll(IMPORT_SPECIFIER)]
+  return [
+    ...text.matchAll(IMPORT_SPECIFIER),
+    ...text.matchAll(RESOLVE_SPECIFIER),
+  ]
     .filter((match) => match[1] !== "`" || !(match[2] ?? "").includes("${"))
     .map((match) => ({ specifier: match[2] ?? "", index: match.index }));
 }
@@ -690,4 +692,16 @@ function packageRoot(specifier: string): string {
       : specifier;
   }
   return parts[0] ?? specifier;
+}
+
+/** Linked files and directories would evade the source walk. Installed dependencies are excluded. */
+function checkIntegrationSymlinks(run: BoundaryRun, directory: string): void {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const file = path.join(directory, entry.name);
+    if (entry.isSymbolicLink()) {
+      fail(run, file, 1, "test infrastructure must not contain symbolic links");
+    } else if (entry.isDirectory() && entry.name !== "node_modules") {
+      checkIntegrationSymlinks(run, file);
+    }
+  }
 }

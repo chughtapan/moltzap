@@ -471,14 +471,11 @@ mismatches. Release notes mark each reset release with the phrase
   when the release workflow's package list drifts from the published set, or when
   the integration-test workspace changes its name, loses its private flag,
   declared lanes, exact product dependency set (including Nx implicit edges), or
-  Knip root; contains internal-condition text in code or package/TypeScript
-  configuration; imports an undeclared product or a non-public product entry
-  other than a condition-only test export; uses non-literal module arguments
-  or escaped import or URL specifiers; reaches outside its root by relative,
-  absolute, file-URL, or `new URL` paths
-  except for the packed-workspace helper and ESLint modules in their allowed
-  configuration; reaches another workspace's `node_modules`; or bypasses import
-  rules through Vitest aliases, TypeScript paths/base URLs, or package imports. The
+  Knip root. It checks import and URL specifiers, internal-condition text,
+  and resolver configuration against the integration workspace rules. These
+  checks guard against accidental coupling and are not a security boundary.
+  The harness may launch product executables by path and start child
+  compositions with product working directories. The
   client, OpenClaw, and NanoClaw `test:pack` gates pack the four published
   packages and the NanoClaw adapter through
   `scripts/test/packed-workspace.ts` and prove each closure installs with
@@ -561,7 +558,7 @@ Absent metadata denotes a pre-reset release only below that boundary. Missing me
 release fails the gate; registry
 outages are retried and then logged explicitly if the gate must skip.
 Certified posts must flow in both
-directions. A separate Client process integration test covers concurrent first
+directions. A cross-package process test in `tests/integration` covers concurrent first
 sends before either peer has a foundation across adjacent live versions. If both selections name the same release, it runs once. Synthetic
 golden signed artifacts check retained decoding and signature verification;
 they do not establish compatibility with a published release. Fixtures from a

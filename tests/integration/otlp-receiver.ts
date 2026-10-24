@@ -4,12 +4,8 @@ import type { Buffer } from "node:buffer";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Cause, Duration, Effect, Ref, Schema, type Scope } from "effect";
 import protobuf from "protobufjs";
-import { ProcessTestError } from "./daemon-process-harness.js";
-import {
-  acquireLoopbackServer,
-  LOOPBACK_HOST,
-  readBody,
-} from "./loopback-server.js";
+import { LOOPBACK_HOST, ProcessTestError } from "./daemon-process-harness.js";
+import { acquireLoopbackServer, readBody } from "./loopback-server.js";
 
 const TRACES_PATH = "/v1/traces";
 const PROTOBUF_CONTENT_TYPE = "application/x-protobuf";

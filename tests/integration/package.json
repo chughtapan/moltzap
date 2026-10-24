@@ -41,12 +41,6 @@
           "@moltzap/client:build",
           "@moltzap/registry:build"
         ],
-        "inputs": [
-          "sources",
-          "^production",
-          "{workspaceRoot}/scripts/test/packed-workspace.ts",
-          "{workspaceRoot}/scripts/tsconfig.json"
-        ],
         "options": {
           "command": "vitest run --config tests/integration/mixed-release/vitest.config.ts",
           "cwd": "."
@@ -65,7 +59,9 @@
           "default",
           "^production",
           "{workspaceRoot}/eslint.shared.ts",
-          "{workspaceRoot}/scripts/**/*.ts",
+          "{workspaceRoot}/scripts/test/packed-workspace.ts",
+          "{workspaceRoot}/scripts/architecture/boundary-contract.ts",
+          "{workspaceRoot}/scripts/tsconfig.json",
           {
             "runtime": "node --version"
           }
@@ -85,7 +81,9 @@
           "{workspaceRoot}/knip.json",
           "{workspaceRoot}/oxlint.json",
           "{workspaceRoot}/tsconfig.eslint.json",
-          "{workspaceRoot}/scripts/**/*.ts",
+          "{workspaceRoot}/scripts/test/packed-workspace.ts",
+          "{workspaceRoot}/scripts/architecture/boundary-contract.ts",
+          "{workspaceRoot}/scripts/tsconfig.json",
           {
             "runtime": "node --version"
           }

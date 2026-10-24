@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-import { NodeRuntime } from "@effect/platform-node";
-import { ConfigProvider, Console, Effect, Layer } from "effect";
-import { installInternalResolution } from "../dist/internal-resolution.js";
+import { Console, Layer } from "effect";
+import { installInternalResolution, runRegistryMain } from "../dist/internal-resolution.js";
 
 installInternalResolution();
 
@@ -11,14 +10,4 @@ const program = process.argv.includes("--help")
   ? Console.log(processHelp)
   : Layer.launch(layer);
 
-program.pipe(
-  Effect.catchAll((error) =>
-    Console.error(error.message).pipe(
-      Effect.andThen(Effect.sync(() => {
-        process.exitCode = 1;
-      })),
-    ),
-  ),
-  Effect.withConfigProvider(ConfigProvider.fromEnv()),
-  NodeRuntime.runMain,
-);
+runRegistryMain(program);

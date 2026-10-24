@@ -23,11 +23,14 @@ import {
   acquireDaemonProcess,
   acquireProcessInfrastructure,
   awaitDaemonStartupFailure,
+  DAEMON_BINARY,
   type DaemonProcessFixture,
   makeDaemonProcessFixture,
   makeRegistrationRequest,
   ProcessTestError,
   processTrace,
+  REGISTRY_BINARY,
+  ROUTER_BINARY,
   stopProcess,
 } from "./daemon-process-harness.js";
 
@@ -828,14 +831,10 @@ it(
           infrastructure,
           "legacy-key",
         );
-        for (const [specifier, binary, key] of [
-          ["@moltzap/client", "sharnessd", "MOLTZAPD_STATE_DIRECTORY"],
-          [
-            "@moltzap/registry",
-            "sharness-registry",
-            "MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL",
-          ],
-          ["@moltzap/router", "sharness-router", "MOLTZAP_ROUTER_PORT"],
+        for (const [executable, key] of [
+          [DAEMON_BINARY, "MOLTZAPD_STATE_DIRECTORY"],
+          [REGISTRY_BINARY, "MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL"],
+          [ROUTER_BINARY, "MOLTZAP_ROUTER_PORT"],
         ] as const) {
           const failed = yield* awaitDaemonStartupFailure(
             {
@@ -845,14 +844,7 @@ it(
                 [key]: "retired-secret-value",
               },
             },
-            {
-              executable: join(
-                dirname(dirname(fileURLToPath(import.meta.resolve(specifier)))),
-                "bin",
-                binary,
-              ),
-              args: [],
-            },
+            { executable, args: [] },
           );
           expect(failed.exitCode).not.toBe(0);
           expect(failed.logs).toContain("legacy-key");

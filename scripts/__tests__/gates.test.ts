@@ -21,6 +21,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -37,8 +38,11 @@ import {
   INTEGRATION_BOUNDARY_CASES,
   INTEGRATION_INTEGRITY_CASES,
   MALFORMED_BOUNDARY_CASES,
+  plantBoundarySource,
 } from "./integration-boundary-cases.ts";
 import { testIntegrationGraph } from "./integration-boundary-graph.ts";
+import { testMissingGuardDirectory } from "./integration-integrity.ts";
+import { testLintRelocation } from "./integration-lint-relocation.ts";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 
@@ -81,6 +85,8 @@ function main(): void {
     testIntegrationBoundaries();
     testIntegrationGraph(test, runNode, workspaceRoot);
     testIntegrationIntegrityGuards();
+    testMissingGuardDirectory(test, plantFile, restoreAllPlants, workspaceRoot);
+    testLintRelocation(test, runNode);
     testIsolatedFolderImports();
   } finally {
     restoreAllPlants();
@@ -696,27 +702,19 @@ function runBoundaryPlants(
     readonly after?: string;
     readonly prepend?: string;
     readonly replace?: string;
+    readonly symlink?: string;
     readonly message: RegExp;
   }>,
 ): void {
   for (const [index, input] of cases.entries()) {
     try {
-      plantFile(input.path, (source) => {
-        if (input.prepend !== undefined) {
-          return input.prepend + source;
-        }
-        if (input.replace !== undefined) {
-          return input.replace;
-        }
-        if (
-          input.before === undefined ||
-          input.after === undefined ||
-          !source.includes(input.before)
-        ) {
-          throw new Error(`Mutation target missing in ${input.path}`);
-        }
-        return source.replace(input.before, input.after);
-      });
+      if (input.symlink !== undefined) {
+        const file = resolve(workspaceRoot, input.path);
+        planted.push({ path: file });
+        symlinkSync(input.symlink, file);
+      } else {
+        plantBoundarySource(input, plantFile);
+      }
       const result = runBoundaries();
       test(
         input.name ??
@@ -730,15 +728,17 @@ function runBoundaryPlants(
   }
 }
 
-/** Test-integrity guards cover spies and synthetic secret literals in integration files. */
+/** Test-integrity guards cover spies and synthetic literals in fixtures and tests. */
 function testIntegrationIntegrityGuards(): void {
-  for (const [name, source, diagnostic] of INTEGRATION_INTEGRITY_CASES) {
+  for (const {
+    name,
+    path,
+    source,
+    diagnostic,
+  } of INTEGRATION_INTEGRITY_CASES) {
     console.log(`\n# integration ${name}`);
     try {
-      plantFile(
-        "tests/integration/daemon-process.integration.test.ts",
-        (text) => text + source,
-      );
+      plantFile(path, (text) => text + source);
       const result = spawnSync(
         "/bin/bash",
         ["scripts/code/sloppy-code-guard.sh"],

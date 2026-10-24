@@ -74,17 +74,14 @@ filter_pragma() {
 
       if (has_pragma(content, "")) next
 
-      # Check the preceding line for a `-next-line` pragma. Read via sed so
-      # we do not buffer whole files; scale fits fine (one spawn per match).
       if (path != "" && lineno > 1) {
-        cmd = "sed -n " (lineno - 1) "p \"" path "\" 2>/dev/null"
         prev = ""
-        if ((cmd | getline prev) > 0) {
-          close(cmd)
-          if (has_pragma(prev, "-next-line")) next
-        } else {
-          close(cmd)
+        for (i = 1; i < lineno; i++) {
+          if ((getline line < path) <= 0) break
+          prev = line
         }
+        close(path)
+        if (i == lineno && has_pragma(prev, "-next-line")) next
       }
       print
     }
@@ -101,6 +98,15 @@ check() {
   local glob="${4:-*.ts}"
   local dir="${5:-$PKG_SRC_GLOB}"
   local exclude="${6:-$NON_TEST_EXCLUDE}"
+
+  local directory
+  # shellcheck disable=SC2086
+  for directory in $dir; do
+    if [[ ! -d "$directory" ]]; then
+      echo "[$rule] Directory does not exist: $directory" >&2
+      exit 1
+    fi
+  done
 
   # shellcheck disable=SC2086
   matches=$(grep -rn --include="$glob" -E "$pattern" $dir 2>/dev/null \
@@ -218,8 +224,8 @@ check integration-vi-mock \
 
 check hardcoded-api-key \
   "api[Kk]ey.*=.*['\"][a-zA-Z0-9_-]{20,}['\"]" \
-  "Hardcoded API key in test file — use environment variables" \
-  "*.test.ts" \
+  "Hardcoded API key — use environment variables" \
+  "*.ts" \
   "packages/ tests/" \
   "$NO_EXCLUDE"
 

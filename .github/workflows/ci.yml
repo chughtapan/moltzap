@@ -88,8 +88,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    # Bounds a hung test run. Prior green runs took approximately 340 s;
-    # refresh this measurement from the next green run after the lane changes.
+    # Bounds a hung test run.
     timeout-minutes: 20
     environment: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'nx-cache-write' || '' }}
     env:
@@ -111,10 +110,16 @@ jobs:
         if: github.event_name == 'pull_request'
       - name: Test the affected projects
         if: github.event_name == 'pull_request'
-        run: pnpm exec nx affected -t test test:integration
+        run: pnpm exec nx affected -t test
+      - name: Run affected process lanes
+        if: github.event_name == 'pull_request'
+        run: pnpm exec nx affected -t test:integration
       - name: Test every project
         if: github.event_name != 'pull_request'
-        run: pnpm exec nx run-many -t test test:integration
+        run: pnpm exec nx run-many -t test
+      - name: Run every process lane
+        if: github.event_name != 'pull_request'
+        run: pnpm exec nx run-many -t test:integration
 
   mixed-release:
     runs-on: ubuntu-latest

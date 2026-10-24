@@ -7,7 +7,7 @@ import { Effect, Stream } from "effect";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
-import { acquireOtlpReceiver } from "./otlp-receiver.js";
+const COLLECTOR_URL = "http://127.0.0.1:4318";
 
 const binary = fileURLToPath(new URL("../bin/sharnessd", import.meta.url));
 const processName = "sharnessd";
@@ -101,9 +101,8 @@ it(
   "refuses an OTLP trace protocol other than http/protobuf at startup",
   () =>
     Effect.gen(function* () {
-      const receiver = yield* acquireOtlpReceiver;
       const result = yield* runProcess([], {
-        OTEL_EXPORTER_OTLP_ENDPOINT: receiver.endpoint.origin,
+        OTEL_EXPORTER_OTLP_ENDPOINT: COLLECTOR_URL,
         OTEL_EXPORTER_OTLP_PROTOCOL: "grpc",
       });
       expect(result.exitCode).not.toBe(0);
@@ -117,9 +116,8 @@ it(
   "refuses a traces-only OTLP protocol other than http/protobuf at startup",
   () =>
     Effect.gen(function* () {
-      const receiver = yield* acquireOtlpReceiver;
       const result = yield* runProcess([], {
-        OTEL_EXPORTER_OTLP_ENDPOINT: receiver.endpoint.origin,
+        OTEL_EXPORTER_OTLP_ENDPOINT: COLLECTOR_URL,
         OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "grpc",
       });
       expect(result.exitCode).not.toBe(0);
@@ -132,9 +130,8 @@ it(
   "lets the traces protocol override the general one",
   () =>
     Effect.gen(function* () {
-      const receiver = yield* acquireOtlpReceiver;
       const result = yield* runProcess([], {
-        OTEL_EXPORTER_OTLP_ENDPOINT: receiver.endpoint.origin,
+        OTEL_EXPORTER_OTLP_ENDPOINT: COLLECTOR_URL,
         OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf",
         OTEL_EXPORTER_OTLP_PROTOCOL: "grpc",
       });
@@ -164,9 +161,8 @@ it(
   "refuses a traces endpoint that is not an http or https URL at startup",
   () =>
     Effect.gen(function* () {
-      const receiver = yield* acquireOtlpReceiver;
       const result = yield* runProcess([], {
-        OTEL_EXPORTER_OTLP_ENDPOINT: receiver.endpoint.origin,
+        OTEL_EXPORTER_OTLP_ENDPOINT: COLLECTOR_URL,
         OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "collector:4318/v1/traces",
       });
       expect(result.exitCode).not.toBe(0);

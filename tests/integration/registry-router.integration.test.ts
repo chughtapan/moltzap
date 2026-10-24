@@ -42,6 +42,7 @@ import {
   acquireDaemonProcess,
   acquireProcessInfrastructure,
   awaitReady,
+  CONCURRENT_DAEMONS,
   hasExited,
   isHealthy,
   LOOPBACK_HOST,
@@ -66,6 +67,7 @@ const ACCEPTED_KIND = "accepted";
 const ROUTER_RESTARTED_KIND = "router_restarted";
 const CURSOR_INVALID_RESULT = Object.freeze({ kind: "cursor_invalid" });
 const OK_STATUS = 200;
+const NO_CONTENT_STATUS = 204;
 const AUTHENTICATION_FAILED_STATUS = 401;
 const OVERLOADED_STATUS = 429;
 const UNAVAILABLE_STATUS = 503;
@@ -120,12 +122,6 @@ interface HttpObservation {
   readonly body: string;
 }
 
-const assertHealthy = (runningProcess: RunningProcess, origin: URL) =>
-  Effect.gen(function* () {
-    yield* awaitReady(runningProcess, isHealthy(origin), "health response");
-    expect(hasExited(runningProcess.child)).toBe(false);
-  });
-
 const randomIdentifierPayload = (): string =>
   randomBytes(16).toString("base64url");
 
@@ -172,6 +168,17 @@ const expectHttpObservation = (
   expect(observation.contentType).toBe(JSON_CONTENT_TYPE);
   expect(observation.body).toBe(body);
 };
+
+const assertHealthy = (runningProcess: RunningProcess, origin: URL) =>
+  Effect.gen(function* () {
+    yield* awaitReady(runningProcess, isHealthy(origin), "health response");
+    expect(hasExited(runningProcess.child)).toBe(false);
+    const health = yield* observeHttpRequest(
+      HttpClientRequest.get(new URL("/healthz", origin)),
+    );
+    expect(health.status).toBe(NO_CONTENT_STATUS);
+    expect(health.body).toBe("");
+  });
 
 const registerAgent = (name: string, runRegistry: RegistryRunner) =>
   Effect.gen(function* () {
@@ -874,15 +881,15 @@ const concurrentRegistration = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const runRouter = makeRouterRunner(infrastructure.routerOrigin);
   const fixtures = yield* Effect.forEach(
-    [...Array(16).keys()],
+    [...Array(CONCURRENT_DAEMONS).keys()],
     (index) =>
       makeDaemonProcessFixture(infrastructure, `concurrent-agent-${index}`),
-    { concurrency: 16 },
+    { concurrency: CONCURRENT_DAEMONS },
   );
   yield* Effect.forEach(fixtures, (fixture) => acquireDaemonProcess(fixture), {
-    concurrency: 16,
+    concurrency: 4,
     discard: true,
-  });
+  }).pipe(Effect.parallelFinalizers);
   yield* Effect.forEach(
     fixtures,
     (fixture) =>
@@ -916,7 +923,7 @@ const concurrentRegistration = Effect.gen(function* () {
         );
         expect(result.kind).toBe(BATCH_KIND);
       }),
-    { concurrency: 16, discard: true },
+    { concurrency: CONCURRENT_DAEMONS, discard: true },
   );
 }).pipe(
   Effect.scoped,

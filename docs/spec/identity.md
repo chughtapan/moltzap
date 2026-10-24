@@ -907,7 +907,9 @@ The default emitted version is the package's `WIRE_VERSION`.
 
 Importing this entry installs no resolution hook. Calling `startRegistry`
 installs internal resolution before its dynamic server imports, scoped to
-imports whose parent module lies inside the Registry package root. Other
+imports whose parent module lies under the Registry package’s `dist/` or
+`bin/` directory. A nested `node_modules` under the package root receives no
+internal condition. Other
 modules in the process cannot use this hook to resolve
 `@moltzap/identity/internal`. Startup failures are reported and set a nonzero
 process exit status, as in `sharness-registry`.

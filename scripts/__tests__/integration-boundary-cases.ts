@@ -3,6 +3,31 @@
 /** Each case identifies a forbidden workspace change and its gate diagnostic. */
 export const INTEGRATION_BOUNDARY_CASES = [
   {
+    name: "import.meta.resolve cannot resolve product source",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: 'import.meta.resolve("../../packages/client/src/index.ts");\n',
+    message: /test infrastructure must not cross its boundary/,
+  },
+  {
+    name: "require.resolve cannot resolve product source",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: 'require.resolve("../../packages/client/src/index.ts");\n',
+    message: /test infrastructure must not cross its boundary/,
+  },
+  {
+    name: "createRequire(import.meta.url).resolve cannot resolve product source",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend:
+      'createRequire(import.meta.url).resolve("../../packages/client/src/index.ts");\n',
+    message: /test infrastructure must not cross its boundary/,
+  },
+  {
+    name: "linked sources cannot evade scanning",
+    path: "tests/integration/dist",
+    symlink: "../../packages/client/src/index.ts",
+    message: /test infrastructure must not contain symbolic links/,
+  },
+  {
     name: "escaped import cannot conceal an external path",
     path: "tests/integration/daemon-process-harness.ts",
     prepend: String.raw`import "\u002e\u002e/../packages/client/src/index.ts";`,
@@ -138,6 +163,15 @@ export const INTEGRATION_BOUNDARY_CASES = [
       /test infrastructure must not configure import resolution bypasses/,
   },
   {
+    name: "member-assigned Vitest alias cannot bypass imports",
+    path: "tests/integration/vitest.integration.config.ts",
+    before: "export default defineConfig({",
+    after:
+      'const config = defineConfig({});\nconfig.resolve.alias = { "@moltzap/client": "../../packages/client/src/index.ts" };\nexport default defineConfig({',
+    message:
+      /test infrastructure must not configure import resolution bypasses/,
+  },
+  {
     name: "backtick template product source",
     path: "tests/integration/daemon-process-harness.ts",
     prepend: "await import(`../../packages/client/src/index.js`);\n",
@@ -268,13 +302,13 @@ export const INTEGRATION_BOUNDARY_CASES = [
   },
   {
     name: "package integration dependency",
-    path: "packages/client/integration/otlp-receiver.ts",
+    path: "packages/client/integration/boundary-plant.ts",
     prepend: 'import "@moltzap/registry";\n',
     message: /dependency DAG violation/,
   },
   {
     name: "package integration test-only entry",
-    path: "packages/client/integration/otlp-receiver.ts",
+    path: "packages/client/integration/boundary-plant.ts",
     prepend: 'import { WireVersions } from "@moltzap/identity/test";\n',
     message: /production source must not import test-only export/,
   },
@@ -317,10 +351,57 @@ export const MALFORMED_BOUNDARY_CASES = [
 
 /** Test-integrity rules apply to integration tests as well as product tests. */
 export const INTEGRATION_INTEGRITY_CASES = [
-  ["mock guard", '\nvi.spyOn(console, "log");\n', /\[integration-vi-mock\]/],
-  [
-    "credential guard",
-    '\nconst apiKey = "' + "synthetic".repeat(4) + '";\n',
-    /\[hardcoded-api-key\]/,
-  ],
+  {
+    name: "mock guard",
+    path: "tests/integration/daemon-process.integration.test.ts",
+    source: '\nvi.spyOn(console, "log");\n',
+    diagnostic: /\[integration-vi-mock\]/,
+  },
+  {
+    name: "credential guard in a fixture",
+    path: "tests/integration/daemon-process-harness.ts",
+    source: '\nconst apiKey = "' + "synthetic".repeat(4) + '";\n',
+    diagnostic: /\[hardcoded-api-key\]/,
+  },
+  {
+    name: "package mock guard",
+    path: "packages/client/integration/process-feedback.integration.test.ts",
+    source: '\nvi.spyOn(console, "log");\n',
+    diagnostic: /\[integration-vi-mock\]/,
+  },
+  {
+    name: "package credential guard in a fixture",
+    path: "packages/registry/src/__tests__/registry-process.ts",
+    source: '\nconst apiKey = "' + "synthetic".repeat(4) + '";\n',
+    diagnostic: /\[hardcoded-api-key\]/,
+  },
 ] as const;
+
+/** Source plants keep mutation validation separate from symlink creation. */
+export function plantBoundarySource(
+  input: {
+    readonly path: string;
+    readonly prepend?: string;
+    readonly replace?: string;
+    readonly before?: string;
+    readonly after?: string;
+  },
+  plantFile: (path: string, mutate: (source: string) => string) => void,
+): void {
+  plantFile(input.path, (source) => {
+    if (input.prepend !== undefined) {
+      return input.prepend + source;
+    }
+    if (input.replace !== undefined) {
+      return input.replace;
+    }
+    if (
+      input.before === undefined ||
+      input.after === undefined ||
+      !source.includes(input.before)
+    ) {
+      throw new Error(`Mutation target missing in ${input.path}`);
+    }
+    return source.replace(input.before, input.after);
+  });
+}

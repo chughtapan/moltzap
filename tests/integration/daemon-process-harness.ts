@@ -1,4 +1,4 @@
-/** @file Minimal real-process fixtures for the Client daemon acceptance test. */
+/** @file Shared real-process fixtures for the cross-package suites. */
 
 import {
   Client,
@@ -49,16 +49,17 @@ const require = createRequire(import.meta.url);
 
 /** Disposable children listen only on loopback. */
 export const LOOPBACK_HOST = "127.0.0.1";
+/** Concurrent registration keeps this many daemon identities active. */
+export const CONCURRENT_DAEMONS = 16;
 const ADMISSION_CREDENTIAL = "client-process-admission";
 const READY_STATUS = 204;
 const SHUTDOWN_TIMEOUT = Duration.seconds(5);
 /**
- * How long a finished test waits for its trace's scope to stop every child: a
- * trace holds at most nineteen: PGlite, the Registry, the Router and sixteen
- * daemons, stopped one at a time, each within `SHUTDOWN_TIMEOUT` before it is
- * killed.
+ * CONCURRENT_DAEMONS daemon finalizers run in parallel within one shutdown
+ * timeout. Infrastructure finalizers then stop PGlite, Registry and Router;
+ * sixty seconds also allows interruption and worker scheduling overhead.
  */
-const TEARDOWN_TIMEOUT_MS = 120_000;
+const TEARDOWN_TIMEOUT_MS = 60_000;
 const POLL_ATTEMPT_TIMEOUT = Duration.seconds(1);
 const POLL_INTERVAL = Duration.millis(25);
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
@@ -74,7 +75,7 @@ const PGLITE_BINARY = join(
   "tests/integration/node_modules/.bin/pglite-server",
 );
 /** The operator executable installs Registry internal resolution. */
-const REGISTRY_BINARY = join(
+export const REGISTRY_BINARY = join(
   WORKSPACE_ROOT,
   "packages/registry/bin/sharness-registry",
 );
@@ -83,7 +84,11 @@ export const ROUTER_BINARY = join(
   WORKSPACE_ROOT,
   "packages/router/bin/sharness-router",
 );
-const DAEMON_BINARY = join(WORKSPACE_ROOT, "packages/client/bin/sharnessd");
+/** The daemon executable from the built Client package. */
+export const DAEMON_BINARY = join(
+  WORKSPACE_ROOT,
+  "packages/client/bin/sharnessd",
+);
 const FIREWALL_DAEMON = join(
   WORKSPACE_ROOT,
   "tests/integration/firewall-daemon.ts",
@@ -563,8 +568,10 @@ export const acquireProcessInfrastructureFrom = (
         SHARNESS_ROUTER_PORT: String(routerPort),
         SHARNESS_ROUTER_REGISTRY_ORIGIN: registryOrigin.origin,
         SHARNESS_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY: registrySignerPublicKeyJson,
-        SHARNESS_ROUTER_REQUEST_CONCURRENCY_LIMIT: "64",
-        SHARNESS_ROUTER_HELD_POLL_CAPACITY: "32",
+        SHARNESS_ROUTER_REQUEST_CONCURRENCY_LIMIT: String(
+          CONCURRENT_DAEMONS * 4,
+        ),
+        SHARNESS_ROUTER_HELD_POLL_CAPACITY: String(CONCURRENT_DAEMONS * 2),
       },
       join(WORKSPACE_ROOT, "packages/client"),
     ).pipe(

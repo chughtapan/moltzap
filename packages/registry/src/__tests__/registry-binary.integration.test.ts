@@ -959,27 +959,6 @@ const assertExternalResolutionDenied = `
   }
 `;
 
-it("importing the test entry leaves external private exports inaccessible", () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const cwd = yield* makeExternalConsumer;
-      const child = yield* managedProcess(
-        process.execPath,
-        [
-          "--conditions=sharness-test",
-          "--input-type=module",
-          "-e",
-          `import { startRegistry } from "@moltzap/registry/test";
-         ${assertExternalResolutionDenied}`,
-        ],
-        {},
-        cwd,
-      );
-      yield* waitForExit(child).pipe(Effect.timeout("10 seconds"));
-      expect(child.child.exitCode, child.logs()).toBe(0);
-    }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
-  ));
-
 it(
   "test composition accepts an adjacent registration while external private exports stay inaccessible",
   () =>
