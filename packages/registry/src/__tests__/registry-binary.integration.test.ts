@@ -884,7 +884,7 @@ const registryBinaryBehavior = Effect.gen(function* () {
   expect(registry.logs()).toContain(
     `sharness-registry listening on ${infrastructure.origin.origin}`,
   );
-  expect(registry.logs()).toMatch(/\(package \S+; WIRE_VERSION \S+\)/u);
+  expect(registry.logs()).toMatch(/\(WIRE_VERSION \S+\)/u);
   expect(
     registry.logs().match(/sharness-registry listening on/gu),
   ).toHaveLength(1);
