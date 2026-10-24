@@ -16,7 +16,11 @@ export function runRegistryMain<E extends { readonly message: string }>(
 ): void {
   program.pipe(
     Effect.catchAll((error) =>
-      Console.error(error.message).pipe(
+      Console.error(
+        error instanceof RegistryModuleLoadError && error.cause instanceof Error
+          ? `${error.message}: ${error.cause.message}`
+          : error.message,
+      ).pipe(
         Effect.andThen(
           Effect.sync(() => {
             process.exitCode = 1;

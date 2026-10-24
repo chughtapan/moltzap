@@ -7,15 +7,10 @@ import {
   INTEGRATION_TESTS,
 } from "../architecture/boundary-contract.ts";
 import { TOOL_PROJECTS } from "../architecture/boundary-nx-graph.ts";
-type GateAssertion = (name: string, passed: boolean, message: string) => void;
-type GateRunner = (args: readonly string[]) => { code: number; stderr: string };
+import { runNode, test, workspaceRoot } from "./plants.ts";
 
 /** The graph checker validates resolved targets and edges, independently of manifests. */
-export function testIntegrationGraph(
-  test: GateAssertion,
-  runNode: GateRunner,
-  workspaceRoot: string,
-): void {
+export function testIntegrationGraph(): void {
   const graph = makeContractGraph();
   const temporary = mkdtempSync(resolve(tmpdir(), "sharness-graph-"));
   const file = resolve(temporary, "graph.json");

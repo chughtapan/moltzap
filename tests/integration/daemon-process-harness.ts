@@ -62,18 +62,6 @@ const SHUTDOWN_TIMEOUT = Duration.seconds(5);
 const TEARDOWN_TIMEOUT_MS = 60_000;
 /** Bounded boots limit process startup pressure while ports wait to bind. */
 const DAEMON_BOOT_CONCURRENCY = 4;
-/** Reserve each port and boot its daemon in one bounded step; release children in parallel. */
-export const acquireDaemonProcesses = (infrastructure: ProcessInfrastructure) =>
-  Effect.forEach(
-    [...Array(CONCURRENT_DAEMONS).keys()],
-    (index) =>
-      makeDaemonProcessFixture(
-        infrastructure,
-        `concurrent-agent-${index}`,
-      ).pipe(Effect.tap(acquireDaemonProcess)),
-    { concurrency: DAEMON_BOOT_CONCURRENCY },
-  ).pipe(Effect.parallelFinalizers);
-
 /** Router admission allows concurrent management and protocol requests per daemon. */
 const REQUESTS_PER_DAEMON = 4;
 /** Each daemon can hold its active poll and a replacement poll. */
@@ -123,6 +111,13 @@ type ManagementSearchConversationsResult =
 type ManagementReadConversationResult =
   typeof managementReadConversationResultSchema.Type;
 
+/** Every child composition receives an explicit emitted version and acceptance sets. */
+interface ProcessWireVersions {
+  readonly emitted: string;
+  readonly live: readonly string[];
+  readonly history: readonly string[];
+}
+
 /** The mode of the firewall a daemon fixture installs; absent for `sharnessd` itself. */
 export type FirewallMode = "guidance" | "enforcement";
 
@@ -164,11 +159,7 @@ export interface DaemonProcessFixture {
   readonly stateDirectory: string;
   readonly agentPrivateKeyFile: string;
   readonly firewall?: FirewallMode;
-  readonly wireVersions?: {
-    readonly emitted: string;
-    readonly live: readonly string[];
-    readonly history: readonly string[];
-  };
+  readonly wireVersions?: ProcessWireVersions;
 }
 
 /** Private management calls used to bootstrap and inspect a real daemon. */
@@ -350,6 +341,31 @@ const canConnect = (port: number) =>
     }),
   );
 
+/** A PostgreSQL SSLRequest must receive the server's one-byte refusal before startup proceeds. */
+const postgresqlReady = (port: number) =>
+  Effect.async<boolean>((resume) => {
+    const socket = createConnection({ host: LOOPBACK_HOST, port });
+    const finish = (ready: boolean): void => {
+      socket.destroy();
+      resume(Effect.succeed(ready));
+    };
+    socket.once("connect", () => {
+      socket.write(Buffer.from([0, 0, 0, 8, 4, 210, 22, 47]));
+    });
+    socket.once("data", (data) => finish(data.length === 1 && data[0] === 78));
+    socket.once("error", () => finish(false));
+    socket.once("end", () => finish(false));
+    return Effect.sync(() => {
+      socket.destroy();
+    });
+  }).pipe(
+    Effect.timeoutTo({
+      duration: POLL_ATTEMPT_TIMEOUT,
+      onTimeout: () => false,
+      onSuccess: (ready) => ready,
+    }),
+  );
+
 /** Whether `origin` answers its health check as ready. */
 export const isHealthy = (origin: URL) =>
   Effect.tryPromise({
@@ -379,7 +395,7 @@ export const awaitReady = (
 ) =>
   Effect.gen(function* () {
     while (!hasExited(running.child)) {
-      if (yield* probe) {
+      if ((yield* probe) && !hasExited(running.child)) {
         return;
       }
       yield* Effect.sleep(POLL_INTERVAL);
@@ -452,11 +468,11 @@ const encodePublicKey = (
 /** Child compositions receive wire sets through plain JavaScript under the test condition. */
 function launchCommand(
   service: "Registry" | "RouterServer" | "Daemon",
-  versions: Parameters<typeof startRegistry>[0],
+  versions: ProcessWireVersions,
 ): readonly [string, readonly string[]] {
   const script =
     service === "Registry"
-      ? `import { startRegistry } from "@moltzap/registry/test"; startRegistry(${JSON.stringify(versions)});`
+      ? `import { startRegistry } from "@moltzap/registry/test"; startRegistry(${JSON.stringify(versions satisfies Parameters<typeof startRegistry>[0])});`
       : serviceScript(service, versions);
   return [
     process.execPath,
@@ -467,7 +483,7 @@ function launchCommand(
 /** Router and daemon compositions share Identity's test wire policy. */
 function serviceScript(
   service: "RouterServer" | "Daemon",
-  versions: Parameters<typeof startRegistry>[0],
+  versions: ProcessWireVersions,
 ): string {
   const module =
     service === "RouterServer"
@@ -475,17 +491,11 @@ function serviceScript(
       : "@moltzap/client/service";
   return `import { NodeRuntime } from "@effect/platform-node";
 import { WireVersions } from "@moltzap/identity/test";
+import type { startRegistry } from "@moltzap/registry/test";
 import { ${service} } from "${module}";
 import { ConfigProvider, Effect, Layer } from "effect";
 Layer.launch(${service}.layer).pipe(Effect.provideService(WireVersions, ${JSON.stringify(versions)}), Effect.withConfigProvider(ConfigProvider.fromEnv()), NodeRuntime.runMain);`;
 }
-
-/**
- * PGlite serves every statement from one WASM session, so a loaded runner can
- * take longer than the Registry's 5 s production SQL deadline to connect,
- * migrate, or serve a queue of serialized registrations.
- */
-const PGLITE_SQL_OPERATION_TIMEOUT_MS = 30_000;
 
 /** A PGlite Registry uses one SQL connection because its backend is one session. */
 export const startPgliteRegistry = (input: {
@@ -504,7 +514,7 @@ export const startPgliteRegistry = (input: {
     ]);
     yield* awaitReady(
       postgresql,
-      canConnect(input.postgresqlPort),
+      postgresqlReady(input.postgresqlPort),
       "listening",
     );
     const command: readonly [string, readonly string[]] = input.command ?? [
@@ -518,9 +528,6 @@ export const startPgliteRegistry = (input: {
         SHARNESS_REGISTRY_HOST: LOOPBACK_HOST,
         SHARNESS_REGISTRY_PORT: String(input.registryPort),
         SHARNESS_REGISTRY_SQL_POOL_SIZE: "1",
-        SHARNESS_REGISTRY_SQL_OPERATION_TIMEOUT_MS: String(
-          PGLITE_SQL_OPERATION_TIMEOUT_MS,
-        ),
         SHARNESS_REGISTRY_POSTGRESQL_URL: `postgresql://postgres:postgres@${LOOPBACK_HOST}:${input.postgresqlPort}/postgres`,
         SHARNESS_REGISTRY_ADMISSION_CREDENTIAL: input.admissionCredential,
         SHARNESS_REGISTRY_SIGNING_PRIVATE_KEY_PATH: input.registryKeyPath,
@@ -532,6 +539,13 @@ export const startPgliteRegistry = (input: {
       registry,
       isHealthy(new URL(`http://${LOOPBACK_HOST}:${input.registryPort}`)),
       "health response",
+    ).pipe(
+      Effect.mapError((error) =>
+        processTestError(
+          `${error.message}\nPGlite output:\n${postgresql.logs()}`,
+          error,
+        ),
+      ),
     );
     return registry;
   });
@@ -554,7 +568,17 @@ export const acquireProcessInfrastructureFrom = (
 ): Effect.Effect<ProcessInfrastructure, ProcessTestError, Scope.Scope> =>
   Effect.gen(function* () {
     const versions = yield* Effect.serviceOption(WireVersions);
-    const emitted = yield* WireVersions.emitted;
+    const childVersions = yield* Option.match(versions, {
+      onNone: () => Effect.succeed(Option.none<ProcessWireVersions>()),
+      onSome: (sets) =>
+        sets.emitted === undefined
+          ? Effect.fail(
+              processTestError(
+                "injected WireVersions is missing its emitted version",
+              ),
+            )
+          : Effect.succeed(Option.some({ ...sets, emitted: sets.emitted })),
+    });
     const temporaryDirectory = yield* acquireTemporaryDirectory;
     const registryKeyPath = join(temporaryDirectory, "registry-key.pem");
     const registryPrivateKey = makePrivateKeyPem();
@@ -578,9 +602,9 @@ export const acquireProcessInfrastructureFrom = (
 
     const startRegistry = Effect.gen(function* () {
       const registryCommand: readonly [string, readonly string[]] =
-        Option.isNone(versions)
+        Option.isNone(childVersions)
           ? [binaries.registry, []]
-          : launchCommand("Registry", { ...versions.value, emitted });
+          : launchCommand("Registry", childVersions.value);
       yield* startPgliteRegistry({
         postgresqlPort,
         registryPort,
@@ -591,10 +615,10 @@ export const acquireProcessInfrastructureFrom = (
     });
     const scope = yield* Effect.scope;
     const routerCommand: readonly [string, readonly string[]] = Option.isNone(
-      versions,
+      childVersions,
     )
       ? [binaries.router, []]
-      : launchCommand("RouterServer", { ...versions.value, emitted });
+      : launchCommand("RouterServer", childVersions.value);
     const startRouter = managedProcess(
       routerCommand[0],
       routerCommand[1],
@@ -722,6 +746,18 @@ export const acquireDaemonProcess = (
     );
     return running;
   });
+
+/** Reserve each port and boot its daemon in one bounded step; release children in parallel. */
+export const acquireDaemonProcesses = (infrastructure: ProcessInfrastructure) =>
+  Effect.forEach(
+    [...Array(CONCURRENT_DAEMONS).keys()],
+    (index) =>
+      makeDaemonProcessFixture(
+        infrastructure,
+        `concurrent-agent-${index}`,
+      ).pipe(Effect.tap(acquireDaemonProcess)),
+    { concurrency: DAEMON_BOOT_CONCURRENCY },
+  ).pipe(Effect.parallelFinalizers);
 
 /** Exit code and captured output of a daemon that stopped before listening. */
 export interface DaemonStartupFailure {

@@ -1,4 +1,5 @@
 /** @file Condition-only process composition for adjacent wire releases. */
+import { WireVersions } from "@moltzap/identity/test";
 import { Effect, Layer } from "effect";
 import { installInternalResolution } from "./internal-resolution.js";
 import { RegistryModuleLoadError, runRegistryMain } from "./main.js";
@@ -11,15 +12,6 @@ export function startRegistry(versions: {
 }): void {
   installInternalResolution();
   Effect.gen(function* () {
-    const { WireVersions } = yield* Effect.tryPromise({
-      try: () => import("@moltzap/identity/test"),
-      catch: (cause) =>
-        new RegistryModuleLoadError({
-          cause,
-          message:
-            "Could not load Registry startup module @moltzap/identity/test",
-        }),
-    });
     const { layer } = yield* Effect.tryPromise({
       try: () => import("./server.js"),
       catch: (cause) =>

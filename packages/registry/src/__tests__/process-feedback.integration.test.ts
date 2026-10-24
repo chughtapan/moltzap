@@ -24,7 +24,6 @@ function runProcess(
   processArguments: readonly string[],
   environment: Readonly<Record<string, string>> = {},
   nodeArguments: readonly string[] = [binary],
-  cwd = packageRoot,
 ) {
   return Effect.gen(function* () {
     const child = yield* Command.start(
@@ -38,7 +37,7 @@ function runProcess(
         process.execPath,
         ...nodeArguments,
         ...processArguments,
-      ).pipe(Command.workingDirectory(cwd)),
+      ).pipe(Command.workingDirectory(packageRoot)),
     );
     return yield* Effect.all(
       {
@@ -132,6 +131,32 @@ it(
       ]);
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr).toContain(`${requiredVariable} is required`);
+    }),
+  15_000,
+);
+
+/** The test entry preserves resolution failures raised while loading its deferred server. */
+it(
+  "reports the module and cause when the test composition cannot load its server",
+  () =>
+    Effect.gen(function* () {
+      const underlyingError = "synthetic Registry module resolution failure";
+      const startupModule = "./server.js";
+      const result = yield* runProcess([], {}, [
+        "--conditions=sharness-test",
+        "--input-type=module",
+        "-e",
+        `import { registerHooks } from "node:module";
+import { startRegistry } from "@moltzap/registry/test";
+registerHooks({ resolve(specifier, context, nextResolve) {
+  if (specifier === ${JSON.stringify(startupModule)}) throw new Error(${JSON.stringify(underlyingError)});
+  return nextResolve(specifier, context);
+} });
+startRegistry(${JSON.stringify({ emitted: WIRE_VERSION, live: [WIRE_VERSION], history: [WIRE_VERSION] })});`,
+      ]);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain(startupModule);
+      expect(result.stderr).toContain(underlyingError);
     }),
   15_000,
 );

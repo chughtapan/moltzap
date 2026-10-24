@@ -172,7 +172,7 @@ export function checkFinalImports(run: BoundaryRun): number {
  */
 export function checkIntegrationImports(run: BoundaryRun): number {
   const root = path.join(run.repo, INTEGRATION_TESTS.root);
-  checkIntegrationSymlinks(run, root);
+  checkIntegrationTree(run, root);
   const files = walkFiles(
     root,
     (name) => CODE_EXTENSIONS.has(path.extname(name)),
@@ -709,8 +709,8 @@ function packageRoot(specifier: string): string {
   return parts[0] ?? specifier;
 }
 
-/** Linked files and directories would evade the source walk. Installed dependencies are excluded. */
-function checkIntegrationSymlinks(run: BoundaryRun, directory: string): void {
+/** Rejects symbolic links and nested node_modules/dist directories; root installed dependencies are excluded. */
+function checkIntegrationTree(run: BoundaryRun, directory: string): void {
   const installedDependencies = path.join(
     run.repo,
     INTEGRATION_TESTS.root,
@@ -732,7 +732,7 @@ function checkIntegrationSymlinks(run: BoundaryRun, directory: string): void {
           "test infrastructure must not contain nested node_modules or dist directories",
         );
       }
-      checkIntegrationSymlinks(run, file);
+      checkIntegrationTree(run, file);
     }
   }
 }

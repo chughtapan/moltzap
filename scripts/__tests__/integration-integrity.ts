@@ -4,29 +4,26 @@ import { existsSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { INTEGRATION_INTEGRITY_CASES } from "./integration-boundary-cases.ts";
-import { plantBoundarySource, plantFile, restoreAllPlants } from "./plants.ts";
-
-type GateAssertion = (name: string, passed: boolean, message: string) => void;
+import {
+  plantBoundarySource,
+  plantFile,
+  restoreAllPlants,
+  test,
+  workspaceRoot,
+} from "./plants.ts";
 
 /**
  * Runs the guard and lane integrity checks that live outside the plant tables.
- * @param test Records one gate assertion.
- * @param workspaceRoot Repository root.
  */
-export function testGuardIntegrity(
-  test: GateAssertion,
-  workspaceRoot: string,
-): void {
-  testMissingGuardDirectory(test, workspaceRoot);
-  testPragmaPathIsData(test, workspaceRoot);
-  testIntegrationLaneCollection(test, workspaceRoot);
+export function testGuardIntegrity(): void {
+  testMissingGuardDirectory();
+  testBrokenGuardTool();
+  testPragmaPathIsData();
+  testIntegrationLaneCollection();
 }
 
 /** Test-integrity guards cover spies and synthetic literals in fixtures and tests. */
-export function testIntegrationIntegrityGuards(
-  test: GateAssertion,
-  workspaceRoot: string,
-): void {
+export function testIntegrationIntegrityGuards(): void {
   for (const {
     name,
     path,
@@ -35,8 +32,13 @@ export function testIntegrationIntegrityGuards(
   } of INTEGRATION_INTEGRITY_CASES) {
     console.log(`\n# integration ${name}`);
     try {
-      plantFile(path, (text) => text + source);
-      const result = runSloppyGuard(workspaceRoot);
+      plantFile(path, (text) =>
+        Buffer.concat([
+          Buffer.from(text),
+          typeof source === "string" ? Buffer.from(source) : source,
+        ]),
+      );
+      const result = runSloppyGuard();
       test(
         `integration ${name} rejects its planted regression`,
         result.status === 1 && diagnostic.test(result.stdout),
@@ -49,17 +51,14 @@ export function testIntegrationIntegrityGuards(
 }
 
 /** A missing scan root must fail rather than report a clean scan. */
-function testMissingGuardDirectory(
-  test: GateAssertion,
-  workspaceRoot: string,
-): void {
+function testMissingGuardDirectory(): void {
   try {
     plantBoundarySource({
       path: "scripts/code/sloppy-code-guard.sh",
       before: '"packages/ tests/"',
       after: '"packages/ tests/integration/missing-guard-root/"',
     });
-    const result = runSloppyGuard(workspaceRoot);
+    const result = runSloppyGuard();
     test(
       "integrity guard refuses a missing directory",
       result.status === 1 &&
@@ -77,13 +76,8 @@ function testMissingGuardDirectory(
  * A pragma line is read as data even when its file name carries shell syntax.
  *
  * Value: protects=sloppy-code-guard reads a next-line pragma from a file whose path contains quotes and command substitution without running it; fails_when=filter_pragma reads the previous line through a shell command again; why_new=every other plant uses plain paths, where a shell read gives the same answer; seam=none; no_claim=the pragma grammar or which rules accept pragmas.
- * @param test Records one gate assertion.
- * @param workspaceRoot Repository root the guard runs from.
  */
-function testPragmaPathIsData(
-  test: GateAssertion,
-  workspaceRoot: string,
-): void {
+function testPragmaPathIsData(): void {
   const marker = resolve(workspaceRoot, "pragma-path-ran");
   try {
     plantFile(
@@ -94,7 +88,7 @@ function testPragmaPathIsData(
         "synthetic".repeat(4) +
         '";\n',
     );
-    const result = runSloppyGuard(workspaceRoot);
+    const result = runSloppyGuard();
     test(
       "integrity guard reads a pragma without running its file name",
       result.status === 0 &&
@@ -112,13 +106,8 @@ function testPragmaPathIsData(
  * The process lane collects only its own suites.
  *
  * Value: protects=@moltzap/integration-tests:test:integration collects exactly the suites under tests/integration outside mixed-release/; fails_when=its include or exclude lets Vitest collect files through node_modules links to product packages or from mixed-release/; why_new=a lane run stays green whenever linked product suites happen to pass; seam=none; no_claim=which suites the lane holds or whether they pass.
- * @param test Records one gate assertion.
- * @param workspaceRoot Repository root.
  */
-function testIntegrationLaneCollection(
-  test: GateAssertion,
-  workspaceRoot: string,
-): void {
+function testIntegrationLaneCollection(): void {
   const lane = resolve(workspaceRoot, "tests/integration");
   const result = spawnSync(
     process.execPath,
@@ -147,8 +136,27 @@ function testIntegrationLaneCollection(
   );
 }
 
+/** A broken expression is a tooling failure, never evidence of a clean tree. */
+function testBrokenGuardTool(): void {
+  try {
+    plantBoundarySource({
+      path: "scripts/code/sloppy-code-guard.sh",
+      before: "'[^.]*[^q]\\.query\\(|db\\.query\\('",
+      after: "'['",
+    });
+    const result = runSloppyGuard();
+    test(
+      "integrity guard fails closed on a broken grep expression",
+      result.status !== 0 && result.stderr.includes("[raw-sql] grep failed"),
+      result.stdout + result.stderr,
+    );
+  } finally {
+    restoreAllPlants();
+  }
+}
+
 /** Both integrity tables and focused regressions run the same guard invocation. */
-function runSloppyGuard(workspaceRoot: string) {
+function runSloppyGuard() {
   return spawnSync("/bin/bash", ["scripts/code/sloppy-code-guard.sh"], {
     cwd: workspaceRoot,
     encoding: "utf8",

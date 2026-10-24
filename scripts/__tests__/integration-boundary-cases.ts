@@ -3,6 +3,13 @@
 /** Each case identifies a forbidden workspace change and its gate diagnostic. */
 export const INTEGRATION_BOUNDARY_CASES = [
   {
+    name: "percent-encoded path",
+    path: "tests/integration/daemon-process-harness.ts",
+    prepend: 'require("./%2e%2e/%2e%2e/packages/client/src/index.ts");\n',
+    message:
+      /test infrastructure must not use query, fragment, or encoded path specifiers/,
+  },
+  {
     name: "query path",
     path: "tests/integration/daemon-process-harness.ts",
     prepend: 'require("./x?/../../packages/client/src/index.ts");\n',
@@ -385,6 +392,58 @@ export const MALFORMED_BOUNDARY_CASES = [
 
 /** Test-integrity rules apply to integration tests as well as product tests. */
 export const INTEGRATION_INTEGRITY_CASES = [
+  ...[
+    "tests/integration/unit-named.test.ts",
+    "packages/client/integration/unit-named.test.ts",
+  ].map((path) => ({
+    name: `all TypeScript fixtures are covered in ${path}`,
+    path,
+    source: '\nvi.spyOn(console, "log");\n',
+    diagnostic: /\[integration-vi-mock\]/,
+  })),
+  {
+    name: "package integration fixture mock guard",
+    path: "packages/client/integration/otlp-receiver.ts",
+    source: '\nvi.spyOn(console, "log");\n',
+    diagnostic: /\[integration-vi-mock\]/,
+  },
+  {
+    name: "nested shared fixture mock guard",
+    path: "packages/router/src/router/__tests__/nested/fixture.ts",
+    source: '\nvi.spyOn(console, "log");\n',
+    diagnostic: /\[integration-vi-mock\]/,
+  },
+  {
+    name: "binary and invalid UTF-8 fixture mock guard",
+    path: "tests/integration/binary-fixture.ts",
+    source: Buffer.from('\nvi.spyOn(console, "log");\n// \0é\n', "latin1"),
+    diagnostic: /\[integration-vi-mock\]/,
+  },
+  ...[".test.ts", "__tests__", "test-utils", "/dist/"].map((comment) => ({
+    name: `production content cannot exclude ${comment}`,
+    path: "packages/client/src/guard-plant.ts",
+    source: `\nconst result = db.query(); // ${comment}\n`,
+    diagnostic: /\[raw-sql\]/,
+  })),
+  {
+    name: "typed credential guard",
+    path: "tests/integration/credential-plant.ts",
+    source: '\nconst apiKey: string = "' + "synthetic".repeat(4) + '";\n',
+    diagnostic: /\[hardcoded-api-key\]/,
+  },
+  {
+    name: "environment fallback credential guard",
+    path: "tests/integration/credential-plant.ts",
+    source:
+      '\nconst apiKey = process.env.K ?? "' + "synthetic".repeat(4) + '";\n',
+    diagnostic: /\[hardcoded-api-key\]/,
+  },
+  {
+    name: "array credential guard",
+    path: "tests/integration/credential-plant.ts",
+    source: '\nconst apiKeys = ["' + "synthetic".repeat(4) + '"];\n',
+    diagnostic: /\[hardcoded-api-key\]/,
+  },
   {
     name: "mock paths do not alter fixture scope",
     path: "packages/registry/src/__tests__/registry-process.ts",

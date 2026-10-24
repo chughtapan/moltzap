@@ -12,7 +12,6 @@
  *   0 — every assertion passed.
  *   1 — one or more assertions failed; details printed to stderr.
  */
-import { spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -24,8 +23,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 import {
@@ -44,13 +42,15 @@ import {
 } from "./integration-integrity.ts";
 import { testLintRelocation } from "./integration-lint-relocation.ts";
 import {
+  failures,
   plantBoundarySource,
   plantFile,
   plantSymlink,
   restoreAllPlants,
+  runNode,
+  test,
+  workspaceRoot,
 } from "./plants.ts";
-
-const scriptDir = dirname(fileURLToPath(import.meta.url));
 
 const CONTRIBUTING_DOC = "docs/development/contributing.mdx";
 
@@ -58,15 +58,6 @@ const CONTRIBUTING_DOC = "docs/development/contributing.mdx";
 const LIVE_WINDOW_HEAD = /const liveWindow = \[WIRE_VERSION/u;
 /** The head of version.ts's retired list, after which planted entries go. */
 const RETIRED_HEAD = /const RETIRED_WIRE_VERSIONS = \[/u;
-
-const workspaceRoot = resolve(scriptDir, "..", "..");
-
-interface AssertionFailure {
-  readonly name: string;
-  readonly message: string;
-}
-
-const failures: AssertionFailure[] = [];
 
 /** Idempotence snapshots run before any generator success case writes outputs, so they compare against the original on-disk bytes. */
 function main(): void {
@@ -83,9 +74,9 @@ function main(): void {
     testDependencyVersions();
     testMalformedBoundaryInputs();
     testIntegrationBoundaries();
-    testIntegrationGraph(test, runNode, workspaceRoot);
-    testIntegrationIntegrityGuards(test, workspaceRoot);
-    testGuardIntegrity(test, workspaceRoot);
+    testIntegrationGraph();
+    testIntegrationIntegrityGuards();
+    testGuardIntegrity();
     testLintRelocation(test, runNode);
     testIsolatedFolderImports();
   } finally {
@@ -1020,25 +1011,6 @@ function runScript(
   return runNode([script], cwd);
 }
 
-function runNode(
-  args: readonly string[],
-  cwd = workspaceRoot,
-): {
-  code: number;
-  stdout: string;
-  stderr: string;
-} {
-  const r = spawnSync(process.execPath, [...args], {
-    cwd,
-    encoding: "utf8",
-  });
-  return {
-    code: r.status ?? -1,
-    stdout: r.stdout ?? "",
-    stderr: r.stderr ?? "",
-  };
-}
-
 function readCompatibilityVersion(): string {
   const read = readCompatibilityVersionSource(workspaceRoot);
   if ("error" in read) {
@@ -1085,16 +1057,6 @@ function checkRegeneratedVersion(
       readFileSync(resolve(workspaceRoot, path), "utf8").includes(nextVersion),
       `${path} did not contain ${nextVersion} after regeneration`,
     );
-  }
-}
-
-function test(name: string, cond: boolean, message: string): void {
-  // eslint-disable-next-line sonarjs/no-selector-parameter -- A boolean assertion selects the success or failure report in this standalone test runner.
-  if (cond) {
-    console.log(`  ✓ ${name}`);
-  } else {
-    failures.push({ name, message });
-    console.error(`  ✗ ${name}: ${message}`);
   }
 }
 

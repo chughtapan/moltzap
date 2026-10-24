@@ -24,6 +24,7 @@
 # TypeScript tool (ts-morph or just the TS compiler API) once the rule set
 # stabilizes. For now bash keeps the zero-install story.
 set -euo pipefail
+export LC_ALL=C
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -31,7 +32,7 @@ NC='\033[0m'
 ERRORS=0
 
 PKG_SRC_GLOB="packages/*/src"
-NON_TEST_EXCLUDE='__tests__|\.test\.|\.integration\.test\.|test-utils|/dist/'
+NON_TEST_EXCLUDE='^[^:]*(__tests__|\.test\.|test-utils|/dist/)[^:]*:'
 NO_EXCLUDE='^$'
 PRAGMA_TAG='#ignore-sloppy-code'
 
@@ -90,7 +91,10 @@ filter_pragma() {
   '
 }
 
-# check RULE_ID PATTERN MESSAGE [GLOB] [DIR] [EXCLUDE]
+# check RULE_ID PATTERN MESSAGE [GLOB] [DIR] [EXCLUDE] [GREP_MODE]
+# RULE_ID names diagnostics and pragmas; PATTERN is the grep expression.
+# MESSAGE describes violations. GLOB defaults to *.ts; DIR to PKG_SRC_GLOB.
+# GREP_MODE defaults to -E; pass -iE for case-insensitive extended regexes.
 # EXCLUDE defaults to NON_TEST_EXCLUDE for omitted or empty arguments.
 # Pass NO_EXCLUDE to scan tests too; its sentinel matches no grep result.
 check() {
@@ -111,26 +115,30 @@ check() {
     fi
   done
 
+  local matches status
   # shellcheck disable=SC2086
-  matches=$(grep -rn --include="$glob" "$case_option" "$pattern" $dir 2>/dev/null \
-    | awk -v rule="$rule" '
-      {
-        file = $0
-        sub(/:[0-9]+:.*/, "", file)
-        if (rule != "integration-vi-mock" ||
-            (file !~ /\/(node_modules|dist)\// &&
-             (file ~ /\.integration\.test\.ts$/ ||
-              (file !~ /\.test\.ts$/ &&
-               (file ~ /^tests\// ||
-                file ~ /^packages\/[^/]+\/src\/__tests__\//))))) print
-      }
-    ' \
-    | grep -vE "$exclude" \
-    | filter_pragma "$rule" \
-    || true)
-
-  # filter_pragma emits empty lines when a match is suppressed; clean them.
-  matches=$(echo "$matches" | grep -v '^$' || true)
+  if matches=$(grep -arn --include="$glob" "$case_option" "$pattern" $dir); then
+    :
+  else
+    status=$?
+    if (( status != 1 )); then
+      echo "[$rule] grep failed (exit $status)" >&2
+      exit 1
+    fi
+  fi
+  if matches=$(printf '%s\n' "$matches" | grep -avE "$exclude"); then
+    :
+  else
+    status=$?
+    if (( status != 1 )); then
+      echo "[$rule] exclude filter failed (exit $status)" >&2
+      exit 1
+    fi
+  fi
+  if ! matches=$(printf '%s\n' "$matches" | filter_pragma "$rule"); then
+    echo "[$rule] pragma filter failed" >&2
+    exit 1
+  fi
 
   if [ -n "$matches" ]; then
     echo -e "${RED}[FAIL]${NC} [$rule] $message"
@@ -232,13 +240,29 @@ echo ""
 
 check integration-vi-mock \
   'vi\.mock|vi\.hoisted|vi\.spyOn' \
-  "Integration tests and shared fixtures must not use vi.mock/hoisted/spyOn — test the real flow" \
-  "*.ts" \
+  "Integration tests must not use vi.mock/hoisted/spyOn — test the real flow" \
+  "*.integration.test.ts" \
   "packages/ tests/" \
-  "$NO_EXCLUDE"
+  '^[^:]*/(node_modules|dist)/[^:]*:'
+
+fixture_directories=$(find packages \( -name node_modules -o -name dist \) -prune -o \
+  -type d -name __tests__ -print)
+check integration-vi-mock \
+  'vi\.mock|vi\.hoisted|vi\.spyOn' \
+  "Shared fixtures must not use vi.mock/hoisted/spyOn — test the real flow" \
+  "*.ts" \
+  "$fixture_directories" \
+  '^[^:]*\.test\.ts:|^[^:]*/(node_modules|dist)/[^:]*:'
+
+check integration-vi-mock \
+  'vi\.mock|vi\.hoisted|vi\.spyOn' \
+  "Integration fixtures must not use vi.mock/hoisted/spyOn — test the real flow" \
+  "*.ts" \
+  "tests/ packages/*/integration/" \
+  '^[^:]*/(node_modules|dist)/[^:]*:'
 
 check hardcoded-api-key \
-  "api[_-]?key[\"']?[[:space:]]*[:=][[:space:]]*['\"][A-Za-z0-9_-]{20,}['\"]" \
+  "api[_-]?keys?[\"']?[^=:]*[:=].*['\"\`][A-Za-z0-9_-]{20,}['\"\`]" \
   "Hardcoded API key — use environment variables" \
   "*.ts" \
   "packages/ tests/ scripts/ examples/" \
@@ -249,32 +273,20 @@ check hardcoded-api-key \
 # predicate, or Effect.catchTag/catchTags for tagged unions. Legitimate
 # reflection/generic-erasure casts carry a
 # `#ignore-sloppy-code[as-unknown-as]: <reason>` pragma.
-matches=$(grep -rn --include="*.ts" -E 'as unknown as' packages/*/src 2>/dev/null \
-  | filter_pragma 'as-unknown-as' \
-  || true)
-matches=$(echo "$matches" | grep -v '^$' || true)
-if [ -n "$matches" ]; then
-  echo -e "${RED}[FAIL]${NC} [as-unknown-as] 'as unknown as' cast chain bypasses the type system. Prefer a proper type guard, user-defined predicate, or Effect.catchTag/catchTags for tagged unions."
-  echo "$matches"
-  echo "    Opt out with: // $PRAGMA_TAG[as-unknown-as]: <reason>"
-  echo ""
-  ERRORS=$((ERRORS + 1))
-fi
+check as-unknown-as \
+  'as unknown as' \
+  "'as unknown as' cast chain bypasses the type system. Prefer a proper type guard, user-defined predicate, or Effect.catchTag/catchTags for tagged unions." \
+  "*.ts" "$PKG_SRC_GLOB" "$NO_EXCLUDE"
+
 
 # Manual `_tag` narrow on wire-error classes. Use Effect.catchTag / catchTags.
 # Effect.Exit/Cause/Option internal tags are allowed — they're the idiomatic
 # narrow for those std unions.
-matches=$(grep -rn --include="*.ts" -E '\._tag\s*(===|!==|==|!=)\s*"(RpcServerError|NotConnectedError|RpcTimeoutError|AgentNotFoundError|MalformedFrameError|RpcFailure|InvalidParamsError|ForbiddenError|SqlError)"' packages/*/src 2>/dev/null \
-  | filter_pragma 'tag-discriminant' \
-  || true)
-matches=$(echo "$matches" | grep -v '^$' || true)
-if [ -n "$matches" ]; then
-  echo -e "${RED}[FAIL]${NC} [tag-discriminant] Manual _tag discriminant on a wire-error class — use Effect.catchTag / catchTags so the dispatch is declarative and types flow through."
-  echo "$matches"
-  echo "    Opt out with: // $PRAGMA_TAG[tag-discriminant]: <reason>"
-  echo ""
-  ERRORS=$((ERRORS + 1))
-fi
+check tag-discriminant \
+  '\._tag[[:space:]]*(===|!==|==|!=)[[:space:]]*"(RpcServerError|NotConnectedError|RpcTimeoutError|AgentNotFoundError|MalformedFrameError|RpcFailure|InvalidParamsError|ForbiddenError|SqlError)"' \
+  "Manual _tag discriminant on a wire-error class — use Effect.catchTag / catchTags so the dispatch is declarative and types flow through." \
+  "*.ts" "$PKG_SRC_GLOB" "$NO_EXCLUDE"
+
 
 
 # ============================================================

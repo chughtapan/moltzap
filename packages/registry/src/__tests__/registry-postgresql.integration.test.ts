@@ -427,18 +427,19 @@ it(
           storage,
         };
         const outcomes = yield* Effect.all(
-          [
+          Array.from({ length: 8 }, () =>
             verifyBootstrapRegistration(input).pipe(Effect.either),
-            verifyBootstrapRegistration(input).pipe(Effect.either),
-          ],
-          { concurrency: 2 },
+          ),
+          { concurrency: 8 },
         ).pipe(Effect.withClock(clockAt(prepared.expiresAt)));
         expect(
           outcomes.filter(Either.isRight).map((result) => result.right),
         ).toStrictEqual([prepared.request]);
         expect(
           outcomes.filter(Either.isLeft).map((result) => result.left),
-        ).toStrictEqual([new AuthenticationFailedError()]);
+        ).toStrictEqual(
+          Array.from({ length: 7 }, () => new AuthenticationFailedError()),
+        );
       }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
     ),
   180_000,
@@ -460,30 +461,28 @@ it.each([
           setup.registrySignerPublicKey,
         );
         const first = yield* prepareAgent("postgresql-race");
-        const other = yield* prepareAgent("postgresql-other");
-        const second =
-          conflict === "key"
-            ? {
-                ...first,
-                request: { ...first.request, operationId: makeOperationId() },
-              }
-            : {
-                ...other,
-                request: {
-                  ...other.request,
-                  agentName: first.request.agentName,
-                },
-              };
-        const results = yield* Effect.all(
-          [callRegister(run, first), callRegister(run, second)],
-          { concurrency: 2 },
+        const contenders = yield* Effect.all(
+          Array.from({ length: 8 }, () =>
+            conflict === "key"
+              ? Effect.succeed({
+                  ...first,
+                  request: { ...first.request, operationId: makeOperationId() },
+                })
+              : prepareAgent("postgresql-race"),
+          ),
+          { concurrency: 8 },
+        );
+        const results = yield* Effect.forEach(
+          contenders,
+          (contender) => callRegister(run, contender),
+          { concurrency: 8 },
         );
         expect(
           results.filter((result) => result.kind === REGISTERED_KIND),
         ).toHaveLength(1);
         expect(
           results.filter((result) => result.kind === refused),
-        ).toHaveLength(1);
+        ).toHaveLength(7);
       }).pipe(
         Effect.scoped,
         Effect.provide(NodeFileSystem.layer),

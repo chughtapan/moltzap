@@ -1,4 +1,5 @@
 /** @file Reversible file and symlink mutations shared by standalone gate tests. */
+import { spawnSync } from "node:child_process";
 import {
   existsSync,
   lstatSync,
@@ -11,7 +12,8 @@ import {
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const workspaceRoot = fileURLToPath(new URL("../../", import.meta.url));
+/** All gate children and reversible mutations share this repository root. */
+export const workspaceRoot = fileURLToPath(new URL("../../", import.meta.url));
 /** The stack unwinds entries and snapshots in reverse mutation order. */
 const planted: Array<{
   readonly path: string;
@@ -48,7 +50,7 @@ export function plantBoundarySource(input: {
 /** Snapshots existing bytes or records a created file after its write succeeds. */
 export function plantFile(
   relativePath: string,
-  mutate: (source: string) => string,
+  mutate: (source: string) => string | Uint8Array,
 ): void {
   const path = resolve(workspaceRoot, relativePath);
   const original = existsSync(path) ? readFileSync(path, "utf8") : undefined;
@@ -80,6 +82,45 @@ export function restoreAllPlants(): void {
     } else {
       writeFileSync(entry.path, entry.original);
     }
+  }
+}
+
+interface AssertionFailure {
+  readonly name: string;
+  readonly message: string;
+}
+
+/** Assertions accumulate so one run reports every failed gate. */
+export const failures: AssertionFailure[] = [];
+
+/** Runs a Node gate with captured process feedback. */
+export function runNode(
+  args: readonly string[],
+  cwd = workspaceRoot,
+): {
+  code: number;
+  stdout: string;
+  stderr: string;
+} {
+  const r = spawnSync(process.execPath, [...args], {
+    cwd,
+    encoding: "utf8",
+  });
+  return {
+    code: r.status ?? -1,
+    stdout: r.stdout ?? "",
+    stderr: r.stderr ?? "",
+  };
+}
+
+/** Records each gate result and retains failures for the entry point. */
+export function test(name: string, cond: boolean, message: string): void {
+  // eslint-disable-next-line sonarjs/no-selector-parameter -- A boolean assertion selects the success or failure report in this standalone test runner.
+  if (cond) {
+    console.log(`  ✓ ${name}`);
+  } else {
+    failures.push({ name, message });
+    console.error(`  ✗ ${name}: ${message}`);
   }
 }
 

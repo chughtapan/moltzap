@@ -70,8 +70,9 @@ jobs:
         timeout-minutes: 30
       # `pnpm build` and `pnpm lint` already run every project's build, lint,
       # and arch:check; this step pins the resolved graph itself: every
-      # project, root, edge, and package-specific target. Tests run in the
-      # `test` job.
+      # project, root, edge, and package-specific target. Unit tests run in
+      # `test`, process lanes in `integration`, and adjacent-release checks
+      # in `mixed-release`.
       - name: Verify the Nx project graph
         run: |
           pnpm nx graph --print > "${RUNNER_TEMP}/sharness-project-graph.json"
