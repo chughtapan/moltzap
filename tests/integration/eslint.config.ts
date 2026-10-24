@@ -32,19 +32,14 @@ export default [
     [
       "adapter-daemon-fixture.ts",
       "adapter-daemon-process.integration.test.ts",
-      "adapter-daemon-vitest.config.ts",
-      "mixed-release-vitest.config.ts",
-      "mixed-release.integration.test.ts",
+      "mixed-release/vitest.config.ts",
+      "mixed-release/mixed-release.integration.test.ts",
     ],
     "scripts/test/",
   ),
   ...relocateConfig(
     clientConfig,
-    [
-      "eslint.config.ts",
-      "vitest.integration.config.ts",
-      "registry-router-vitest.config.ts",
-    ],
+    ["eslint.config.ts", "vitest.integration.config.ts"],
     "",
   ),
   ...relocateConfig(
@@ -61,7 +56,7 @@ export default [
     files: ["**/*.ts"],
     languageOptions: {
       parserOptions: {
-        project: ["./tsconfig.json", "./tsconfig.adapter-daemon.json"],
+        project: ["./tsconfig.json"],
         tsconfigRootDir: import.meta.dirname,
       },
     },

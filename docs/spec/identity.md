@@ -926,7 +926,7 @@ The complete Registry process surface is:
 | `SHARNESS_REGISTRY_LIST_PAGE_SIZE` | server-owned identity-list page size | `100` | positive integer; clients cannot override | no |
 | `SHARNESS_REGISTRY_REQUEST_CONCURRENCY_LIMIT` | active request permits | `256` | positive integer | no |
 | `SHARNESS_REGISTRY_LIVE_NONCE_CAPACITY` | unexpired accepted registration nonces | `10,000` | positive integer; never evict a live nonce | no |
-| `SHARNESS_REGISTRY_SQL_POOL_SIZE` | PostgreSQL pool size | `10` | positive integer | no |
+| `SHARNESS_REGISTRY_SQL_POOL_SIZE` | PostgreSQL pool size; PGlite through `pglite-socket` requires `1` because it provides one Postgres session | `10` | positive integer | no |
 | `SHARNESS_REGISTRY_SQL_OPERATION_TIMEOUT_MS` | acquisition, execution, and retry deadline | `5,000` | positive milliseconds; expiry is 503 `unavailable` | no |
 
 Numeric environment values use canonical unsigned decimal with no

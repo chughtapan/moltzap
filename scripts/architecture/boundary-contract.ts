@@ -98,7 +98,14 @@ export const FINAL_PACKAGES: Readonly<Record<PackageDir, PackageContract>> = {
     npmName: "@moltzap/registry",
     published: false,
     deps: ["identity"],
-    exports: { ".": ROOT_EXPORT },
+    exports: {
+      ".": ROOT_EXPORT,
+      "./test": {
+        testOnly: true,
+        types: "./dist/test.d.ts",
+        import: "./dist/test.js",
+      },
+    },
     bin: { "sharness-registry": "./bin/sharness-registry" },
     targets: SERVICE_TARGETS,
   },
@@ -208,14 +215,11 @@ export const INTEGRATION_TESTS = {
   root: "tests/integration",
   targets: [
     "test:integration",
-    "test:registry-router",
-    "test:adapter-daemon",
     "test:mixed-release",
     "typecheck:tests",
     "lint",
   ],
-  /** Only this fixture may enable internal resolution in its Registry child. */
-  internalConditionFiles: ["tests/integration/daemon-process-harness.ts"],
+  implicitDependencies: [],
   dependencies: [
     "identity",
     "registry",

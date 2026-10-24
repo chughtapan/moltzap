@@ -22,6 +22,7 @@ versions it was released with.
 |---|---|
 | `@moltzap/client` | `HarnessEndpoint`, operation and inbound item values, endpoint acquisition, and closed operation failures |
 | `@moltzap/client/service` | Production `Daemon` process composition |
+| `@moltzap/client/test` | Management schemas; `sharness-test` condition only, with no default condition |
 
 `HarnessEndpoint.send` performs one collective operation: text to an explicit
 `agent:` or `group:` address with an optional `collective` operation,
@@ -159,9 +160,10 @@ pnpm nx run @moltzap/client:build
 pnpm nx run @moltzap/client:typecheck:tests
 pnpm nx run @moltzap/client:test
 pnpm nx run @moltzap/client:test:integration
-pnpm nx run @moltzap/integration-tests:test:integration
-pnpm nx run @moltzap/integration-tests:typecheck:tests
 pnpm nx run @moltzap/client:test:pack
 pnpm nx run @moltzap/client:lint
 pnpm nx run @moltzap/client:arch:check
 ```
+
+See the [cross-package integration suites](../../tests/integration/README.md)
+for Registry, Router, daemon, adapter, and mixed-release checks.

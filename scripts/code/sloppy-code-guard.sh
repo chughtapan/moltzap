@@ -90,17 +90,18 @@ filter_pragma() {
   '
 }
 
-# check RULE_ID PATTERN MESSAGE [GLOB] [DIR]
+# check RULE_ID PATTERN MESSAGE [GLOB] [DIR] [EXCLUDE]
 check() {
   local rule="$1"
   local pattern="$2"
   local message="$3"
   local glob="${4:-*.ts}"
   local dir="${5:-$PKG_SRC_GLOB}"
+  local exclude="${6-$NON_TEST_EXCLUDE}"
 
   # shellcheck disable=SC2086
   matches=$(grep -rn --include="$glob" -E "$pattern" $dir 2>/dev/null \
-    | grep -vE "$NON_TEST_EXCLUDE" \
+    | grep -vE "$exclude" \
     | filter_pragma "$rule" \
     || true)
 
@@ -209,13 +210,15 @@ check integration-vi-mock \
   'vi\.mock|vi\.hoisted|vi\.spyOn' \
   "Integration tests must not use vi.mock/hoisted/spyOn — test the real flow" \
   "*.integration.test.ts" \
-  "packages/ tests/"
+  "packages/ tests/" \
+  "^$"
 
 check hardcoded-api-key \
   "api[Kk]ey.*=.*['\"][a-zA-Z0-9_-]{20,}['\"]" \
   "Hardcoded API key in test file — use environment variables" \
   "*.test.ts" \
-  "packages/ tests/"
+  "packages/ tests/" \
+  "^$"
 
 # `as unknown as` bypasses the type system. Use a type guard, a user-defined
 # predicate, or Effect.catchTag/catchTags for tagged unions. Legitimate

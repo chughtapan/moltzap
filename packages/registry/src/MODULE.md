@@ -88,3 +88,4 @@ Closed Registry startup failure.
 - `rpc.ts`
 - `server.ts`
 - `storage.ts`
+- `test.ts`

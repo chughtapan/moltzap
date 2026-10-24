@@ -33,7 +33,11 @@ import {
   WIRE_VERSION_LITERAL,
   WIRE_VERSION_SOURCE,
 } from "../docs/sharness-version.ts";
-import { INTEGRATION_BOUNDARY_CASES } from "./integration-boundary-cases.ts";
+import {
+  INTEGRATION_BOUNDARY_CASES,
+  MALFORMED_BOUNDARY_CASES,
+} from "./integration-boundary-cases.ts";
+import { testIntegrationGraph } from "./integration-boundary-graph.ts";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 
@@ -74,6 +78,8 @@ function main(): void {
     testDependencyVersions();
     testMalformedBoundaryInputs();
     testIntegrationBoundaries();
+    testIntegrationGraph(test, runNode, workspaceRoot);
+    testIntegrationMockGuard();
     testIsolatedFolderImports();
   } finally {
     restoreAllPlants();
@@ -665,17 +671,54 @@ function testPublicationGuardsDriftedList(): void {
 
 /** Each plant must fail the public gate even without a resolved Nx graph. */
 function testIntegrationBoundaries(): void {
-  for (const input of INTEGRATION_BOUNDARY_CASES) {
+  runBoundaryPlants(INTEGRATION_BOUNDARY_CASES);
+}
+
+/** Malformed additions must fail even when every valid entry remains present. */
+function testMalformedBoundaryInputs(): void {
+  console.log("\n# check-boundaries malformed inputs");
+  runBoundaryPlants(
+    MALFORMED_BOUNDARY_CASES.map((input) => ({
+      ...input,
+      message: /Malformed/,
+    })),
+  );
+}
+
+/** Each mutation must be rejected by the rule named in its diagnostic. */
+function runBoundaryPlants(
+  cases: ReadonlyArray<{
+    readonly name?: string;
+    readonly path: string;
+    readonly before?: string;
+    readonly after?: string;
+    readonly prepend?: string;
+    readonly replace?: string;
+    readonly message: RegExp;
+  }>,
+): void {
+  for (const [index, input] of cases.entries()) {
     try {
       plantFile(input.path, (source) => {
-        if (!source.includes(input.before)) {
+        if (input.prepend !== undefined) {
+          return input.prepend + source;
+        }
+        if (input.replace !== undefined) {
+          return input.replace;
+        }
+        if (
+          input.before === undefined ||
+          input.after === undefined ||
+          !source.includes(input.before)
+        ) {
           throw new Error(`Mutation target missing in ${input.path}`);
         }
         return source.replace(input.before, input.after);
       });
       const result = runBoundaries();
       test(
-        input.name,
+        input.name ??
+          `rejects malformed boundary input ${index + 1}: ${input.path}`,
         result.code === 1 && input.message.test(result.stderr),
         `expected boundary rejection. exit=${result.code}, stderr=${result.stderr}`,
       );
@@ -685,63 +728,28 @@ function testIntegrationBoundaries(): void {
   }
 }
 
-const MALFORMED_BOUNDARY_CASES = [
-  {
-    path: "tests/integration/package.json",
-    before: '"implicitDependencies": [',
-    after: '"implicitDependencies": [7,',
-  },
-  {
-    path: "tsconfig.json",
-    before: '"references": [',
-    after: '"references": [null,',
-  },
-  {
-    path: "tsconfig.json",
-    before: '"references": [',
-    after: '"references": [{"path": 7},',
-  },
-  {
-    path: "tsconfig.json",
-    before: '"references": [',
-    after: '"references": [{},',
-  },
-  {
-    path: "knip.json",
-    before: '"@electric-sql/pglite",',
-    after: '7, "@electric-sql/pglite",',
-  },
-  {
-    path: "packages/identity/tsconfig.json",
-    before: '"references": []',
-    after: '"references": {}',
-  },
-  { path: "packages/identity/tsconfig.json", before: "", after: "" },
-] as const;
-
-/** Malformed additions must fail even when every valid entry remains present. */
-function testMalformedBoundaryInputs(): void {
-  console.log("\n# check-boundaries malformed inputs");
-  for (const [index, input] of MALFORMED_BOUNDARY_CASES.entries()) {
-    try {
-      plantFile(input.path, (source) => {
-        if (input.before === "") {
-          return "[]";
-        }
-        if (!source.includes(input.before)) {
-          throw new Error(`Mutation target missing in ${input.path}`);
-        }
-        return source.replace(input.before, input.after);
-      });
-      const malformed = runBoundaries();
-      test(
-        `rejects malformed boundary input ${index + 1}: ${input.path}`,
-        malformed.code === 1 && /Malformed/.test(malformed.stderr),
-        `expected malformed-input failure. exit=${malformed.code}, stderr=${malformed.stderr.slice(0, 300)}`,
-      );
-    } finally {
-      restoreAllPlants();
-    }
+/** Test-integrity guards scan test paths, including the private workspace. */
+function testIntegrationMockGuard(): void {
+  try {
+    plantFile(
+      "tests/integration/daemon-process.integration.test.ts",
+      (source) => source + '\nvi.spyOn(console, "log");\n',
+    );
+    const result = spawnSync(
+      "/bin/bash",
+      ["scripts/code/sloppy-code-guard.sh"],
+      {
+        cwd: workspaceRoot,
+        encoding: "utf8",
+      },
+    );
+    test(
+      "integration-vi-mock rejects spies in integration suites",
+      result.status === 1 && /\[integration-vi-mock\]/.test(result.stdout),
+      result.stdout + result.stderr,
+    );
+  } finally {
+    restoreAllPlants();
   }
 }
 

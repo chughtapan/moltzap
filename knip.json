@@ -102,12 +102,12 @@
     },
     "tests/integration": {
       "entry": [
-        "*.integration.test.ts",
+        "**/*.integration.test.ts",
         "firewall-daemon.ts",
-        "*vitest*.config.ts"
+        "**/*vitest*.config.ts"
       ],
       "project": [
-        "*.ts"
+        "**/*.ts"
       ]
     }
   },

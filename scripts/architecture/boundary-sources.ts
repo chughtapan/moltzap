@@ -20,6 +20,8 @@ import {
   type BoundaryRun,
   fail,
   lineAt,
+  objectAt,
+  readJsonObject,
   relativePath,
   walkFiles,
 } from "./boundary-run.ts";
@@ -162,7 +164,10 @@ export function checkFinalImports(run: BoundaryRun): number {
 function checkIntegrationImports(run: BoundaryRun): number {
   const files = walkFiles(
     path.join(run.repo, INTEGRATION_TESTS.root),
-    (name) => name.endsWith(".ts"),
+    (name) =>
+      CODE_EXTENSIONS.has(path.extname(name)) ||
+      name === "package.json" ||
+      /^tsconfig.*\.json$/.test(name),
     SKIPPED_DIRECTORIES,
   );
   if (files.length === 0) {
@@ -176,34 +181,92 @@ function checkIntegrationImports(run: BoundaryRun): number {
   return files.length;
 }
 
-/** The Registry launch fixture alone enables internal resolution in its child. */
+/** Integration consumers cannot enable private resolution or reach product source. */
 function checkIntegrationSourceFile(run: BoundaryRun, file: string): void {
   const text = readFileSync(file, "utf8");
-  const internalConditionFiles: readonly string[] =
-    INTEGRATION_TESTS.internalConditionFiles;
-  if (
-    text.includes("sharness-internal") &&
-    !internalConditionFiles.includes(relativePath(run, file))
-  ) {
+  const internalIndex = text.indexOf("sharness-internal");
+  if (internalIndex !== -1) {
     fail(
       run,
       file,
-      1,
-      "internal resolution is reserved for the Registry launch fixture",
+      lineAt(text, internalIndex),
+      "test infrastructure must not enable sharness-internal",
     );
   }
+  const manifest = readJsonObject(
+    path.join(run.repo, INTEGRATION_TESTS.root, "package.json"),
+  );
+  const declared = new Set(
+    [
+      "dependencies",
+      "devDependencies",
+      "peerDependencies",
+      "optionalDependencies",
+    ].flatMap((section) => Object.keys(objectAt(manifest, section))),
+  );
+  const allowedRelative = integrationRelativeImports(run, file);
   for (const { specifier, index } of importSpecifiers(text)) {
+    checkIntegrationRelativeImport(
+      run,
+      { file, text },
+      { specifier, index },
+      allowedRelative,
+    );
     if (
       packageRoot(specifier).startsWith("@moltzap/") &&
-      !isIntegrationProductImport(specifier)
+      (!declared.has(packageRoot(specifier)) ||
+        !isIntegrationProductImport(specifier))
     ) {
       fail(
         run,
         file,
         lineAt(text, index),
-        `test infrastructure must import public or test-only product exports ("${specifier}")`,
+        `test infrastructure must import public or test-only product exports from declared dependencies ("${specifier}")`,
       );
     }
+  }
+}
+
+function integrationRelativeImports(
+  run: BoundaryRun,
+  file: string,
+): ReadonlySet<string> {
+  const allowedRelative = new Set([
+    path.join(run.repo, "scripts/test/packed-workspace.js"),
+    path.join(run.repo, "scripts/test/packed-workspace.ts"),
+  ]);
+  if (relativePath(run, file) === "tests/integration/eslint.config.ts") {
+    for (const module of [
+      "eslint.shared.js",
+      "packages/client/eslint.config.js",
+      "packages/router/eslint.config.js",
+    ]) {
+      allowedRelative.add(path.join(run.repo, module));
+    }
+  }
+  return allowedRelative;
+}
+
+function checkIntegrationRelativeImport(
+  run: BoundaryRun,
+  { file, text }: { readonly file: string; readonly text: string },
+  { specifier, index }: ImportSpecifier,
+  allowedRelative: ReadonlySet<string>,
+): void {
+  const resolved = path.resolve(path.dirname(file), specifier);
+  if (
+    specifier.startsWith(".") &&
+    !resolved.startsWith(
+      path.join(run.repo, INTEGRATION_TESTS.root) + path.sep,
+    ) &&
+    !allowedRelative.has(resolved)
+  ) {
+    fail(
+      run,
+      file,
+      lineAt(text, index),
+      `test infrastructure must not cross its boundary by relative path ("${specifier}")`,
+    );
   }
 }
 
@@ -428,6 +491,14 @@ function checkTestOnlyImport(
 ): void {
   if (
     input.testOnly === true &&
+    !Object.values(FINAL_PACKAGES[site.dir].exports).some(
+      (entry) =>
+        entry.testOnly === true &&
+        path.join(
+          site.packageDirectory,
+          entry.import.replace("./dist/", "src/").replace(/\.js$/, ".ts"),
+        ) === site.file,
+    ) &&
     !site.file.endsWith(".test.ts") &&
     !path
       .relative(site.packageDirectory, site.file)

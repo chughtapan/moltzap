@@ -16,3 +16,6 @@ also enable that condition.
 
 See [Registry specification](../../docs/spec/identity.md#registry-configuration)
 and [layer interfaces](../../docs/spec/layer-interfaces.md).
+
+PGlite through `pglite-socket` provides one Postgres session. Set
+`SHARNESS_REGISTRY_SQL_POOL_SIZE=1` when running Registry against it.

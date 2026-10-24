@@ -1,4 +1,4 @@
-/** @file Vitest configuration for the package integration suite. */
+/** @file Vitest configuration for the cross-package process integration lane. */
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
@@ -6,11 +6,6 @@ export default defineConfig({
   ssr: { resolve: { conditions: ["sharness-test"] } },
   test: {
     include: ["*.integration.test.ts"],
-    exclude: [
-      "registry-router.integration.test.ts",
-      "mixed-release.integration.test.ts",
-      "adapter-daemon-process.integration.test.ts",
-    ],
     maxWorkers: 2,
     passWithNoTests: false,
   },

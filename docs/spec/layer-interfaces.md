@@ -90,13 +90,18 @@ Client and adapter migration follows the accepted reduced boundary in
   `./internal` entry supplies service capabilities under `sharness-internal`.
 - The private Registry package owns the Registry server and `sharness-registry`
   boundary as specified by `identity.md`; operators run its
-  `bin/sharness-registry` executable.
+  `bin/sharness-registry` executable. Its condition-only `./test` entry starts
+  Registry with explicit wire versions under `sharness-test`, with no default
+  condition; the Registry package supplies its own internal resolution hook.
 - Router retains its root and server subpath plus `sharness-router` as specified
   by `router.md`.
 - Client owns one public root, process composition under `./service`, and the
   `sharnessd` executable. Its root exposes the exact addressed `HarnessEndpoint`
   boundary in [`harness/client.md`](./harness/client.md). Its condition-only
-  `./test` entry exposes the exact management result schemas under `sharness-test`
+  `./test` entry exposes `managementRegisterRequestSchema`,
+  `managementRegisterResultSchema`, `managementStatusResultSchema`,
+  `managementSearchConversationsResultSchema`, and
+  `managementReadConversationResultSchema` under `sharness-test`
   for tests and test fixtures only, with no default condition or TypeDoc entry.
 - Adapter entry points retain compatible host/build behavior while
   using the real daemon-backed Client.

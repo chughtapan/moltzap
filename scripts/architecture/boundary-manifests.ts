@@ -129,30 +129,23 @@ export function checkIntegrationTests(run: BoundaryRun): void {
       `${where}: must name ${INTEGRATION_TESTS.name} and stay private`,
     );
   }
-  failOnSetDrift(run, {
-    where,
-    what: "test infrastructure dependencies drifted",
-    actual: [
-      ...DEPENDENCY_SECTIONS.flatMap((section) =>
+  for (const [what, actual, wanted] of [
+    [
+      "test infrastructure dependencies drifted",
+      DEPENDENCY_SECTIONS.flatMap((section) =>
         Object.keys(objectAt(manifest, section)),
       ).filter((name) => name.startsWith("@moltzap/")),
-      ...stringsAt(objectAt(manifest, "nx"), "implicitDependencies"),
+      INTEGRATION_TESTS.dependencies.map((dir) => FINAL_PACKAGES[dir].npmName),
     ],
-    wanted: INTEGRATION_TESTS.dependencies.map(
-      (dir) => FINAL_PACKAGES[dir].npmName,
-    ),
-  });
-  const declaredTargets = new Set(
-    Object.keys(objectAt(objectAt(manifest, "nx"), "targets")),
-  );
-  const missing = INTEGRATION_TESTS.targets.filter(
-    (target) => !declaredTargets.has(target),
-  );
-  if (missing.length > 0) {
-    run.failures.push(
-      `${where}: required Nx target declarations are missing: ${missing.join(", ")}`,
-    );
+    [
+      "test infrastructure implicit dependencies drifted",
+      stringsAt(objectAt(manifest, "nx"), "implicitDependencies"),
+      INTEGRATION_TESTS.implicitDependencies,
+    ],
+  ] as const) {
+    failOnSetDrift(run, { where, what, actual, wanted });
   }
+  checkDeclaredTargets(run, { where, manifest }, INTEGRATION_TESTS.targets);
   failOnSetDrift(run, {
     where: "knip.json",
     what: "test workspace roots drifted",
@@ -192,7 +185,12 @@ export function checkProductManifests(
     checkBinaries(run, product);
     checkDependencies(run, product);
     checkReferences(run, dir);
-    checkDeclaredTargets(run, product);
+    checkDeclaredTargets(
+      run,
+      product,
+      FINAL_PACKAGES[dir].targets,
+      Object.keys(objectAt(product.manifest, "scripts")),
+    );
     checkKnipIgnores(run, product, objectAt(knipWorkspaces, `packages/${dir}`));
   }
   return publishedVersions;
@@ -576,29 +574,30 @@ function checkReferences(run: BoundaryRun, dir: PackageDir): void {
   });
 }
 
+function readProject(run: BoundaryRun, dir: PackageDir): JsonObject | null {
+  const projectPath = path.join(run.packagesRoot, dir, "project.json");
+  return existsSync(projectPath) ? readJsonObject(projectPath) : null;
+}
+
 function checkDeclaredTargets(
   run: BoundaryRun,
-  { dir, where, manifest }: ProductManifest,
+  { where, manifest }: Pick<ProductManifest, "where" | "manifest">,
+  required: readonly string[],
+  scriptTargets: readonly string[] = [],
 ): void {
-  const project = readProject(run, dir) ?? {};
+  const projectPath = path.join(run.repo, path.dirname(where), "project.json");
+  const project = existsSync(projectPath) ? readJsonObject(projectPath) : {};
   const declaredTargets = new Set([
+    ...scriptTargets,
     ...Object.keys(objectAt(objectAt(manifest, "nx"), "targets")),
-    ...Object.keys(objectAt(manifest, "scripts")),
     ...Object.keys(objectAt(project, "targets")),
   ]);
-  const missing = FINAL_PACKAGES[dir].targets.filter(
-    (target) => !declaredTargets.has(target),
-  );
+  const missing = required.filter((target) => !declaredTargets.has(target));
   if (missing.length > 0) {
     run.failures.push(
       `${where}: required Nx target declarations are missing: ${missing.join(", ")}`,
     );
   }
-}
-
-function readProject(run: BoundaryRun, dir: PackageDir): JsonObject | null {
-  const projectPath = path.join(run.packagesRoot, dir, "project.json");
-  return existsSync(projectPath) ? readJsonObject(projectPath) : null;
 }
 
 /**

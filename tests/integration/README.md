@@ -18,9 +18,7 @@ bind sockets.
 
 | Command | Runs |
 | --- | --- |
-| `pnpm nx run @moltzap/integration-tests:test:integration` | Daemon acceptance suites |
-| `pnpm nx run @moltzap/integration-tests:test:registry-router` | Registry–Router interoperability |
-| `pnpm nx run @moltzap/integration-tests:test:adapter-daemon` | OpenClaw adapter against real daemons |
+| `pnpm nx run @moltzap/integration-tests:test:integration` | Registry–Router, daemon, and OpenClaw adapter acceptance suites |
 | `pnpm nx run @moltzap/integration-tests:test:mixed-release` | Current and previous published Client release interoperability |
 | `pnpm nx run @moltzap/integration-tests:typecheck:tests` | Type checks for the suites and adapter fixture |
 | `pnpm nx run @moltzap/integration-tests:lint` | ESLint for this workspace |
@@ -33,5 +31,5 @@ CI runs process and adapter suites in `test` and adjacent-release checks in
 The `daemon-process-harness.ts` helpers compose disposable services and daemons.
 `client-version-roundtrip.ts` exercises each real service through its public
 client. `firewall-daemon.ts` is a fixture child process. The Vitest configurations
-keep the four lanes distinct. Client-only process feedback runs with
+keep the process and mixed-release lanes distinct. Client-only process feedback runs with
 `pnpm nx run @moltzap/client:test:integration`.
