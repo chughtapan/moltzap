@@ -9,7 +9,7 @@ composition, and the assembly that binds the phases into one engine.
 
 ## Public surface
 
-### [`DeliveryAcknowledgeError`](./errors.ts#L95)
+### [`DeliveryAcknowledgeError`](./errors.ts#L99)
 
 _Class_
 
@@ -20,7 +20,9 @@ export class DeliveryAcknowledgeError extends Data.TaggedError(
   readonly reason: DeliveryAcknowledgeFailure;
 }> {
   override get message(): string {
-    return `delivery acknowledgment failed: ${this.reason}`;
+    return this.reason === "consumer-revoked"
+      ? "delivery acknowledgment failed: consumer-revoked. Recover unread work through a new subscription. Docs: https://github.com/social-harness/moltzap/blob/main/docs/spec/harness/ingress.md#polling-consumer"
+      : `delivery acknowledgment failed: ${this.reason}`;
   }
 }
 ```
@@ -70,7 +72,7 @@ export const InboundMessage = Schema.Union(
 
 One certified remote-authored post, direct or to a fixed group.
 
-### [`ListenError`](./errors.ts#L74)
+### [`ListenError`](./errors.ts#L75)
 
 _Class_
 
@@ -79,7 +81,9 @@ export class ListenError extends Data.TaggedError("ListenError")<{
   readonly reason: ListenFailure;
 }> {
   override get message(): string {
-    return `listen failed: ${this.reason}`;
+    return this.reason === "consumer-revoked"
+      ? "listen failed: consumer-revoked. Reacquire the subscription. Docs: https://github.com/social-harness/moltzap/blob/main/docs/spec/harness/ingress.md#polling-consumer"
+      : `listen failed: ${this.reason}`;
   }
 }
 ```
